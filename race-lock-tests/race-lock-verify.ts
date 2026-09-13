@@ -95,7 +95,7 @@ console.log("— 3 · createGameFn SERVER enforcement (real server fn, scratch d
 const SCRATCH = path.join(process.cwd(), "data");
 const ACCT = "rlcheck";
 fs.rmSync(SCRATCH, { recursive: true, force: true });
-const signup = authSignup(ACCT, "pass1234");
+const signup = await authSignup(ACCT, "pass1234");
 check("scratch signup issues a session token", signup.ok === true && !!signup.token, JSON.stringify(signup));
 const token = signup.token!;
 const SITE_SAVES = "/home/team/shared/site/data/saves";
@@ -122,7 +122,7 @@ const noSessionLeft = fs.existsSync(path.join(SCRATCH, "sessions.json")) ? true 
 void noSessionLeft;
 
 const okCreate = await callCreate(token, "WatcherHold", "watchers");
-const saves = loadAccountSaves(ACCT);
+const saves = await loadAccountSaves(ACCT);
 const gameIds = saves ? Object.keys(saves.games) : [];
 check("createGameFn('watchers') → admitted (no throw)", okCreate.error === undefined, JSON.stringify(okCreate.error));
 check("exactly one game persisted for the account", gameIds.length === 1, JSON.stringify(gameIds));

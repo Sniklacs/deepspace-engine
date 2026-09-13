@@ -9,7 +9,7 @@ if (!require("node:fs").existsSync(dir)) {
 }
 for (const f of readdirSync(dir)) {
   const acct = f.replace(/\.json$/, "");
-  const saves = loadAccountSaves(acct);
+  const saves = await loadAccountSaves(acct);
   if (!saves) { console.log("NO SAVES", acct); continue; }
   try {
     for (const gid in saves.games) {

@@ -427,7 +427,7 @@ const inWorld = (fn: () => Promise<unknown>) => runWithStartContext(START_CONTEX
 const SCRATCH = path.join(process.cwd(), "data");
 fs.rmSync(SCRATCH, { recursive: true, force: true });
 const ACCT = "dlycheck";
-const signup = authSignup(ACCT, "pass1234");
+const signup = await authSignup(ACCT, "pass1234");
 check("scratch signup ok", signup.ok === true && !!signup.token);
 const token = signup.token!;
 async function callErr(fn: () => Promise<unknown>): Promise<string | undefined> {
@@ -436,7 +436,7 @@ async function callErr(fn: () => Promise<unknown>): Promise<string | undefined> 
 }
 const createdErr = await callErr(() => createGameFn({ data: { token, name: "DlyApi", race: "watchers" } }));
 check("createGameFn admits watchers (no server error)", createdErr === undefined, JSON.stringify(createdErr));
-const savesA = loadAccountSaves(ACCT);
+const savesA = await loadAccountSaves(ACCT);
 const gidA = savesA ? Object.keys(savesA.games)[0] : undefined;
 check("createGameFn persisted a game", !!savesA && !!gidA);
 const gErr = await callErr(() => getState({ data: { token } }));
@@ -449,7 +449,7 @@ check("getState public ships Devotion + streak", typeof (pubA as any)?.devotion 
 // Real play through the API: craft gas (fresh colony has supplies for it).
 const cErr = await callErr(() => craftFn({ data: { token, kind: "gas" as any } }));
 check("craftFn('gas') ok via API (no throw)", cErr === undefined, JSON.stringify(cErr));
-const savesB = loadAccountSaves(ACCT)!;
+const savesB = await loadAccountSaves(ACCT)!;
 const stB = savesB.games[savesB.activeGameId!];
 engine.advance(stB, Date.now());
 const craftDoneB = stB.daily.completed.includes("craft_item");
@@ -460,7 +460,7 @@ const scripBefore = stB.currency.scrip;
 const devBefore = stB.devotion;
 const clErr1 = await callErr(() => claimDailyRewardFn({ data: { token } }));
 check("claim endpoint ok (no throw)", clErr1 === undefined, JSON.stringify(clErr1));
-const savesC = loadAccountSaves(ACCT)!;
+const savesC = await loadAccountSaves(ACCT)!;
 const stC = savesC.games[savesC.activeGameId!];
 engine.advance(stC, Date.now());
 const claimedAll = stC.daily.completed.every((id) => stC.daily.claimed.includes(id));
@@ -473,7 +473,7 @@ check("endpoint claim minted ZERO Votives", stC.currency.votives === 0, JSON.str
 const scripAfter1 = stC.currency.scrip;
 const clErr2 = await callErr(() => claimDailyRewardFn({ data: { token } }));
 check("endpoint double-claim ok", clErr2 === undefined, JSON.stringify(clErr2));
-const savesD = loadAccountSaves(ACCT)!;
+const savesD = await loadAccountSaves(ACCT)!;
 const stD = savesD.games[savesD.activeGameId!];
 engine.advance(stD, Date.now());
 check("endpoint double-claim paid zero Scrip", stD.currency.scrip === scripAfter1, `${stD.currency.scrip} vs ${scripAfter1}`);

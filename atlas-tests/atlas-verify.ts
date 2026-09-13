@@ -239,7 +239,7 @@ const inWorld = (fn: () => Promise<unknown>) => runWithStartContext(START_CONTEX
 const SCRATCH = path.join(process.cwd(), "data");
 fs.rmSync(SCRATCH, { recursive: true, force: true });
 const ACCT = "atlascheck";
-const signup = authSignup(ACCT, "pass1234");
+const signup = await authSignup(ACCT, "pass1234");
 check("scratch signup ok", signup.ok === true && !!signup.token);
 const token = signup.token!;
 async function callErr(fn: () => Promise<unknown>): Promise<string | undefined> {
@@ -248,7 +248,7 @@ async function callErr(fn: () => Promise<unknown>): Promise<string | undefined> 
 }
 const createdErr = await callErr(() => createGameFn({ data: { token, name: "AtlasApi", race: "watchers" } }));
 check("createGameFn admits watchers (no server error)", createdErr === undefined, JSON.stringify(createdErr));
-const saves = loadAccountSaves(ACCT);
+const saves = await loadAccountSaves(ACCT);
 const gid = saves ? Object.keys(saves.games)[0] : undefined;
 check("createGameFn persisted a V8 game", !!saves && !!gid && saves.games[gid].version === engine.VERSION, JSON.stringify(saves?.games[gid ?? ""]?.version));
 const gErr = await callErr(() => getState({ data: { token } }));

@@ -206,7 +206,7 @@ console.log("— 7 · real-world data smoke (skips if cwd has no data/saves) —
   } else {
     let scored = 0, skippedBlank = 0, failed = 0;
     const all: GameState[] = [];
-    for (const { saves } of loadAllSaves()) {
+    for (const { saves } of await loadAllSaves()) {
       for (const gid in saves.games) {
         const g = saves.games[gid];
         if (!g || typeof g !== "object" || !g.race || !g.gameId) { skippedBlank++; continue; }

@@ -185,9 +185,9 @@ export function contributionPublicView(own: GameState | null, all: GameState[]):
 /** Every colony on this world, each scored at `now` (advance on a throwaway
  *  clone — nothing is persisted, so the leaderboard read is offline-safe and
  *  side-effect free; stuck colonies are skipped, never fatal). */
-function worldColoniesAt(now: number): GameState[] {
+async function worldColoniesAt(now: number): Promise<GameState[]> {
   const out: GameState[] = [];
-  for (const { saves } of loadAllSaves()) {
+  for (const { saves } of await loadAllSaves()) {
     for (const gid in saves.games) {
       const g = saves.games[gid];
       if (!g || typeof g !== "object" || !g.race || !g.gameId) continue; // blank reset slots aren't colonies
@@ -206,12 +206,12 @@ function worldColoniesAt(now: number): GameState[] {
 const getContributionFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string().optional() })
 ).handler(async ({ data }): Promise<{ ok: boolean; signedOut?: boolean; error?: string } & Partial<ContributionView>> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
   const now = Date.now();
-  const colonies = worldColoniesAt(now);
+  const colonies = await worldColoniesAt(now);
   let own: GameState | null = null;
-  const saves = loadAccountSaves(accountId);
+  const saves = await loadAccountSaves(accountId);
   if (saves && saves.activeGameId && saves.games[saves.activeGameId]) {
     const g = saves.games[saves.activeGameId];
     if (g && g.race && g.gameId) {
@@ -227,19 +227,19 @@ const getContributionFn = createServerFn({ method: "POST" }).validator(
 });
 
 // The account's currently-active game, advanced to "now" (offline progress).
-function loadActiveState(accountId: string): GameState | null {
-  const saves = loadAccountSaves(accountId);
+async function loadActiveState(accountId: string): Promise<GameState | null> {
+  const saves = await loadAccountSaves(accountId);
   if (!saves) return null;
   if (!saves.activeGameId || !saves.games[saves.activeGameId]) return null;
   return engine.advance(saves.games[saves.activeGameId], Date.now());
 }
 
 // Write a mutated active game back into the account's multi-game save file.
-function saveActiveState(accountId: string, updated: GameState) {
-  const saves = loadAccountSaves(accountId);
+async function saveActiveState(accountId: string, updated: GameState): Promise<void> {
+  const saves = await loadAccountSaves(accountId);
   if (!saves || !updated.gameId) return;
   saves.games[updated.gameId] = updated;
-  saveAccountSaves(accountId, saves);
+  await saveAccountSaves(accountId, saves);
 }
 
 // Get state for the signed-in account: the ACTIVE game's state (advanced), or,
@@ -248,11 +248,11 @@ function saveActiveState(accountId: string, updated: GameState) {
 const getState = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string().optional() })
 ).handler(async ({ data }): Promise<GameResult & { username?: string; showFirstRunNotice?: boolean }> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
-  const saves = loadAccountSaves(accountId);
+  const saves = await loadAccountSaves(accountId);
   // First-Run nudge: owed until the player dismisses it (persisted per account).
-  const accounts = loadAccounts();
+  const accounts = await loadAccounts();
   const showFirstRunNotice = !(accounts[accountId]?.noticeDismissed === true);
   if (!saves) return { ok: true, username: accountId, games: [], activeGameId: null, showFirstRunNotice };
   const active = saves.activeGameId && saves.games[saves.activeGameId]
@@ -269,7 +269,7 @@ const createGameFn = createServerFn({ method: "POST" }).validator(
     race: z.string(),
   })
 ).handler(async ({ data }): Promise<GameResult & { username?: string }> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
   const id = data.race as RaceId;
   if (!RACES.some((r) => r.id === id)) return { ok: false, error: "Unknown race." };
@@ -280,7 +280,7 @@ const createGameFn = createServerFn({ method: "POST" }).validator(
   // lock governs NEW colony creation only.
   const worldErr = worldRaceError(id);
   if (worldErr) return { ok: false, error: worldErr };
-  const saves = loadAccountSaves(accountId) ?? emptySaves();
+  const saves = (await loadAccountSaves(accountId)) ?? emptySaves();
 
   // If the account holds a PENDING colony slot (a Reset wiped it back to the
   // race-selection screen, race is null), re-init THAT same slot with the new
@@ -294,7 +294,7 @@ const createGameFn = createServerFn({ method: "POST" }).validator(
     fresh.gameId = pending.gameId;
     saves.games[pending.gameId!] = fresh;
     saves.activeGameId = pending.gameId!;
-    saveAccountSaves(accountId, saves);
+    await saveAccountSaves(accountId, saves);
     return { ok: true, state: publicState(fresh), activeGameId: pending.gameId, username: accountId };
   }
 
@@ -307,7 +307,7 @@ const createGameFn = createServerFn({ method: "POST" }).validator(
   st.gameId = gameId;
   saves.games[gameId] = st;
   saves.activeGameId = gameId;
-  saveAccountSaves(accountId, saves);
+  await saveAccountSaves(accountId, saves);
   return { ok: true, state: publicState(st), activeGameId: gameId, username: accountId };
 });
 
@@ -315,9 +315,9 @@ const createGameFn = createServerFn({ method: "POST" }).validator(
 const listGamesFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
 ).handler(async ({ data }): Promise<{ ok: boolean; signedOut?: boolean; games?: GameSummary[]; activeGameId?: string | null }> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true };
-  const saves = loadAccountSaves(accountId);
+  const saves = await loadAccountSaves(accountId);
   if (!saves) return { ok: true, games: [], activeGameId: null };
   const now = Date.now();
   for (const id in saves.games) saves.games[id] = engine.advance(saves.games[id], now);
@@ -328,12 +328,12 @@ const listGamesFn = createServerFn({ method: "POST" }).validator(
 const switchGameFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), gameId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
-  const saves = loadAccountSaves(accountId);
+  const saves = await loadAccountSaves(accountId);
   if (!saves || !saves.games[data.gameId]) return { ok: false, error: "Colony not found." };
   saves.activeGameId = data.gameId;
-  saveAccountSaves(accountId, saves);
+  await saveAccountSaves(accountId, saves);
   const st = engine.advance(saves.games[data.gameId], Date.now());
   return { ok: true, state: publicState(st), activeGameId: data.gameId };
 });
@@ -345,15 +345,15 @@ const switchGameFn = createServerFn({ method: "POST" }).validator(
 const resetGameFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), gameId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
-  const saves = loadAccountSaves(accountId);
+  const saves = await loadAccountSaves(accountId);
   if (!saves || !saves.games[data.gameId]) return { ok: false, error: "Colony not found." };
   const blank = engine.blankColony(Date.now());
   blank.gameId = data.gameId;
   saves.games[data.gameId] = blank;
   saves.activeGameId = data.gameId;
-  saveAccountSaves(accountId, saves);
+  await saveAccountSaves(accountId, saves);
   return { ok: true, state: publicState(blank), activeGameId: data.gameId };
 });
 
@@ -363,9 +363,9 @@ const resetGameFn = createServerFn({ method: "POST" }).validator(
 const deleteGameFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), gameId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
-  const saves = loadAccountSaves(accountId);
+  const saves = await loadAccountSaves(accountId);
   if (!saves || !saves.games[data.gameId]) return { ok: false, error: "Colony not found." };
   const remaining = Object.keys(saves.games).filter((id) => id !== data.gameId);
   if (remaining.length === 0) {
@@ -381,7 +381,7 @@ const deleteGameFn = createServerFn({ method: "POST" }).validator(
     }
     saves.activeGameId = next;
   }
-  saveAccountSaves(accountId, saves);
+  await saveAccountSaves(accountId, saves);
   const active = saves.activeGameId ? engine.advance(saves.games[saves.activeGameId], Date.now()) : null;
   return { ok: true, state: active ? publicState(active) : undefined, activeGameId: saves.activeGameId };
 });
@@ -392,66 +392,66 @@ const deleteGameFn = createServerFn({ method: "POST" }).validator(
 const trashAccountFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), username: z.string(), password: z.string() })
 ).handler(async ({ data }): Promise<{ ok: boolean; signedOut?: boolean; error?: string }> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
   if (normalizeUsername(data.username) !== accountId) {
     return { ok: false, error: "That username does not match this account." };
   }
-  if (!authVerifyPassword(accountId, data.password)) {
+  if (!(await authVerifyPassword(accountId, data.password))) {
     return { ok: false, error: "Incorrect password. Nothing was deleted." };
   }
-  removeAccountSave(accountId);
-  deleteAccountRecord(accountId);
-  revokeAllSessions(accountId);
+  await removeAccountSave(accountId);
+  await deleteAccountRecord(accountId);
+  await revokeAllSessions(accountId);
   return { ok: true, signedOut: true };
 });
 
 const launchFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), zoneId: z.string(), scientists: z.number().int().min(1).max(99) })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   if (!ZONES.some((z) => z.id === data.zoneId)) return { ok: false, error: "Unknown destination.", state: publicState(st) };
   const res = engine.launchExpedition(st, data.zoneId, data.scientists, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
 const studyFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), kind: z.enum(["ember", "chipset"]) })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.beginStudy(st, data.kind, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
 const deployFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), domain: z.enum(["weaponry", "agriculture", "economy", "industry", "logistics"]) })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.deployProgram(st, data.domain as DomainId, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
 const purifyFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), spend: z.number().int().min(1) })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.discipline(st, data.spend, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -464,12 +464,12 @@ const purifyFn = createServerFn({ method: "POST" }).validator(
 const claimDailyRewardFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
 ).handler(async ({ data }): Promise<GameResult & { granted?: { scrip: number; devotion: number; bonus: boolean } }> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.claimDaily(st, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined, granted: res.granted };
 });
 
@@ -478,12 +478,12 @@ const claimDailyRewardFn = createServerFn({ method: "POST" }).validator(
 const craftFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), kind: z.enum(["medkit", "mechkit", "armorkit", "skmech", "gas", "battery", "hazmat", "shots", "alloy"]) })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.craftItem(st, data.kind, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -492,36 +492,36 @@ const craftFn = createServerFn({ method: "POST" }).validator(
 const weaponBuildFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), familyId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.startWeaponBuild(st, data.familyId, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 // V6 Lab: condense 25 embers → 1 plasma (research-gated, deterministic, earn-only).
 const refinePlasmaFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.refinePlasma(st, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 // Research tree: appoint a Leader to research a tech (costs Codices + time).
 const beginResearchFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), techId: z.string(), leaderId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.beginResearch(st, data.techId, data.leaderId, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -531,12 +531,12 @@ const beginResearchFn = createServerFn({ method: "POST" }).validator(
 const chooseRevelationFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), choice: z.enum(["sealed", "open"]) })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.chooseRevelation(st, data.choice, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -545,12 +545,12 @@ const chooseRevelationFn = createServerFn({ method: "POST" }).validator(
 const allocateLeaderPointFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), leaderId: z.string(), attr: z.enum(["research", "economy", "combat", "engineering"]) })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.allocateLeaderPoint(st, data.leaderId, data.attr, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -559,12 +559,12 @@ const allocateLeaderPointFn = createServerFn({ method: "POST" }).validator(
 const chooseSpecializationFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), leaderId: z.string(), path: z.enum(["scholar", "marshal", "steward"]) })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.chooseSpecialization(st, data.leaderId, data.path, Date.now());
-  if (res.ok && res.state) saveActiveState(accountId, res.state);
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -581,7 +581,7 @@ const loginFn = createServerFn({ method: "POST" }).validator(
 const logoutFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
 ).handler(async ({ data }): Promise<{ ok: boolean }> => {
-  authLogout(data.token);
+  await authLogout(data.token);
   return { ok: true };
 });
 
@@ -589,7 +589,7 @@ const logoutFn = createServerFn({ method: "POST" }).validator(
 const meFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
 ).handler(async ({ data }): Promise<{ ok: boolean; signedOut?: boolean; accountId?: string }> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true };
   return { ok: true, accountId };
 });
@@ -618,7 +618,7 @@ const submitFeedbackFn = createServerFn({ method: "POST" }).validator(
     severity: z.enum(SEVERITIES).optional(),
   })
 ).handler(async ({ data }): Promise<FeedbackResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
   const category: FeedbackCategory = data.category;
   const title = data.title.trim();
@@ -630,7 +630,7 @@ const submitFeedbackFn = createServerFn({ method: "POST" }).validator(
   if (description.length > 2000) return { ok: false, error: "Description must be 2000 characters or fewer." };
   if (category === "bug" && !data.severity) return { ok: false, error: "Pick a severity for the bug." };
   if (playerName && playerName.length > 64) return { ok: false, error: "Player name must be 64 characters or fewer." };
-  const file = loadFeedback();
+  const file = await loadFeedback();
   const now = Date.now();
   const mine = file.submissions.filter((s) => s.accountId === accountId);
   if (mine.length >= MAX_FEEDBACK_PER_ACCOUNT) {
@@ -652,15 +652,15 @@ const submitFeedbackFn = createServerFn({ method: "POST" }).validator(
     status: "new",
   };
   file.submissions.push(record);
-  saveFeedback(file);
+  await saveFeedback(file);
   return { ok: true, record };
 });
 const listMyFeedbackFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
 ).handler(async ({ data }): Promise<FeedbackResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
-  const file = loadFeedback();
+  const file = await loadFeedback();
   const records = file.submissions
     .filter((s) => s.accountId === accountId)
     .sort((a, b) => b.createdAt - a.createdAt);
@@ -669,12 +669,12 @@ const listMyFeedbackFn = createServerFn({ method: "POST" }).validator(
 const dismissNoticeFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
 ).handler(async ({ data }): Promise<{ ok: boolean; signedOut?: boolean }> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true };
-  const accounts = loadAccounts();
+  const accounts = await loadAccounts();
   if (accounts[accountId]) {
     accounts[accountId].noticeDismissed = true;
-    saveAccounts(accounts);
+    await saveAccounts(accounts);
   }
   return { ok: true };
 });
@@ -691,9 +691,9 @@ const dismissNoticeFn = createServerFn({ method: "POST" }).validator(
 const getWalletFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string().optional() })
 ).handler(async ({ data }): Promise<{ ok: boolean; signedOut?: boolean; wallet?: ReturnType<typeof walletView>; error?: string }> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true };
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   return { ok: true, wallet: walletView(st) };
 });
@@ -704,15 +704,15 @@ const getWalletFn = createServerFn({ method: "POST" }).validator(
 const purchaseWithVotivesFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), itemId: z.string(), eventId: z.string().min(4) })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
   if (!MONETIZATION_CONFIG.storefrontEnabled) {
     return { ok: false, error: "The Cradle Market isn't open yet — purchases are disabled during beta (§8.6)." };
   }
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = purchaseWithVotives(st, data.itemId, data.eventId, Date.now());
-  if (res.state) saveActiveState(accountId, res.state);
+  if (res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -724,7 +724,7 @@ const purchaseWithVotivesFn = createServerFn({ method: "POST" }).validator(
 const confirmExternalPurchaseFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), payload: z.unknown() })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = accountForToken(data.token);
+  const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
   if (!MONETIZATION_CONFIG.storefrontEnabled) {
     return { ok: false, error: "Purchases are disabled during beta (§8.6)." };
@@ -733,10 +733,10 @@ const confirmExternalPurchaseFn = createServerFn({ method: "POST" }).validator(
   if (!verified.ok || !verified.purchase) {
     return { ok: false, error: verified.error ?? "Unverified purchase." };
   }
-  const st = loadActiveState(accountId);
+  const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = applyExternalPurchase(st, verified.purchase, Date.now());
-  if (res.state) saveActiveState(accountId, res.state);
+  if (res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
