@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -31,6 +31,10 @@ import { Tooltip } from "../components/Tooltip";
 import { SegmentedControl } from "../components/SegmentedControl";
 import { LedgerButton } from "../components/LedgerButton";
 import { StorefrontOverlay } from "../components/StorefrontOverlay";
+import { Sheet, SheetHeader } from "../components/Sheet";
+import { Icon } from "../components/icons";
+import { JournalButton } from "../components/JournalButton";
+import { diffResolvedEvents } from "../game/report-events";
 import { tip, RESOURCE_TIPS, DOMAIN_TIPS, METER_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
 import type { GameState, RaceId, DomainId, Zone, FeedbackRecord, FeedbackCategory, FeedbackSeverity } from "../game/types";
 import { ResearchTreeView, LeadersView } from "../components/ResearchViews";
@@ -75,11 +79,43 @@ function PlayPage() {
   const [firstRunNotice, setFirstRunNotice] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // ---- Reports bell (owner 2026-09-13) ----
+  // Every server state lands through applyState, which diffs against the
+  // previous snapshot of the SAME game and collects events that were
+  // in-flight and are now done (an expedition home, a study or research
+  // complete, an armory build ready). The bell blinks ONLY on these real
+  // transitions — never on a timer or countdown.
+  const [reports, setReports] = useState<ReportItem[]>([]);
+  const [reportsSeen, setReportsSeen] = useState(0); // how many were read
+  const [reportOpen, setReportOpen] = useState(false);
+  const prevStateRef = useRef<GameState | null>(null);
+  const reportIdRef = useRef(0);
+  const reportOpenRef = useRef(false);
+  useEffect(() => { reportOpenRef.current = reportOpen; }, [reportOpen]);
+
+  const applyState = useCallback((next: GameState | null) => {
+    const prev = prevStateRef.current;
+    if (next && prev && prev.gameId === next.gameId) {
+      const fresh = diffResolvedEvents(prev, next);
+      if (fresh.length > 0) {
+        const ts = Date.now();
+        setReports((rs) => [
+          ...fresh.map((f) => ({ id: ++reportIdRef.current, text: f.text, ts })),
+          ...rs,
+        ].slice(0, 30));
+        if (reportOpenRef.current) setReportsSeen((c) => c + fresh.length);
+      }
+    }
+    prevStateRef.current = next;
+    setState(next);
+  }, []);
+
   const localLogout = useCallback(() => {
     storeToken(null);
     setToken(null);
     setSignedIn(false);
     setState(null);
+    prevStateRef.current = null;
     setGames(null);
     setActiveGameId(null);
   }, []);
@@ -93,7 +129,7 @@ function PlayPage() {
       const s = await getState({ data: { token } }).catch(() => null);
       if (!s || s.signedOut) { localLogout(); return; }
       setSignedIn(true);
-      setState(s.state ?? null);
+      applyState(s.state ?? null);
       setGames(s.games ?? []);
       setActiveGameId(s.activeGameId ?? null);
       if (s.username) setUsername(s.username);
@@ -107,7 +143,7 @@ function PlayPage() {
     const s = await getState({ data: { token } });
     if (s.signedOut) { localLogout(); return; }
     if (s.ok) {
-      setState(s.state ?? null);
+      applyState(s.state ?? null);
       setGames(s.games ?? []);
       setActiveGameId(s.activeGameId ?? null);
       if (s.username) setUsername(s.username);
@@ -180,7 +216,7 @@ function PlayPage() {
       const res = await fn();
       if (res && res.signedOut) { localLogout(); return; }
       if (res && res.state) {
-        setState(res.state);
+        applyState(res.state);
         setNow(Date.now());
       }
       if (res && res.ok === false) {
@@ -273,6 +309,7 @@ function PlayPage() {
     if (!res) return "Failed to reach the server.";
     if (res.signedOut) { localLogout(); return null; }
     if (res.ok && res.state) {
+      prevStateRef.current = null;
       setState(res.state);
       setActiveGameId(gameId);
       setGamesOpen(false);
@@ -370,7 +407,7 @@ function PlayPage() {
   const activeSummary = games?.find((g) => g.gameId === state.gameId);
   return (
     <div className="min-h-screen bg-[#070910] text-gray-200">
-      <Shell state={state} tab={tab} setTab={switchTab} onGames={() => { setGamesOpen(true); sound.click(); }} muted={muted} onToggleMute={toggleMute} onHelp={() => setHelpOpen(true)} onFeedback={() => { setFeedbackOpen(true); sound.click(); }} onLogout={doLogout} onToggleFullscreen={toggleFullscreen} isFullscreen={isFullscreen} onLedger={() => { setLedgerOpen(true); sound.click(); }} />
+      <Shell state={state} tab={tab} setTab={switchTab} onGames={() => { setGamesOpen(true); sound.click(); }} muted={muted} onToggleMute={toggleMute} onHelp={() => setHelpOpen(true)} onFeedback={() => { setFeedbackOpen(true); sound.click(); }} onLogout={doLogout} onToggleFullscreen={toggleFullscreen} isFullscreen={isFullscreen} onLedger={() => { setLedgerOpen(true); sound.click(); }} unread={Math.max(0, reports.length - reportsSeen)} onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }} />
       {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
       {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
       {tab === "colony" && <ColonyTab state={state} onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")} onCraft={(k) => act(() => craftFn({ data: { token: token!, kind: k } }), "success")} onClaim={() => act(() => claimDailyRewardFn({ data: { token: token! } }), "success")} />}
@@ -381,6 +418,7 @@ function PlayPage() {
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {state && <StorefrontOverlay state={state} open={ledgerOpen} onClose={() => { setLedgerOpen(false); sound.click(); }} />}
       {feedbackOpen && <FeedbackModal token={token!} colonyName={state.playerName} onClose={() => setFeedbackOpen(false)} flash={flash} />}
+      <ReportsSheet open={reportOpen} onClose={() => { setReportOpen(false); sound.click(); }} reports={reports} />
       {gamesOpen && (
         <GamesModal
           games={games ?? (activeSummary ? [activeSummary] : [])}
@@ -500,7 +538,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/70 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] modal-wrap bg-black/70" onClick={onClose}>
       <div className="my-auto max-w-lg rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-white">How to Play</h3>
@@ -593,7 +631,7 @@ function FeedbackModal({ token, colonyName, onClose, flash }: {
     loadRecords();
   };
   return (
-    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/70 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] modal-wrap bg-black/70" onClick={onClose}>
       <div className="my-auto w-full max-w-lg rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-white">💬 Feedback</h3>
@@ -801,10 +839,11 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
 
 /* ---------------- Shell / header ---------------- */
 
-function Shell({ state, tab, setTab, onGames, muted, onToggleMute, onHelp, onFeedback, onLogout, onToggleFullscreen, isFullscreen, onLedger }: {
+function Shell({ state, tab, setTab, onGames, muted, onToggleMute, onHelp, onFeedback, onLogout, onToggleFullscreen, isFullscreen, onLedger, unread, onReports }: {
   state: GameState; tab: Tab; setTab: (t: Tab) => void; onGames: () => void;
   muted: boolean; onToggleMute: () => void; onHelp: () => void; onFeedback: () => void;
   onLogout: () => void; onToggleFullscreen: () => void; isFullscreen: boolean; onLedger: () => void;
+  unread: number; onReports: () => void;
 }) {
   const race = getRace(state.race!);
   const r = state.resources;
@@ -828,6 +867,21 @@ function Shell({ state, tab, setTab, onGames, muted, onToggleMute, onHelp, onFee
           <ResourceChip icon="🔮" label="Plasma" value={Math.floor(state.resources.plasma ?? 0)} color="text-fuchsia-300" tip={tip(ARMORY_TIPS.plasma)} />
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-xs">
             <LedgerButton scrip={state.currency.scrip} votives={state.currency.votives} onClick={onLedger} />
+            <Tooltip content={tip({ what: "Reports — the Cradle's bulletin.", does: "Blinks when something the colony sent out comes home: an expedition returning, a study finishing, a research completing, an armory build standing ready.", how: "Tap to read the recent reports. The blink clears once you've seen them." })}>
+              <button
+                onClick={onReports}
+                aria-label={unread > 0 ? `Reports — ${unread} new` : "Reports — nothing new"}
+                title={unread > 0 ? `${unread} new reports` : "Reports"}
+                className={`relative min-h-11 rounded border px-2.5 py-2 transition-colors md:min-h-0 ${unread > 0 ? "report-blink border-ember/80 bg-ember/10 text-ember-soft" : "border-white/15 text-gray-400 hover:bg-white/10"}`}
+              >
+                <Icon name="bell" size={15} aria-hidden="true" />
+                {unread > 0 && (
+                  <span className="num absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-ember px-1 text-[11px] font-bold leading-none text-black">
+                    {unread}
+                  </span>
+                )}
+              </button>
+            </Tooltip>
             <Tooltip content={tip(LAB_TIPS.scientists)}><span className="text-gray-400">Scientists <b className="text-white">{engineHelpers.studying(state).length}/{engineHelpers.scientistCap(state)}</b></span></Tooltip>
             <Tooltip content={tip(LAB_TIPS.fieldSlots)}><span className="text-gray-400">Field slots <b className="text-white">{active}/{maxSlots}</b></span></Tooltip>
             <Tooltip content={tip({ what: "Sound — the UI blips and ambient drone.", does: "Toggles all game audio (click sounds + background music) together.", how: "Click to mute or unmute. Audio only begins after your first click (browser autoplay rule)." })}>
@@ -879,6 +933,32 @@ function ResourceChip({ icon, label, value, color, tip: tooltip }: { icon: strin
   );
 }
 
+/* ---------------- reports sheet (owner 2026-09-13) ---------------- */
+
+interface ReportItem { id: number; text: string; ts: number; }
+
+function ReportsSheet({ open, onClose, reports }: { open: boolean; onClose: () => void; reports: ReportItem[] }) {
+  return (
+    <Sheet open={open} onClose={onClose} labelledBy="reports-title" title="Cradle Reports">
+      <SheetHeader id="reports-title" title="Cradle Reports" subtitle="what came home while you watched — newest first" onClose={onClose} />
+      <div className="sheet-body px-4 py-3 md:px-5">
+        {reports.length === 0 ? (
+          <p className="text-sm text-text-3">Nothing new — every work the Cradle sent out is still in flight.</p>
+        ) : (
+          <ul className="space-y-2">
+            {reports.map((r) => (
+              <li key={r.id} className="rounded-lg border border-line bg-surf-2/60 px-3 py-2 text-xs leading-relaxed text-text-2">
+                {r.text}
+                <span className="num mt-1 block text-[11px] text-text-3">{new Date(r.ts).toLocaleTimeString()}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
 /* ---------------- Games modal / panel ---------------- */
 
 function GamesModal({ games, activeGameId, username, busy, onClose, onPlay, onReset, onDelete, onCreate, onTrash, flash }: {
@@ -893,7 +973,7 @@ function GamesModal({ games, activeGameId, username, busy, onClose, onPlay, onRe
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-black/70 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[70] modal-wrap bg-black/70" onClick={onClose}>
       <div className="my-auto w-full max-w-3xl rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-white">Your Colonies</h2>
@@ -1350,16 +1430,20 @@ function ColonyTab({ state, onPurify, onCraft, onClaim }: { state: GameState; on
           <Stat label="Colony founded" value={new Date(state.createdAt).toLocaleDateString()} />
         </div>
       </div>
-      <div className="mt-6 rounded-xl border border-amber-400/20 bg-black/30 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="font-semibold text-white">📖 Legends of the Shatterlands</h3>
-            <p className="mt-1 text-xs text-gray-400">The Codex — the myths the colonies tell about the world that burned. Fiction, worn as ways of life.</p>
-          </div>
-          <button onClick={() => { setCodexOpen(true); sound.tab(); }} className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-200 hover:bg-amber-400/20">Open the Codex</button>
-        </div>
-      </div>
-      <EventLog log={state.log} />
+      <button
+        type="button"
+        onClick={() => { setCodexOpen(true); sound.tab(); }}
+        aria-haspopup="dialog"
+        className="mt-6 flex w-full items-center gap-3 rounded-xl border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-left transition-colors hover:border-amber-400/60 hover:bg-amber-400/10"
+      >
+        <span className="text-lg" aria-hidden="true">📖</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-amber-200">Open the Codex — Legends of the Shatterlands</span>
+          <span className="block text-xs text-text-3">the myths the colonies tell about the world that burned — fiction, worn as ways of life</span>
+        </span>
+        <span className="chip shrink-0 border border-amber-400/40 bg-amber-400/10 text-amber-200">{RACES.length + 1} legends</span>
+      </button>
+      <JournalButton title="Chronicle of the Cradle" subtitle="the world as the colony remembers it — newest first" log={state.log} />
       {codexOpen && <CodexModal onClose={() => { setCodexOpen(false); sound.tab(); }} />}
     </main>
   );
@@ -1609,7 +1693,7 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
     return () => window.removeEventListener("keydown", esc);
   }, [onCancel]);
   return (
-    <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/75 p-4" onClick={onCancel}>
+    <div className="fixed inset-0 z-[90] modal-wrap bg-black/75" onClick={onCancel}>
       <div className="my-auto w-full max-w-lg rounded-2xl border border-red-400/40 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-red-300">☢️ High radiation: {zone.name}</h3>
@@ -1780,7 +1864,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
       </div>
       </>)}
 
-      <EventLog log={state.log} title="Lab journal" />
+      <JournalButton title="Lab journal" subtitle="studies, breakthroughs, and appointed research — newest first" log={state.log} />
     </main>
   );
 }
@@ -1914,7 +1998,7 @@ function ArmoryTab({ state, now, onBuild, onRefine }: {
           </div>
         </>
       )}
-      <EventLog log={state.log} title="Armory journal" />
+      <JournalButton title="Armory journal" subtitle="forges, upgrades, and plasma condensing — newest first" log={state.log} />
     </main>
   );
 }
@@ -1988,7 +2072,7 @@ function CircuitTab({ state, token }: { state: GameState; token: string }) {
     return n.importance ? tierColor(n.importance.tier) : "#1e293b";
   };
   return (
-    <div className="mx-auto max-w-2xl space-y-3 py-3">
+    <div className="mx-auto max-w-3xl space-y-3 py-3">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-1">
         <span className="text-sm font-semibold text-amber-200">🔄 THE CIRCUIT — {WORLD_CONFIG_PUBLIC.worldName}</span>
         <span className="text-[11px] text-text-3">the shattered circuit-web of the old world</span>
@@ -2014,7 +2098,7 @@ function CircuitTab({ state, token }: { state: GameState; token: string }) {
         </div>
       )}
       <div className="overflow-auto rounded-2xl border border-white/10 bg-[#070910]">
-        <svg viewBox={`0 0 ${ATLAS_CONFIG.viewBox.w} ${ATLAS_CONFIG.viewBox.h}`} className="mx-auto block w-full max-w-md select-none" role="img" aria-label="World map — the shattered circuit-web">
+        <svg viewBox={`0 0 ${ATLAS_CONFIG.viewBox.w} ${ATLAS_CONFIG.viewBox.h}`} className="mx-auto block h-auto w-full select-none" role="img" aria-label="World map — the shattered circuit-web">
           {/* circuit traces: roads solid, burnt passes dashed, severed = broken */}
           {circuit.edges.map((e, i) => {
             const a = coord(e.from);
@@ -2216,7 +2300,7 @@ function CodexContent() {
 }
 function CodexModal({ onClose }: { onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/70 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] modal-wrap bg-black/70" onClick={onClose}>
       <div className="my-auto w-full max-w-3xl rounded-2xl border border-white/15 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-bold text-white">The Codex — Legends of the Shatterlands</h2>
@@ -2323,7 +2407,7 @@ function ContributionTab({ state, token }: { state: GameState; token: string }) 
 // overflow-y-auto) so nothing clips on short screens.
 function RevelationChoiceModal({ onPick }: { onPick: (choice: "sealed" | "open") => void }) {
   return (
-    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/70 p-4">
+    <div className="fixed inset-0 z-[80] modal-wrap bg-black/70">
       <div className="my-auto max-w-md rounded-2xl border border-white/15 bg-[#0b0e16] p-6 shadow-2xl">
         <div className="text-center text-3xl">🌒</div>
         <p className="mt-3 text-center text-sm leading-relaxed text-gray-300">
@@ -2340,19 +2424,6 @@ function RevelationChoiceModal({ onPick }: { onPick: (choice: "sealed" | "open")
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ---------------- event log ---------------- */
-
-function EventLog({ log, title }: { log: string[]; title?: string }) {
-  return (
-    <div className="mt-6 rounded-xl border border-white/10 bg-black/30 p-5">
-      <h3 className="font-semibold text-white">{title || "Chronicle of the Cradle"}</h3>
-      <ul className="mt-3 space-y-1.5 text-xs text-gray-400 max-h-56 overflow-y-auto">
-        {log.map((l, i) => <li key={i} className="border-b border-white/5 pb-1 last:border-0">{l}</li>)}
-      </ul>
     </div>
   );
 }
