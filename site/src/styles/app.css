@@ -1,0 +1,300 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   DESIGN SYSTEM — Rung 1a token foundation (design/design-system-rung1-spec.md §A)
+   ----------------------------------------------------------------------------
+   Layers:
+     1. @theme  — Tailwind v4 theme map: every token becomes a utility
+                  (bg-surf-2, text-text-3, border-line, bg-ember, text-purity…).
+     2. :root   — the SPEC's exact token names as plain custom properties
+                  (var(--surf-2), var(--ember)…) for inline styles/CSS.
+                  Values are duplicated here ON PURPOSE so both consumers work
+                  without relying on Tailwind emitting theme vars — keep the
+                  two blocks in sync when a token changes.
+     3. utilities — .num (mono + tabular-nums), .chip (spec §B).
+     4. base   — dark color-scheme, focus-visible ring, reduced-motion.
+============================================================================ */
+
+/* 1 · Tailwind theme map — utilities: bg-surf-*, text-text-*, border-line,
+      bg-ember / text-ember-soft / bg-hazard / text-corrupt-text / bg-purity… */
+@theme {
+  /* A.1 Surfaces — Blacksite Terminal */
+  --color-surf-0: #070910; /* page base, map frame (OLED-safe) */
+  --color-surf-1: #0b0f14; /* header, chrome, sticky bars */
+  --color-surf-2: #11161d; /* card / panel */
+  --color-surf-3: #161d26; /* raised card, sheet, modal */
+  --color-surf-4: #1c2530; /* hover fill, input fill */
+  --color-line: rgba(163, 173, 187, 0.16); /* card border, hairlines */
+  --color-line-strong: #22303c; /* header rule, inputs */
+  --color-line-faint: rgba(163, 173, 187, 0.08); /* list dividers */
+  /* Text (≥4.5:1 on surf-2/3) */
+  --color-text-1: #e7e9ea; /* primary, headings ~15:1 */
+  --color-text-2: #9aa4b2; /* body/secondary (replaces gray-400) ~7.5:1 */
+  --color-text-3: #8490a0; /* muted labels/captions — ≥12px only ~5.23:1 on surf-3 (F.5 gate: ≥5.0) */
+  --color-text-disabled: rgba(154, 164, 178, 0.45); /* decorative only */
+  /* A.2 Functional — meaning, never race-owned */
+  --color-ember: #ff9d3c; /* resources, positive, Earned, primary CTA fill 8.7:1 */
+  --color-ember-soft: #ffbe80; /* ember text on dark (loot numerals) */
+  --color-hazard: #4fd8c8; /* radiation, Chorus */
+  --color-hazard-soft: #7fe8dc; /* hazard text on dark */
+  --color-corrupt: #b14ec4; /* corruption FILL/glow/decor only */
+  --color-corrupt-text: #e07cf0; /* corruption TEXT on dark 7.2:1 */
+  --color-purity: #ffd166; /* Oracle, Unbound, clean, Devotion, claimed, purified 12.6:1 */
+  --color-danger: #ef4444; /* destructive 4.8:1 */
+  --color-danger-soft: #f87171; /* destructive small text 6.5:1 */
+  --color-focus: #ffd166; /* focus ring, 2px outline + 2px offset */
+  /* A.4 Type */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+}
+
+/* 2 · Spec-name aliases (@theme emits --color-*; these are the §A names verbatim
+      for css/inline use. Keep hexes in sync with the @theme block above.) */
+:root {
+  --surf-0: #070910;
+  --surf-1: #0b0f14;
+  --surf-2: #11161d;
+  --surf-3: #161d26;
+  --surf-4: #1c2530;
+  --line: rgba(163, 173, 187, 0.16);
+  --line-strong: #22303c;
+  --line-faint: rgba(163, 173, 187, 0.08);
+  --text-1: #e7e9ea;
+  --text-2: #9aa4b2;
+  --text-3: #8490a0;
+  --text-disabled: rgba(154, 164, 178, 0.45);
+  --ember: #ff9d3c;
+  --ember-soft: #ffbe80;
+  --hazard: #4fd8c8;
+  --hazard-soft: #7fe8dc;
+  --corrupt: #b14ec4;
+  --corrupt-text: #e07cf0;
+  --purity: #ffd166;
+  --danger: #ef4444;
+  --danger-soft: #f87171;
+  --focus: #ffd166;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+
+  /* A.5 Radii / motion / glow */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-sheet: 300ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --glow-rest: 0 0 1px 0 rgba(255, 209, 102, 0.4);
+  --glow-hover: 0 0 10px 0 rgba(255, 209, 102, 0.22);
+  --glow-celebrate: 0 0 18px 0 rgba(255, 209, 102, 0.35),
+    0 0 36px 0 rgba(255, 209, 102, 0.18);
+
+  /* A.3 Race accent tokens — identity ONLY (fill/tint vs text ≥4.5:1 on surf-3).
+     Single source of truth for display is RACES[] in game/races.ts; these are
+     the canonical values surfaced as CSS for future components. */
+  --race-grays-tint: rgba(154, 215, 230, 0.1);
+  --race-grays-accent: #9ad7e6;
+  --race-grays-text: #9ad7e6;
+  --race-grays-glow: 0 0 12px rgba(154, 215, 230, 0.25);
+  --race-nephilim-tint: rgba(201, 111, 63, 0.12);
+  --race-nephilim-accent: #c96f3f;
+  --race-nephilim-text: #dc8f5f;
+  --race-nephilim-glow: 0 0 12px rgba(220, 143, 95, 0.25);
+  --race-draconians-tint: rgba(58, 210, 155, 0.1);
+  --race-draconians-accent: #3ad29b;
+  --race-draconians-text: #58e0ab;
+  --race-draconians-glow: 0 0 12px rgba(88, 224, 171, 0.25);
+  --race-anunnaki-tint: rgba(232, 217, 178, 0.1);
+  --race-anunnaki-accent: #e8d9b2;
+  --race-anunnaki-text: #e8d9b2;
+  --race-anunnaki-glow: 0 0 12px rgba(232, 217, 178, 0.25);
+  --race-ashtar-tint: rgba(255, 209, 102, 0.1);
+  --race-ashtar-accent: #ffd166;
+  --race-ashtar-text: #ffd166;
+  --race-ashtar-glow: 0 0 12px rgba(255, 209, 102, 0.25);
+  --race-watchers-tint: rgba(180, 140, 255, 0.1);
+  --race-watchers-accent: #b48cff;
+  --race-watchers-text: #c9a4ff;
+  --race-watchers-glow: 0 0 12px rgba(201, 164, 255, 0.25);
+}
+
+/* 3 · Utilities — spec §B */
+
+/* .num — EVERY timer/currency/%/score/cost/count renders through this
+   ("cheapest premium upgrade"): mono stack + tabular numerals. */
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* .chip — 22–24px tall, 12px text; used for state/loot/status tokens. */
+@utility chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* 4 · Base — dark-only app, focus ring, a11y */
+
+@layer base {
+  html,
+  body {
+    @apply bg-surf-0 text-text-2 antialiased;
+    color-scheme: dark;
+    font-family: var(--font-sans);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}
+
+/* A.5 Motion economy — zero-duration under reduced-motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 5 · Circuit — map-node interaction (spec §C). New classes are circuit-*;
+      the label sweep never touches tokens. */
+.circuit-node {
+  cursor: pointer;
+  outline: none;
+}
+.circuit-node:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+  stroke: var(--color-focus);
+}
+
+/* 6 · Sheet (rung-1 §B) — bottom-sheet <640px, centered modal ≥640px,
+      85% max height, 300ms motion, drag handle. Reduced-motion is zeroed by
+      the global A.5 block above (animations caps to 0.01ms). */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(7, 9, 16, 0.72);
+  animation: sheetBackdropIn 200ms var(--ease-out);
+}
+.sheet-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 71;
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+  background: var(--surf-3);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.5);
+  animation: sheetIn 300ms var(--ease-out);
+  overflow: hidden;
+}
+@media (min-width: 640px) {
+  .sheet-backdrop {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sheet-panel {
+    left: 50%;
+    right: auto;
+    top: 50%;
+    bottom: auto;
+    width: min(600px, calc(100vw - 40px));
+    max-height: 85vh;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+    transform: translate(-50%, -50%);
+    animation: sheetZoomIn 300ms var(--ease-out);
+  }
+}
+.sheet-handle {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 6px;
+  cursor: grab;
+  touch-action: none;
+}
+.sheet-handle:active {
+  cursor: grabbing;
+}
+.sheet-handle .sheet-handle-bar {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(154, 164, 178, 0.35);
+}
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+@keyframes sheetIn {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes sheetZoomIn {
+  from { transform: translate(-50%, -46%); opacity: 0; }
+  to { transform: translate(-50%, -50%); opacity: 1; }
+}
+@keyframes sheetBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 7 · Wallet — silent value-change fade (storefront §5: no celebration; the
+      number updates from the server response, never local arithmetic). */
+@keyframes walletFade {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+.wallet-num {
+  animation: walletFade 200ms ease-out;
+  display: inline-block;
+}
+
+/* 8 · Storefront primitives (visual-pass-1-storefront.md §2–§5) */
+/* PassRail lane: 22px-ish tier nodes with 11px labels (rung-1 §B floor). */
+.pass-lane-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 1.3;
+}
+/* Disabled purchase affordance (storefront OFF state — §5: 75% + glyph, and
+   honest copy; no fabricated ETA, no countdowns, no dots). */
+.storef-disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}

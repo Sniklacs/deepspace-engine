@@ -1,0 +1,180 @@
+import type { DomainId, Zone } from "./types";
+
+// Expedition destinations in the Shatterlands. Outer ruins hold embers; deep
+// scientific sites are the only places chipsets live. Higher risk, higher reward.
+
+export const ZONES: Zone[] = [
+  {
+    id: "outer-ruins",
+    name: "Outer Ruins",
+    owner: "shared",
+    risk: 15,
+    radiationLevel: 0,
+    range: 15,
+    quiet: 15,
+    baseDurationMs: 45_000,
+    emberYield: 12,
+    chipsetChance: 0.0,
+    corruptionRisk: 0.05,
+    chorusRisk: 0.05,
+    flavor: "Shattered suburb-shells near the colony rim. Embers rust in the outer dark; safe, quick, and thin.",
+  },
+  {
+    id: "observatories",
+    name: "Observatories of the Still Dark",
+    owner: "grays",
+    risk: 40,
+    radiationLevel: 25,
+    range: 50,
+    quiet: 50,
+    baseDurationMs: 90_000,
+    emberYield: 30,
+    chipsetChance: 0.08,
+    corruptionRisk: 0.3,
+    chorusRisk: 0.45,
+    flavor: "Dead observatories where the sky was once counted. Cold, exact fragments — and a signature the Chorus can taste.",
+  },
+  {
+    id: "boneyard",
+    name: "Boneyard Ranges",
+    owner: "nephilim",
+    risk: 55,
+    radiationLevel: 30,
+    range: 70,
+    quiet: 55,
+    baseDurationMs: 120_000,
+    emberYield: 45,
+    chipsetChance: 0.1,
+    corruptionRisk: 0.2,
+    chorusRisk: 0.3,
+    flavor: "Mountain-chains of tumbled artillery citadels. Armored war-fragments that persist — heavy, but slow to teach.",
+  },
+  {
+    id: "hollow-warrens",
+    name: "The Hollow Warrens",
+    owner: "draconians",
+    risk: 40,
+    radiationLevel: 20,
+    range: 55,
+    quiet: 65,
+    baseDurationMs: 90_000,
+    emberYield: 40,
+    chipsetChance: 0.12,
+    corruptionRisk: 0.2,
+    chorusRisk: 0.25,
+    flavor: "Sealed subterranean vault-cities. Efficient covert fragments that stretch a resource and hide its true flow — if you can slip out unseen.",
+  },
+  {
+    id: "forge-valleys",
+    name: "Forge Valleys",
+    owner: "anunnaki",
+    risk: 45,
+    radiationLevel: 30,
+    range: 60,
+    quiet: 50,
+    baseDurationMs: 100_000,
+    emberYield: 55,
+    chipsetChance: 0.09,
+    corruptionRisk: 0.28,
+    chorusRisk: 0.3,
+    flavor: "Terraformed greenheart overgrown with engineered life that remembers its makers. Productive fragments — and the pride that blinds.",
+  },
+  {
+    id: "lantern-reach",
+    name: "The Lantern Reach",
+    owner: "ashtar",
+    risk: 25,
+    radiationLevel: 0,
+    range: 25,
+    quiet: 20,
+    baseDurationMs: 90_000,
+    emberYield: 22,
+    chipsetChance: 0.1,
+    corruptionRisk: 0.05,
+    chorusRisk: 0.15,
+    flavor: "Half-collapsed sanctuaries that held the Chorus back again and again. Clean, bright fragments that shield what they touch.",
+  },
+  {
+    id: "shattered-academies",
+    name: "The Shattered Academies",
+    owner: "watchers",
+    risk: 60,
+    radiationLevel: 40,
+    range: 75,
+    quiet: 60,
+    baseDurationMs: 110_000,
+    emberYield: 50,
+    chipsetChance: 0.18,
+    corruptionRisk: 0.5,
+    chorusRisk: 0.5,
+    flavor: "Ruins of the world's greatest schools and sealed vaults. Razor-edged knowledge that teaches at terrible speed — and leaves a wound.",
+  },
+  // Deep scientific sites — chipsets only live here. Deep radiation: hangared
+  // until the colony holds hazmat (explore) and alloy (extract); the pre-launch
+  // risk pop-up governs under-geared runs.
+  {
+    id: "quantum-facility",
+    name: "Quantum Research Facility",
+    owner: "special",
+    risk: 70,
+    radiationLevel: 60,
+    range: 80,
+    quiet: 80,
+    baseDurationMs: 150_000,
+    emberYield: 60,
+    chipsetChance: 0.3,
+    corruptionRisk: 0.35,
+    chorusRisk: 0.5,
+    flavor: "A collapsed quantum laboratory. Complete, advanced AI sets lean against the walls, each whispering of the end it saw coming.",
+  },
+  {
+    id: "collider-ruins",
+    name: "Super-Collider Ruins",
+    owner: "special",
+    risk: 80,
+    radiationLevel: 80,
+    range: 90,
+    quiet: 85,
+    baseDurationMs: 180_000,
+    emberYield: 75,
+    chipsetChance: 0.35,
+    corruptionRisk: 0.4,
+    chorusRisk: 0.6,
+    flavor: "A ring-mountain of magnetized wreckage. The deep burns the ground away — and the Chorus thickens the closer you get to the core.",
+  },
+  {
+    id: "dark-matter-observatory",
+    name: "Dark-Matter Observatory",
+    owner: "special",
+    risk: 90,
+    radiationLevel: 95,
+    range: 95,
+    quiet: 95,
+    baseDurationMs: 210_000,
+    emberYield: 90,
+    chipsetChance: 0.45,
+    corruptionRisk: 0.5,
+    chorusRisk: 0.7,
+    flavor: "The deepest, most dangerous scientific site in the Shatterlands. Whole minds wait in the dark. So does the hive.",
+  },
+];
+
+export function getZone(id: string): Zone {
+  return ZONES.find((z) => z.id === id)!;
+}
+
+export const DOMAINS: {
+  id: DomainId;
+  name: string;
+  description: string;
+  icon: string;
+}[] = [
+  { id: "weaponry", name: "Weaponry", description: "Arms and siege-works. Reduces Chorus/Corruption gain.", icon: "⚔️" },
+  { id: "agriculture", name: "Agriculture", description: "Farms and forges of food. Earns supplies over time.", icon: "🌾" },
+  { id: "economy", name: "Economy", description: "Trade and currency. Boosts ember yields and supplies.", icon: "💰" },
+  { id: "industry", name: "Industry", description: "Refineries and workshops. Cuts expedition costs and speeds return.", icon: "⚙️" },
+  { id: "logistics", name: "Logistics", description: "Routes, depots, signals. More scientists and faster expedition scheduling.", icon: "🚚" },
+];
+
+export const DOMAIN_BY_ID: Record<DomainId, { id: DomainId; name: string; description: string; icon: string }> =
+  Object.fromEntries(DOMAINS.map((d) => [d.id, d])) as never;

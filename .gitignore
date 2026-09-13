@@ -1,0 +1,12 @@
+# Visual Pass 1 — workspace hygiene
+# node / build outputs
+site/node_modules/
+site/dist/
+site/.run/
+site/.tanstack/
+site/data/
+site/src/routeTree.gen.ts
+site/.vercel/
+# scratch
+tmp/
+*.log

@@ -1,0 +1,167 @@
+# Deepspace Engine — UI/UX + Visual-Identity Benchmark
+**Author:** researcher delegation (read-only session 2026-09-12) · **Filed:** 2026-09-12 by lead · **Status:** design input, not ratified — feeds the UI design system
+
+> **LEAD DECISIONS ON THE SIX FLAGS (2026-09-12, under owner-delegated creative authority):**
+> 1. **Nav 6→5 consolidation — ADOPTED.** Fold Codex into Colony (or a header drawer); the freed slot hosts the Atlas. Applies with the nav/token pass after the Atlas build lands (the Atlas build in flight ships as specified; nav restructure is a separate small pass).
+> 2. **Emoji→line-icon migration — ADOPTED, sequenced.** Emoji stays for MVP/flavor text; a line-icon family (1.5–2px stroke, 24px grid, filled only for active states + currency glyphs) replaces chrome emoji in the same pass as design tokens.
+> 3. **Mood direction — ADOPTED: Blacksite Terminal base + Aurora Conduit thematic layer + Foundry Amber as warm "ember/return" state.** One coherent system, three moods available for flavor; per-world CSS variables shift the accent layer without touching the skeleton.
+> 4. **Watcher "annotated examination" motif — ADOPTED.** The beta/test world's identity becomes diegetic (graded exam sheets, chalk-marker chips, violet marginalia). Fiction-safe, cheap, turns the test bed into a feature.
+> 5. **WCAG AA contrast acceptance gate — ADOPTED.** 4.5:1 (3:1 large/UI), incl. all six race accents on dark surfaces; contrast checks join the guardrail test battery (fold into the battery-hardening item).
+> 6. **Celebration discipline — ADOPTED.** Celebrate only real dents (firsts, deeds, awards, pass milestones); quiet chip+toast elsewhere. This is the dent principle expressed as UI.
+>
+> **Design-law note for the designer/engineer:** functional colors are GLOBAL across all six worlds (ember-orange = resources/positive, radiation cyan-green = hazard, corruption magenta, purity gold = Oracle/Unbound); race accents color identity only (sigils, world chrome, race-flavored cards, map holder coloring). The two never cross. Rung-1 budget (tokens + ~10–15 component primitives) is the beta target; Rung-3 (AAA fidelity) is explicitly out of scope.
+
+---
+
+## 1. COMPETITIVE INTERFACE SURVEY
+
+### 1.1 Last War: Survival (Century Games, 2023 — base-building + hero + alliance war; the business-plan's "frame" comp)
+- **HUD layout:** portrait; a bottom nav bar of 4–5 core tabs (Base / Heroes / …) so everything is one-thumb reachable; top resource bar with animated icons; 2.5D isometric city grid with tap-to-zoom and floating "ready" banners over finished buildings.
+- **Information density:** high but *loud* — every timer, building, and event carries a chip; the game's real danger zone is red-dot/badge storming (events, mailbox, packs). Density is the genre norm; its *restraint* is not.
+- **Onboarding:** heavily scripted — sequential arrows, auto-scroll, forced single-action tutorials for roughly the first half hour. Effective at teaching, exhausting as a pattern; it front-loads because retention economics demand it.
+- **Premium vs cheap:** premium feel comes from a consistent neon-on-dark language, parallax background layers, and proper hero art. The *cheap* tell is that 3–4 recycled animations play for every event popup and the purchase layer is the loudest thing in the HUD (speed-up buttons on nearly every timer).
+- **Session shape:** the model for our 15–30 min daily loop — collect timers, run short PvE stages, one alliance donation, then close. Everything queues; the game is a check-and-collect rhythm.
+- **What we take / refuse:** take the bottom-nav + timer-queue session grammar; **refuse** the speed-up-on-everything UI (our timers are time-only) and the badge storm.
+
+### 1.2 Whiteout Survival (Century Games, 2023 — the genre's best-atmospheric twin)
+- **HUD layout:** same portrait bottom-nav family but calmer; City / World / Heroes / Mail; workers auto-collect (an idle layer that halves click fatigue — worth studying for our expedition/conveyor metaphors).
+- **Information density:** **the best in genre** — everything is a card or chip, numbers are formatted consistently, and the screen never shows more than ~7 key things at once. This is the discipline we should copy outright.
+- **Onboarding:** drips one tutorial beat per session across the first week rather than the first hour — the core loop (gather → build → research → expedition) is taught one legible beat at a time.
+- **Premium vs cheap:** its cold white/blue palette with a **single trusted accent — fire-orange for "warmth"** — carries the whole mood; one accent color it commits to. That is exactly the discipline six race accents need.
+- **Dark theme:** true dark (near-black backgrounds, high-contrast text — not gray-on-gray), designed for long sessions and night play.
+- **What we take:** the "one accent color, trusted" rule; the card/chip hierarchy; the session-drip tutorial model for our first-run.
+
+### 1.3 Rise of Kingdoms (Lilith, 2018 — city-builder + kingdom RvR; the war-season frame comp)
+- **HUD layout:** top resource bar, bottom-left rally/battle notices, bottom-center build queue; a left slide-rail for tasks/events; handles portrait and landscape.
+- **The map is the star:** a single kingdom map with colored alliance borders, march lines, and rally markers — the map reads as a **strategy document, not decoration**. This is the direct target for our shattered circuit-web Atlas: nodes, links, holders, live markers, all legible at a glance.
+- **Onboarding:** sped-up tutorial with auto-navigation; research/building queues teach "always have something cooking" — an honest match to our expeditions-as-investments loop.
+- **Premium vs cheap:** premium = a coherent military/tactical icon set, march-dash and rally-flag micro-animations, clear color state chips. *Cheap* = what the mid-late game degrades into: event icons, red dots, and spending shortcuts everywhere. **Restraint reads premium** — the single most portable lesson in this survey.
+- **RvR note:** its matchmaking/season layers are famous for bucket-server pride problems (weak world identity) — our named-world war framing (battle-side §1) is the deliberate inversion; UI side, we still borrow the "announced schedule + visible ladder" retention tech (war pairings published at Gearing).
+- **Clash of Empires note (the base-game + RvR frame):** essential reads the same — persistent base, scheduled server war, week cadence, contribution-based rewards. Its UI also demonstrates the genre trap (cluttered battle feeds, pay-walls mid-flow); our §9 "never" list is the counter-discipline.
+
+### 1.4 Frostpunk / Frostpunk 2 (11 bit studios, 2018/2024 — colony management + atmosphere, our mood benchmark)
+- **Atmosphere as UI:** the HUD is semi-diegetic (gauge rings, the generator at screen bottom), and every state change — hope, discontent, temperature — has a **distinct visual + audio signature**. Mood is carried by the interface itself, not painted on top. This is the north star for our Chorus-attention / Devotion / radiation states: make them *moments*, not bars.
+- **Information density:** glyph + color semantics (blue = cold/bad, orange = heat/good) make the basics readable with zero tooltips; one important thing at a time ("The city must survive" beats only work when the UI gets out of the way).
+- **Onboarding:** diegetic — taught by consequence through the first storm, not by checklist.
+- **Premium vs cheap:** premium here is *sparse and dramatic*; big buttons, deliberate pacing, no badge noise. Desktop-first and heavy, so we take its mood grammar, not its layout.
+- **What we take:** state-as-signature (every system's change should have a recognizable visual/audio identity); celebration reserved for real moments.
+
+### 1.5 Northgard (Shiro, 2018 — hex-map colony RTS, per-clan identity)
+- **Clan identity = race identity analogue:** each clan has distinct lores/units and a *color + icon identity* while sharing one coherent overall palette — the exact "distinct-but-coherent" model our six races need (and their UI proves it never reads as six different games).
+- **Map hierarchy:** the right split between what lives on the map (yield, owner color, buildability, at-a-glance state) vs what lives in menus (details, stats, tech). Our Atlas should copy this split verbatim.
+- **Layout:** desktop RTS (hotbars, minimap, keyboard) — not mobile-first; its *information hierarchy* transfers, its widgets don't.
+- **Premium vs cheap:** hand-drawn consistent art + gentle motion = premium; the failure mode is mismatched iconography across systems, which is exactly what a missing design system produces.
+
+### 1.6 RimWorld (Ludeon, 2013 — colony sim; the audience's reference)
+- **Everything is inspectable:** every pawn, job, need, and item opens a layered detail card; tooltips are deep but progressive (summary → detail → log). Our expedition results, loot, and weapon stats should copy this **layer-cake of inspectability** — show odds/risks honestly, let the player drill in.
+- **User-controlled density:** information is dense but *never forced* — the player drills down by interest. This matches our design principle ("show risks/odds; the player decides").
+- **Premium vs cheap — the key proof for us:** RimWorld's flat, utilitarian iconography and modest visuals read as "systems-clear," not "cheap," to exactly our audience (5M+ copies). **Systems clarity carries more premium feel than fidelity does, for colony-sim players.** This is our license to keep fidelity modest.
+- **Famed absent onboarding:** its tutorial-free start is a warning — a browser game with a first-run feedback channel needs a *gentle structured* first run instead (Frostpunk/Whiteout show the way).
+
+### 1.7 Forge of Empires (InnoGames, 2012 — browser-strategy city-builder; the browser reference)
+- **Proof of the format:** 12+ years live, pure HTML/JS/CSS — no storefront required — with a persistent world, guilds, and seasonal events. A credible browser strategy UI is *achievable with CSS/SVG* if consistency is disciplined; that is the reality check for our budget.
+- **Era theming of one codebase:** the same core UI is reskinned per historical era (research tree, building art) — a direct model for per-race theming of our one deployed world-codebase (CSS variables per world id).
+- **Polished-by-iteration:** its toolbar/panel conventions are consistent across 12 years of additions — the premium feel came from *convergent consistency*, not from any one art pass.
+- **Weaknesses to refuse:** dated iconography in places, cluttered event screens, and aggressive paywalls in later ages. It also demonstrates the trap of event-popup creep (the ROK lesson, again).
+
+## 2. WHAT "KEEPING UP" COSTS AT OUR SCOPE
+
+**Framing, honestly.** There are three rungs. Our audience (RimWorld/Frostpunk/Stellaris/Factorio) demonstrably rewards **clarity over fidelity** (RimWorld §1.6), and the biggest "premium" signals in the genre are *consistency and restraint*, which are cheap. What reads premium is not the art — it's the *cadence* of the interface.
+
+- **Rung 1 — "Credible modern" (the beta target; achievable now, pure CSS/Tailwind).** Design tokens (spacing/type/color scales, one per world accent), a dark surface palette, ONE type scale with tabular numerals for timers/currency, ONE line-icon family, ONE motion vocabulary (150–300ms ease-out; enter/exit; progress fills), consistent element **states everywhere** (hover/pressed/disabled/loading/empty), consistent number formatting, toasts with one animation, one sound language. Estimated cost: a tokens file + a component layer (~10–15 primitives: Button, Card, Chip, Meter, Sheet, ListRow, Timer, Tooltip, Toast, EmptyState) — this is the bulk of the perceived premium for a management audience.
+- **Rung 2 — "Polished live" (post-revenue).** Animated expedition/armory resolve sequences, the live battle view with a timeline, the Atlas node-map micro-motion (march dashes, purify glow), hero/character art, per-race world theming polish, ambient parallax/particles. Each is a discrete, deferrable investment.
+- **Rung 3 — AAA fidelity (out of scope, explicitly).** Skeletal/cinematic animation, 3D cameras, VFX budgets, adaptive orchestral audio. The comps above (Frostpunk's UI, RimWorld's UI, even Forge of Empires' CSS) prove it is unnecessary for this audience. Do not budget for it; say so in the plan so nobody drifts toward it.
+
+**Where to invest first (beta order, tied to what exists):**
+1. **Design tokens + dark surface palette + type scale** — everything downstream costs 10× less once this exists. Highest leverage, do it first, before feature polish.
+2. **The expedition flow** (launch → timer → resolve → loot reveal) — it is the identity and the most-repeated loop in the game; the resolve reveal with a *cause-driven breakdown* (what was gained, what was lost/risked) is the single most important "good moment" the client has.
+3. **Feedback states everywhere** — busy buttons, disabled research-locked cards (already specced in armory), empty states, toasts, the first-run nudge. Cheap, felt constantly.
+4. **Armory tab** — the card pattern (family + identity line, tier pips 1–4, stat block + next-tier preview, cost coloring) is already specced; polish the card and its states, not chrome.
+5. **Daily/Devotion panel** — the spec already demands *quiet* ("zero chrome, no badges, no red dots" — daily-devotion §5). Restraint here is a feature; invest only in making the claim moment and streak counter feel solid.
+6. **Contribution tab** — own-rank + top-10 is a simple high-polish table; do it as a showcase of the tokens (one of the cheapest "this is a real game" screens).
+7. **World Atlas (map shell, M1/M2/M6)** — the highest **wow-per-dollar** asset in the whole roadmap (an SVG node-graph with zone states, ring dimming, bottom-sheet detail). It ships after core per plan; by then the design system should exist so the Atlas inherits it for free. This is where Rung-2 motion pays off first (purify glow, battle markers).
+8. **Later (Rung 2, war Phase 1):** Battles tab live view, History Book recaps, War Council, ladder — these are the *dramatic* screens; they deserve the budget only after the base system exists, because their premium feel is 80% shared tokens + 20% bespoke animation.
+
+**What NOT to buy early:** character/hero art at scale, bespoke illustrations, custom fonts (webfont cost on a browser client vs. system-font stack), 3D or WebGL map rendering (map spec already rules it out).
+
+## 3. MOBILE-FIRST CONVENTIONS
+
+- **Bottom nav, 5 ± 1 tabs.** Every top mobile strategy game (Last War, Whiteout, Clash of Clans family) uses a persistent bottom nav of 4–6 — it is the one-handed reach standard. **We currently have 6 tabs** (`colony | expeditions | lab | armory | codex | contribution`). Recommend consolidating to 5: fold **Codex** into the Colony screen or a header drawer (lore is fetched-on-demand anyway), and reserve the 6th slot for the **Atlas** when it lands (or move Contribution to a "World" tab with Atlas). Keep primary actions (expedition launch, armory build) on tabs, secondary reading (codex/contribution) behind one tap. — **LEAD: ADOPTED.**
+- **Reach zones (thumb):** top third of the portrait screen is the *hard* zone — put read-only stuff there (resource bar, status readouts). Middle is safe for taps. **Bottom half is where primary actions live** — Launch Expedition at the bottom of the expeditions list, the Devotion **Claim** button at the bottom of its panel (daily-devotion §5 already places it as the footer — correct). Never bury the primary action at the top.
+- **Touch targets:** Apple HIG minimum 44pt, Material 48dp; treat **44px as the hard floor** with 48px for anything that pays attention to the player (battle orders, purify, claim). The map spec's ≥44px rule is right; apply it to every chip and pip row, not just the map.
+- **Gesture conventions:** bottom sheets for context (zone detail in Atlas, item detail, battle decision windows — spec already uses bottom sheets: correct); swipe-to-dismiss; native pinch-zoom + scroll on the map; **no pinch-to-zoom blocking anywhere**; avoid two-column layouts in portrait; single-column scroll with sticky slim header per screen.
+- **Dark-theme readability:** true near-black, not `#000` (OLED smear + harsh contrast): ~`#0a0e12` base; text `#e7e9ea`-ish on surfaces; never pure-white text blocks; desaturated surfaces around accent colors so accents carry meaning, not noise; **4.5:1 minimum** on every text run (details in §5).
+- **The 15–30 min daily session:** top games are built so a session = *read → act → close*. Concretely: (a) on login, one screen states what's ready and what's next — resolved expeditions, completed studies, Devotion items done-but-unclaimed (the daily panel + expedition list already give this; make a quiet login summary); (b) all timers tick from one pulse, identical formatting (tabular numerals); (c) the loop closes with one claim + one meaningful decision (launch next run / spend points / pick next study) — never a dangling "15 more things to scroll"; (d) **no urgency theater** — the genre uses fixed-hour events and countdown packs; we have a better calendar already: the server war week (Gearing → Campaign → Climax → Truce). Make the *week* the event rhythm; Type-A timers (expeditions) stay chill.
+- **Check-and-collect grammar:** make returning to the game about *reading* (what completed, what's next), not *doing*; Whiteout's auto-collect is the proof that reducing tap-chores per visit increases attachment. Our offline-resolved expeditions already match this — the resolve reveal should be a reading moment, not a chore list.
+
+## 4. VISUAL-LANGUAGE DIRECTION RECOMMENDATIONS
+
+**Base palette family ("shattered circuit"):** near-black blue-greens wherever possible — graphite `#0b0f14`, slate `#11161d`, panel `#161d26`, hairline `#22303c` — with true-black reserved for OLED backgrounds on the map. Functional colors stay **global and shared** across all six worlds (never race-owned): ember-orange `#ff9d3c` = resources/positive/Earned; radiation cyan-green `#55e0a8`/`#4fd8c8` = hazard/Chorus; corruption magenta `#c94fd8` = taint; purity gold `#ffd166` = Oracle/Unbound/clean. **One rule:** race accents color *identity* (sigils, world chrome, race-flavored cards); functional colors color *meaning*. The two never cross.
+
+**Type scale:** system-font-first (zero webfont cost, instant load — a browser game's real premium lever). One condensed/mono face for **numerals and data** (timer readouts, currency, stats — every common system font ships a mono) and one clean grotesque for body/lore. Scale: 12px floor for dense data rows, 14–16 body, 20–24 screen titles. **`font-variant-numeric: tabular-nums` on every numeric column** — the cheapest premium upgrade in the whole document (numbers stop dancing as they tick). Lore/codex can sit at 15–16 with 1.5 line-height.
+
+**Iconography:** **line style** (1.5–2px stroke, 24px grid, consistent 2px corner radius), filled only for active/selected states and resource/currency glyphs (embers/chipsets/plasma/scrip need filled, immediate-recognition marks). One family, no mixing. **Flag for the lead:** the live client currently uses emoji glyphs (🕯️🔥) — right call for MVP speed, but plan a migration path; emoji render differently per OS and currently leak the "prototype" feel more than anything else. Allow emoji only in flavor text, never chrome. — **LEAD: ADOPTED, sequenced with the tokens pass.**
+
+**Motion/transition philosophy:** one vocabulary — 150–300ms ease-out; enter = fade + 8–16px rise; exit = fade; timers as progress fills (never spinning spinners); count-up animation only for currency/score changes on *meaningful* events; pulse reserved for **live war things only** (battle chips, Climax ticker, contaminated zone markers). Respect `prefers-reduced-motion` at the token level. Rule: if a motion doesn't communicate state or consequence, cut it.
+
+**Glow/radiation treatment:** glow = **semantics, not decoration** — a single CSS box-shadow/text-shadow system with ~3 intensities, used for: radiation zones (cyan-green), Chorus presence (magenta/red), corruption (magenta), purity/Oracle (gold), and purified zones (the one *bright* state on the map — rarity makes it loud). Sparse glow reads premium; glow-everywhere reads cheap (the ROK badge-storm lesson). Radiation should *threaten* in the UI (anisotropic vignette edges, slightly desaturated surfaces near hot zones), never dance.
+
+**Three mood directions (each 3–4 lines):**
+
+1. **"Blacksite Terminal"** — *cold ops-console.* Near-black blue-slate surfaces (`#0b0f14`, `#11161d`, hairline `#22303c`), one cyan-teal accent (`#4fd8c8`/`#59d8e0`), white text with cyan data readouts, mono-numeric headers, boxed panels with hairline borders, zero ornament. Feels like a military archive under a dead star — the Observatories' voice. Safest, most genre-legible, fastest to build; risk: generic (every sci-fi game ships a terminal) unless the fiction voice (owl-eye amber `#e8c46a` moments, marginalia) breaks the monotony.
+
+2. **"Foundry Amber"** — *warm industrial salvage.* Near-black brown-black (`#120f0b`, `#16130e`, panel `#1d1712`, riveted border `#2a2118`), heat accent amber-orange (`#ff9d3c`, `#e8721f`), ember glow on resources, deep red `#c2402a` for danger. Feels like the Forge Valleys and Boneyard — heat, salvage, the human warmth in the rubble. Memorable, warmer, better for expedition/moment-of-return screens; risk: reads "generic post-apoc" if the palette isn't disciplined; also the *least* distinct from Last War/Whiteout's warm-on-dark.
+
+3. **"Aurora Conduit"** — *alien circuit-light.* Blue-violet-black (`#0a0c18`, `#101226`, panel `#151a2e`), dual electric accent violet `#7c5cff` × conduit cyan `#39e6e0`, faint hex/grid circuit texture, corruption magenta `#ff4fd8` vs purity gold `#ffd166`. Feels like the Chorus's dead circuitry and the myth behind the six races — the most distinctive direction, the best host for six race accents, and the right frame for "the AI is the ghost in the machine." Risk: legibility/contrast if the palette drifts; needs the alphanumeric discipline of Blacksite to stay readable.
+
+**Recommendation (LEAD: ADOPTED):** build **Blacksite Terminal as the base system** (neutral dark surfaces + tokens — it is the safest skeleton and supports every future mood) and dress it with **Aurora Conduit as the long-term thematic layer** (circuit texture, violet/cyan identity moments, corruption/purity glow grammar). Foundry Amber becomes a *state*, not the base — warm amber "ember/return" moments (loot reveals, resource-positive states, the Anunnaki world's chrome). This gives one coherent system with three moods available for flavor, and per-world variables can shift the accent layer per server without touching the skeleton.
+
+## 5. ACCESSIBILITY + FAIRNESS OF ATTENTION
+
+**Contrast minimums (make them acceptance gates, not advice):** WCAG 2.1 AA — 4.5:1 body text, 3:1 large text and UI components; aim 7:1 for long-form lore/codex. The dark-neon trap: cyan/green accent on near-black passes easily; **red/magenta on dark fails** — test every functional color (incl. corruption magenta and danger red) on every surface it renders on, and *especially* test all six race accents at 4.5:1 (some proposed accents below will need a lighter tint variant for text use — give each race an "accent-dark surface use" and an "accent on text" token). Put a contrast check in the test suite (the team already runs guardrail batteries; this is one more). — **LEAD: ADOPTED (joins the battery-hardening item).**
+
+**Font sizing for long sessions:** use rem, never px locks — browser text scaling must work; base 16px, data rows ≥12px; generous line-height (1.5) for codex/lore; tabular numerals everywhere; avoid justified text; prefer left-aligned data listings. Test the 12px floors on a 375px-wide device before shipping the Atlas labels.
+
+**The "juicy animation makes waiting worse" trap — the central fairness-of-attention issue for this game.** Our core loop is *investments returning offline*. Two failure modes:
+- **Mode 1 — the wait feels like punishment:** if the *running* state is dramatized (pulsing progress, countdown drama, "almost there!" copy), the player's attention locks onto the wait, and the game becomes a timer app that's actively annoying when there's nothing to click. **Fix:** keep running states calm and factual; spend the juice on the *return* ritual (a composed resolve reveal with a cause-driven breakdown: what each expedition brought, what risked, what the find taught).
+- **Mode 2 — celebration inflation:** if small rewards fire confetti/modal animation, the player learns rewards are cheap and stingy; you also borrow attention-drama for non-events. **Fix:** celebrate only real dents — first breach, first purify, a hero deed, deed cosmetics, the Contribution Award, season pass milestones. Everywhere else, a quiet chip + toast. This *is* the dent principle (oracles §8) expressed as UI; the interface should confirm the business plan's hierarchy of moments. — **LEAD: ADOPTED.**
+- **On-login summary in one quiet beat:** "3 expeditions resolved · 1 study complete · Devotion awaits" as a single dismissible banner — the genre's returner-summary, minus the ad-theater. Never a "YOUR RESULTS ARE READY" modal with fake surprise: our resolves are deterministic and odds were shown up front (design principle: show risks/odds; the player decides).
+
+**Additional passes:** `prefers-reduced-motion` honored at token level; **no state encoded by color alone** — the three zone states (Corrupted/Contested/Purified) and four weapon-family roles need shape/label+color (map chips: icon + label + hue; the Watchers world can use hatch/diagonal fills as an additional channel); no flashing content (>3 Hz); focus styles visible for keyboard use (desktop players exist — the browser market research says PC-first audience); long-session fatigue means preferring static density with drill-down (RimWorld's model) over one screen of everything.
+
+## 6. SIX-RACE IDENTITY SCAFFOLD
+*(strictly in-fiction per races.md framing; each = accent system + one-paragraph motif. Hex families are starting points — each race gets a "surface/panel" tint, an accent, a secondary, and a glow-equal used only in its world's chrome and sigils. Functional colors stay global (§4).)*
+
+**1. The Grays — Observatories of the Still Dark**
+Palette: near-black slate `#0d1117`, panel `#141b24`, hairline `#1f2a35`; primary accent pale archive-cyan `#9ad7e6`; secondary steel-blue `#5b7f95`; the single warmth: owl-eye amber `#e8c46a` (reserved for *attention* signals — the psychopomp owl as the UI's "something changed" blink); text `#d8dde3`.
+Motif: **the reading room.** UI as silent archive — hairline catalogue grids, thin rules, cold rounded corners, ledger-like rows of tabular data, and almost no motion: things appear and disappear quietly, like a cataloguer filing a record. Density is high and calm; every screen feels like a deep-shelf stack; the only warm thing in the entire system is the owl-eye blink when the Chorus stirs or a study completes — one amber pupil in a silver room, telling the story "something is watching what you read."
+
+**2. The Nephilim — Boneyard Ranges**
+Palette: near-black storm-graphite `#131013`, panel `#1a1517`, border bone-iron `#2a2320`; primary accent weathered iron-rust `#c96f3f`; secondary bone `#cfc4b0`; war-ember `#ff8c42`; text `#e4dcd0`.
+Motif: **monumental ruin.** Thick load-bearing frames, heavy rounded corners, stone/bone texture on headers, and numerals that sit big and static like carved tally-marks — nothing here blinks or hurries, because nothing here runs. State chips are heavy and immobile (a held position doesn't pulse); motion is slow and deliberate, like a gate turning. The interface itself feels like it could take a hit: buttons are slabs, progress is a stone column filling. Every screen quietly says the flavor line — *"the mountains are still here."*
+
+**3. The Draconians — Hollow Warrens**
+Palette: near-black bottle-green `#0c1412`, panel `#111c18`, hairline `#1c2a24`; primary accent ledger-emerald `#3ad29b`; secondary serpent-gold `#d4b64c`; oubliette-black for negative space; text `#d6e2dc`.
+Motif: **the ledger that closes itself.** Interface as a vault's account book — thin gold rules, currency-grade tabular numerals, sections that slide shut rather than fly open, reveals that never pop and never announce themselves. Every trade, cost, and yield reads like an entry being entered twice: precise, double-checked, quietly final. The Draconian world UI should feel like you're *auditing* your colony — and that it is being audited back by something that files everything. All surfaces slightly recessed, as if the UI itself lives underground.
+
+**4. The Anunnaki — Forge Valleys**
+Palette: near-black earth `#141008`, panel `#1d1610`, border verdigris-bronze `#2e2418`; primary accent sun-baked terraform cream `#e8d9b2` with bronze-gold `#d9a441`; secondary growth-green `#7cba5e`; deep terracotta `#a3472b` for over-extension/warnings; text `#ece3d0`.
+Motif: **monumental architecture, slightly too perfect.** Ziggurat frames, wide generous cards, big confident headers — the UI of people who built the world and count it theirs. Growth bars read like irrigation channels filling; production screens are cathedral-wide and calm. The tell is in the *edges*: ornament is just slightly over-engineered, spacing just slightly grander than needed, and warning states arrive as cold terracotta cracks in the masonry — hubris rendered as a façade with a fine fracture running through it. The most *spacious* race UI, as befits the mega-workers.
+
+**5. The Asart Command / Pleiadians — Lantern Reach**
+Palette: deep navy `#0b1020`, panel `#121a30`, hairline `#22304e`; primary accent lantern-gold `#ffd166`; secondary healing seafoam `#7fd8c8` and dusk-violet `#8b7bd8`; starlit ivory text `#f2e8d5`.
+Motif: **a lit sanctuary in the dark.** The brightest race UI: warm gold highlights, soft radii, wide breathing room, gentle resolve-in animations that feel like light arriving rather than events firing. Defense and healing screens are the most legible in the game — a shield or a ward should *read* as a warm halo on the map, the one chrome that glows without being alarming. Everything is calm, courteous, and slightly slow; the UI itself is the moral high ground — a place that refuses to rush you, even while the dark presses at the windows.
+
+**6. The Watchers / Grigori — Shattered Academies (the beta/debug world)**
+Palette: ink black `#0c0e12`, panel exam-paper ash `#16181d`, hairline ruled-line `#262b33`; primary accent forbidden violet `#b48cff`; secondary razor-cyan `#5fd4e6`; chalk-white `#f4f1e8` for headers; "grade" gold `#ffd166` for checkmarks; text `#e8e6e0`.
+Motif: **the annotated examination.** The beta world is explicitly the test bed (business plan: Watchers = the debug/test race) — lean in, diegetically: the Watcher UI renders as graded examination sheets — hairline-ruled panel backgrounds, chalk-marker state chips, tier pips styled as grade marks (Primer → Regulated → Catechism → Apocrypha literally reads as a grading ladder), and violet "teacher's corrections" marginalia for tips and first-run guidance. A fresh player is not being *tutorialized*; they are being **examined by teachers who cannot stop teaching** — which is exactly the Watchers' sin and their whole myth. This turns the beta's raw edges (flags, notes, test instrumentation vibes) into fiction, gives the first world a distinct identity cheaply, and lets us evolve its chrome per world without touching the shared system. — **LEAD: ADOPTED.**
+
+**Coherence rule across all six:** one race accent per world, used only for identity (sigils, world chrome, race-flavored cards, map holder coloring); functional states (resource-positive orange, radiation cyan, corruption magenta, purity gold) are identical across every world so earned knowledge transfers. Six worlds, six accent layers, one engine — which the one-codebase multi-world deployment (business plan) makes cheap via per-world CSS variables. (Unbound, for the record: no world, purity gold + white — the existing gold system is already their color; they need no new palette.)
+
+---
+
+## SOURCES & HONESTY FLAGS
+
+**Internal sources:** `races.md`, `battle-side-rvr-spec.md` (incl. §12–§17), `daily-devotion-spec.md`, `weapons-system.md`, `world-map-design.md`, `oracles-purity-layer.md`, `research/market-research.md`, `research/faction-research.md`, live client `site/src/routes/play.tsx` (6-tab portrait; tabs `colony | expeditions | lab | armory | codex | contribution`) and `site/src/styles/app.css` (Tailwind defaults, no tokens).
+
+**External sources:** the seven competitor games are primary sources (qualitative observations, verifiable by opening each title); WCAG 2.1, Apple HIG, and Google Material Design cited as public standards. Honesty flag: **no live URL verification this pass** — read-only session, no browser. Nothing depends on invented figures; where hard numbers are later wanted (font-load performance, competitor DAU, market sizing) that is a browser-capable follow-up.
