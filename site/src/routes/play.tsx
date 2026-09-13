@@ -7,11 +7,10 @@ import {
   allocateLeaderPointFn, chooseSpecializationFn,
   signupFn, loginFn, logoutFn, meFn,
   submitFeedbackFn, listMyFeedbackFn, dismissNoticeFn,
-  getContributionFn,
   weaponBuildFn, refinePlasmaFn,
   claimDailyRewardFn,
 } from "../game/api";
-import type { GameSummary, ContributionView } from "../game/api";
+import type { GameSummary } from "../game/api";
 import { RACES, UNBOUND_LEGEND, getRace, raceModLines } from "../game/races";
 import { WORLD_CONFIG_PUBLIC, worldAllowedRaces, worldLockPlain } from "../game/world-config";
 import { ZONES, DOMAINS, getZone } from "../game/zones";
@@ -24,16 +23,15 @@ import {
 import type { CraftKind } from "../game/engine";
 import { raceFamilies, ARMORY_FAMILY_TECH, weaponStats, weaponCost, modelName, STAT_LABELS } from "../game/armory";
 import { DAILY_ITEM_BY_ID } from "../game/daily";
-import { generateAtlas, nodeById, ATLAS_CONFIG, type AtlasNode } from "../game/map";
 import { ARMORY_TREE } from "../game/research";
 import { sound } from "../game/sound";
 import { Tooltip } from "../components/Tooltip";
-import { SegmentedControl } from "../components/SegmentedControl";
 import { LedgerButton } from "../components/LedgerButton";
 import { StorefrontOverlay } from "../components/StorefrontOverlay";
 import { Sheet, SheetHeader } from "../components/Sheet";
 import { Icon } from "../components/icons";
 import { JournalButton } from "../components/JournalButton";
+import { CircuitPage } from "../components/CircuitPage";
 import { diffResolvedEvents } from "../game/report-events";
 import { tip, RESOURCE_TIPS, DOMAIN_TIPS, METER_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
 import type { GameState, RaceId, DomainId, Zone, FeedbackRecord, FeedbackCategory, FeedbackSeverity } from "../game/types";
@@ -407,6 +405,21 @@ function PlayPage() {
   const activeSummary = games?.find((g) => g.gameId === state.gameId);
   return (
     <div className="min-h-screen bg-[#070910] text-gray-200">
+      {tab === "circuit" ? (
+        <CircuitPage
+          state={state}
+          token={token!}
+          onClose={() => { switchTab("colony"); requestAnimationFrame(() => document.getElementById("nav-tab-circuit")?.focus()); }}
+          muted={muted}
+          onToggleMute={toggleMute}
+          onToggleFullscreen={toggleFullscreen}
+          isFullscreen={isFullscreen}
+          onLedger={() => { setLedgerOpen(true); sound.click(); }}
+          unread={Math.max(0, reports.length - reportsSeen)}
+          onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }}
+        />
+      ) : (
+        <>
       <Shell state={state} tab={tab} setTab={switchTab} onGames={() => { setGamesOpen(true); sound.click(); }} muted={muted} onToggleMute={toggleMute} onHelp={() => setHelpOpen(true)} onFeedback={() => { setFeedbackOpen(true); sound.click(); }} onLogout={doLogout} onToggleFullscreen={toggleFullscreen} isFullscreen={isFullscreen} onLedger={() => { setLedgerOpen(true); sound.click(); }} unread={Math.max(0, reports.length - reportsSeen)} onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }} />
       {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
       {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
@@ -414,7 +427,8 @@ function PlayPage() {
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onPrepare={() => { setTab("colony"); sound.tab(); }} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} />}
       {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} />}
-      {tab === "circuit" && <CircuitTab state={state} token={token!} />}
+        </>
+      )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {state && <StorefrontOverlay state={state} open={ledgerOpen} onClose={() => { setLedgerOpen(false); sound.click(); }} />}
       {feedbackOpen && <FeedbackModal token={token!} colonyName={state.playerName} onClose={() => setFeedbackOpen(false)} flash={flash} />}
@@ -907,7 +921,7 @@ function Shell({ state, tab, setTab, onGames, muted, onToggleMute, onHelp, onFee
         <nav className="mt-3 flex flex-wrap gap-1">
           {/* 7→5 nav (spec §E): Cradle · Expeditions · Lab · Armory · Circuit */}
           {([["colony","Cradle"],["expeditions","Expeditions"],["lab","Lab"],["armory","Armory"],["circuit","Circuit"]] as [Tab,string][]).map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id)} aria-current={tab === id ? "page" : undefined} className={`rounded-lg px-4 py-2 text-sm font-medium ${
+            <button key={id} id={id === "circuit" ? "nav-tab-circuit" : undefined} onClick={() => setTab(id)} aria-current={tab === id ? "page" : undefined} className={`rounded-lg px-4 py-2 text-sm font-medium ${
               tab === id ? "bg-ember text-black" : "text-gray-300 hover:bg-white/10"
             }`}>{label}</button>
           ))}
@@ -2041,223 +2055,6 @@ const PLASMA_REFINE_EMBERS = 25;
 function weaponTimeFor(tier: 1 | 2 | 3 | 4): string {
   return tier === 1 ? "45m" : tier === 2 ? "3h" : tier === 3 ? "12h" : "2d";
 }
-/* ---------------- Circuit tab (V8 — THE CIRCUIT, read-only) ----------------
- * The shattered circuit-web (world-map-design §3). Pure render of the map
- * module's public geography: browse territories, read zone flavor, see the
- * Chorus-held heart at the web's core. Cosmetic/narrative only — ZERO war
- * state: no holders, no pairing, no ownership, no enemy info. When the
- * frontier burns, the war overlay (server-computed) lands on this same map.
- */
-function CircuitTab({ state, token }: { state: GameState; token: string }) {
-  const circuit = useMemo(
-    () => generateAtlas({ worldId: WORLD_CONFIG_PUBLIC.worldId, raceId: WORLD_CONFIG_PUBLIC.raceLock }),
-    [],
-  );
-  // Rung 1a §E — Contribution became the Circuit screen's "World" segment.
-  const [seg, setSeg] = useState<"map" | "world">("map");
-  const [sel, setSel] = useState<string | null>(null);
-  const [showLegend] = useState(true);
-  const selNode = sel ? nodeById(circuit, sel) : undefined;
-  const coord = (id: string) => {
-    const n = nodeById(circuit, id);
-    return n ? { x: n.x, y: n.y } : { x: 180, y: 480 };
-  };
-  const tierName = (t: number) => (t === 1 ? "foothold" : t === 2 ? "strong ground" : "crown jewel");
-  const tierColor = (t: number) => (t === 1 ? "#4d7cc7" : t === 2 ? "#a78bfa" : "#fb923c");
-  const tierPip = (t: number) => (t === 1 ? "T1" : t === 2 ? "T2" : "T3");
-  const nodeFill = (n: AtlasNode) => {
-    if (n.kind === "heart") return "#7f1d1d";
-    if (n.kind === "near") return "#18181b";
-    if (n.kind === "cradle") return "#14532d";
-    return n.importance ? tierColor(n.importance.tier) : "#1e293b";
-  };
-  return (
-    <div className="mx-auto max-w-3xl space-y-3 py-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-1">
-        <span className="text-sm font-semibold text-amber-200">🔄 THE CIRCUIT — {WORLD_CONFIG_PUBLIC.worldName}</span>
-        <span className="text-[11px] text-text-3">the shattered circuit-web of the old world</span>
-      </div>
-      <SegmentedControl
-        ariaLabel="Circuit view — map or world"
-        options={[{ id: "map", label: "Map" }, { id: "world", label: "World" }]}
-        value={seg}
-        onChange={(id) => { setSeg(id as "map" | "world"); sound.tab(); }}
-      />
-      {seg === "world" ? (
-        <ContributionTab state={state} token={token} />
-      ) : (
-        <>
-      {showLegend && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-[11px] text-gray-400">
-          <span className="flex items-center gap-1"><span className="inline-block h-[2px] w-6 bg-slate-400/70" />conductor lane</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-[2px] w-6 border-t border-dashed border-amber-700/80" />burnt pass</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-[2px] w-6 border-t border-red-900/90" />severed trace</span>
-          <span className="flex items-center gap-1">🔥 Chorus-held heart</span>
-          <span className="flex items-center gap-1">🔰 The Cradle</span>
-          <span className="flex items-center gap-1"><span className="opacity-50">· dimmed ground = home-protected</span></span>
-        </div>
-      )}
-      <div className="overflow-auto rounded-2xl border border-white/10 bg-[#070910]">
-        <svg viewBox={`0 0 ${ATLAS_CONFIG.viewBox.w} ${ATLAS_CONFIG.viewBox.h}`} className="mx-auto block h-auto w-full select-none" role="img" aria-label="World map — the shattered circuit-web">
-          {/* circuit traces: roads solid, burnt passes dashed, severed = broken */}
-          {circuit.edges.map((e, i) => {
-            const a = coord(e.from);
-            const b = coord(e.to);
-            const selected = sel !== null && (e.from === sel || e.to === sel);
-            if (e.kind === "severed") {
-              const gx = b.x - a.x;
-              const gy = b.y - a.y;
-              const p1 = { x: a.x + gx * 0.42, y: a.y + gy * 0.42 };
-              const p2 = { x: b.x - gx * 0.42, y: b.y - gy * 0.42 };
-              return (
-                <g key={i}>
-                  <line x1={a.x} y1={a.y} x2={p1.x} y2={p1.y} stroke="#7f1d1d" strokeWidth="1.5" strokeOpacity="0.8" />
-                  <line x1={p2.x} y1={p2.y} x2={b.x} y2={b.y} stroke="#7f1d1d" strokeWidth="1.5" strokeOpacity="0.8" />
-                </g>
-              );
-            }
-            const nearEdge = circuit.nodes.find((n) => n.id === e.from)?.kind === "near" || circuit.nodes.find((n) => n.id === e.to)?.kind === "near";
-            return (
-              <line
-                key={i}
-                x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                stroke={e.kind === "road" ? (nearEdge ? "#5b6472" : "#8f9bb3") : "#b45309"}
-                strokeWidth={selected ? 3 : e.kind === "road" ? (nearEdge ? 1.5 : 2) : 2}
-                strokeOpacity={selected ? 0.95 : e.kind === "road" ? 0.55 : 0.7}
-                strokeDasharray={e.kind === "ruinPass" ? "5 5" : undefined}
-              />
-            );
-          })}
-          {/* territories */}
-          {circuit.nodes.map((n) => {
-            const dim = n.kind === "near";
-            const r = n.kind === "heart" ? 26 : n.kind === "rim" ? 16 : n.kind === "cradle" ? 18 : 12;
-            const labelDy = n.kind === "heart" ? 42 : n.kind === "near" ? 26 : 30;
-            const title =
-              n.kind === "heart"
-                ? "The Chorus-held heart — the deepest scientific site. The prize and the threat."
-                : n.kind === "cradle"
-                  ? "The Cradle — your capital and the home edge."
-                  : n.kind === "near"
-                    ? `${n.name} — home-protected ground, never contestable.`
-                    : `${n.name} — Burning-Rim territory${n.importance ? `, Tier ${n.importance.tier} (score ${n.importance.score.toFixed(2)})` : ""}.`;
-            return (
-              <g
-                key={n.id}
-                onClick={() => { setSel(n.id === sel ? null : n.id); sound.tab(); }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setSel(n.id === sel ? null : n.id);
-                    sound.tab();
-                  }
-                }}
-                className="cursor-pointer"
-                role="button"
-                tabIndex={0}
-                aria-pressed={sel === n.id}
-                aria-label={title}
-                style={{ opacity: dim ? 0.6 : 1 }}
-              >
-                <title>{title}</title>
-                {/* generous invisible tap target (mobile-pass ≥44px) */}
-                <circle cx={n.x} cy={n.y} r="26" fill="transparent" />
-                <circle
-                  cx={n.x} cy={n.y} r={r}
-                  fill={nodeFill(n)}
-                  stroke={n.kind === "cradle" ? "#fbbf24" : n.kind === "heart" ? "#fb923c" : n.kind === "near" ? "#3f3f46" : "rgba(255,255,255,0.35)"}
-                  strokeWidth={n.kind === "heart" ? 3 : 1.5}
-                  className={n.kind === "heart" ? "animate-pulse" : undefined}
-                />
-                {n.kind === "heart" && <text x={n.x} y={n.y + 5} textAnchor="middle" fontSize="15">🔥</text>}
-                {n.kind === "cradle" && <text x={n.x} y={n.y + 5} textAnchor="middle" fontSize="13">🔰</text>}
-                {n.kind === "rim" && n.importance && (
-                  <text x={n.x + 14} y={n.y - 12} textAnchor="middle" fontSize="11" fontWeight="bold" fill={tierColor(n.importance.tier)}>
-                    {tierPip(n.importance.tier)}
-                  </text>
-                )}
-                {n.kind === "rim" && n.id === "shattered-academies" && (
-                  <text x={n.x} y={n.y - 14} textAnchor="middle" fontSize="11" fill="#fde68a">★</text>
-                )}
-                <text
-                  x={n.x} y={n.y + labelDy} textAnchor="middle" fontSize="11"
-                  fill={n.kind === "heart" ? "#fdba74" : n.kind === "cradle" ? "#fde68a" : "rgba(226,232,240,0.75)"}
-                  fontWeight={500} fontFamily="'Segoe UI',system-ui,sans-serif"
-                >
-                  {n.kind === "heart" ? "THE CHORUS-HELD HEART" : n.kind === "cradle" ? "THE CRADLE" : n.name}
-                </text>
-                {n.kind === "heart" && <text x={n.x} y={n.y - 38} textAnchor="middle" fontSize="11" fill="#f97316" letterSpacing="1.5">THE PRIZE · THE THREAT</text>}
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-      <p className="px-1 text-[11px] text-text-3">
-        The Circuit shows the world as it is — no one holds these grounds yet. Expedition maps stay on the
-        Expeditions tab; when the frontier burns, this web becomes the war board.
-      </p>
-        </>
-      )}
-      {/* bottom sheet — the node's story + published ground data (no war state) */}
-      {seg === "map" && selNode && (
-        <div className="space-y-2 rounded-2xl border border-white/10 bg-[#0b0e16] p-4">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <div className="text-sm font-semibold text-white">
-                {selNode.name}
-                {selNode.heart && <span className="ml-2 text-xs font-semibold text-orange-400">🔥 CHORUS-HELD HEART</span>}
-                {selNode.kind === "cradle" && <span className="ml-2 text-xs font-semibold text-amber-300">THE CRADLE · HOME EDGE</span>}
-                {selNode.kind === "near" && <span className="ml-2 text-xs font-medium text-gray-400">HOME-PROTECTED</span>}
-              </div>
-              <div className="text-[11px] text-gray-400">
-                {selNode.kind === "heart" ? "The deep-most scientific site — the web's core." :
-                  selNode.kind === "cradle" ? "Your capital. The world persists around it." :
-                  selNode.kind === "near" ? "Near Ring — the Cradle's buffer and starter economy. Never contestable." :
-                  "Burning Rim — the frontier. Contestable ground when war comes."}
-              </div>
-            </div>
-            <button onClick={() => { setSel(null); sound.tab(); }} className="rounded border border-white/15 px-2 py-1 text-gray-400 hover:bg-white/10">✕</button>
-          </div>
-          {selNode.zoneId && (
-            <p className="text-xs leading-relaxed text-gray-300">
-              {getZone(selNode.zoneId).flavor}
-              {selNode.heart && (
-                <span className="mt-1 block text-orange-300/90">The Chorus holds this ground. The war's arc reads inward — footholds, then the chain, then this: the closer you get, the harder it hunts.</span>
-              )}
-            </p>
-          )}
-          {selNode.importance && (
-            <div className="space-y-1 rounded-xl border border-white/10 bg-black/30 p-3 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-amber-200">Tier {selNode.importance.tier} — {tierName(selNode.importance.tier)}</span>
-                <span className="text-gray-400">score {selNode.importance.score.toFixed(2)}</span>
-              </div>
-              <p className="text-gray-300">
-                <b className="text-white">Because:</b> Richness <b className="text-cyan-300">{selNode.importance.richness.toFixed(2)}</b> ·
-                Position <b className="text-fuchsia-300">{selNode.importance.position.toFixed(2)}</b> ·
-                Chorus <b className="text-orange-300">{selNode.importance.chorus.toFixed(2)}</b>
-              </p>
-              {selNode.profile && (
-                <p className="text-gray-300">
-                  <b className="text-white">The ground yields (per day):</b> 🔥 embers {selNode.profile.embersPerDay[0]}–{selNode.profile.embersPerDay[1]} ·
-                  🧠 chipsets ≈{selNode.profile.chipsetsPerDay.toFixed(2)} ·
-                  {selNode.profile.plasmaPerDay ? <> ⚡ plasma {selNode.profile.plasmaPerDay[0]}–{selNode.profile.plasmaPerDay[1]} ·</> : null}
-                  {selNode.profile.mat ? <> 📦 war-captured territory mat</> : <> 📦 no mat</>}
-                </p>
-              )}
-            </div>
-          )}
-          {selNode.kind === "near" && (
-            <p className="text-[11px] text-text-3">Home-protected ground — expeditions run here as today; the frontier cut never touches it.</p>
-          )}
-          {selNode.kind === "cradle" && (
-            <p className="text-[11px] text-text-3">The supply lanes run Cradle → Near Ring → Rim along the traces you see here.</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 /* ---------------- Codex / lore (Rung 1a §E — folds into the Cradle as a modal) ---------------- */
 function CodexContent() {
   return (
@@ -2312,92 +2109,6 @@ function CodexModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/* ---------------- Contribution tab (recognition — public by design) ---------------- */
-function raceEmoji(id: RaceId | null): string {
-  return id === "grays" ? "👽" : id === "nephilim" ? "🗿" : id === "draconians" ? "🐉" : id === "anunnaki" ? "🏛️" : id === "ashtar" ? "⭐" : "📖";
-}
-
-function ContributionTab({ state, token }: { state: GameState; token: string }) {
-  const [view, setView] = useState<ContributionView | null>(null);
-  const [failed, setFailed] = useState(false);
-  // Re-fetch whenever the parent's 4s state refresh lands, so score and rank stay
-  // live without a second timer. The server computes everything from the SAME
-  // contributionScore() the Unbound gate uses — this panel only renders it.
-  useEffect(() => {
-    let dead = false;
-    getContributionFn({ data: { token } })
-      .then((r) => {
-        if (dead) return;
-        if (r && r.signedOut) { setFailed(true); return; }
-        if (r && r.ok) { setView({ me: r.me ?? null, leaders: r.leaders ?? [], total: r.total ?? 0 }); setFailed(false); }
-      })
-      .catch(() => { if (!dead) setFailed(true); });
-    return () => { dead = true; };
-  }, [state, token]);
-
-  const me = view?.me ?? null;
-  const rows = view?.leaders ?? [];
-  return (
-    <main className="mx-auto max-w-6xl px-6 py-8">
-      <h2 className="text-2xl font-bold text-white">World Contribution</h2>
-      <p className="mt-1 text-xs text-gray-400">
-        World notice follows the dent you make — measured objectively, never by spend or votes.
-      </p>
-
-      {/* Own standing — always visible */}
-      <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/5 p-5">
-        {failed && !me ? (
-          <p className="text-sm text-gray-400">The world's ledger is quiet right now — look again in a moment.</p>
-        ) : !me ? (
-          <p className="text-sm text-gray-400">Reading the world's ledger…</p>
-        ) : (
-          <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-text-3">Your rank</div>
-              <div className="text-3xl font-bold text-amber-300">#{me.rank}<span className="text-sm font-normal text-text-3"> / {me.total} {me.total === 1 ? "colony" : "colonies"}</span></div>
-            </div>
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-text-3">Contribution score</div>
-              <div className="text-3xl font-bold text-white">{me.score.toLocaleString()}</div>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs leading-relaxed text-gray-400">
-                Earned by completed expeditions, deeds, Codices recovered, and research — the dent your colony has left on this world so far.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Top-10 leaderboard */}
-      <div className="mt-6 rounded-xl border border-white/10 bg-black/30 p-5">
-        <h3 className="font-semibold text-white">The World's Notice <span className="text-xs font-normal text-text-3">— top 10 colonies</span></h3>
-        {failed && rows.length === 0 ? (
-          <p className="mt-3 text-sm text-text-3">The ledger is quiet right now.</p>
-        ) : rows.length === 0 ? (
-          <p className="mt-3 text-sm text-text-3">No colony has left a dent yet — the first dent will be the loudest.</p>
-        ) : (
-          <ol className="mt-3 divide-y divide-white/5">
-            {rows.map((row) => {
-              const isMe = me !== null && row.rank === me.rank;
-              return (
-                <li key={row.rank} className={`flex items-center gap-3 py-2 ${isMe ? "text-amber-200" : ""}`}>
-                  <span className={`w-9 shrink-0 text-center font-bold ${row.rank === 1 ? "text-amber-300" : row.rank <= 3 ? "text-white" : "text-text-3"}`}>{row.rank === 1 ? "🥇" : row.rank === 2 ? "🥈" : row.rank === 3 ? "🥉" : `#${row.rank}`}</span>
-                  <span className="shrink-0">{raceEmoji(row.race)}</span>
-                  <span className="min-w-0 flex-1 truncate font-semibold">
-                    {row.colonyName}
-                    {isMe ? <span className="ml-2 rounded bg-amber-400/20 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-amber-200">You</span> : null}
-                  </span>
-                  <span className="shrink-0 text-sm text-gray-400">{row.score.toLocaleString()} <span className="text-text-3">score</span></span>
-                </li>
-              );
-            })}
-          </ol>
-        )}
-      </div>
-    </main>
-  );
-}
 /* ---------------- the glimpse decision (rv3 payoff; one per game) ---------------- */
 // Rendered exactly once: when the client sees the resolved rv3 glyph. The
 // server holds the real answered-state and rejects double answers, so this

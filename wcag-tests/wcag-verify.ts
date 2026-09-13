@@ -246,5 +246,62 @@ console.log("— 7 · single source of truth: races.ts accent/accentText == app.
   });
 }
 
+console.log("— 8 · circuit §5 color table machine-enforced (circuit-fullscreen-page.md §5) —");
+{
+  const TOK = `${SITE}/src/game/circuit-tokens.ts`;
+  const PAGE = `${SITE}/src/components/CircuitPage.tsx`;
+  for (const f of [TOK, PAGE]) {
+    if (!existsSync(f)) { console.error(`MISSING SOURCE FILE: ${f}`); process.exit(1); }
+  }
+  const tok = readFileSync(TOK, "utf8");
+  const page = readFileSync(PAGE, "utf8");
+  const hexOf = (re: RegExp): string | undefined => tok.match(re)?.[1]?.toLowerCase();
+  // TIER_COLORS (V8 canon; same on all six worlds — global functional depth)
+  const t1 = hexOf(/TIER_COLORS[\s\S]*?1:\s*"(#[0-9a-fA-F]{6})"/);
+  const t2 = hexOf(/TIER_COLORS[\s\S]*?2:\s*"(#[0-9a-fA-F]{6})"/);
+  const t3 = hexOf(/TIER_COLORS[\s\S]*?3:\s*"(#[0-9a-fA-F]{6})"/);
+  check("TIER_COLORS[1] == #4d7cc7 (V8 canon)", t1 === "#4d7cc7", `${t1}`);
+  check("TIER_COLORS[2] == #a78bfa (V8 canon)", t2 === "#a78bfa", `${t2}`);
+  check("TIER_COLORS[3] == #fb923c (V8 canon)", t3 === "#fb923c", `${t3}`);
+  // KIND_COLORS (kind fills — heart/near/cradle; rim carries the tier)
+  const heart = hexOf(/heart:\s*"(#[0-9a-fA-F]{6})"/); // KIND_COLORS precedes RING_COLORS in the file
+  const near = hexOf(/near:\s*"(#[0-9a-fA-F]{6})"/);
+  const cradle = hexOf(/cradle:\s*"(#[0-9a-fA-F]{6})"/);
+  check("KIND_COLORS.heart == #7f1d1d", heart === "#7f1d1d", `${heart}`);
+  check("KIND_COLORS.near == #18181b", near === "#18181b", `${near}`);
+  check("KIND_COLORS.cradle == #14532d", cradle === "#14532d", `${cradle}`);
+  // TRACE_COLORS
+  const road = hexOf(/road:\s*"(#[0-9a-fA-F]{6})"/);
+  const ruin = hexOf(/ruin:\s*"(#[0-9a-fA-F]{6})"/);
+  const severed = hexOf(/severed:\s*"(#[0-9a-fA-F]{6})"/);
+  check("TRACE_COLORS.road == #8f9bb3", road === "#8f9bb3", `${road}`);
+  check("TRACE_COLORS.ruin == #b45309", ruin === "#b45309", `${ruin}`);
+  check("TRACE_COLORS.severed == #7f1d1d", severed === "#7f1d1d", `${severed}`);
+  // §5 contrast contract (PASS column holds verbatim)
+  const surf0 = hexToken("surf-0")!;
+  if (t1 && t2 && t3 && heart && cradle && road && ruin) {
+    const pairs: Array<[string, string, number]> = [
+      [t1, surf0, 4.5], // tier 1 pip — spec 4.76:1 PASS
+      [t2, surf0, 4.5], // tier 2 pip — spec 7.31:1 PASS
+      [t3, surf0, 4.5], // tier 3 pip — spec 8.79:1 PASS
+      ["#fdba74", heart, 4.5], // heart label — spec 5.94:1 PASS
+      ["#fde68a", cradle, 4.5], // cradle label — spec 7.32:1 PASS
+      [road, surf0, 3.0], // conductor lane — spec ~3.3:1 UI OK
+      [ruin, surf0, 3.0], // burnt pass — spec 3.96:1 UI OK
+    ];
+    for (const [fg, bg, min] of pairs) {
+      check(`§5 ${fg} on ${bg} ${pair(fg, bg)} ≥ ${min}`, contrast(fg, bg) >= min);
+    }
+  } else {
+    check("§5 contrast pairs resolvable from circuit-tokens.ts", false, "missing parsed hex");
+  }
+  // §5 single-source law: ZERO hex literals in the page component.
+  const hexes = page.match(/#[0-9a-fA-F]{6}/g) ?? [];
+  check(
+    "CircuitPage.tsx has ZERO hex literals (renderer imports circuit-tokens.ts)",
+    hexes.length === 0,
+    `found: ${hexes.join(", ")}`,
+  );
+}
 console.log(`RESULT: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

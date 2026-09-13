@@ -332,3 +332,34 @@
   opacity: 0.75;
   cursor: not-allowed;
 }
+
+/* 11 · Circuit full-screen page (circuit-fullscreen-page.md §2.1/§2.3/§2.4).
+      New classes are circuit-* (label sweep only; tokens live in
+      game/circuit-tokens.ts — the SVG renderer and legend import from there). */
+.circuit-stage {
+  touch-action: pan-x pan-y pinch-zoom;
+}
+/* Zoom / reset animate at base 200ms ease-out; zeroed under reduced-motion by
+   the global A.5 block (transition-duration 0.01ms). */
+.circuit-map-inner {
+  transition:
+    width var(--motion-base) var(--ease-out),
+    height var(--motion-base) var(--ease-out);
+}
+/* §2.3 zoom-tier label gates — HIDDEN (visibility), never rendered smaller:
+   .cl-full node-name labels: full/mid content is authored by the renderer
+   (mid = first word only), hidden at low; .cl-pip tier pips: hidden at low;
+   .cl-sub heart sub-label: only at full; .cl-chip state chips (war phase):
+   only at full. Nodes' aria-labels are unaffected (always full sentences). */
+.circuit-zoom-low .cl-full,
+.circuit-zoom-low .cl-pip {
+  visibility: hidden;
+}
+.circuit-zoom-mid .cl-sub,
+.circuit-zoom-low .cl-sub {
+  visibility: hidden;
+}
+.circuit-zoom-mid .cl-chip,
+.circuit-zoom-low .cl-chip {
+  visibility: hidden;
+}
