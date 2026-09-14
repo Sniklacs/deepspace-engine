@@ -33,6 +33,7 @@ import {
   createPaymentProvider,
 } from "./monetization";
 import { dailyPublicView } from "./daily";
+import { battlePublicView } from "./war/battle-engine";
 import {
   loadAccountSaves,
   saveAccountSaves,
@@ -127,6 +128,12 @@ export function publicState(st: GameState): GameState {
     // never exist on this surface at all. Devotion total + streak ride along
     // in `rest` (PUBLIC per TD5).
     daily: dailyPublicView(st.daily),
+    // V9 battle engine: every battle ships through the public-view mapper, so
+    // server-only internals (war-types internal block; future reinforcement
+    // queues etc.) never reach the client. The report LEDGER is public by
+    // design (§15.6 — composition/duration/casualties are the History Book's
+    // observable source material; the client renders its own battles).
+    battles: (Array.isArray(st.battles) ? st.battles : []).map(battlePublicView),
   };
 }
 

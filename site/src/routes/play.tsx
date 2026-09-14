@@ -32,6 +32,7 @@ import { Sheet, SheetHeader } from "../components/Sheet";
 import { Icon } from "../components/icons";
 import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
+import BattlesTab from "../components/BattlesTab";
 import { diffResolvedEvents } from "../game/report-events";
 import { tip, RESOURCE_TIPS, DOMAIN_TIPS, METER_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
 import type { GameState, RaceId, DomainId, Zone, FeedbackRecord, FeedbackCategory, FeedbackSeverity } from "../game/types";
@@ -43,7 +44,7 @@ export const Route = createFileRoute("/play")({
 
 // Nav consolidation (Rung 1a, spec §E): 7 -> 5. Codex folds into Cradle as the
 // Lore modal; Contribution becomes the Circuit screen's "World" segment.
-type Tab = "colony" | "expeditions" | "lab" | "armory" | "circuit";
+type Tab = "colony" | "expeditions" | "lab" | "armory" | "circuit" | "battles";
 
 const TOKEN_KEY = "deepspace_session_token";
 
@@ -426,6 +427,7 @@ function PlayPage() {
       {tab === "colony" && <ColonyTab state={state} onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")} onCraft={(k) => act(() => craftFn({ data: { token: token!, kind: k } }), "success")} onClaim={() => act(() => claimDailyRewardFn({ data: { token: token! } }), "success")} />}
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onPrepare={() => { setTab("colony"); sound.tab(); }} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} />}
+      {tab === "battles" && <BattlesTab state={state} now={now} />}
       {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} />}
         </>
       )}
@@ -920,7 +922,7 @@ function Shell({ state, tab, setTab, onGames, muted, onToggleMute, onHelp, onFee
         </div>
         <nav className="mt-3 flex flex-wrap gap-1">
           {/* 7→5 nav (spec §E): Cradle · Expeditions · Lab · Armory · Circuit */}
-          {([["colony","Cradle"],["expeditions","Expeditions"],["lab","Lab"],["armory","Armory"],["circuit","Circuit"]] as [Tab,string][]).map(([id, label]) => (
+          {([["colony","Cradle"],["expeditions","Expeditions"],["lab","Lab"],["armory","Armory"],["battles","Battles"],["circuit","Circuit"]] as [Tab,string][]).map(([id, label]) => (
             <button key={id} id={id === "circuit" ? "nav-tab-circuit" : undefined} onClick={() => setTab(id)} aria-current={tab === id ? "page" : undefined} className={`rounded-lg px-4 py-2 text-sm font-medium ${
               tab === id ? "bg-ember text-black" : "text-gray-300 hover:bg-white/10"
             }`}>{label}</button>

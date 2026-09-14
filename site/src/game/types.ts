@@ -1,5 +1,7 @@
 // Shared game types for Deepspace Engine MVP.
 
+import type { Battle, BattleReport } from "./war/war-types";
+
 export type RaceId =
   | "grays"
   | "nephilim"
@@ -291,6 +293,16 @@ export interface GameState {
   daily: DailyState;
   devotion: number; // lifetime total, MONOTONIC (like totalCodicesEarned)
   devotionStreak: number; // consecutive UTC days with ≥1 completed item
+
+  // ---- Real-time battle engine (V9, battle-side §15 — The Fall's engine) ----
+  // Persistent battle entities (offline-safe, lazily resolved in advance())
+  // and the append-only battle-report ledger (the §7 History Book's raw
+  // material). Per-colony in v1 (the prologue is a solo story); the
+  // world-level war ledger with every colony watching every front arrives
+  // with war Phase 1 (battle-side §10.2). Engine internals per battle are
+  // stripped by publicState via battlePublicView (api.ts).
+  battles: Battle[];
+  battleReports: BattleReport[];
 
   log: string[];
 }

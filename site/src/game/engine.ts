@@ -48,6 +48,7 @@ import {
   noteDailyLaunch,
   freshDaily,
 } from "./daily";
+import { advanceBattles, ensureBattles } from "./war/battle-engine";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
@@ -57,7 +58,7 @@ export { claimDaily, favorScore } from "./daily";
 // from lastTick to now, resolving expeditions/studies that finished while offline
 // and accruing passive income. This is what makes the world persist while logged out.
 
-export const VERSION = 8;
+export const VERSION = 9;
 // V2: multi-game saves (account file wrapper; GameState version bumped to match).
 // V3: Leader XP/leveling/specialization (xp, unspentPoints, specialization, day,
 //     dayXp per Leader; colony-wide day-cap ledger state.leaderXpCaps).
@@ -106,6 +107,17 @@ export const VERSION = 8;
 //     quiet (asserted in atlas-tests). The war overlay (holders/ownership/
 //     pairing/incursions) arrives with battle-side Phase 1 and is
 //     SERVER-computed on top of this static shell.
+// V9 (ENGINE VERSION — not to be confused with the Circuit map's own "V9"
+// densification label, which added no state): the real-time battle engine
+// (battle-side-rvr-spec §15, B1/B4 ratified 2026-09-12 — The Fall's engine).
+// state.battles (persistent battle entities) + state.battleReports (the
+// append-only ledger, History-Book raw material). Pure math lives in
+// src/game/war/{war-types,battle-engine}.ts — offline-safe, DETERMINISTIC
+// (no Math.random in win/loss/power), lazily resolved by advanceBattles inside
+// advance(). ensureBattles() backfills old saves silently (empty arrays;
+// resolved-but-unreported battles get their ledger entry exactly once).
+// Per-colony placement for v1 (the prologue is a solo story); the
+// world-level war ledger arrives with war Phase 1 (§10.2).
 // Old saves migrate silently: missing leader XP fields default to level-1 no-xp
 // state and the day ledger is empty (see ensureLeaderXp).
 
@@ -355,6 +367,9 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
     daily: freshDaily(now),
     devotion: 0,
     devotionStreak: 0,
+    // ---- Real-time battle engine (V9): no wars have been fought yet ----
+    battles: [],
+    battleReports: [],
     log: [`The Cradle settles against the Shatterlands. The ${getRace(raceId).name} claim their colony.`],
   };
 }
@@ -429,6 +444,9 @@ export function blankColony(now = Date.now()): GameState {
     daily: freshDaily(now),
     devotion: 0,
     devotionStreak: 0,
+    // ---- Real-time battle engine (V9): a wiped colony holds no battles ----
+    battles: [],
+    battleReports: [],
     log: [],
   };
 }
@@ -1164,6 +1182,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureMonetization(state);
   ensureArmory(state);
   ensureDaily(state);
+  ensureBattles(state); // V9: real-time battle entities + report ledger (no-op on new saves)
   // V7 daily rollover: when the UTC day turned since the last advance, finalize
   // yesterday (streak exactly-once + TD3 banked-forever claims), roll the fresh
   // list, and mark visit_cradle's free tick. Runs BEFORE the resolve loops so
@@ -1235,6 +1254,15 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // expeditions: built AT THE CRADLE while the world was offline. The deed
   // dents fire here exactly once (build records are consumed on completion).
   resolveArmoryBuilds(state, now);
+
+  // Resolve completed battles (V9, the real-time battle engine — battle-side
+  // §15): every active battle whose wall-clock end has passed is finalized
+  // here (result, Chronicle line, append-only ledger report). Same lazy,
+  // idempotent discipline as every other resolver — offline worlds resolve
+  // on the next read; resolved battles are skipped so double-ticks can never
+  // double-report. DETERMINISTIC: no Math.random in win/loss/power (the
+  // strength formula reads only the §15 B4 snapshot inputs).
+  advanceBattles(state, now);
 
   // Silent track bookkeeping: the untouched-day streak, the stage1 reveal, the
   // §8 world-acknowledgement, and the published-visibility reconcile. All four
