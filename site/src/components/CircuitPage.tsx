@@ -8,12 +8,14 @@
 // the Shell header + TabBar. Global overlays (ledger, reports, help,
 // feedback, games, toasts) stay mounted by play.tsx as siblings.
 //
-// Map stage = the existing map.ts generator (11-node shattered circuit-web),
-// rendered with §2 fit / pan / zoom: viewBox coordinates never become pixels,
-// the hit-floor cap keeps the invisible r26 tap circle ≥ 44px CSS diameter,
-// native pan (overflow scroll) + pinch (touch-action), +/− ×1.25 zoom clamped
-// 0.5–3×, ⇱ reset, zoom-tier label gates. Layer order per §2.4 — hit circles
-// are always topmost for pointer events; colony-marker layer reserved (§6.2).
+// Map stage = the existing map.ts generator (30-node shattered circuit-web:
+// 11 authored anchors + 19 V9 foothold sites, seeded row permutations per
+// world), rendered with §2 fit / pan / zoom: viewBox coordinates never become
+// pixels, the hit-floor cap keeps the invisible r26 tap circle ≥ 44px CSS
+// diameter, native pan (overflow scroll) + pinch (touch-action), +/− ×1.25
+// zoom clamped 0.5–3×, ⇱ reset, zoom-tier label gates. Layer order per §2.4 —
+// hit circles are always topmost for pointer events; colony-marker layer
+// reserved (§6.2).
 //
 // Legend: desktop ≥1024 = 300px always-visible right rail; <1024 = 40px
 // compact rail + full-legend Sheet. Copy VERBATIM from §4.1/§4.2.

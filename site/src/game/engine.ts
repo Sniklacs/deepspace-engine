@@ -87,17 +87,22 @@ export const VERSION = 8;
 //     (dayKey "" != today — the first advance rolls a fresh list). Devotion + the
 //     streak are PUBLIC (TD5); favor internals/Oracle thresholds stay server-only
 //     (api.ts strips daily.events/rolledAt/lastStreakDay/banked).
-// V8: World Atlas shell (world-map-design §3, M1/M2/M3/M6/M8 ratified
+// V8+: World Atlas shell (world-map-design §3, M1/M2/M3/M6/M8 ratified
 //     2026-09-12): a NEW pure module src/game/map.ts — the shattered
 //     circuit-web, generated deterministically from the world id (mulberry32
-//     seed, zero Math.random — the daily.ts standard): six Burning-Rim zones
-//     (range ≥ 60), four Near-Ring home-protected zones, the Chorus-held heart
-//     at the web's core (W2 = dark-matter-observatory, the deep-most T3), the
-//     §1.3 resource profiles and §2.1 importance (richness / position / chorus
-//     → score → tier, computed from zones.ts — 2/2/2 per world), and the §2.2
-//     war constants pre-wired but never exposed. Atlas adds NO STATE —
-//     client-rendered public geography (layout is the only client-computed
-//     thing, spec §3.6): legacy saves migrate with zero changes, blanks stay
+//     seed, zero Math.random — the daily.ts standard): seventeen Burning-Rim
+//     zones (range ≥ 60 — six ratified anchors + eleven V9 footholds), twelve
+//     Near-Ring home-protected zones (four anchors + eight V9), the Chorus-held
+//     heart at the web's core (W2 = dark-matter-observatory, the deep-most T3),
+//     the §1.3 resource profiles and §2.1 importance (richness / position /
+//     chorus → score → tier, computed from zones.ts — 6 T1 / 6 T2 / 5 T3 per
+//     world), and the §2.2
+//     war constants pre-wired but never exposed. V9 (2026-09-13) densified the
+//     web to 30 nodes with nineteen new SHATTERLAND zones (all real expedition
+//     destinations) laid out on seeded row-slot permutations. Atlas adds NO
+//     STATE — client-rendered public geography (layout is the only client-
+//     computed thing, spec §3.6): legacy saves migrate with zero changes,
+//     blanks stay
 //     quiet (asserted in atlas-tests). The war overlay (holders/ownership/
 //     pairing/incursions) arrives with battle-side Phase 1 and is
 //     SERVER-computed on top of this static shell.
