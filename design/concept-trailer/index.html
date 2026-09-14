@@ -1,0 +1,314 @@
+<!doctype html>
+<!-- =====================================================================
+  DEEPSPACE ENGINE — CONCEPT TRAILER · FIRST-PASS TARGET RENDER
+  TARGET RENDER — NOT GAMEPLAY CAPTURE.
+  Assembles the six key stills + three UI mockups in trailer sequence,
+  with the beat-sheet captions inline (design/concept-trailer/beat-sheet.md
+  is the authoritative audio-assembly spec). Art direction: "ASHED
+  CIRCUITRY" — style-bible.md. Opens straight from the repo (file://).
+===================================================================== -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Concept Trailer — First-Pass Target Render · Deepspace Engine</title>
+<style>
+  :root{
+    --surf-0:#070910; --surf-1:#0b0f14; --surf-2:#11161d; --surf-3:#161d26; --surf-4:#1c2530;
+    --line:rgba(163,173,187,.16); --line-strong:#22303c;
+    --text-1:#e7e9ea; --text-2:#9aa4b2; --text-3:#8490a0;
+    --ember:#ff9d3c; --ember-soft:#ffbe80; --hazard:#4fd8c8; --hazard-soft:#7fe8dc;
+    --corrupt:#b14ec4; --corrupt-text:#e07cf0; --purity:#ffd166; --danger:#ef4444;
+    --watcher:#b48cff; --watcher-text:#c9a4ff; --razor:#5fd4e6; --chalk:#f4f1e8;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:#04050a;font-family:var(--sans);color:var(--text-1);font-variant-numeric:tabular-nums;
+    background-image:radial-gradient(1400px 600px at 50% -200px, rgba(180,140,255,.08), transparent 60%)}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 80px}
+
+  /* mast */
+  .mast{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .kicker{font-size:11px;letter-spacing:.28em;color:var(--ember-soft);font-weight:800;text-transform:uppercase}
+  h1{font-size:clamp(26px,4.5vw,38px);font-weight:800;color:var(--chalk);margin-top:6px;letter-spacing:.02em}
+  h1 em{font-style:normal;color:var(--watcher-text)}
+  .sub{font-size:13.5px;color:var(--text-2);margin-top:8px;max-width:640px;line-height:1.6}
+  .honest{margin-top:14px;display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.22);
+    border-radius:999px;padding:6px 14px;background:rgba(4,5,10,.8);font-size:11px;font-weight:800;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--text-1)}
+  .honest .pulse{width:8px;height:8px;border-radius:50%;background:var(--ember);animation:blink 1.4s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+  /* art direction card */
+  .bible{margin-top:28px;border:1px solid var(--line-strong);border-radius:16px;background:linear-gradient(180deg, rgba(17,22,29,.9), rgba(11,15,20,.9));padding:20px}
+  .bible h2{font-size:12px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--text-2)}
+  .bible .name{font-size:22px;font-weight:800;color:var(--ember-soft);margin-top:6px}
+  .bible .one{font-size:14px;color:var(--text-1);margin-top:8px;line-height:1.6}
+  .bible .one b{color:var(--purity)}
+  .swatches{display:flex;flex-wrap:wrap;gap:14px;margin-top:16px}
+  .sw{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--text-2)}
+  .sw .c{width:22px;height:22px;border-radius:6px;border:1px solid rgba(255,255,255,.25);flex:none}
+  .sw .hx{font-family:var(--mono);color:var(--text-3);font-size:9.5px}
+  .pillars{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:18px}
+  .pillar{border:1px solid var(--line);border-radius:12px;background:rgba(7,9,16,.55);padding:12px 14px}
+  .pillar h3{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--watcher-text)}
+  .pillar p{font-size:12px;color:var(--text-2);margin-top:6px;line-height:1.55}
+  .pillar p b{color:var(--text-1)}
+
+  /* acts + shots */
+  .act{margin-top:34px}
+  .act .ah{display:flex;align-items:center;gap:12px}
+  .act .anum{font-size:11px;font-weight:800;letter-spacing:.18em;color:var(--ember);border:1px solid rgba(255,157,60,.4);
+    border-radius:999px;padding:4px 12px;text-transform:uppercase;background:rgba(255,157,60,.08)}
+  .act .ah h2{font-size:20px;font-weight:800;color:var(--chalk)}
+  .act .ah .tm{font-size:10.5px;color:var(--text-3);font-family:var(--mono);margin-left:auto}
+  .acts-role{font-size:12px;color:var(--text-3);margin-top:6px}
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:16px}
+  .shot{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:linear-gradient(180deg, rgba(17,22,29,.92), rgba(11,15,20,.94));
+    box-shadow:0 14px 38px rgba(0,0,0,.45)}
+  .shot .img{position:relative;aspect-ratio:3/2;overflow:hidden}
+  .shot .img img{width:100%;height:100%;object-fit:cover;display:block}
+  .shot .img::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg, transparent 55%, rgba(4,5,10,.85) 100%)}
+  .shot .idx{position:absolute;top:10px;left:12px;z-index:2;font-family:var(--mono);font-size:10.5px;font-weight:800;
+    color:#000;background:var(--ember);border-radius:999px;padding:2px 9px;letter-spacing:.08em}
+  .shot .beam{position:absolute;top:10px;right:12px;z-index:2;font-size:8px;letter-spacing:.12em;font-weight:800;
+    color:rgba(231,233,234,.85);background:rgba(4,5,10,.75);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:3px 8px;text-transform:uppercase}
+  .shot .body{padding:13px 15px 15px}
+  .shot .st{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3)}
+  .shot .vo{font-size:13px;color:var(--chalk);line-height:1.55;margin-top:8px;border-left:2px solid var(--ember);padding-left:10px}
+  .shot .vo .who{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ember-soft);display:block;margin-bottom:3px}
+  .shot .vo.chorus{border-left-color:var(--corrupt-text)}
+  .shot .vo.chorus .who{color:var(--corrupt-text)}
+  .shot .meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .shot .meta .m{border:1px solid var(--line);border-radius:8px;background:rgba(7,9,16,.55);padding:6px 9px}
+  .shot .meta .m .k{font-size:8.5px;letter-spacing:.14em;color:var(--text-3);text-transform:uppercase;font-weight:700}
+  .shot .meta .m .v{font-size:11px;color:var(--text-2);margin-top:2px;line-height:1.4}
+
+  /* UI mockup section */
+  .uis{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-top:16px}
+  .ui{border:1px solid var(--line-strong);border-radius:16px;background:linear-gradient(180deg, rgba(17,22,29,.92), rgba(11,15,20,.95));overflow:hidden}
+  .ui .head{padding:12px 15px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+  .ui .head h3{font-size:14px;font-weight:800;color:var(--chalk)}
+  .ui .head span{font-size:9.5px;color:var(--text-3);letter-spacing:.08em;text-transform:uppercase;font-weight:700}
+  .ui .body{display:flex;justify-content:center;padding:14px;background:
+    radial-gradient(500px 200px at 50% 0%, rgba(180,140,255,.06), transparent 70%)}
+  .ui .phone{position:relative;border-radius:26px;border:1px solid var(--line-strong);box-shadow:0 22px 60px rgba(0,0,0,.6);overflow:hidden;line-height:0}
+  .ui .phone img{width:100%;display:block}
+  .ui .foot{padding:10px 15px 13px;font-size:11px;color:var(--text-3);line-height:1.5;border-top:1px solid var(--line)}
+  .ui .foot b{color:var(--text-2)}
+
+  /* deferrals */
+  .defer{margin-top:34px;border:1px dashed rgba(163,173,187,.3);border-radius:16px;padding:18px 20px}
+  .defer h2{font-size:12px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--text-2)}
+  .defer ul{margin-top:10px;list-style:none}
+  .defer li{font-size:12.5px;color:var(--text-2);padding:6px 0 6px 22px;position:relative;line-height:1.5}
+  .defer li::before{content:"→";position:absolute;left:2px;color:var(--ember)}
+  .defer li b{color:var(--text-1)}
+  footer{margin-top:40px;text-align:center;font-size:10.5px;color:var(--text-3);letter-spacing:.06em}
+  footer b{color:var(--watcher-text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="mast">
+    <div>
+      <div class="kicker">Deepspace Engine · The Fall · Opening Prologue</div>
+      <h1>Concept Trailer — <em>First-Pass Target Render</em></h1>
+      <p class="sub">Six key stills, three UI mockups at the epic bar, and a shot-by-shot beat sheet — one locked art direction
+      the whole game must hold. This page is the <b>style bible viewer</b>: every frame is a target, not a capture.</p>
+      <span class="honest"><span class="pulse"></span>Target render — not gameplay capture</span>
+    </div>
+  </div>
+
+  <div class="bible">
+    <h2>Locked art direction</h2>
+    <div class="name">ASHED CIRCUITRY</div>
+    <p class="one">A <b>dead circuit-world, lit only by meaning</b> — near-black blue-slate surfaces; every light on screen is a statement:
+    ember-orange is human effort, magenta is the Chorus's grip, gold is the Cradle / Oracle / the return, and the six race accents color identity alone.
+    The canon mood system (Blacksite Terminal base + Aurora Conduit layer + Foundry Amber as the ember/return state) taken to cinematic intensity.</p>
+    <div class="swatches">
+      <span class="sw"><span class="c" style="background:#070910"></span>surf-0 #070910</span>
+      <span class="sw"><span class="c" style="background:#0b0f14"></span>surf-1 #0b0f14</span>
+      <span class="sw"><span class="c" style="background:#11161d"></span>surf-2 #11161d</span>
+      <span class="sw"><span class="c" style="background:#ff9d3c"></span>ember #ff9d3c</span>
+      <span class="sw"><span class="c" style="background:#e07cf0"></span>corrupt #e07cf0</span>
+      <span class="sw"><span class="c" style="background:#ffd166"></span>purity #ffd166</span>
+      <span class="sw"><span class="c" style="background:#b48cff"></span>watcher #b48cff</span>
+      <span class="sw"><span class="c" style="background:#4fd8c8"></span>hazard #4fd8c8</span>
+    </div>
+    <div class="pillars">
+      <div class="pillar"><h3>Palette</h3><p>Canon tokens, verbatim (<b>app.css</b>/<b>circuit-tokens.ts</b>). Functional colors are global; race accents are identity; the two never cross.</p></div>
+      <div class="pillar"><h3>Lighting</h3><p>Motivated light in a dead world — <b>every light means something</b>. Volume, haze, ember particulates, filmic S-curve, vignette.</p></div>
+      <div class="pillar"><h3>Mood</h3><p>Three acts, one arc: <b>triumphant</b> (Height) → <b>solemn &amp; inevitable</b> (Fall) → <b>quiet, one gold spark</b> (Wake). The Chorus is never beautiful.</p></div>
+    </div>
+  </div>
+
+  <!-- ============ ACT I ============ -->
+  <div class="act">
+    <div class="ah"><span class="anum">Act I</span><h2>The Height</h2><span class="tm">0:00–0:36</span></div>
+    <p class="acts-role">Full power. The colony at its peak — alive, blazing, about to be everything. Music: driving, upbeat, "pump the heart".</p>
+    <div class="shots">
+
+      <div class="shot">
+        <div class="img">
+          <span class="idx">01</span><span class="beam">Stills · target render</span>
+          <img src="stills/01-the-height.png" alt="The colony at its height — ember-lit, alive, at night" />
+        </div>
+        <div class="body">
+          <div class="st">Shot 1 · cold open</div>
+          <div class="vo"><span class="who">Narrator</span>"A hundred years of war. Six worlds bleeding out. And one colony — yours — standing at the very edge of everything."</div>
+          <div class="meta">
+            <div class="m"><div class="k">Music</div><div class="v">Cue A — ignite: heartbeat percussion, rising brass, hits on every light-up</div></div>
+            <div class="m"><div class="k">Transition</div><div class="v">Hard cut on "everything" → shot 2</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="shot">
+        <div class="img">
+          <span class="idx">02</span><span class="beam">Stills · target render</span>
+          <img src="stills/02-the-battle.png" alt="The real-time battle — Watcher scholar-keepers hold the line against the magenta machine-horde" />
+        </div>
+        <div class="body">
+          <div class="st">Shot 2 · the real engine</div>
+          <div class="vo"><span class="who">Hero, over comms</span>"Line's holding. Pulse lances are hot. They keep coming."<span class="who">Narrator</span>"You have the whole arsenal. The full roster. The war is yours to command."</div>
+          <div class="meta">
+            <div class="m"><div class="k">Music</div><div class="v">Cue A — drums double-time as the horde surges</div></div>
+            <div class="m"><div class="k">Transition</div><div class="v">Whip-pan → the live Battles UI</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ UI MOCKUPS (epic bar) ============ -->
+  <div class="act">
+    <div class="ah"><span class="anum">The bar</span><h2>UI Mockups — the epic upgrade of the real screens</h2></div>
+    <p class="acts-role">Real layouts, real components, real tokens — plus hero bands, war presence, the Keepers seam, and the decision window as stage.
+    Sources: <b>mockups/mockup-battles.html · mockup-colony.html · mockup-circuit.html</b> (each self-contained, opens from the repo).</p>
+    <div class="uis">
+
+      <div class="ui">
+        <div class="head"><h3>Live Battles view</h3><span>upgrade of BattlesTab.tsx · §15</span></div>
+        <div class="body"><div class="phone"><img src="mockups/mockup-battles.png" alt="Battles view target render" style="max-width:300px" /></div></div>
+        <div class="foot"><b>What holds from the real screen:</b> battle list + state chips (Stalemate / Pressing / Rout risk), the shifting line,
+        force blocks (hero squads · weapon tiers · troops · FOB · power), battle log. <b>The cinematic pass:</b> hero band, live score strip + Climax ticker,
+        and the gold decision window — reinforce / hold / steady withdrawal / call aid.</div>
+      </div>
+
+      <div class="ui">
+        <div class="head"><h3>Colony (Cradle) screen</h3><span>upgrade of ColonyTab · play.tsx</span></div>
+        <div class="body"><div class="phone"><img src="mockups/mockup-colony.png" alt="Colony screen target render" style="max-width:300px" /></div></div>
+        <div class="foot"><b>What holds:</b> Today's Devotion (quiet, gold, one Claim), Colony Health meters (Corruption / Chorus Attention + Purify),
+        "The Cradle advances" domains, the Workshop. <b>The cinematic pass:</b> the Height as hero band, the live resource strip, and
+        <b>The Keepers</b> — the named Leaders the Fall is built on, characters not stat blocks.</div>
+      </div>
+
+      <div class="ui">
+        <div class="head"><h3>The Circuit map</h3><span>upgrade of CircuitPage.tsx · the war board</span></div>
+        <div class="body"><div class="phone"><img src="mockups/mockup-circuit.png" alt="The Circuit target render" style="max-width:300px" /></div></div>
+        <div class="foot"><b>What holds:</b> the shattered circuit-web, Chorus-held heart at the core, tiered rim (T1/T2/T3), node sheet, legend.
+        <b>The cinematic pass:</b> the live war week — bucket score strip, Climax ×2 ticker, corrupted/contested/purified states,
+        pulsing battle markers, the FOB dock chip.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ ACT II ============ -->
+  <div class="act">
+    <div class="ah"><span class="anum">Act II</span><h2>The Fall</h2><span class="tm">0:36–0:52</span></div>
+    <p class="acts-role">The Chorus overwhelms. The Keepers cover the player's escape; the player becomes the witness. Music: the theme inverts — same drive, minor, closing in.</p>
+    <div class="shots">
+
+      <div class="shot">
+        <div class="img">
+          <span class="idx">03</span><span class="beam">Stills · target render</span>
+          <img src="stills/03-the-leaders-stand.png" alt="The Keepers' stand — three commanders shoulder to shoulder across the breach, backs to the gold, facing the magenta" />
+        </div>
+        <div class="body">
+          <div class="st">Shot 7 · the Keepers' stand</div>
+          <div class="vo"><span class="who">Serev, Marshal</span>"Get them out. We hold this line. That is an order."<span class="who">Narrator</span>"They take command. You become the witness."</div>
+          <div class="meta">
+            <div class="m"><div class="k">Music</div><div class="v">Percussion only — boots, heartbeat, feed; the theme waits</div></div>
+            <div class="m"><div class="k">Transition</div><div class="v">Slow dissolve on "witness"</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="shot">
+        <div class="img">
+          <span class="idx">04</span><span class="beam">Stills · target render</span>
+          <img src="stills/04-the-final-order.png" alt="The final order — face to face, firelit, the last question" />
+        </div>
+        <div class="body">
+          <div class="st">Shot 8 · the final order</div>
+          <div class="vo"><span class="who">Kael, Steward</span>"We can't hold them, sir. What do we do?"</div>
+          <div class="meta">
+            <div class="m"><div class="k">Music</div><div class="v">Silence under the line — one held violin, then nothing</div></div>
+            <div class="m"><div class="k">Transition</div><div class="v">The question hangs; a beat of true silence → dark</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ ACT III ============ -->
+  <div class="act">
+    <div class="ah"><span class="anum">Act III</span><h2>The Wake</h2><span class="tm">0:52–1:14</span></div>
+    <p class="acts-role">Goes dark — then the reveal: the war-torn world and one Cradle. Silence first; the ember motif returns. This is the real game's true opening shot.</p>
+    <div class="shots">
+
+      <div class="shot">
+        <div class="img">
+          <span class="idx">05</span><span class="beam">Stills · target render</span>
+          <img src="stills/05-goes-dark.png" alt="Goes dark — the last ember dying in silence" />
+        </div>
+        <div class="body">
+          <div class="st">Shot 10 · goes dark</div>
+          <div class="vo"><span class="who">Silence</span>No VO — the sheet's one true silence. The fade is the literal moment of loss.</div>
+          <div class="meta">
+            <div class="m"><div class="k">Music</div><div class="v">Silence; the faintest machine-hiss fading to nothing; two full beats of black</div></div>
+            <div class="m"><div class="k">Transition</div><div class="v">Slow rise from black → shot 11</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="shot">
+        <div class="img">
+          <span class="idx">06</span><span class="beam">Stills · target render</span>
+          <img src="stills/06-the-war-torn-world.png" alt="The war-torn world at cold dawn — ruins, ash, and one golden Cradle ring" />
+        </div>
+        <div class="body">
+          <div class="st">Shot 11 · the war-torn world</div>
+          <div class="vo"><span class="who">Narrator, returning</span>"You wake in the ash. You have nothing. But you remember everything."</div>
+          <div class="meta">
+            <div class="m"><div class="k">Music</div><div class="v">The ember motif returns — one warm instrument, quiet; the machine pulse is gone</div></div>
+            <div class="m"><div class="k">Transition</div><div class="v">The gold ring holds → title treatment → "Rebuild. Remember. Climb. Now take it back."</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- deferrals -->
+  <div class="defer">
+    <h2>Deferred to the next pass (per task scope)</h2>
+    <ul>
+      <li><b>Audio</b> — VO (AI voices now, professional actors as polish — P9), the driving score (owner §11.4), the Chorus's distorted synthetic voice, sound design. Assembly spec: <b>beat-sheet.md</b>.</li>
+      <li><b>Full motion / video</b> — the trailer cut itself (shot pacing, pans, the decision-window slide, the wake's slow rise). This render sequences the stills; motion follows audio.</li>
+      <li><b>Per-race chrome</b> — everything here is the <b>Watchers</b> cut (violet identity, "The Vigil"); the other five races swap the identity layer via the six-world variables (P8).</li>
+      <li><b>Hero/Leader illustration at scale and AAA fidelity</b> — canon Rung 3, out of scope by design.</li>
+    </ul>
+  </div>
+
+  <footer>Deepspace Engine · concept trailer visual layer · <b>ASHED CIRCUITRY</b> · design/concept-trailer — targets, not captures · fiction: myth-literary, never real-world mapping</footer>
+</div>
+</body>
+</html>

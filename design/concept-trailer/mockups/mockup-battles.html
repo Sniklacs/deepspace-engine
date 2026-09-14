@@ -1,0 +1,319 @@
+<!doctype html>
+<!-- =====================================================================
+  TARGET RENDER — not gameplay capture.
+  Concept-trailer UI mockup: the live Battles view at the epic bar.
+  Skeleton = the real BattlesTab.tsx (battle-side §15): battle list + state
+  chips, detail with the shifting line + force blocks, battle log; the
+  cinematic pass adds the hero band, the live score strip, the decision
+  window (B10/B11/B12) and the filmic lighting — all with the LIVE design
+  tokens (app.css) and race identity (Watchers violet #b48cff).
+===================================================================== -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Battles — target render</title>
+<style>
+  :root{
+    --surf-0:#070910; --surf-1:#0b0f14; --surf-2:#11161d; --surf-3:#161d26; --surf-4:#1c2530;
+    --line:rgba(163,173,187,.16); --line-strong:#22303c;
+    --text-1:#e7e9ea; --text-2:#9aa4b2; --text-3:#8490a0;
+    --ember:#ff9d3c; --ember-soft:#ffbe80; --hazard:#4fd8c8; --hazard-soft:#7fe8dc;
+    --corrupt:#b14ec4; --corrupt-text:#e07cf0; --purity:#ffd166; --danger:#ef4444; --danger-soft:#f87171;
+    --watcher:#b48cff; --watcher-text:#c9a4ff; --razor:#5fd4e6; --chalk:#f4f1e8;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#04050a;font-family:var(--sans);color:var(--text-1);width:390px;
+    font-variant-numeric:tabular-nums;
+    background-image:radial-gradient(1200px 400px at 50% -80px, rgba(180,140,255,.10), transparent 60%), radial-gradient(900px 500px at 110% 30%, rgba(255,157,60,.05), transparent 55%);}
+  .num{font-family:var(--mono)}
+  .app{position:relative;overflow:hidden}
+
+  /* ---- chrome ---- */
+  .statusbar{display:flex;align-items:center;gap:8px;padding:10px 12px 8px;border-bottom:1px solid var(--line);background:rgba(11,15,20,.9)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--hazard);box-shadow:0 0 8px var(--hazard)}
+  .wtitle{font-size:12px;font-weight:700;letter-spacing:.14em;color:var(--text-2)}
+  .chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+  .chip.race{background:rgba(180,140,255,.12);border-color:rgba(180,140,255,.38);color:var(--watcher-text)}
+  .chip.beta{border-color:rgba(180,140,255,.3);background:rgba(180,140,255,.08);color:var(--watcher-text)}
+  .chip.reverb{font-family:var(--mono);color:var(--text-2)}
+  .spacer{flex:1}
+  .iconbtn{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--text-2);font-size:13px;background:rgba(17,22,29,.6)}
+
+  /* ---- hero band ---- */
+  .hero{position:relative;height:168px}
+  .hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 28%}
+  .hero::after{content:"";position:absolute;inset:0;background:
+    linear-gradient(180deg, rgba(7,9,16,.10) 0%, rgba(7,9,16,.35) 45%, var(--surf-0) 100%)}
+  .hero .tit{position:absolute;left:16px;bottom:30px;z-index:2}
+  .hero .kicker{font-size:10px;letter-spacing:.22em;color:var(--ember-soft);font-weight:700;text-transform:uppercase}
+  .hero h1{font-size:24px;font-weight:800;color:var(--chalk);text-shadow:0 2px 18px rgba(0,0,0,.8)}
+  .hero .sub{font-size:11.5px;color:var(--text-2);margin-top:2px}
+  .climax{position:absolute;right:12px;bottom:34px;z-index:2;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+  .ticker{display:flex;align-items:center;gap:6px;border:1px solid rgba(255,157,60,.55);background:rgba(255,157,60,.12);color:var(--ember-soft);border-radius:999px;padding:4px 10px;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+  .ticker .pulse{width:7px;height:7px;border-radius:50%;background:var(--ember);animation:blink 1.2s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+  .reverb-note{color:var(--text-3);font-size:9.5px;letter-spacing:.1em}
+
+  /* ---- score strip ---- */
+  .score{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:linear-gradient(180deg, rgba(17,22,29,.85), rgba(17,22,29,.55))}
+  .side{flex:1}
+  .side .nm{font-size:13px;font-weight:700}
+  .side.a .nm{color:var(--ember-soft)} .side.b .nm{color:var(--razor)}
+  .side .st{font-size:10px;color:var(--text-3);letter-spacing:.08em;text-transform:uppercase;margin-top:1px}
+  .side .sc{font-size:17px;font-weight:800;margin-top:2px}
+  .side.a .sc{color:var(--ember)} .side.b .sc{color:var(--razor)}
+  .mid{text-align:center}
+  .mid .bkt{font-size:9px;letter-spacing:.14em;color:var(--text-3);text-transform:uppercase}
+  .mid .win{font-size:11px;font-weight:800;color:var(--purity);margin-top:3px;padding:3px 8px;border:1px solid rgba(255,209,102,.4);border-radius:999px;background:rgba(255,209,102,.08)}
+  .mid .bktgap{font-size:10px;color:var(--text-3);margin-top:4px;font-family:var(--mono)}
+
+  /* ---- section ---- */
+  main{padding:12px 12px 90px}
+  .sec-h{display:flex;align-items:baseline;justify-content:space-between;margin:4px 2px 8px}
+  .sec-h h2{font-size:12.5px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--text-2)}
+  .sec-h .n{font-size:10.5px;color:var(--text-3);font-family:var(--mono)}
+
+  /* ---- battle list + selected detail ---- */
+  .bcard{border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg, rgba(17,22,29,.92), rgba(11,15,20,.9));overflow:hidden;margin-bottom:10px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+  .bcard.sel{border-color:rgba(255,157,60,.5);box-shadow:0 0 0 1px rgba(255,157,60,.25), 0 12px 36px rgba(0,0,0,.55)}
+  .brow{padding:11px 13px}
+  .brow .top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .bzone{font-size:14px;font-weight:700;color:var(--text-1)}
+  .bzone small{color:var(--text-3);font-weight:600;margin-left:6px}
+  .chip.stale{border-color:rgba(95,212,230,.4);background:rgba(95,212,230,.1);color:var(--razor)}
+  .chip.press{border-color:rgba(255,157,60,.45);background:rgba(255,157,60,.1);color:var(--ember-soft)}
+  .chip.rout{border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.12);color:var(--danger-soft)}
+  .brow .foes{margin-top:4px;font-size:11.5px;color:var(--text-2)}
+  .brow .foes b.a{color:var(--ember-soft)} .brow .foes b.b{color:var(--razor)}
+  .brow .meta{margin-top:5px;font-size:10.5px;color:var(--text-3);font-family:var(--mono)}
+  .meta .live{color:var(--hazard-soft)}
+
+  /* detail */
+  .det{padding:0 13px 13px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .statbox{border:1px solid var(--line);border-radius:10px;background:rgba(7,9,16,.55);padding:8px 10px}
+  .statbox .l{font-size:9.5px;letter-spacing:.1em;color:var(--text-3);text-transform:uppercase}
+  .statbox .v{font-size:15px;font-weight:800;color:var(--text-1);margin-top:2px;font-family:var(--mono)}
+  .statbox .v small{font-size:10px;color:var(--text-3);font-weight:500}
+  .line{position:relative;margin-top:12px;background:rgba(7,9,16,.55);border:1px solid var(--line);border-radius:10px;padding:10px}
+  .line .lv{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+  .line .lv .a{color:var(--ember-soft)} .line .lv .b{color:var(--razor)}
+  .line .lv .pct{color:var(--text-3);text-transform:none;letter-spacing:.04em}
+  .bar{height:8px;border-radius:999px;background:rgba(255,255,255,.1);margin-top:7px;overflow:hidden;display:flex}
+  .bar .w{height:100%;background:linear-gradient(90deg,#ff9d3c,#ffbe80);box-shadow:0 0 10px rgba(255,157,60,.7)}
+
+  /* force blocks */
+  .forces{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .force{border:1px solid var(--line);border-radius:10px;background:rgba(7,9,16,.6);padding:9px 10px}
+  .force.a{border-color:rgba(255,157,60,.28)}
+  .force.b{border-color:rgba(95,212,230,.25)}
+  .force .fh{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+  .force.a .fh{color:var(--ember-soft)} .force.b .fh{color:var(--razor)}
+  .force .fh span{font-size:9.5px;color:var(--text-3);font-weight:500;letter-spacing:0;text-transform:none}
+  .force ul{list-style:none;margin-top:6px}
+  .force li{font-size:10.5px;color:var(--text-2);display:flex;gap:5px;align-items:center;line-height:1.55}
+  .force li .sig{color:var(--watcher);font-size:9px}
+  .force li .lvl{color:var(--text-3);font-family:var(--mono);font-size:9.5px}
+  .force li .spec{color:var(--watcher-text);font-size:9.5px}
+  .force .wk{margin-top:6px;font-size:10px;color:var(--razor)}
+  .force .fstats{display:flex;justify-content:space-between;margin-top:6px;font-size:9.5px;color:var(--text-3);font-family:var(--mono);border-top:1px solid var(--line-faint, rgba(163,173,187,.08));padding-top:5px}
+  .force .fstats b{color:var(--text-1);font-weight:700}
+  .cas{margin-top:8px;text-align:right;font-size:10px;color:var(--text-3);font-family:var(--mono)}
+  .cas em{font-style:normal;color:var(--danger-soft)}
+
+  /* decision window */
+  .dec{margin-top:12px;border:1px solid rgba(255,209,102,.45);border-radius:14px;background:
+    radial-gradient(240px 90px at 50% 0%, rgba(255,209,102,.12), transparent 70%), rgba(11,15,20,.94);
+    padding:12px;box-shadow:0 0 0 1px rgba(255,209,102,.15), 0 14px 34px rgba(0,0,0,.5)}
+  .dec .dh{display:flex;align-items:center;justify-content:space-between}
+  .dec .dh .t{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--purity)}
+  .dec .dh .t .d{color:var(--text-3);letter-spacing:.04em;font-weight:600}
+  .dec .dh .cd{font-family:var(--mono);color:var(--purity);font-size:12px;font-weight:700}
+  .orders{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}
+  .ord{border-radius:10px;padding:9px 8px;text-align:center;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border:1px solid}
+  .ord.rf{border-color:rgba(255,157,60,.5);background:rgba(255,157,60,.12);color:var(--ember-soft)}
+  .ord.hd{border-color:rgba(95,212,230,.45);background:rgba(95,212,230,.1);color:var(--razor)}
+  .ord.wd{border-color:rgba(180,140,255,.45);background:rgba(180,140,255,.1);color:var(--watcher-text)}
+  .ord.call{border-color:rgba(255,209,102,.5);background:rgba(255,209,102,.12);color:var(--purity)}
+  .ord small{display:block;font-size:8.5px;font-weight:600;color:var(--text-3);margin-top:2px;letter-spacing:.02em;text-transform:none}
+  .aid{margin-top:8px;display:flex;align-items:center;gap:7px;font-size:10px;color:var(--text-2)}
+  .aid .avatars{display:flex}
+  .aid .av{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--surf-0);margin-left:-5px;background:linear-gradient(135deg, rgba(180,140,255,.5), rgba(95,212,230,.4));display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--chalk)}
+  .aid b{color:var(--hazard-soft);font-family:var(--mono)}
+
+  /* battle log */
+  .log{border:1px solid var(--line);border-radius:14px;background:rgba(11,15,20,.88);padding:11px 13px}
+  .log .lh{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--text-2)}
+  .logrow{margin-top:8px;border-top:1px solid var(--line-faint, rgba(163,173,187,.08));padding-top:7px;font-size:10.5px;color:var(--text-3)}
+  .logrow b{color:var(--text-2)}
+  .logrow .res{float:right;font-family:var(--mono);color:var(--ember-soft)}
+
+  /* bottom nav */
+  .nav{position:fixed;bottom:0;left:0;width:390px;display:flex;border-top:1px solid var(--line-strong);
+    background:linear-gradient(180deg, rgba(11,15,20,.92), rgba(7,9,16,.98));backdrop-filter:blur(8px)}
+  .nav .tab{flex:1;padding:7px 0 9px;text-align:center;font-size:9px;letter-spacing:.1em;color:var(--text-3);text-transform:uppercase;font-weight:700;border-top:2px solid transparent}
+  .nav .tab .ic{font-size:16px;line-height:1.2;filter:grayscale(.4) opacity(.75)}
+  .nav .tab.on{color:var(--watcher-text);border-top-color:var(--watcher)}
+  .nav .tab.on .ic{filter:none}
+
+  /* the honest label */
+  .honest{position:fixed;top:6px;right:12px;z-index:20;font-size:8.5px;letter-spacing:.14em;color:rgba(231,233,234,.75);background:rgba(4,5,10,.75);border:1px solid rgba(255,255,255,.18);padding:3px 8px;border-radius:999px;text-transform:uppercase}
+
+  /* vignette */
+  .app::after{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(120% 90% at 50% 30%, transparent 60%, rgba(0,0,0,.5) 100%)}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="honest">target render — not gameplay capture</div>
+
+  <div class="statusbar">
+    <span class="dot"></span>
+    <span class="wtitle">THE VIGIL</span>
+    <span class="chip race">◆ Watchers</span>
+    <span class="spacer"></span>
+    <span class="chip reverb">Reverb 8,412</span>
+    <span class="iconbtn">🔔</span>
+  </div>
+
+  <div class="hero">
+    <img src="../stills/02-the-battle.png" alt="" />
+    <div class="tit">
+      <div class="kicker">The Front · Real-Time</div>
+      <h1>BATTLES</h1>
+      <div class="sub">Every fight on your fronts — watch, learn, re-form.</div>
+    </div>
+    <div class="climax">
+      <span class="ticker"><span class="pulse"></span>Climax window · ×2</span>
+      <span class="reverb-note">SCORING 20:00–22:00 UTC</span>
+    </div>
+  </div>
+
+  <div class="score">
+    <div class="side a">
+      <div class="nm">THE WATCHERS</div>
+      <div class="st">Home world · The Vigil</div>
+      <div class="sc num">1,412</div>
+    </div>
+    <div class="mid">
+      <div class="bkt">Bucket 41 · 2h</div>
+      <div class="win">● 214 — 183</div>
+      <div class="bktgap num">+31 this bucket</div>
+    </div>
+    <div class="side b" style="text-align:right">
+      <div class="nm">THE GRAYS</div>
+      <div class="st">Invading world · Ashen Reach</div>
+      <div class="sc num">1,388</div>
+    </div>
+  </div>
+
+  <main>
+    <div class="sec-h">
+      <h2>Active Battles</h2>
+      <span class="n num">3 live · 4s poll</span>
+    </div>
+
+    <!-- selected battle -->
+    <div class="bcard sel">
+      <div class="brow">
+        <div class="top">
+          <span class="bzone">The Burnt Pass <small>· T2 strong ground</small></span>
+          <span class="chip press">Pressing</span>
+        </div>
+        <div class="foes"><b class="a">Vault of the First Flame</b> <span style="color:var(--text-3)">vs</span> <b class="b">Observatory of the Still Dark</b></div>
+        <div class="meta"><span class="live">● live</span> · 24:11 elapsed · 01:08:33 remains · cas ticking / ~1 min</div>
+      </div>
+      <div class="det">
+        <div class="grid2">
+          <div class="statbox"><div class="l">Power committed</div><div class="v num">14,820 <small>vs</small> 11,364</div></div>
+          <div class="statbox"><div class="l">Force gap</div><div class="v num" style="color:var(--ember)">+23.3%</div></div>
+        </div>
+        <div class="line">
+          <div class="lv"><span class="a">Vault of the First Flame</span><span class="pct num">line — 62%</span><span class="b">Still Dark</span></div>
+          <div class="bar"><div class="w" style="width:62%"></div></div>
+        </div>
+        <div class="forces">
+          <div class="force a">
+            <div class="fh">Attacker <span>The Vigil · home</span></div>
+            <ul>
+              <li><span class="sig">◆</span> Serev, the Unblinking <span class="lvl num">L10</span> <span class="spec">— marshal</span></li>
+              <li><span class="sig">◆</span> Lady Vexa <span class="lvl num">L10</span> <span class="spec">— scholar</span></li>
+              <li><span class="sig">◆</span> Kadmon, Choir-Breaker <span class="lvl num">L10</span> <span class="spec">— steward</span></li>
+            </ul>
+            <div class="wk">Pulse Lance T3 ×4 · Aegis T3 ×2 · FOB Citadel</div>
+            <div class="fstats"><span>TRP <b class="num">312</b></span><span>FOB <b>Citadel</b></span><span>PWR <b class="num">14,820</b></span></div>
+          </div>
+          <div class="force b">
+            <div class="fh">Defender <span>Ashen Reach · invader</span></div>
+            <ul>
+              <li><span class="sig" style="color:var(--razor)">◈</span> Curator Aleph <span class="lvl num">L10</span> <span class="spec" style="color:var(--razor)">— scholar</span></li>
+              <li><span class="sig" style="color:var(--razor)">◈</span> The Pale Index <span class="lvl num">L10</span></li>
+            </ul>
+            <div class="wk" style="color:var(--hazard-soft)">Archive-Splicer T3 ×3 · FOB Arsenal</div>
+            <div class="fstats"><span>TRP <b class="num">198</b></span><span>FOB <b>Arsenal</b></span><span>PWR <b class="num">11,364</b></span></div>
+          </div>
+        </div>
+        <div class="cas">attrition — attacker <em class="num">41</em> · defender <em class="num">67</em></div>
+
+        <div class="dec">
+          <div class="dh">
+            <span class="t">Decision window <span class="d">— one consequential order</span></span>
+            <span class="cd num">01:44</span>
+          </div>
+          <div class="orders">
+            <div class="ord rf">Reinforce <small>feed 2 marches · 40 energy</small></div>
+            <div class="ord hd">Hold fast <small>hold the zone, bleed</small></div>
+            <div class="ord wd">Steady withdrawal <small>rearguard cost · save the army</small></div>
+            <div class="ord call">Call aid <small>world beacon · arrivals ride the roads</small></div>
+          </div>
+          <div class="aid">
+            <span class="avatars"><span class="av">K</span><span class="av">S</span><span class="av">V</span></span>
+            <span>2 colonies responding · arrivals in <b class="num">12:40</b> over the conductor lane</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- collapsed battle -->
+    <div class="bcard">
+      <div class="brow">
+        <div class="top">
+          <span class="bzone">Shattered Academies <small>· T3 crown jewel</small></span>
+          <span class="chip rout">Rout risk</span>
+        </div>
+        <div class="foes"><b class="a">Wardens of the First Candle</b> <span style="color:var(--text-3)">vs</span> <b class="b">The Pale Index</b></div>
+        <div class="meta">06:52 elapsed · 00:31:08 remains · <span style="color:var(--danger-soft)">defender withdrawing</span></div>
+      </div>
+    </div>
+
+    <div class="bcard">
+      <div class="brow">
+        <div class="top">
+          <span class="bzone">Forge Valleys <small>· T1 foothold</small></span>
+          <span class="chip stale">Stalemate</span>
+        </div>
+        <div class="foes"><b class="a">Vault of the First Flame</b> <span style="color:var(--text-3)">vs</span> <b class="b">Observatory of the Still Dark</b></div>
+        <div class="meta">31:44 elapsed · 02:14:09 remains · <span class="live">● even fight — a long grind</span></div>
+      </div>
+    </div>
+
+    <div class="log">
+      <div class="lh">Battle log — the History Book's raw material</div>
+      <div class="logrow"><span class="res num">ATTACKER WINS</span><b>Forge Valleys, T1</b> — the First Flame takes the foothold. 1:12:18 fought · hero deed: Vexa, "First Light".</div>
+      <div class="logrow"><span class="res num">DEFENDER HOLDS</span><b>Burnt Pass, T2</b> — repelled at the gate. 4:09:33 fought · 214 vs 183 cas.</div>
+    </div>
+  </main>
+
+  <div class="nav">
+    <div class="tab"><div class="ic">🏛️</div>Cradle</div>
+    <div class="tab"><div class="ic">🚚</div>Expeditions</div>
+    <div class="tab"><div class="ic">🧪</div>Lab</div>
+    <div class="tab"><div class="ic">🗡️</div>Armory</div>
+    <div class="tab on"><div class="ic">⚔️</div>Battles</div>
+  </div>
+</div>
+</body>
+</html>
