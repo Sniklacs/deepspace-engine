@@ -1,29 +1,39 @@
 // ============================================================================
-// V8 WORLD ATLAS VERIFICATION — design/world-map-design.md (M1/M2/M3/M6/M8)
+// V9 WORLD ATLAS VERIFICATION — design/world-map-design.md (M1/M2/M3/M6/M8)
+// + circuit-fullscreen-page.md §2.2/§6.1 (the denser-web layout law).
 //
 // Covers, in order:
 //   1 · config constants — the published §1.3/§2.2/§3 defaults, one place.
-//   2 · geography taxonomy — six Burning-Rim zones (range ≥ 60), four
-//       Near-Ring home-protected, the Chorus-held heart (W2) on every world.
+//   2 · geography taxonomy — seventeen Burning-Rim zones (range ≥ 60; six
+//       ratified anchors + eleven V9 footholds), twelve Near-Ring home-
+//       protected, the Chorus-held heart (W2) on every world.
 //   3 · determinism — same world id → byte-identical web (two fresh calls,
 //       plus a Math.random-throws probe and a source scan: ZERO Math.random
 //       in the field, matching the daily.ts house standard).
-//   4 · identity — no two worlds' webs identical (seeded rim order + wiring).
+//   4 · identity — no two worlds' webs identical (seeded row permutations +
+//       wiring drift).
 //   5 · topology — nodes/edges shape, circuit-web connectivity, rim-chain
-//       hubness = degree/4 (the §2.1 position formula is graph-honest).
-//   6 · importance (M3) — spec §2.1 table parity: richness/position/chorus/
-//       score/tier per rim zone computed from zones.ts data; tiers 2/2/2.
+//       hubness = degree/4 for EVERY rim node (the §2.1 position formula is
+//       graph-honest — anchors included).
+//   6 · importance (M3) — spec §2.1 table parity for the six anchors EXACT;
+//       V9 foothold tiers 4×T1 / 4×T2 / 3×T3 across all three bands; the
+//       aggregate world spread is 6/6/5 and the heart stays the crown jewel.
 //   7 · profiles (§1.3) — resource profiles tier-consistent + chipsets/day
-//       parity (chipsetChance × 4). War constants present, never exposed.
+//       parity (chipsetChance × 4) for all 17 rim zones. War constants
+//       present, never exposed.
 //   8 · NO-SECRETS structural proof — the graph/node key surfaces are exactly
 //       the public set; nothing holder/pairing/ownership-shaped exists.
 //   9 · migration + blank safety — a V7-shaped save (daily/devotion/armory
 //       fields) advances with zero errors; blank slots stay quiet; old saves
-//       keep their version (informational; V8 adds no state).
+//       keep their version (informational; V9 adds no state).
 //  10 · API surface — the REAL createGameFn/getState server fns through the
 //       server-fn middleware (runWithStartContext) on a scratch account in
-//       THIS suite's data dir: V8 games persist, the public payload ships no
+//       THIS suite's data dir: V9 games persist, the public payload ships no
 //       atlas/war keys and keeps the daily view (regression).
+//  11 · LAYOUT LAW (§2.2/§6.1) — every generated web: rows sit in their
+//       authored bands (jitter ≤ ±6), x inside 0.06–0.94 of width, same-row
+//       spacing ≥ 60 units, ANY pair ≥ 52 units (the r26 hit-circle floor);
+//       the heart and the Cradle never leave their bands.
 import * as engine from "/home/team/shared/site/src/game/engine.ts";
 import {
   ATLAS_CONFIG,
@@ -36,7 +46,9 @@ import {
   hashSeed,
   importanceFor,
   zoneProfile,
+  ROW_PERMS,
   type AtlasGraph,
+  type Tier,
 } from "/home/team/shared/site/src/game/map.ts";
 import { publicState, createGameFn, getState } from "/home/team/shared/site/src/game/api.ts";
 import { signup as authSignup } from "/home/team/shared/site/src/game/auth.ts";
@@ -75,14 +87,22 @@ check("war incursion odds low/high", ATLAS_CONFIG.war.incursionOddsPerBucket.t2 
 // ======================================================================
 // 2 · geography taxonomy (§1.1 / W2)
 // ======================================================================
-console.log("— 2 · world geography (zones.ts 1:1 — no new places) —");
-const RIM_EXPECTED = ["forge-valleys", "boneyard", "shattered-academies", "quantum-facility", "collider-ruins", "dark-matter-observatory"];
-const NEAR_EXPECTED = ["outer-ruins", "lantern-reach", "observatories", "hollow-warrens"];
-check("six Burning-Rim zones (range ≥ 60)", RIM_ZONE_IDS.length === 6 && JSON.stringify([...RIM_ZONE_IDS].sort()) === JSON.stringify([...RIM_EXPECTED].sort()), JSON.stringify(RIM_ZONE_IDS));
+console.log("— 2 · world geography (zones.ts 1:1 — anchors + V9 footholds) —");
+const RIM_EXPECTED = [
+  "forge-valleys", "boneyard", "shattered-academies", "quantum-facility", "collider-ruins", "dark-matter-observatory", // ratified anchors
+  "rust-gardens", "ash-columns", "quarry-edge", "shard-fields", "murmur-sumps", "titan-breaks", "glass-harbor", "wailing-towers", "deep-vaults", "null-engine", "starfall-core", // V9
+];
+const NEAR_EXPECTED = [
+  "outer-ruins", "lantern-reach", "observatories", "hollow-warrens", // ratified anchors
+  "tram-yards", "relay-spires", "cinder-farms", "pump-stations", "sigil-plaza", "hearth-lanes", "grain-silos", "watchtower-row", // V9
+];
+check("seventeen Burning-Rim zones (range ≥ 60)", RIM_ZONE_IDS.length === 17 && JSON.stringify([...RIM_ZONE_IDS].sort()) === JSON.stringify([...RIM_EXPECTED].sort()), JSON.stringify(RIM_ZONE_IDS));
 check("every rim zone range ≥ 60 (published cut)", [...RIM_ZONE_IDS].every((id) => require("/home/team/shared/site/src/game/zones.ts").getZone(id).range >= 60));
-check("four Near-Ring zones (range < 60)", NEAR_ZONE_IDS.length === 4 && JSON.stringify([...NEAR_ZONE_IDS].sort()) === JSON.stringify([...NEAR_EXPECTED].sort()), JSON.stringify(NEAR_ZONE_IDS));
+check("twelve Near-Ring zones (range < 60)", NEAR_ZONE_IDS.length === 12 && JSON.stringify([...NEAR_ZONE_IDS].sort()) === JSON.stringify([...NEAR_EXPECTED].sort()), JSON.stringify(NEAR_ZONE_IDS));
+check("every near zone range < 60 (home-protected cut)", [...NEAR_ZONE_IDS].every((id) => require("/home/team/shared/site/src/game/zones.ts").getZone(id).range < 60));
 check("W2 heart = the deep-most T3 site (dark-matter-observatory)", HEART_ZONE_ID === "dark-matter-observatory", HEART_ZONE_ID);
-check("profiles exist for all six rim zones", RIM_EXPECTED.every((id) => !!zoneProfile(id)));
+check("heart is the single deepest rim zone (max range, none tie)", require("/home/team/shared/site/src/game/zones.ts").getZone(HEART_ZONE_ID).range === Math.max(...RIM_ZONE_IDS.map((id) => require("/home/team/shared/site/src/game/zones.ts").getZone(id).range)) && RIM_ZONE_IDS.filter((id) => require("/home/team/shared/site/src/game/zones.ts").getZone(id).range === require("/home/team/shared/site/src/game/zones.ts").getZone(HEART_ZONE_ID).range).length === 1);
+check("profiles exist for all seventeen rim zones", RIM_EXPECTED.every((id) => !!zoneProfile(id)));
 const dmProfile = zoneProfile("dark-matter-observatory")!;
 check("heart profile is the deep-most T3 with plasma", dmProfile.tier === 3 && dmProfile.plasmaPerDay !== null, JSON.stringify(dmProfile));
 // ======================================================================
@@ -130,7 +150,7 @@ for (const g of webs) {
   const near = g.nodes.filter((n) => n.kind === "near");
   const heart = g.nodes.filter((n) => n.heart);
   const cradle = g.nodes.filter((n) => n.kind === "cradle");
-  check(`${g.worldId}: 11 nodes = 6 rim (+heart) + 4 near + cradle`, g.nodes.length === 11 && rim.length === 6 && near.length === 4 && cradle.length === 1 && heart.length === 1, `nodes=${g.nodes.length}`);
+  check(`${g.worldId}: 30 nodes = 17 rim (+heart) + 12 near + cradle`, g.nodes.length === 30 && rim.length === 17 && near.length === 12 && cradle.length === 1 && heart.length === 1, `nodes=${g.nodes.length}`);
   check(`${g.worldId}: heart node is dark-matter-observatory at the core`, heart[0].id === "dark-matter-observatory" && heart[0].kind === "heart");
   check(`${g.worldId}: every node ≥ 1 traversable trace (§13)`, g.nodes.every((n) => g.edges.some((e) => e.kind !== "severed" && (e.from === n.id || e.to === n.id))));
   // weak connectivity over non-severed edges (the web is one circuit)
@@ -159,8 +179,12 @@ for (const g of webs) {
 // ======================================================================
 // 6 · importance (M3) — spec §2.1 table parity + 2/2/2 tiers
 // ======================================================================
-console.log("— 6 · published importance (spec §2.1 table parity) —");
+console.log("— 6 · published importance (spec §2.1 table parity + V9 tiers) —");
 // { richness, position, chorus, score, tier } per the ratified spec table.
+// The six anchor rows stay EXACT across the V9 denser web (the heart keeps
+// the crown; forge-valleys' decomposition is re-authored graph-honestly to
+// hubness 0.5 with adjacency 0.0833 — position 0.25, score 0.30, tier 1 all
+// unchanged because the formula itself never moved).
 const SPEC_TABLE: Record<string, [number, number, number, number, number]> = {
   "forge-valleys": [0.32, 0.25, 0.30, 0.30, 1],
   "boneyard": [0.29, 0.40, 0.30, 0.32, 1],
@@ -179,25 +203,39 @@ for (const [id, want] of Object.entries(SPEC_TABLE)) {
 // richness/position/chorus are formula-exact; boneyard's score is the one
 // half-cent edge (0.325 → 0.33 under round2 of the ROUNDED sub-scores; the
 // table's row used unrounded richness → 0.32). Tiers — the ratified M3
-// contract — are exact for all six, and the UI displays live computed data.
-const tiers = Object.values(SPEC_TABLE).map((r) => r[4]).sort().join(",");
-check("exactly 2 T1 / 2 T2 / 2 T3 per world", tiers === "1,1,2,2,3,3", tiers);
-check("sub-scores all in 0..1", RIM_EXPECTED.every((id) => { const i = importanceFor(id); return i.richness >= 0 && i.richness <= 1 && i.position >= 0 && i.position <= 1 && i.chorus >= 0 && i.chorus <= 1 && i.score >= 0 && i.score <= 1; }));
+// contract — are exact for the anchors, and the UI displays live computed data.
+// V9 foothold tiers — computed by the SAME importanceFor; spread across bands.
+const V9_TIERS: Record<string, Tier> = {
+  "rust-gardens": 1, "ash-columns": 1, "quarry-edge": 1, "shard-fields": 1,
+  "murmur-sumps": 2, "titan-breaks": 2, "glass-harbor": 2, "wailing-towers": 2,
+  "deep-vaults": 3, "null-engine": 3, "starfall-core": 3,
+};
+const v9Tiers = Object.values(V9_TIERS).sort().join(",");
+check("V9 foothold tiers: 4×T1 / 4×T2 / 3×T3 (spread, not one tier)", v9Tiers === "1,1,1,1,2,2,2,2,3,3,3", v9Tiers);
+for (const [id, want] of Object.entries(V9_TIERS)) {
+  const got = importanceFor(id);
+  check(`${id}: computed tier ${want} (score ${got.score.toFixed(2)} <0.40 → T1 ≤0.70 → T2 >0.70 → T3)`, got.tier === want, JSON.stringify(got));
+}
+const allTiers = [...Object.values(SPEC_TABLE).map((r) => r[4]), ...Object.values(V9_TIERS)].sort().join(",");
+check("per-world rim spread is exactly 6 T1 / 6 T2 / 5 T3", allTiers === "1,1,1,1,1,1,2,2,2,2,2,2,3,3,3,3,3", allTiers);
+check("sub-scores all in 0..1 (every rim zone)", RIM_EXPECTED.every((id) => { const i = importanceFor(id); return i.richness >= 0 && i.richness <= 1 && i.position >= 0 && i.position <= 1 && i.chorus >= 0 && i.chorus <= 1 && i.score >= 0 && i.score <= 1; }));
 check("ordering: DM > CO > QF > SA (the heart is the crown jewel)", importanceFor("dark-matter-observatory").score > importanceFor("collider-ruins").score && importanceFor("collider-ruins").score > importanceFor("quantum-facility").score && importanceFor("quantum-facility").score > importanceFor("shattered-academies").score);
+check("the heart outranks every V9 deep site too", [...RIM_EXPECTED].filter((id) => !(id in SPEC_TABLE)).every((id) => importanceFor("dark-matter-observatory").score > importanceFor(id).score));
 // ======================================================================
 // 7 · resource profiles (§1.3) — tier consistency + chipsets parity
 // ======================================================================
 console.log("— 7 · resource profiles (§1.3 defaults) —");
 const zonesMod = require("/home/team/shared/site/src/game/zones.ts");
+const DEEP_PLASMA_IDS = ["quantum-facility", "collider-ruins", "dark-matter-observatory", "deep-vaults", "null-engine", "starfall-core"];
 for (const id of RIM_EXPECTED) {
   const z = zonesMod.getZone(id);
   const p = zoneProfile(id)!;
   check(`${id}: profile tier == computed importance tier`, p.tier === importanceFor(id).tier, `profile=${p.tier} computed=${importanceFor(id).tier}`);
   check(`${id}: chipsets/day == chipsetChance × 4`, Math.abs(p.chipsetsPerDay - Math.round(z.chipsetChance * ATLAS_CONFIG.chipsetTicksPerDay * 100) / 100) < 1e-9, `${p.chipsetsPerDay} vs ${z.chipsetChance * 4}`);
   check(`${id}: ember band lo ≤ hi and sane`, p.embersPerDay[0] > 0 && p.embersPerDay[0] < p.embersPerDay[1]);
-  check(`${id}: deep trio carries plasma, others none`, (p.plasmaPerDay !== null) === (id === "quantum-facility" || id === "collider-ruins" || id === "dark-matter-observatory"));
+  check(`${id}: plasma only on deep sites (rad ≥ 60 + hazmat tier)`, (p.plasmaPerDay !== null) === DEEP_PLASMA_IDS.includes(id), `plasma=${p.plasmaPerDay}`);
 }
-check("war-captured mats: anunnaki/nephilim/watchers, deep trio matless", zoneProfile("forge-valleys")!.mat === "anunnaki" && zoneProfile("boneyard")!.mat === "nephilim" && zoneProfile("shattered-academies")!.mat === "watchers" && zoneProfile("quantum-facility")!.mat === null);
+check("war-captured mats: anchors anunnaki/nephilim/watchers; V9 footholds spread the rest; deep sites matless", zoneProfile("forge-valleys")!.mat === "anunnaki" && zoneProfile("boneyard")!.mat === "nephilim" && zoneProfile("shattered-academies")!.mat === "watchers" && zoneProfile("rust-gardens")!.mat === "draconians" && zoneProfile("ash-columns")!.mat === "grays" && zoneProfile("quarry-edge")!.mat === "ashtar" && zoneProfile("shard-fields")!.mat === null && zoneProfile("deep-vaults")!.mat === null && DEEP_PLASMA_IDS.every((id) => zoneProfile(id)!.mat === null));
 // ======================================================================
 // 8 · NO-SECRETS — structural proof (the shell ships zero war state)
 // ======================================================================
@@ -263,6 +301,51 @@ check("public payload keeps the daily view (regression)", !!pub && Array.isArray
 check("public payload ships Devotion + streak (regression)", typeof (pub as any)?.devotion === "number" && typeof (pub as any)?.devotionStreak === "number");
 fs.rmSync(SCRATCH, { recursive: true, force: true });
 check("scratch data cleaned", !fs.existsSync(SCRATCH));
+// ======================================================================
+// 11 · LAYOUT LAW (circuit-fullscreen-page.md §2.2/§6.1) — every web
+// ======================================================================
+console.log("— 11 · layout law (bands, margins, spacing) —");
+// Author row for every node id: the V9 footholds live in ROW_PERMS; the
+// anchors live in the authored BASE_POS (mirrored in ROW_PERMS slot fixes and
+// the module skeleton). Rebuild the row map from ROW_PERMS + the skeleton
+// constants so the law is checked against AUTHORED rows, not jittered nodes.
+const wt = 560; // ATLAS_CONFIG.viewBox.w — keep in sync with the config
+const ht = 760; // ATLAS_CONFIG.viewBox.h
+const bands = ATLAS_CONFIG.layoutBands;
+const rowY: Record<string, number> = {};
+for (const row of ROW_PERMS) {
+  for (const s of row.slots) if (s.fixed) rowY[s.fixed] = row.y;
+  for (const id of row.nodes) rowY[id] = row.y;
+}
+rowY["dark-matter-observatory"] = 130; rowY[CRADLE_NODE_ID] = 710; // authored heart/cradle rows
+for (const g of webs) {
+  const bandOf = (id: string): { y0: number; y1: number } => {
+    if (id === "dark-matter-observatory") return bands.core;
+    if (id === CRADLE_NODE_ID) return bands.home;
+    const ry = rowY[id] / ht; // authored row fraction
+    if (ry < bands.rim.y0) return bands.deep;
+    if (ry < bands.near.y0) return bands.rim;
+    return bands.near;
+  };
+  const jitterTol = 8; // cosmetic wobble is ±6; allow float slack
+  for (const n of g.nodes) {
+    const band = bandOf(n.id);
+    check(`${g.worldId}: ${n.id} (${n.kind}) sits in its authored band`, n.y >= band.y0 * ht - jitterTol && n.y <= band.y1 * ht + jitterTol, `y=${n.y} band=[${band.y0 * ht},${band.y1 * ht}]`);
+  }
+  check(`${g.worldId}: x inside 0.06–0.94 of width (spacing margins)`, g.nodes.every((n) => n.x >= 0.06 * wt - 6 && n.x <= 0.94 * wt + 6), `min=` + Math.min(...g.nodes.map((n) => n.x)) + ` max=` + Math.max(...g.nodes.map((n) => n.x)));
+  let minGlobal = Infinity, minRow = Infinity, pairG = "", pairR = "";
+  for (let i = 0; i < g.nodes.length; i++) {
+    for (let j = i + 1; j < g.nodes.length; j++) {
+      const a = g.nodes[i], b = g.nodes[j];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d < minGlobal) { minGlobal = d; pairG = `${a.id}/${b.id}`; }
+      if (rowY[a.id] === rowY[b.id] && d < minRow) { minRow = d; pairR = `${a.id}/${b.id}`; }
+    }
+  }
+  check(`${g.worldId}: ANY two nodes ≥ 52 apart (r26 hit-circle floor)`, minGlobal >= ATLAS_CONFIG.spacing.min - 1e-6, `min=${minGlobal.toFixed(1)} (${pairG})`);
+  check(`${g.worldId}: same-row spacing ≥ 60 (widest-row law)`, minRow >= ATLAS_CONFIG.spacing.row - 1e-6, `min=${minRow.toFixed(1)} (${pairR})`);
+  check(`${g.worldId}: the heart and the Cradle never move (fixed rows)`, g.nodes.find((n) => n.heart)!.y >= 0.14 * ht - 8 && g.nodes.find((n) => n.heart)!.y <= 0.24 * ht + 8 && g.nodes.find((n) => n.kind === "cradle")!.y >= 0.88 * ht - 8, `heart=${g.nodes.find((n) => n.heart)!.y} cradle=${g.nodes.find((n) => n.kind === "cradle")!.y}`);
+}
 // ======================================================================
 console.log(`\natlas-tests: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
