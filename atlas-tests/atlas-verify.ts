@@ -257,7 +257,7 @@ check("no war-state STRING keys anywhere in the module source", !forbiddenKeys.t
 // 9 · migration + blank safety (V8 adds NO state — legacy saves load clean)
 // ======================================================================
 console.log("— 9 · migration (V7-shaped save) + blank safety —");
-check("engine VERSION is 8 (V8 build marker)", engine.VERSION === 8, `VERSION=${engine.VERSION}`);
+check("engine VERSION is 9 (V9 build marker — real-time battle engine)", engine.VERSION === 9, `VERSION=${engine.VERSION}`);
 const now = Date.now();
 const legacy = engine.newGame("OldSave", "watchers", now);
 (legacy as any).version = 7; // a V7-produced save

@@ -78,6 +78,20 @@ export function diffResolvedEvents(prev: GameState, next: GameState): ReportEven
       }
     }
   }
+  // 5 · Battles (V9, the real-time battle engine) — "active" in the previous
+  //     state that is now resolved. The server flips status + appends the
+  //     ledger report lazily in advance(); this diff rides the same 4 s poll.
+  for (const b of prev.battles ?? []) {
+    if (b.status !== "active") continue;
+    const nxt = (next.battles ?? []).find((x) => x.id === b.id);
+    if (!nxt || nxt.status === "resolved") {
+      const outcome = nxt?.result?.outcome ?? b.result?.outcome ?? "standoff";
+      const verb = outcome === "attacker_victory" ? "the attacker breaks the line"
+        : outcome === "defender_victory" ? "the defender holds the ground"
+          : "both sides break off";
+      out.push({ text: `⚔️ The battle at ${b.zoneName || b.zoneId} is decided — ${verb}.` });
+    }
+  }
 
   return out;
 }
