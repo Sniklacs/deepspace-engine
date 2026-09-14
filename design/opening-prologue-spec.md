@@ -179,3 +179,65 @@ The polish queue (audio, store, chat, trade) drops below this line until the hoo
   returning players and testers)? Recommend: skippable + replayable, flag recorded.
 - **P8 — Per-race rollout:** Watchers prologue ships first (beta), other five races with their worlds —
   confirm.
+- **P9 — Voice source:** AI-generated voices now → professional actors as the polish pass (recommended),
+  vs professional VO from the start. Voiceovers are *actual audible speech* from build one.
+- **P10 — Narrator identity:** an omniscient "world voice" (recommended) vs a named character narrator.
+- **P11 — The Chorus speaks in a distorted, synthetic machine voice** (thematically exact for the AI
+  antagonist) — confirm.
+- **P12 — Story scope:** write the prologue's script first; the ongoing in-depth storyline threads through
+  later modules (Oracle riddles in voice, hero backstories, the History Book, the silent Unbound revelation)
+  — confirm.
+
+---
+
+## §11 Storyline, voiceovers & cinematic presentation (owner 2026-09-13)
+
+**Owner's directive (captured):** *"I want voice overs — actual speaking — and a storyline that comes with
+it. A real, in-depth story that drags you in, starts you over, and now you know what you're working for —
+voiceovers and real action."*
+
+The opening is not a silent power-fantasy — it is a **voice-acted, story-driven prologue**. Voice + story +
+action together are what make the loss land and the rebuild matter. This is the emotional engine that turns
+"you had it all, you lost it" from a mechanic into a *memory*.
+
+### 11.1 The narrative — three acts, told in voice
+
+- **Act I — The Height.** Cold open (narrator): the hundred-year war, the player as the last hope, the
+  final push. The eight heroes are introduced *in voice* — each gets a line, establishing them as
+  characters, not stat skins (heroes brief §R5). The player wins real-time battles while the story unfolds
+  through narrator + hero voices. The power fantasy peaks.
+- **Act II — The Fall.** The turn — the narrator's tone shifts: *"You were winning. You were always going
+  to lose."* The final battle is fought and lost; colony and heroes fall in voiced moments of sacrifice
+  ("the archive burns; the lecturer falls silent"). The Chorus is heard as a **distorted synthetic voice**.
+- **Act III — The Wake.** The narrator reframes: *"You wake in the ash. You have nothing. But you remember
+  everything. Rebuild. Remember. Climb."* The hook is delivered *in voice* — the player now knows what
+  they're working for.
+
+### 11.2 Voice cast (who speaks)
+
+- **The Narrator** — the world's voice; carries the emotional through-line (the "drag you in").
+- **The player's heroes** — voiced characters, each with an identity (a line in Act I, a beat in Act II).
+- **The Oracle** — riddles spoken in voice (this also seeds the later riddle-day tradition).
+- **The Chorus** — distorted/synthetic machine voice; the antagonist's sound.
+
+### 11.3 Voice source (flag P9)
+
+- **Recommendation: AI-generated voices now → professional actors as the polish pass.** AI TTS (e.g.
+  ElevenLabs-class) gets *actual spoken audio* into the build immediately, is cheap and infinitely iterable
+  (script edits re-render instantly), and matches the plan's "revenue funds the format upgrade" logic — ship
+  the story with AI voices, then replace the marquee roles (narrator + a hero or two) with professional VO
+  when revenue allows.
+
+### 11.4 Cinematic presentation & audio pipeline
+
+- **The designer owns the cinematography** — scene framing, camera/pan over the Circuit, the battle view as
+  a stage, the fall's visual collapse — with story + VO + action timed together.
+- **Audio pipeline:** VO playback synced to scene beats via Web Audio (`sound.ts` already exists);
+  **captions on by default** (accessibility, WCAG AA).
+
+### 11.5 Story depth beyond the opening
+
+- The prologue is the story's *anchor*. The ongoing in-depth storyline threads through what's already built
+  and planned: Oracle riddles (voice), hero backstories, the History Book's narration, the silent Unbound
+  revelation, the Mentor's Lantern. **The opening's script is written first; the ongoing story is a
+  follow-up deliverable (flag P12).**
