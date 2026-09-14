@@ -42,6 +42,14 @@ angrier than if they were never wowed. **Nothing ships below the bar the opening
 expeditions, the Circuit, the war, the heroes all get the same art direction, cinematic feeling, and polish.
 The concept trailer is the *style bible*: it pins the exact bar every other screen must match.
 
+**The bond is with the Leaders (owner 2026-09-13).** The opening's emotional engine is the player's bond with
+their *named Leaders* — and it must form **immediately**. In Act I the Leaders are introduced as *characters*
+(named, voiced, with personality and a relationship to the player), never as stat blocks. They are who the
+narrator/heroes/player are talking *to* and *with*. The Leaders' stand (§6.1) and the final order (§6.2) only
+land because the player genuinely cares about *these specific people* — so Act I's job is to make that care
+real before Act II spends it. Post-Fall, re-earning those same Leaders becomes the climb back to *people* the
+player already knew — which is exactly the "feeling already tasted" the open promises.
+
 ---
 
 ## §3 The three acts
