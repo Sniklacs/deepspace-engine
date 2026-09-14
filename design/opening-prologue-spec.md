@@ -35,6 +35,13 @@ remnant climbing back to a feeling they already tasted.
 The one-sentence pitch the open delivers to a new player: **"You were a legend. You had everything. You
 lost it. Now take it back."**
 
+**The bar is set at the top (owner 2026-09-13).** The opening's graphics and feeling are not a one-time hook
+— the whole game must live at that bar. *"We can't fall backwards; we have to maintain that type of graphics
+and feeling to keep them."* A player grabbed by the epic open and dropped onto a flat colony screen bounces —
+angrier than if they were never wowed. **Nothing ships below the bar the opening sets** — the colony, the
+expeditions, the Circuit, the war, the heroes all get the same art direction, cinematic feeling, and polish.
+The concept trailer is the *style bible*: it pins the exact bar every other screen must match.
+
 ---
 
 ## §3 The three acts
@@ -109,6 +116,57 @@ prologue *is* building the war/battle layer. There is no throwaway content.
   carry forward (P6 decides how much echoes).
 - **Chorus tie-in:** this is the Chorus at 100% attention scaled to a world-ending event — the ratchet's
   worst tier told as history, which retroactively gives the real game's Chorus meter its dread.
+
+### 6.1 The Leaders' stand & the escape (owner 2026-09-13)
+
+Near the end of the final battle, when the line has broken and the colony is falling, the **Leaders take
+over**. The beat, in the owner's words: *"our leaders in our Cradle take over and tell our hero — our player
+— to get out; they will cover this. They take over and just start making the calls, doing everything, and the
+player is watching it in real time — just watching the action play out."*
+
+- **The perspective shift — actor to witness.** The player is still fighting; then the Leaders step in,
+  order them out, and take command. Control is deliberately handed off: the player becomes a **spectator**,
+  watching the Leaders run the final stand in real time on the live battle view (the first use of spectate
+  mode — battle-side §15 B2 already anticipates it).
+- **The Leaders get their moment.** The colony/strategy layer earns its emotional weight: the Leaders are
+  the ones who sacrifice so the player escapes. They make the same calls the player has been learning (§12) —
+  reinforce, hold, withdrawal — now seen from the outside, which quietly reinforces the tutorial.
+- **The escape = the reset.** The player gets out; the Cradle, the Leaders, and the heroes all fall covering
+  them. This is what "you lost it all" means mechanically — and it makes the loss *personal*: you survived
+  because they chose to cover you.
+- **"Watching" is the emotional device.** The powerlessness of the fall is made literal — at the end, you
+  don't act, you witness. That powerlessness is what gives Act III's "rebuild and climb back" its fire.
+
+### 6.2 The final order (owner 2026-09-13)
+
+At the very end, the Leaders — who just covered the player's escape — turn back: *"We can't hold them back,
+sir — what do we do?"* The player is handed the **last actions**: the final decisions to try to save their
+race.
+
+- **Agency returns at the weightiest moment.** The arc is: fight → watch the Leaders hold → receive the
+  final order. The Leaders saved the player; now they lay the race's fate at the player's feet — humility and
+  responsibility in the same breath.
+- **The last actions are consequential, not cosmetic.** They decide the "seed" the player carries into Act
+  III — what survives the fall and shapes the rebuild. (Flags P13–P14 define what the actions are; recommend
+  a small, weighty choice set — never a purchase, never a "correct" answer.)
+- **"Save the race, not yourself."** The final order frames the whole game's object — the race's survival —
+  which is exactly what the rebuild is for. This keeps the fall "fair" (§6): the colony still falls, but the
+  player's last decision genuinely matters.
+
+### 6.3 He goes dark — into the war-torn world (owner 2026-09-13)
+
+After the final order, the player **goes dark** — a fade to black, and to silence, as the last stand falls
+behind them. Then the **opening of the war-torn world**: the screen rises on the Shatterlands as they are
+*now* — ruined, quiet, the Cradle broken, the aftermath stretching to the horizon.
+
+- **"Goes dark" is the seam.** The fade is the literal moment of loss — the escape into darkness, the old
+  world ending behind the player. The VO drops out here; the silence does the work.
+- **The war-torn world reveal is the real game's true opening shot.** The player wakes not in a menu but in
+  the aftermath — the destroyed world they are now responsible for rebuilding. It lands *because* the player
+  just saw what it was at its height.
+- **Hands off to Act III.** The reveal settles on the single Cradle (the existing onboarding entry point),
+  and the rebuild loop begins — with the contrast between "what it was" and "what it is" carrying the whole
+  motive.
 
 ---
 
@@ -187,6 +245,11 @@ The polish queue (audio, store, chat, trade) drops below this line until the hoo
 - **P12 — Story scope:** write the prologue's script first; the ongoing in-depth storyline threads through
   later modules (Oracle riddles in voice, hero backstories, the History Book, the silent Unbound revelation)
   — confirm.
+- **P13 — The "last actions":** what the final decision(s) are — recommend a small, weighty choice set that
+  seeds the rebuild (which memory / knowledge / remnant carries out); never a purchase, never a "correct"
+  answer.
+- **P14 — Agency arc:** confirm fight → watch the Leaders hold → receive the final order (§6.1–6.2), vs.
+  pure spectator through the end.
 
 ---
 
@@ -234,6 +297,9 @@ action together are what make the loss land and the rebuild matter. This is the 
   a stage, the fall's visual collapse — with story + VO + action timed together.
 - **Audio pipeline:** VO playback synced to scene beats via Web Audio (`sound.ts` already exists);
   **captions on by default** (accessibility, WCAG AA).
+- **Music (owner 2026-09-13):** no low ambient hum — the opening's score is **upbeat, driving,
+  high-energy** ("pump the heart"), matched to the action; the in-game background music follows the same
+  direction (kill the tranquil buzz).
 
 ### 11.5 Story depth beyond the opening
 
@@ -241,3 +307,39 @@ action together are what make the loss land and the rebuild matter. This is the 
   and planned: Oracle riddles (voice), hero backstories, the History Book's narration, the silent Unbound
   revelation, the Mentor's Lantern. **The opening's script is written first; the ongoing story is a
   follow-up deliverable (flag P12).**
+
+---
+
+## §12 The in-battle tutorial — teach them while they're thrown in (owner 2026-09-13)
+
+**Owner's directive (captured):** *"When we throw them into the middle of this we need a tutorial to lay it
+all out — what they're supposed to do, how to do it, when to send reinforcements, when to ask for
+reinforcements, and what to do when they're getting pummeled."*
+
+The tension — throw them into the action *and* teach them — is resolved by making the tutorial **diegetic and
+in-the-moment**: the opening's voice-acted narrator + heroes (§11) *are* the tutorial. The player learns by
+following orders in the heat of it, not by reading a manual first.
+
+### 12.1 The tutorial is Act I's first battle
+- No separate prelude, no instruction screen. The first battle is a **guided live tutorial** run on the real
+  engine (§5): the narrator frames the scene, the heroes cue the player, and the UI highlights what to touch.
+- **Progressive scaffolding:** the first battle is fully guided (highlighted controls, spoken cues); guidance
+  fades across the opening's later battles as the player internalizes, ending hands-off.
+
+### 12.2 What it teaches (the decision windows — battle-side §15)
+- **Read the battle** — sides, force sizes, the live state chip (Stalemate / Pressing / Rout risk).
+- **Command** — squad composition and which skill to time (decision moments, not APM).
+- **Reinforce / hold** — when to feed a fight vs. hold the line.
+- **Ask for reinforcements (aid call)** — the co-op mechanic: when to call teammates, how arrivals ride the
+  travel-time over links.
+- **When you're pummeled** — the retreat / steady-withdrawal decision (rearguard cost vs. saving the army),
+  and when to call aid instead.
+
+### 12.3 The "pummeled" moment is taught *survivable* first
+- The tutorial teaches retreat/withdrawal/aid in a fight the player can still win — so that when the
+  unwinnable Fall (§6) comes, they already know their tools. The loss then reads as "the scale was beyond
+  winning," never "I didn't know what to do."
+
+### 12.4 Skip / replay & accessibility
+- Returning players skip the guided version; first-timers get full guidance (extends flag P7).
+- Spoken cues + captions keep it accessible (WCAG AA); every prompt has a text twin.
