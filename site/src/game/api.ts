@@ -33,7 +33,15 @@ import {
   createPaymentProvider,
 } from "./monetization";
 import { dailyPublicView } from "./daily";
-import { battlePublicView } from "./war/battle-engine";
+import {
+  appendReportOnce,
+  battleEndAt,
+  battlePublicView,
+  issueDecision,
+  logBattleResolved,
+  respondToAid,
+} from "./war/battle-engine";
+import type { BattleHeroSnapshot } from "./war/war-types";
 import {
   loadAccountSaves,
   saveAccountSaves,
@@ -107,8 +115,8 @@ function allSummaries(saves: AccountSaves): GameSummary[] {
 // the server owns the truth (§1.4). Exported so the verification harness can
 // assert on a REAL getState payload shape (identical function the handlers use).
 export function publicState(st: GameState): GameState {
-  const { revelationCounters: _rc, revelationChoice: _rch, revelationFirstOpenAt: _rfo, revelationCorruptionGainMult: _rcm, revelationDrainPerMin: _rdp, revelationChorusMult: _rm, revelationsResolved: _rr, acknowledgedOnce: _ao, currency: _cur, entitlements: _ent, battlePass: _bp, daily: _daily, ...rest } = st;
-  void _rc; void _rch; void _rfo; void _rcm; void _rdp; void _rm; void _rr; void _ao; void _cur; void _ent; void _bp; void _daily;
+  const { revelationCounters: _rc, revelationChoice: _rch, revelationFirstOpenAt: _rfo, revelationCorruptionGainMult: _rcm, revelationDrainPerMin: _rdp, revelationChorusMult: _rm, revelationsResolved: _rr, acknowledgedOnce: _ao, currency: _cur, entitlements: _ent, battlePass: _bp, daily: _daily, warReserve: _wr, ...rest } = st;
+  void _rc; void _rch; void _rfo; void _rcm; void _rdp; void _rm; void _rr; void _ao; void _cur; void _ent; void _bp; void _daily; void _wr;
   const vis = new Set(engine.visibleRevelations(st));
   const w = walletView(st);
   return {
@@ -134,6 +142,16 @@ export function publicState(st: GameState): GameState {
     // design (§15.6 — composition/duration/casualties are the History Book's
     // observable source material; the client renders its own battles).
     battles: (Array.isArray(st.battles) ? st.battles : []).map(battlePublicView),
+    // B12/B11 reserve view: the observable numbers (troops + energy + the
+    // co-op recognition ledger). `lockedHeroes` (commitment bookkeeping) stays
+    // server-side — the battle decisions render the visible side of it.
+    warReserve: {
+      troops: Math.max(0, Math.trunc(st.warReserve?.troops) || 0),
+      energy: Math.max(0, Math.trunc(st.warReserve?.energy) || 0),
+      cycleId: st.warReserve?.cycleId ?? null,
+      aidCredits: Math.max(0, Math.trunc(st.warReserve?.aidCredits) || 0),
+      lockedHeroes: {},
+    } as GameState["warReserve"],
   };
 }
 
@@ -686,6 +704,147 @@ const dismissNoticeFn = createServerFn({ method: "POST" }).validator(
   return { ok: true };
 });
 
+// ------- battle decision windows (B12) & aid calls (B11) -------
+// Server functions for mid-battle orders. Every order is VALIDATED by the
+// pure engine (window open, one per window per side, reserve affordability),
+// the real costs the engine stamps are DEDUCTED from the colony's war reserve
+// (troops + energy; heroes become locked commitments), and a retreat finalizes
+// the battle ledger exactly once. Nothing here is purchasable — the reserve
+// grows only from play, and the engine never reads a wallet. The prologue
+// drives its scripted tutorial through the same pure functions directly.
+
+/** Shared validator shape for a committed hero snapshot (B4 value-copy). */
+const battleHeroSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  role: z.string(),
+  level: z.number(),
+  attributes: z.record(z.string(), z.number()),
+  specialization: z.string().nullable(),
+  skills: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    strength: z.number().optional(),
+    guardPenalty: z.number().optional(),
+    damageReduction: z.number().optional(),
+    scoring: z.number().optional(),
+  })),
+});
+
+/** Build the engine-facing reserve view for the caller's colony: heroes not
+ *  locked in another commitment + its unspent reserve troops/energy. The
+ *  roster deep-check (hero actually earned, energy stamps per hero) is the war
+ *  layer's job in Phase 1 — today the structural unlocks + commitments stand. */
+function battleReservesFor(st: GameState, proposed: string[]): BattleReservesLike {
+  const locked = new Set(Object.keys(st.warReserve?.lockedHeroes ?? {}));
+  const committed = new Set<string>();
+  for (const b of st.battles ?? []) {
+    for (const h of b.attacker?.heroSquad ?? []) if (h.id) committed.add(h.id);
+    for (const h of b.defender?.heroSquad ?? []) if (h.id) committed.add(h.id);
+    for (const c of b.aidCalls ?? []) for (const h of c.heroes ?? []) if (h.id) committed.add(h.id);
+  }
+  const reserveHeroIds = proposed.filter((id) => !locked.has(id) && !committed.has(id) && id.length > 0);
+  return {
+    reserveHeroIds,
+    reserveTroops: Math.max(0, Math.trunc(st.warReserve?.troops) || 0),
+    energy: Math.max(0, Math.trunc(st.warReserve?.energy) || 0),
+  };
+}
+type BattleReservesLike = { reserveHeroIds: string[]; reserveTroops: number; energy: number };
+
+/** Issue a mid-battle order: reinforce / hold / withdrawal / retreat / callAid. */
+const battleIssueFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    battleId: z.string(),
+    side: z.enum(["attacker", "defender"]),
+    windowId: z.string(),
+    action: z.enum(["reinforce", "hold", "withdrawal", "retreat", "callAid"]),
+    heroes: z.array(battleHeroSchema).optional(),
+    troops: z.number().nonnegative().optional(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const st = engine.advance(saves.games[saves.activeGameId], Date.now());
+  const battle = st.battles?.find((b) => b.id === data.battleId);
+  if (!battle || battle.status !== "active") return { ok: false, error: "That battle isn't running." };
+  const heroes = (data.heroes ?? []) as unknown as BattleHeroSnapshot[];
+  const reserves = battleReservesFor(st, heroes.map((h) => h.id));
+  const res = issueDecision(battle, data.side, data.windowId, data.action, Date.now(), reserves, {
+    heroes,
+    troops: data.troops ?? 0,
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  // ---- the real cost: deduct exactly what the engine stamped ----
+  const r = st.warReserve;
+  const e = res.decision.effects;
+  if (e.kind === "reinforce") {
+    r.energy = Math.max(0, r.energy - e.energySpent);
+    r.troops = Math.max(0, r.troops - e.troopsAdded);
+    for (const h of heroes) r.lockedHeroes[h.id] = { battleId: battle.id, until: battleEndAt(battle) };
+  } else if (e.kind === "callAid") {
+    r.energy = Math.max(0, r.energy - e.energySpent);
+  }
+  if (res.decision.action === "retreat") {
+    appendReportOnce(st, battle);
+    logBattleResolved(st, battle);
+  }
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
+/** A teammate answers an aid call (B11): heroes lock in, power lands at the
+ *  call's arrivalAt. The responder's march energy + heroes are real costs. */
+const battleRespondFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    battleId: z.string(),
+    aidCallId: z.string(),
+    colonyId: z.string(),
+    colonyName: z.string(),
+    heroes: z.array(battleHeroSchema),
+    weapons: z.array(z.object({ family: z.string(), tier: z.number(), count: z.number() })).optional(),
+    troops: z.number().nonnegative().optional(),
+    fobStage: z.number().min(0).max(4).optional(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const st = engine.advance(saves.games[saves.activeGameId], Date.now());
+  const battle = st.battles?.find((b) => b.id === data.battleId);
+  if (!battle || battle.status !== "active") return { ok: false, error: "That battle isn't running." };
+  const heroes = data.heroes as unknown as BattleHeroSnapshot[];
+  const reserves = battleReservesFor(st, heroes.map((h) => h.id));
+  const res = respondToAid(battle, data.aidCallId, {
+    colonyId: data.colonyId,
+    colonyName: data.colonyName,
+    heroes,
+    weapons: (data.weapons ?? []) as never,
+    troops: data.troops ?? 0,
+    fobStage: (data.fobStage ?? 0) as never,
+  }, Date.now(), reserves);
+  if (!res.ok) return { ok: false, error: res.error };
+  const r = st.warReserve;
+  const e = res.decision.effects;
+  if (e.kind === "respondAid") {
+    r.energy = Math.max(0, r.energy - e.energySpent);
+    for (const h of heroes) r.lockedHeroes[h.id] = { battleId: battle.id, until: battleEndAt(battle) };
+    // recognition ledger: the co-op assist accrues to the colony that answered
+    r.aidCredits = (r.aidCredits ?? 0) + heroes.length;
+  }
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
 // ------- monetization seams (survey-only; NO storefront ships now) -------
 // The catalog/ledger/entitlement layer is fully implemented (§7 of the spec);
 // every purchase path is gated by MONETIZATION_CONFIG.storefrontEnabled (false
@@ -778,4 +937,6 @@ export {
   submitFeedbackFn,
   listMyFeedbackFn,
   dismissNoticeFn,
+  battleIssueFn,
+  battleRespondFn,
 };

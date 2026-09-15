@@ -48,7 +48,7 @@ import {
   noteDailyLaunch,
   freshDaily,
 } from "./daily";
-import { advanceBattles, ensureBattles } from "./war/battle-engine";
+import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
@@ -370,6 +370,9 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
     // ---- Real-time battle engine (V9): no wars have been fought yet ----
     battles: [],
     battleReports: [],
+    // B12/B11 reserve seam — zero until the war layer (or Act I's seeded
+    // full-power state) fills it; grows only from play.
+    warReserve: freshWarReserve(),
     log: [`The Cradle settles against the Shatterlands. The ${getRace(raceId).name} claim their colony.`],
   };
 }
@@ -447,6 +450,7 @@ export function blankColony(now = Date.now()): GameState {
     // ---- Real-time battle engine (V9): a wiped colony holds no battles ----
     battles: [],
     battleReports: [],
+    warReserve: freshWarReserve(),
     log: [],
   };
 }
