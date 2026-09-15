@@ -466,7 +466,7 @@ Quiet, measured, speaks in near-riddle; tends the gold light and the Oracle's tr
 
 ---
 
-## 7. The last actions — P13/P14 recommendation (weighty, not a purchase)
+## 7. The last actions — P13/P14 APPROVED (owner 2026-09-15) — weighty, not a purchase
 
 At §Beat 2.4, the player makes one final choice — the **seed** they carry into Act III. It does not change *that* everything is lost; it changes *what the rebuild reaches toward first*. Three options, none correct, none purchasable, all recorded as an account-level echo (ties to P6 "light echoes, no short-circuit"):
 
@@ -492,7 +492,7 @@ At §Beat 2.4, the player makes one final choice — the **seed** they carry int
 - **P9 (voice source):** AI now → professional actors on polish pass. Marquee roles to replace first: **Narrator, Kael, The Last Lecturer.**
 - **P10 (narrator identity):** kept as the omniscient "world voice" (recommended), not a named character.
 - **P11 (Chorus):** distorted synthetic machine voice, spoken **once** in Act II — never a jingle.
-- **P13/P14 (last actions + agency arc):** recommendation in §7, pending owner confirmation.
+- **P13/P14 (last actions + agency arc):** **APPROVED (owner 2026-09-15)** — §7 is settled: Archive / Names / Light, three rebuild seeds, none correct, none purchasable, recorded as a one-time account-level echo.
 - **Leader naming drift (flag for lead):** code implements 3 specialist paths (*Scholar/Marshal/Steward*); the plan lists 4 (*Purifier/Quartermaster/Scholar/Marshal*). This script follows the plan, uses "Steward" as Kael's *title* (generalist caretaker), and names the two unbuilt specialists **Miren (Quartermaster)** and **Delen (Purifier)**. Reconcile naming when the specialist roster ships.
 - **Deferred (P12 — ongoing storyline):** Oracle riddle-day tradition, hero backstories, the History Book narration, the silent Unbound revelation, and the Mentor's Lantern thread through later modules — this script only seeds them (the Oracle's Act I riddle, the "lost, not found" Leaders).
 - **Per-race rollout (P8):** this is the **Watchers** cut ("The Vigil", violet identity). The other five races re-voice the Leader/hero lines and swap identity chrome via per-world constants — one codebase, no new language.

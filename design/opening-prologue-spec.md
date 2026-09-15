@@ -155,8 +155,11 @@ race.
   final order. The Leaders saved the player; now they lay the race's fate at the player's feet — humility and
   responsibility in the same breath.
 - **The last actions are consequential, not cosmetic.** They decide the "seed" the player carries into Act
-  III — what survives the fall and shapes the rebuild. (Flags P13–P14 define what the actions are; recommend
-  a small, weighty choice set — never a purchase, never a "correct" answer.)
+  III — what survives the fall and shapes the rebuild. (**LOCKED (owner 2026-09-15)** — the final choice is **"what the ash remembers"**: three rebuild seeds,
+  none correct, none purchasable, recorded as a one-time account-level echo. **The Archive** (knowledge — one
+  remembered Codex; Vyra "lost, not found") · **The Names** (people — the five Leaders' names pre-seeded in
+  the History Book, so the climb back is toward known people) · **The Light** (purity — a small starting
+  devotion; Delen's near-riddle remembered). See script §7.)
 - **"Save the race, not yourself."** The final order frames the whole game's object — the race's survival —
   which is exactly what the rebuild is for. This keeps the fall "fair" (§6): the colony still falls, but the
   player's last decision genuinely matters.
@@ -253,9 +256,9 @@ The polish queue (audio, store, chat, trade) drops below this line until the hoo
 - **P12 — Story scope:** write the prologue's script first; the ongoing in-depth storyline threads through
   later modules (Oracle riddles in voice, hero backstories, the History Book, the silent Unbound revelation)
   — confirm.
-- **P13 — The "last actions":** what the final decision(s) are — recommend a small, weighty choice set that
-  seeds the rebuild (which memory / knowledge / remnant carries out); never a purchase, never a "correct"
-  answer.
+- **P13 — The "last actions":** **APPROVED (owner 2026-09-15)** — the final choice is **"what the ash
+  remembers"**: Archive (knowledge) / Names (people) / Light (purity) — three rebuild seeds, none correct, none
+  purchasable, one-time account-level echo (§6.2; script §7).
 - **P14 — Agency arc:** confirm fight → watch the Leaders hold → receive the final order (§6.1–6.2), vs.
   pure spectator through the end.
 
