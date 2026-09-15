@@ -79,6 +79,17 @@ import {
   windowDurationMs,
   windowsForView,
 } from "/home/team/shared/site/src/game/war/battle-engine.ts";
+import {
+  DECISION_ACTIONS,
+  answerableAidCalls,
+  clientReserves,
+  decidedSummary,
+  decisionRows,
+  issuePayload,
+  ourSide,
+  plainDecisionError,
+  respondPayload,
+} from "/home/team/shared/site/src/game/battle-decisions.ts";
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -766,6 +777,119 @@ console.log("— 8 · decision windows & aid calls (B12/B11) —");
   })());
 }
 
+// ============================================================================
+// 9 · CLIENT DECISION CONTRACT (Step 3 slice 1 — Battles-tab buttons)
+// ============================================================================
+// The DecisionPanel renders ONLY through battle-decisions.ts helpers (pure,
+// public-fields-only) + the two server validators' shapes. These checks pin:
+// gating (unaffordable reinforce disabled, closed window = no rows, one-shot
+// windows single-use), clock math (msLeft = closesAt - now), payload shapes
+// matching battleIssueFn/battleRespondFn validators, plain-language errors,
+// and the tutorial seam (stable actions + data attributes in BattlesTab.tsx).
+console.log("— 9 · client decision contract (buttons) —");
+{
+  const T9 = 1_700_000_000_000;
+  const rich9 = (energy = 500): BattleReserves => ({
+    reserveHeroIds: ["r1", "r2"],
+    reserveTroops: 10_000,
+    energy,
+  });
+  const mk9 = () => createBattle({
+    zoneId: "dz", zoneName: "Decision Grounds",
+    ...rivalPair(
+      { troops: 1000, heroSquad: [hero("h1", "H1", "damage", { power: 6 })] },
+      { troops: 900, heroSquad: [hero("h2", "H2", "damage", { power: 6 })] },
+    ),
+  }, T9);
+  const b9 = mk9();
+  const wAt = T9 + Math.round(b9.durationMs * 0.25);
+  const meA = { colonyId: "col-a", colonyName: "The Vigil" };
+
+  // ---- ourSide: identity match by id or name; null when foreign ----
+  check("ourSide matches the attacker by colony id", ourSide(b9, meA) === "attacker");
+  check("ourSide matches by colony name when ids differ", ourSide(b9, { colonyId: "other", colonyName: "Hollow Colony" }) === "defender");
+  check("ourSide is null for a foreign front (panel stays read-only)", ourSide(b9, { colonyId: "zzz", colonyName: "Strangers" }) === null);
+  check("ourSide is null without an identity", ourSide(b9, null) === null);
+
+  // ---- gating: open window rows list all five actions, hold always eligible ----
+  const rowsOpen = decisionRows(b9, "attacker", wAt, clientReserves({ reserveTroops: 100, energy: 100 }));
+  check("an open milestone window yields one row with all five actions", rowsOpen.length === 1 && rowsOpen[0].actions.length === 5);
+  check("hold is always eligible (the taught-first order)", rowsOpen[0].actions.some((a) => a.action === "hold" && a.eligible));
+  check("row clock math: msLeft = closesAt - now", rowsOpen[0].msLeft === Math.max(0, rowsOpen[0].window.closesAt - wAt));
+
+  // ---- gating: unaffordable reinforce disabled with a reason, never hidden ----
+  const broke = decisionRows(b9, "attacker", wAt, clientReserves({ reserveTroops: 0, energy: 0 }));
+  const reinf = broke[0].actions.find((a) => a.action === "reinforce")!;
+  check("unaffordable reinforce renders DISABLED with a reason (never hidden)", reinf.eligible === false && typeof reinf.reason === "string" && reinf.reason.length > 0);
+  const aid = broke[0].actions.find((a) => a.action === "callAid")!;
+  check("unaffordable aid call renders DISABLED with a reason", aid.eligible === false && typeof aid.reason === "string" && aid.reason.length > 0);
+
+  // ---- gating: closed window contributes no rows ----
+  const w25 = b9.windows.find((w) => w.id === "w-milestone-0.25-attacker")!;
+  check("closed window yields zero rows (past the close time)", decisionRows(b9, "attacker", w25.closesAt + 1, clientReserves({ reserveTroops: 100, energy: 100 })).length === 0);
+  check("pre-open window yields zero rows (before the milestone)", decisionRows(b9, "attacker", T9 + 1, clientReserves({ reserveTroops: 100, energy: 100 })).length === 0);
+
+  // ---- gating: one-shot windows are single-use (decided window never reopens) ----
+  const one = mk9();
+  issueDecision(one, "attacker", "w-milestone-0.25-attacker", "hold", wAt, rich9());
+  const views = windowsForView(one, wAt + 1);
+  check("a decided window reads decided with its action stamped", views.some((w) => w.id === "w-milestone-0.25-attacker" && w.decided && w.action === "hold" && !w.open));
+  check("a decided window yields zero new rows (single-use)", decisionRows(one, "attacker", wAt + 1, clientReserves({ reserveTroops: 100, energy: 100 })).length === 0);
+  check("decidedSummary names the settled order in plain words", decidedSummary({ id: "x", kind: "milestone", side: "attacker", open: false, decided: true, action: "hold", opensAt: 0, closesAt: 1 }).includes("Hold"));
+
+  // ---- gating: retreat locked before the floor, open after (emergency abort) ----
+  // (checked at the first milestone: the window is open AND the floor has passed,
+  // so the row exists; the engine-level early refusal is pinned in section 8.)
+  const rtEarlyW = mk9().windows.find((w) => w.id === "w-milestone-0.25-attacker")!;
+  const rtEarly = decisionRows(mk9(), "attacker", rtEarlyW.opensAt + 1, clientReserves({ reserveTroops: 100, energy: 100 }));
+  check("retreat row exists at the first milestone (window open, floor passed)", rtEarly.length === 1);
+  check("retreat is refused by the engine before the minimum elapsed time", issueDecision(mk9(), "attacker", "w-milestone-0.25-attacker", "retreat", T9 + Math.round(mk9().durationMs * 0.05), rich9()).ok === false);
+  const rtLate = decisionRows(mk9(), "attacker", wAt, clientReserves({ reserveTroops: 100, energy: 100 }));
+  check("retreat is eligible once the floor passes", rtLate[0].actions.some((a) => a.action === "retreat" && a.eligible));
+
+  // ---- gating: second withdrawal refused after the first (one per side) ----
+  const wd9 = mk9();
+  issueDecision(wd9, "attacker", "w-milestone-0.25-attacker", "withdrawal", wAt, rich9());
+  const wdLater = decisionRows(wd9, "attacker", T9 + Math.round(wd9.durationMs * 0.5), clientReserves({ reserveTroops: 100, energy: 100 }));
+  check("withdrawal renders DISABLED after the side already withdrew", wdLater[0].actions.some((a) => a.action === "withdrawal" && !a.eligible));
+
+  // ---- aid beacons: awaiting calls are answerable; locked/arrived are not ----
+  const ad9 = mk9();
+  issueDecision(ad9, "attacker", "w-milestone-0.25-attacker", "callAid", wAt, rich9());
+  check("an awaiting beacon is answerable (teammate side)", answerableAidCalls(ad9, wAt + 1).length === 1);
+  respondToAid(ad9, ad9.aidCalls[0].id, { colonyId: "col-c", colonyName: "Covenant", heroes: [], weapons: [], troops: 200, fobStage: 0 }, wAt + 2, rich9());
+  check("a locked beacon is no longer answerable", answerableAidCalls(ad9, wAt + 3).length === 0);
+
+  // ---- payload shapes match the server validators (api.ts battleIssueFn) ----
+  const ip = issuePayload({ token: "tok", battleId: "b1", side: "attacker", windowId: "w-milestone-0.25-attacker", action: "hold" });
+  check("issue payload carries exactly the validator keys (hold)", JSON.stringify(Object.keys(ip).sort()) === JSON.stringify(["action", "battleId", "side", "token", "windowId"]));
+  const ipr = issuePayload({ token: "tok", battleId: "b1", side: "defender", windowId: "w", action: "reinforce", troops: 120 });
+  check("reinforce payload carries the troop count", ipr.troops === 120 && ipr.action === "reinforce");
+  const rp = respondPayload({ token: "tok", battleId: "b1", aidCallId: "aid-b1-attacker", me: meA, troops: 200 });
+  check("respond payload matches the battleRespondFn validator keys", JSON.stringify(Object.keys(rp).sort()) === JSON.stringify(["aidCallId", "battleId", "colonyId", "colonyName", "heroes", "token", "troops"]));
+  check("respond payload ships well-formed empty heroes + colony identity", Array.isArray(rp.heroes) && rp.heroes.length === 0 && rp.colonyId === "col-a" && rp.colonyName === "The Vigil");
+
+  // ---- plain-language errors: no engine jargon leaks ----
+  const banned = ["window", "idempotent", "validator", "payload", "schema"];
+  const samples = [
+    plainDecisionError("That decision window is closed."),
+    plainDecisionError("Not enough war energy this week."),
+    plainDecisionError("Not enough reserve troops."),
+    plainDecisionError("Too soon to break off — hold the line."),
+    plainDecisionError("An aid call is already open for your side."),
+    plainDecisionError("Not signed in."),
+  ];
+  check("error map speaks colony-speak (no window/idempotent/validator/payload/schema)", samples.every((s) => !banned.some((w) => s.toLowerCase().includes(w))));
+  check("unknown errors pass through untouched", plainDecisionError("Something strange happened.") === "Something strange happened.");
+
+  // ---- tutorial seam: stable action set + component attributes ----
+  check("DECISION_ACTIONS teaches reinforce/hold first (Beat 1.2 order)", DECISION_ACTIONS.map((a) => a.action).join(",") === "reinforce,hold,callAid,withdrawal,retreat");
+  const tabSrc = readFileSync("/home/team/shared/site/src/components/BattlesTab.tsx", "utf8");
+  const hooks = ["decision-panel", "decision-window", "decision-reinforce", "decision-hold", "decision-callAid", "decision-withdrawal", "decision-retreat", "aid-accept", "aid-decline", "onDecision", "aria-live", "data-testid", "data-action"];
+  check("BattlesTab carries the tutorial seam (testids + onDecision + aria-live)", hooks.every((h) => tabSrc.includes(h)));
+  check("BattlesTab posts through battleIssueFn + battleRespondFn only", tabSrc.includes("battleIssueFn") && tabSrc.includes("battleRespondFn"));
+  check("BattlesTab imports no server-only reserve internals", !tabSrc.includes("lockedHeroes") && !tabSrc.includes("warReserve?.lockedHeroes") && !tabSrc.includes("from \"../game/store\"") && !tabSrc.includes("from \"./store\""));
+}
 // ============================================================================
 console.log(`\nbattle-tests: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
