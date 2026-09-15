@@ -1,6 +1,6 @@
 // Shared game types for Deepspace Engine MVP.
 
-import type { Battle, BattleReport } from "./war/war-types";
+import type { Battle, BattleReport, WarReserve } from "./war/war-types";
 
 export type RaceId =
   | "grays"
@@ -303,7 +303,13 @@ export interface GameState {
   // stripped by publicState via battlePublicView (api.ts).
   battles: Battle[];
   battleReports: BattleReport[];
-
+  /** The colony's deployable war reserve (B12/B11 server-verified seam) —
+   *  supply-weighted troops + the §6 weekly energy pool + locked hero
+   *  commitments + the co-op aid recognition ledger. Grows only from play;
+   *  the prologue seeds the full-power state's numbers at Act I. The battle
+   *  engine VALIDATES against it; the API handler (and prologue) deduct the
+   *  recorded costs — never a purchasable path (battle-side §9/B4). */
+  warReserve: WarReserve;
   log: string[];
 }
 

@@ -87,6 +87,49 @@ export const BATTLES_CONFIG = {
    *  (the rest queues behind the front — real supply, no combat power). */
   fobMaxTierByStage: [1, 1, 2, 3, 4] as const, // index = FOB stage 0..4
   fobTroopCapByStage: [100, 150, 250, 400, 600] as const,
+  // ---- Decision windows (B12 — windows, not APM; ratified 2026-09-12) ----
+  // Decisions happen at resolution MILESTONES, not by reflex: over the battle's
+  // duration each side may issue ONE consequential order per window (reinforce /
+  // hold / steady withdrawal / retreat / call aid). Windows are stamped
+  // deterministically at commit (milestones for both sides) + appended by
+  // power-affecting decisions (edge windows for the side that just fell behind).
+  /** The elapsed-fraction milestones that open a window for BOTH sides. */
+  windowMilestoneFracs: [0.25, 0.5, 0.75] as const,
+  /** A window stays open 12% of the battle (calibration), clamped. */
+  windowDurationFrac: 0.12,
+  windowMinMs: 2 * 60_000,
+  windowMaxMs: 15 * 60_000,
+  /** An EDGE window opens for a side when the power gap against it reads
+   *  rout-risk (same threshold as chipPressingGap) — the "getting pummeled"
+   *  teaching moment (opening-prologue §12.3), survivable first. */
+  edgeWindowGap: 0.4,
+  /** How long after the rout-risk state is reached the edge window opens. */
+  edgeWindowDelayMs: 30_000,
+  /** Retreat is never instant and never free (B10): allowed only after this
+   *  fraction of the battle has elapsed, and it always bleeds a rearguard. */
+  minRetreatElapsedFrac: 0.1,
+  // ---- Reinforcement & aid-call real costs (the §6 server valves, mirrored —
+  // the war-energy number below IS war-energy.ts ACTION_ENERGY_COSTS.march, the
+  // same non-extendable pool; the engine mirrors it so it can validate purely) —
+  reinforcementEnergyPerHero: 20, // §6 march action cost, per hero committed
+  aidCallEnergy: 10, // §6 shield/haul floor — the caller pays to raise the beacon
+  aidRespondEnergyPerHero: 20, // responders march their heroes (the same §6 cost)
+  /** Aid arrivals ride travel time over the links (§13) — a single calibration
+   *  delay now; the per-link table lands with war Phase 1. */
+  aidTravelDelayMs: 10 * 60_000,
+  /** One open aid call per side per battle (coordination, never a bypass). */
+  maxAidPerSide: 1,
+  // ---- Withdrawal & retreat casualty model (B10 — rearguard cost vs. army) ----
+  /** Steady withdrawal: the covering force bleeds the moment the order lands —
+   *  base toll at no pressure, rising with the enemy's advantage (gap). */
+  withdrawalRearguardBase: 0.12,
+  withdrawalRearguardGapRise: 0.2,
+  withdrawalRearguardMaxFrac: 0.35,
+  /** After the rearguard is bled, the main body is gone — the side fights on
+   *  with the survivors (troop term drops; the battle still ends on schedule). */
+  /** Retreat (B10): the army is saved — only this fraction is left behind as
+   *  the covering force, no matter how bad the rout-risk was. */
+  retreatCasualtyFrac: 0.08,
 } as const;
 
 // ============================================================================
@@ -167,9 +210,20 @@ export interface Battle {
   startedAt: number; // epoch ms
   status: BattleStatus;
   result: BattleResult | null; // null while active
-  /** FINAL casualties per side (troop-equivalents) — fully determined at
-   *  commit; the live view ticks toward these per resolution interval. */
+  /** FINAL casualties per side (troop-equivalents) — determined at commit and
+   *  re-determined at every power step (decision effects); the live view ticks
+   *  toward the current final per resolution interval. */
   casualties: { attacker: number; defender: number };
+  /** B12 decision windows — stamped deterministically at commit (milestones
+   *  for both sides + an edge window when the opening gap reads rout-risk)
+   *  and appended by power-affecting decisions (the newly-losing side gets
+   *  its edge window). */
+  windows: BattleWindow[];
+  /** The append-only decision ledger — one entry per window per side, never
+   *  mutated, never double-issued (idempotent re-application is a no-op). */
+  decisions: BattleDecision[];
+  /** B11 aid beacons (≤ maxAidPerSide per side). */
+  aidCalls: AidCall[];
   /** Server-only internals — STRIPPED from every public payload
    *  (battlePublicView). Nothing about power/odds is hidden; this block is
    *  reserved for future server-private bookkeeping (reinforcement queues,
@@ -182,6 +236,9 @@ export interface BattleResult {
   /** Colony id of the winning side (absent on a standoff). */
   winnerColonyId?: string;
   endedAt: number;
+  /** How the battle closed: "scheduled" = the B1 curve ran out; "retreat" =
+   *  a side aborted (B10) — reduced losses, and that side lost the ground. */
+  endedBy?: "scheduled" | "retreat";
 }
 
 /** The append-only battle-report ledger entry (the §7 History Book's raw
@@ -210,6 +267,13 @@ export interface BattleReport {
   attacker: BattleSideReport;
   defender: BattleSideReport;
   resolvedAt: number;
+  /** How the battle closed (see BattleResult.endedBy). */
+  endedBy?: "scheduled" | "retreat";
+  /** The append-only decision trail, in issue order — the §12 tutorial's raw
+   *  material ("what happened at 32%") and the war recap's decision log. */
+  decisions: { side: BattleSide; action: BattleDecisionAction; issuedAt: number }[];
+  /** The side that conceded ground via steady withdrawal, if any. */
+  withdrawnSide?: BattleSide;
 }
 
 /** The live view — everything the Battles tab renders, derived purely. */
@@ -227,4 +291,144 @@ export interface BattleMoment {
   casualties: { attacker: number; defender: number };
   /** Power gap 0..1 — the strength edge between the sides. */
   gap: number;
+  /** B12 decision windows at `now` — what each side may act on right now. */
+  windows: BattleWindowView[];
+  /** B11 aid calls at `now` — beacon state for both sides. */
+  aidCalls: AidCallView[];
+}
+
+// ============================================================================
+// §1b DECISION WINDOWS (B12) & AID CALLS (B11) — owned by battle-engine.ts
+// ============================================================================
+
+/** The one consequential order a side may issue per window (B12). */
+export type BattleDecisionAction =
+  | "reinforce" // commit reserve heroes/troops — real cost from the colony's reserve
+  | "hold" // stay the course — outcome proceeds as simulated (taught first)
+  | "withdrawal" // steady withdrawal (B10): concede ground, bleed a rearguard, save the army
+  | "retreat" // abort (B10): reduced losses, battle ends as a loss, no ground gained
+  | "callAid" // B11: raise the co-op beacon; arrivals ride travel time
+  | "respondAid"; // B11: a teammate commits heroes — locked in for the battle
+
+export type BattleWindowKind = "milestone" | "edge";
+/** The window index within a kind (milestone fracs 1..3, edge 1..N). */
+export interface BattleWindow {
+  id: string; // `w-milestone-<frac>-<side>` | `w-edge-<n>-<side>`
+  kind: BattleWindowKind;
+  side: BattleSide;
+  opensAt: number;
+  closesAt: number;
+}
+
+/** What a side commits when it reinforces — the §15 B4 snapshot shape again
+ *  (heroes/weapons/troops as VALUES; the FOB ceiling applies as committed).
+ *  The real cost (war energy + reserve troops) is validated against the
+ *  colony's `BattleReserves` and recorded in the decision effects. */
+export interface ReinforcePayload {
+  heroes: BattleHeroSnapshot[];
+  troops: number; // supply-weighted troop count added (subject to the FOB cap)
+}
+
+/** What a responding colony commits to an aid call (B11) — its own force,
+ *  marched over the links, locked for the battle the moment it responds. */
+export interface AidResponsePayload {
+  colonyId: string;
+  colonyName: string;
+  heroes: BattleHeroSnapshot[];
+  weapons: CommittedWeapon[];
+  troops: number;
+  fobStage: FobStage;
+}
+
+/** Deterministic effects of one decision — stamped at issue time, recorded
+ *  append-only, and everything the live view + report derive about it. */
+export type DecisionEffects =
+  | { kind: "reinforce"; powerAdded: number; troopsAdded: number; heroNames: string[]; energySpent: number }
+  | { kind: "hold" }
+  | { kind: "withdrawal"; rearguardCasualties: number; troopsRemaining: number; powerAfter: number }
+  | { kind: "retreat"; casualties: { attacker: number; defender: number }; endedAt: number }
+  | { kind: "callAid"; aidCallId: string; arrivalAt: number; energySpent: number }
+  | { kind: "respondAid"; aidCallId: string; powerAdded: number; arrivalAt: number; energySpent: number };
+
+/** One append-only decision record — one per window per side, never mutated,
+ *  never re-issued (idempotency: the window consumes it). */
+export interface BattleDecision {
+  id: string; // `d-<windowId>` — unique per window
+  windowId: string;
+  side: BattleSide;
+  action: BattleDecisionAction;
+  issuedAt: number;
+  effects: DecisionEffects;
+}
+
+/** An aid beacon (B11): the caller raises it, responders lock in, the power
+ *  lands at arrivalAt (travel time over the links). Never free — the caller
+ *  pays aidCallEnergy; every responder pays the §6 march cost for locked
+ *  heroes. `responder` + committed force are null until someone answers. */
+export interface AidCall {
+  id: string; // `aid-<battleId>-<side>`
+  callerSide: BattleSide;
+  issuedAt: number;
+  arrivalAt: number; // issuedAt + aidTravelDelayMs (arrivals ride travel time)
+  status: "awaiting" | "locked" | "arrived";
+  responder: { colonyId: string; colonyName: string } | null;
+  /** The committed aid force — set at respond time, locked for the battle. */
+  heroes: BattleHeroSnapshot[];
+  weapons: CommittedWeapon[];
+  troops: number;
+  fobStage: FobStage;
+  power: number; // computeForcePower of the arriving force — contributes at arrival
+}
+
+/** The colony's deployable reserve, as the war layer sees it (the engine
+ *  treats the numbers as given — same discipline as CommittedForce.troops).
+ *  The caller (API handler / prologue / war layer) verifies these against the
+ *  colony's own ledgers (hero roster + §6 weekly energy + supply ledger) and
+ *  deducts the recorded costs; the engine only VALIDATES against the values
+ *  and stamps the auditable cost into the decision. */
+export interface BattleReserves {
+  /** ids of colony heroes NOT already committed to this battle (caller-verified). */
+  reserveHeroIds: string[];
+  /** supply-weighted reserve troops the colony can still commit. */
+  reserveTroops: number;
+  /** war energy the colony can spend on orders this week (§6 pool, caller-verified). */
+  energy: number;
+}
+
+export interface BattleWindowView {
+  id: string;
+  kind: BattleWindowKind;
+  side: BattleSide;
+  /** currently actionable: now ∈ [opensAt, closesAt) and not yet decided. */
+  open: boolean;
+  decided: boolean;
+  action?: BattleDecisionAction;
+  issuedAt?: number;
+  opensAt: number;
+  closesAt: number;
+}
+
+export interface AidCallView {
+  id: string;
+  callerSide: BattleSide;
+  status: "awaiting" | "locked" | "arrived";
+  arrivalAt: number;
+  power: number;
+  responderColonyName?: string;
+  heroNames: string[];
+}
+
+/** The colony-level war reserve (B12/B11) — the server-verified numbers a
+ *  colony can commit mid-battle: supply-weighted reserve troops, the §6
+ *  weekly war-energy pool (colony-level view of the per-hero pool), the
+ *  locked-hero commitment ledger (a hero committed to one battle cannot be
+ *  re-fielsed until it ends), and the co-op recognition ledger (aid calls
+ *  answered — recognition, never power). The engine validate/deducts through
+ *  BattleReserves; the API/prologue own this store. Grows only from play. */
+export interface WarReserve {
+  troops: number;
+  energy: number;
+  cycleId: string | null; // the war week these numbers belong to
+  aidCredits: number;
+  lockedHeroes: Record<string, { battleId: string; until: number }>;
 }
