@@ -4,18 +4,32 @@
 // counts, FOB stage), casualties ticking per resolution interval, the shifting
 // line, and the after-action report ledger that closes the loop (§15.6).
 //
-// READ-ONLY over the existing 4 s poll: this component renders `state.battles` /
-// `state.battleReports` plus a client-side `now` clock, and derives EVERY live
-// number (elapsed/ETA, chip, ticks, line) through the SAME pure functions the
-// server resolves with (battle-engine battleMoment/liveCasualties/…) — so the
-// ticking view is provably the server's math, no websockets, no new deps.
+// DECISION-CAPABLE over the existing 4 s poll: this component renders
+// `state.battles` / `state.battleReports` plus a client-side `now` clock, derives
+// EVERY live number (elapsed/ETA, chip, ticks, line) through the SAME pure
+// functions the server resolves with (battle-engine battleMoment/…), and posts
+// mid-battle orders through battleIssueFn / battleRespondFn (game/api.ts).
+// All gating math lives in game/battle-decisions.ts (pure, harness-tested) —
+// this file only renders rows and posts payloads, never server internals.
 //
 // The designer polishes the visuals later (visual-pass-1-style brief); this is
 // the clean minimal shell with the design-system tokens.
 import { useState } from "react";
 import type { GameState } from "../game/types";
-import type { Battle, BattleReport, CommittedForce } from "../game/war/war-types";
+import type { Battle, BattleReport, BattleSide, CommittedForce } from "../game/war/war-types";
 import { battleMoment, battleEndAt } from "../game/war/battle-engine";
+import { battleIssueFn, battleRespondFn } from "../game/api";
+import {
+  DECISION_ACTIONS,
+  answerableAidCalls,
+  clientReserves,
+  decidedSummary,
+  decisionRows,
+  issuePayload,
+  ourSide,
+  plainDecisionError,
+  respondPayload,
+} from "../game/battle-decisions";
 import { familyFor } from "../game/armory";
 
 const CHIP_META: Record<string, { label: string; cls: string }> = {
@@ -97,7 +111,12 @@ function ForceBlock({ state, force, power, tag }: { state: GameState; force: Com
 }
 
 /** The live list + detail for ongoing battles. */
-function ActiveBattles({ state, now }: { state: GameState; now: number }) {
+function ActiveBattles({ state, now, token, onDecision }: {
+  state: GameState;
+  now: number;
+  token?: string;
+  onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const active = (state.battles ?? []).filter((b) => b.status === "active").sort((a, b) => a.startedAt - b.startedAt);
   const selected = active.find((b) => b.id === selectedId) ?? active[0] ?? null;
@@ -147,15 +166,359 @@ function ActiveBattles({ state, now }: { state: GameState; now: number }) {
 
       {selected && (
         <div className="space-y-3 rounded-xl border border-white/10 bg-black/30 p-4">
-          <BattleDetail state={state} battle={selected} now={now} />
+          <BattleDetail state={state} battle={selected} now={now} token={token} onDecision={onDecision} />
         </div>
       )}
     </div>
   );
 }
 
+
+// ============================================================================
+// DECISION PANEL (The Fall Step 3 slice 1 — battle-side §15 B11/B12).
+//
+// Renders the live decision window(s) for OUR side of a battle: a gold-bordered
+// panel, one live clock per open window, and one button per reachable action
+// (reinforce / hold / callAid / withdrawal / retreat). Unreachable actions
+// render DISABLED with their reason — never hidden silently. Incoming aid
+// beacons (teammate side, B11) render March-to-aid / Decline.
+//
+// TUTORIAL SEAM (Step 3 slice 2 owns the narrator cues — NO tutorial copy here):
+// every button carries a stable `data-testid` + `data-action`, each open window
+// container carries `data-testid="decision-window" data-window-id=<id>`, and the
+// panel accepts an optional `onDecision` callback fired AFTER a successful post
+// with { battleId, side, windowId, action }. The prologue tutorial layer can
+// (a) query these attributes to highlight/sequence buttons, and (b) pass
+// onDecision to advance its beat machine. Props `token`/`colonyId`/`colonyName`
+// default to the local session (localStorage token, state's own identity) so
+// existing call sites keep working; tests inject them directly.
+function DecisionPanel({
+  state,
+  battle,
+  now,
+  side,
+  token,
+  colonyId,
+  colonyName,
+  onDecision,
+}: {
+  state: GameState;
+  battle: Battle;
+  now: number;
+  side: BattleSide;
+  token?: string;
+  colonyId?: string;
+  colonyName?: string;
+  onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
+}) {
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [confirmAid, setConfirmAid] = useState<string | null>(null);
+  const [confirmRetreat, setConfirmRetreat] = useState<string | null>(null);
+  const [troopsByWindow, setTroopsByWindow] = useState<Record<string, string>>({});
+  const [aidTroops, setAidTroops] = useState<string>("");
+
+  const effToken = token ?? (() => { try { return localStorage.getItem("deepspace_session_token") ?? ""; } catch { return ""; } })();
+  const me = {
+    colonyId: colonyId ?? state.gameId ?? "",
+    colonyName: colonyName ?? state.playerName ?? "Unnamed Colony",
+  };
+  const reserves = clientReserves({
+    reserveTroops: state.warReserve?.troops ?? 0,
+    energy: state.warReserve?.energy ?? 0,
+  });
+  const rows = decisionRows(battle, side, now, reserves);
+  const decided = battle.windows
+    .filter((w) => w.side === side)
+    .map((w) => {
+      const d = (battle.decisions ?? []).find((dd) => dd.windowId === w.id);
+      return d ? { id: w.id, text: decidedSummary({ id: w.id, kind: w.kind, side: w.side, open: false, decided: true, action: d.action, issuedAt: d.issuedAt, opensAt: w.opensAt, closesAt: w.closesAt }) } : null;
+    })
+    .filter((x): x is { id: string; text: string } => !!x);
+  const aidCalls = answerableAidCalls(battle, now).filter((c) => c.callerSide !== side);
+  const busy = busyKey !== null;
+
+  async function postIssue(windowId: string, action: "reinforce" | "hold" | "withdrawal" | "retreat" | "callAid", troops: number) {
+    // respondAid never rides the issue endpoint (it posts via battleRespondFn) —
+    // the type guard keeps the row renderer honest if the engine ever lists it.
+    if (action === "respondAid") return;
+    const key = `issue:${windowId}:${action}`;
+    if (busyKey) return;
+    setBusyKey(key);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await battleIssueFn({ data: issuePayload({ token: effToken, battleId: battle.id, side, windowId, action, troops }) });
+      if (res && (res as { ok?: boolean }).ok) {
+        setNotice(action === "callAid" ? "Beacon lit — a teammate can march to you now." : action === "retreat" ? "Retreat sounded — the army breaks off." : "Order sent — watch the next poll.");
+        setConfirmAid(null);
+        setConfirmRetreat(null);
+        onDecision?.({ battleId: battle.id, side, windowId, action });
+      } else {
+        setError(plainDecisionError((res as { error?: string })?.error ?? ""));
+      }
+    } catch {
+      setError("The order didn't go through — check your connection and try again.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function postRespond(aidCallId: string, accept: boolean) {
+    const key = `respond:${aidCallId}:${accept ? "accept" : "decline"}`;
+    if (busyKey) return;
+    if (!accept) {
+      // Decline is local-only: no march, no lock, no server write — the beacon
+      // stays open for another teammate. Announced so the choice is visible.
+      setNotice("Passed — the beacon stays lit for another colony.");
+      setError(null);
+      return;
+    }
+    setBusyKey(key);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await battleRespondFn({ data: respondPayload({ token: effToken, battleId: battle.id, aidCallId, me, troops: Math.max(0, Math.trunc(Number(aidTroops)) || 0) }) });
+      if (res && (res as { ok?: boolean }).ok) {
+        setNotice("Marching — your force joins the fight when travel time lands.");
+        onDecision?.({ battleId: battle.id, side, windowId: `aid-${aidCallId}`, action: "respondAid" });
+      } else {
+        setError(plainDecisionError((res as { error?: string })?.error ?? ""));
+      }
+    } catch {
+      setError("The order didn't go through — check your connection and try again.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  const meta = Object.fromEntries(DECISION_ACTIONS.map((a) => [a.action, a]));
+  return (
+    <section
+      aria-label="Battle orders"
+      data-testid="decision-panel"
+      data-battle-id={battle.id}
+      data-side={side}
+      className="rounded-xl border border-amber-400/50 bg-amber-400/5 p-3"
+    >
+      <h4 className="text-sm font-semibold text-amber-100">Battle orders</h4>
+      <p className="mt-0.5 text-[11px] text-gray-400">
+        Reserve: {reserves.reserveTroops} troops · {reserves.energy} war energy. Orders land on the next poll.
+      </p>
+
+      {rows.length === 0 && (
+        <p className="mt-2 text-xs text-gray-500" data-testid="decision-quiet">
+          No open order windows right now — the next milestone opens one. Decided orders stand below.
+        </p>
+      )}
+
+      {rows.map(({ window: w, actions, msLeft }) => (
+        <div key={w.id} data-testid="decision-window" data-window-id={w.id} className="mt-2 rounded-lg border border-amber-400/30 bg-black/40 p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-gray-200">
+              {w.kind === "edge" ? "Rout-risk opening" : "Milestone opening"} · your {side} force
+            </span>
+            <span className="text-xs text-amber-200" aria-live="polite" data-testid={`window-clock-${w.id}`}>
+              closes in {fmtClock(msLeft)}
+            </span>
+          </div>
+
+          {/* Reinforce / hold / aid go first (the taught beats); withdrawal then retreat. */}
+          <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {actions.map(({ action, eligible, reason }) => {
+              const m = meta[action];
+              const k = `issue:${w.id}:${action}`;
+              const isBusy = busyKey === k;
+              const disabled = !eligible || busy;
+              if (action === "callAid") {
+                return (
+                  <button
+                    key={action}
+                    type="button"
+                    data-testid="decision-callAid"
+                    data-action={action}
+                    data-window-id={w.id}
+                    disabled={disabled}
+                    title={eligible ? m.hint : reason ?? ""}
+                    aria-label={eligible ? m.label : `${m.label} (unavailable: ${reason ?? "not now"})`}
+                    onClick={() => (confirmAid === w.id ? postIssue(w.id, action, 0) : (setConfirmAid(w.id), setError(null)))}
+                    className={`rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
+                      eligible ? "border-amber-400/60 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20" : "cursor-not-allowed border-white/10 bg-white/5 text-gray-500"
+                    }`}
+                  >
+                    {isBusy ? "Lighting..." : confirmAid === w.id ? "Confirm \u2014 light it?" : <><span aria-hidden="true">🕯️</span> {m.label}</>}
+                  </button>
+                );
+              }
+              if (action === "retreat") {
+                return (
+                  <button
+                    key={action}
+                    type="button"
+                    data-testid="decision-retreat"
+                    data-action={action}
+                    data-window-id={w.id}
+                    disabled={disabled}
+                    title={eligible ? m.hint : reason ?? ""}
+                    aria-label={eligible ? m.label : `${m.label} (unavailable: ${reason ?? "not now"})`}
+                    onClick={() => (confirmRetreat === w.id ? postIssue(w.id, action, 0) : (setConfirmRetreat(w.id), setError(null)))}
+                    className={`rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
+                      eligible ? "border-red-400/60 bg-red-400/10 text-red-100 hover:bg-red-400/20" : "cursor-not-allowed border-white/10 bg-white/5 text-gray-500"
+                    }`}
+                  >
+                    {isBusy ? "Sounding…" : confirmRetreat === w.id ? "Confirm — break off?" : m.label}
+                  </button>
+                );
+              }
+              if (action === "reinforce") {
+                return (
+                  <div key={action} className="col-span-2 sm:col-span-1">
+                    <div className="flex gap-1.5">
+                      <label className="sr-only" htmlFor={`troops-${w.id}`}>Reserve troops to send</label>
+                      <input
+                        id={`troops-${w.id}`}
+                        data-testid={`reinforce-troops-${w.id}`}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        placeholder="Troops"
+                        value={troopsByWindow[w.id] ?? ""}
+                        onChange={(e) => setTroopsByWindow((t) => ({ ...t, [w.id]: e.target.value.replace(/[^0-9]/g, "") }))}
+                        disabled={!eligible || busy}
+                        className="w-20 rounded-lg border border-white/10 bg-black/50 px-2 py-2 text-xs text-gray-100 placeholder:text-gray-600 disabled:opacity-50"
+                      />
+                      <button
+                        type="button"
+                        data-testid="decision-reinforce"
+                        data-action={action}
+                        data-window-id={w.id}
+                        disabled={disabled || isBusy}
+                        title={eligible ? m.hint : reason ?? ""}
+                        aria-label={eligible ? m.label : `${m.label} (unavailable: ${reason ?? "not now"})`}
+                        onClick={() => postIssue(w.id, action, Math.max(0, Math.trunc(Number(troopsByWindow[w.id])) || 0))}
+                        className={`flex-1 rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
+                          eligible ? "border-amber-400/60 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20" : "cursor-not-allowed border-white/10 bg-white/5 text-gray-500"
+                        }`}
+                      >
+                        {isBusy ? "Sending…" : m.label}
+                      </button>
+                    </div>
+                    {!eligible && reason && <p className="mt-1 text-[11px] text-gray-500">{reason}</p>}
+                  </div>
+                );
+              }
+              return (
+                <button
+                  key={action}
+                  type="button"
+                  data-testid={action === "hold" ? "decision-hold" : "decision-withdrawal"}
+                  data-action={action}
+                  data-window-id={w.id}
+                  disabled={disabled}
+                  title={eligible ? m.hint : reason ?? ""}
+                  aria-label={eligible ? m.label : `${m.label} (unavailable: ${reason ?? "not now"})`}
+                  onClick={() => postIssue(w.id, action, 0)}
+                  className={`rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
+                    eligible ? "border-white/20 bg-white/5 text-gray-100 hover:bg-white/10" : "cursor-not-allowed border-white/10 bg-white/5 text-gray-500"
+                  }`}
+                >
+                  {isBusy ? "Sending…" : m.label}
+                </button>
+              );
+            })}
+          </div>
+          {/* Reasons for disabled non-reinforce actions (reinforce renders its own). */}
+          {actions.filter((a) => a.action !== "reinforce" && !a.eligible && a.reason).map(({ action, reason }) => (
+            <p key={action} className="mt-1 text-[11px] text-gray-500" data-testid={`decision-reason-${action}`}>
+              {meta[action].label}: {reason}
+            </p>
+          ))}
+          {confirmAid === w.id && (
+            <p className="mt-1.5 text-[11px] text-amber-200/90" data-testid={`aid-confirm-${w.id}`}>
+              Lighting the beacon costs 10 war energy. Press again to confirm — a teammate can then march to you.
+            </p>
+          )}
+          {confirmRetreat === w.id && (
+            <p className="mt-1.5 text-[11px] text-red-200/90" data-testid={`retreat-confirm-${w.id}`}>
+              Retreat ends this battle as a loss, most of the army lives. Press again to confirm.
+            </p>
+          )}
+        </div>
+      ))}
+
+      {/* Incoming aid beacons from teammates (B11) — answerable by anyone viewing. */}
+      {aidCalls.length > 0 && (
+        <div className="mt-2 rounded-lg border border-sky-400/30 bg-sky-400/5 p-2.5" data-testid="aid-panel">
+          <p className="text-xs font-medium text-sky-100">Aid beacons — a teammate needs you</p>
+          {aidCalls.map((c) => (
+            <div key={c.id} data-testid="aid-call" data-aid-call-id={c.id} className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-gray-300">
+                {c.callerSide === "attacker" ? "Attacker" : "Defender"} beacon · help arrives in {fmtClock(Math.max(0, c.arrivalAt - now))}
+              </span>
+              <label className="sr-only" htmlFor={`aid-troops-${c.id}`}>Troops to march to the beacon</label>
+              <input
+                id={`aid-troops-${c.id}`}
+                data-testid={`aid-troops-${c.id}`}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="Troops"
+                value={aidTroops}
+                onChange={(e) => setAidTroops(e.target.value.replace(/[^0-9]/g, ""))}
+                disabled={busy}
+                className="w-20 rounded-lg border border-white/10 bg-black/50 px-2 py-1.5 text-xs text-gray-100 placeholder:text-gray-600 disabled:opacity-50"
+              />
+              <button
+                type="button"
+                data-testid="aid-accept"
+                data-action="respondAid"
+                data-aid-call-id={c.id}
+                disabled={busy}
+                onClick={() => postRespond(c.id, true)}
+                className="rounded-lg border border-sky-400/60 bg-sky-400/10 px-2.5 py-1.5 text-xs font-semibold text-sky-100 hover:bg-sky-400/20 disabled:opacity-50"
+              >
+                {busyKey === `respond:${c.id}:accept` ? "Marching…" : "March to aid"}
+              </button>
+              <button
+                type="button"
+                data-testid="aid-decline"
+                data-action="declineAid"
+                data-aid-call-id={c.id}
+                disabled={busy}
+                onClick={() => postRespond(c.id, false)}
+                className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-gray-300 hover:bg-white/10 disabled:opacity-50"
+              >
+                Decline
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Decided orders stand (settled state, not actions). */}
+      {decided.length > 0 && (
+        <ul className="mt-2 space-y-0.5" data-testid="decision-history">
+          {decided.map((d) => (
+            <li key={d.id} className="text-[11px] text-gray-500">✓ {d.text}</li>
+          ))}
+        </ul>
+      )}
+
+      <div aria-live="polite">
+        {error && <p className="mt-2 text-xs text-red-300" data-testid="decision-error" role="alert">{error}</p>}
+        {notice && <p className="mt-2 text-xs text-emerald-300" data-testid="decision-notice">{notice}</p>}
+      </div>
+    </section>
+  );
+}
+
 /** The detail pane — composition both sides, ticking casualties, the line. */
-function BattleDetail({ state, battle, now }: { state: GameState; battle: Battle; now: number }) {
+function BattleDetail({ state, battle, now, token, onDecision }: {
+  state: GameState;
+  battle: Battle;
+  now: number;
+  token?: string;
+  onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
+}) {
   const m = battleMoment(battle, now);
   const chip = CHIP_META[m.chip];
   const end = battleEndAt(battle);
@@ -201,6 +564,19 @@ function BattleDetail({ state, battle, now }: { state: GameState; battle: Battle
           <p className="mt-1 text-right text-xs text-gray-400">{dCas} casualties</p>
         </div>
       </div>
+
+      {battle.status === "active" && ourSide(battle, { colonyId: state.gameId ?? "", colonyName: state.playerName ?? "" }) && (
+        <DecisionPanel
+          state={state}
+          battle={battle}
+          now={now}
+          side={ourSide(battle, { colonyId: state.gameId ?? "", colonyName: state.playerName ?? "" }) as BattleSide}
+          token={token}
+          colonyId={state.gameId ?? ""}
+          colonyName={state.playerName ?? ""}
+          onDecision={onDecision}
+        />
+      )}
     </>
   );
 }
@@ -247,7 +623,12 @@ function BattleLog({ reports }: { reports: BattleReport[] }) {
 }
 
 /** The Battles tab root: live list + detail, then the report log below. */
-export default function BattlesTab({ state, now }: { state: GameState; now: number }) {
+export default function BattlesTab({ state, now, token, onDecision }: {
+  state: GameState;
+  now: number;
+  token?: string;
+  onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
+}) {
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
       <div>
@@ -257,7 +638,7 @@ export default function BattlesTab({ state, now }: { state: GameState; now: numb
           and rebuild your squad against what you observe.
         </p>
       </div>
-      <ActiveBattles state={state} now={now} />
+      <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} />
       <div className="rounded-xl border border-white/10 bg-black/20 p-4">
         <h3 className="mb-2 text-sm font-semibold text-gray-200">Battle log</h3>
         <BattleLog reports={state.battleReports ?? []} />
