@@ -187,7 +187,7 @@ All conditions are **personal, durable thresholds** (never one-per-server exclus
 - **Curve:** `level = floor(sqrt(xp / XP_K))`, `XP_K = 50`, cap **L10** — reuse `levelFromXp`/`LEVEL_XP`/`xpForLevel` from `leader-xp.ts` unchanged. Thresholds identical: L2=200 … L10=5000.
 - **Attributes (war-flavored, 1 point/level, free allocation):** `power` (offensive skill strength), `guard` (defense/survivability), `craft` (small published reduction to that hero's action energy costs, hard-capped so it never zeroes the fairness valve), `presence` (support/utility strength and score contribution). Reuse `applyLevelUps`'s invariant (`points = level − 1`).
 - **XP sources (event-sourced, war ledger only):** march resolved +10 (win) / +4 (loss — losing weeks pay participation), capture +15, purify +20 (Phase 2), shield assist +8, haul +6, comeback contribution +12, hero deed/first +25, riddles answered by a vouched hero's Oracle +10. All through a `grantHeroXpTo` primitive cloned from `grantXpTo` (same rolling `day`/`dayXp` window, separate `heroXpCaps` key so leader and hero budgets don't cannibalize; same 40/day cap).
-- **L3 one-time specialization** (mutually exclusive; scholar/marshal/steward as the pattern):
+- **L3 one-time specialization** (mutually exclusive; scholar/marshal/quartermaster as the pattern):
   1. **Vanguard — Spear's Mandate ⚔️** · offensive skills +15% strength; capture contribution +10%.
   2. **Hearthward — Gate's Mandate 🏰** · purify channels + shield assists +15% effectiveness; defense-action energy cost −15%.
   3. **Courser — Road's Mandate 🏇** · their action energy costs −15%; haul/escort scoring +15%.

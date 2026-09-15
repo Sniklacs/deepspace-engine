@@ -4,7 +4,12 @@
 // evolve the way they want" — progression is earned through play, never bought.
 // Nothing here can be gated behind spending: XP comes only from real events,
 // attribute points are allocated freely, and the Level-3 specialization is a
-// one-time permanent choice among three paths, all balanced as sidegrades.
+// one-time permanent choice among paths, all balanced as sidegrades.
+// NAMING (owner-locked 2026-09-14): the implemented paths are Scholar / Marshal
+// / Quartermaster. "Steward" is Kael's TITLE only — the generalist caretaker
+// label — NOT a path. Purifier is the 4th path, explicitly DEFERRED (no
+// mechanics; it lands later with the corruption/Oracle layer). Legacy saves
+// that picked "steward" migrate to "quartermaster" (see ensureLeaderXp).
 //
 // XP curve: square-root, level = floor(sqrt(total_xp / K)), K = 50. Exact
 // cumulative thresholds: L2=200, L3=450, L4=800, L5=1250, L6=1800, L7=2450,
@@ -39,8 +44,10 @@ export function xpForLevel(level: number): number {
   return LEVEL_XP[Math.max(1, Math.min(MAX_LEVEL, level))] ?? 0;
 }
 
-/** One-time mutually-exclusive specializations offered at Level 3. */
-export type Specialization = "scholar" | "marshal" | "steward";
+/** One-time mutually-exclusive specializations offered at Level 3 (Scholar /
+ *  Marshal / Quartermaster implemented; Purifier deferred with the
+ *  corruption/Oracle layer — never a purchased path). */
+export type Specialization = "scholar" | "marshal" | "quartermaster";
 
 export const SPECIALIZATIONS: {
   id: Specialization;
@@ -67,10 +74,10 @@ export const SPECIALIZATIONS: {
     accent: "border-red-400/40 bg-red-400/10 text-red-200",
   },
   {
-    id: "steward",
-    mandate: "Steward's Mandate",
+    id: "quartermaster",
+    mandate: "Quartermaster's Mandate",
     icon: "⚖️",
-    blurb: "The caretaker who makes nothing go to waste. Their stead runs leaner: better yields, and cheaper crafting on their watch.",
+    blurb: "The caretaker who makes nothing go to waste. Their colony runs leaner: better yields, and cheaper crafting on their watch.",
     effects: ["+10% economy effectiveness (ember yield & supplies)", "−10% workshop crafting cost"],
     accent: "border-emerald-400/40 bg-emerald-400/10 text-emerald-200",
   },

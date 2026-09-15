@@ -46,7 +46,7 @@ const st0 = engine.newGame("Mon0", "watchers", now);
 check("new game has currency", st0.currency.scrip === 0 && st0.currency.votives === 0 && st0.currency.ledger.length === 0);
 check("new game has entitlements", st0.entitlements.cosmetics.length === 0 && st0.entitlements.packs.length === 0 && st0.entitlements.sigils === 0);
 check("new game has battle pass", st0.battlePass.seasonId === "s0_the_shattering" && st0.battlePass.xp === 0 && st0.battlePass.premium === false);
-check("version is 9 (V9 real-time battle engine — bumped from 8 by the V9 build)", st0.version === 9);
+check("version is 10 (V10: L3 'steward' path renamed to 'quartermaster')", st0.version === 10);
 check("tier 1 at 0 XP", m.tierFromXp(0) === 1);
 check("tier 2 at 1000 XP", m.tierFromXp(1000) === 2);
 check("tier 28 at 27999 XP", m.tierFromXp(27999) === 28);

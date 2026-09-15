@@ -266,7 +266,7 @@ export const LAB_TIPS: Record<string, TooltipBlock> = {
   },
   specialization: {
     what: "Specialization — a ONE-TIME choice at Level 3.",
-    does: "Scholar (+15% research speed, +5% breakthrough chance) · Marshal (+10% combat effectiveness, −20% surprise-survival damage) · Steward (+10% economy effectiveness, −10% crafting cost). Picking one locks the other two FOREVER for that Leader.",
+    does: "Scholar (+15% research speed, +5% breakthrough chance) · Marshal (+10% combat effectiveness, −20% surprise-survival damage) · Quartermaster (+10% economy effectiveness, −10% crafting cost). Picking one locks the other two FOREVER for that Leader.",
     how: "Earned entirely through play — XP, then the choice. Nothing about this path can be bought.",
   },
 };

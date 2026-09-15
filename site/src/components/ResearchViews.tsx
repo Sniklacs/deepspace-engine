@@ -1,7 +1,7 @@
 // Research Tree + Leaders Roster views for the Lab tab (knowledge track).
 // Leaders now carry the earned XP/leveling layer (V3): square-root curve, one
 // attribute point per level, and the one-time Level-3 specialization choice —
-// Scholar / Marshal / Steward. All progression is earned through events, never
+// Scholar / Marshal / Quartermaster. All progression is earned through events, never
 // purchasable. Mobile-first: modals use the `fixed inset-0 … flex items-start
 // justify-center overflow-y-auto` pattern so nothing clips on short screens,
 // and the Tooltip long-press/double-tap fix is untouched.
@@ -240,7 +240,7 @@ const dismissedSpecModals = new Set<string>();
 
 const ATTRS: { id: "research" | "economy" | "combat" | "engineering"; label: string; icon: string; does: string }[] = [
   { id: "research", label: "research", icon: "🔬", does: "Speeds this Leader's research projects (4% per point)." },
-  { id: "economy", label: "economy", icon: "💰", does: "Stewards the colony's yield — embers and supplies (1% per point, colony-wide)." },
+  { id: "economy", label: "economy", icon: "💰", does: "Tends the colony's yield — embers and supplies (1% per point, colony-wide)." },
   { id: "combat", label: "combat", icon: "⚔️", does: "Sharper field leadership — survivors fight harder (1% per point, colony-wide)." },
   { id: "engineering", label: "engineering", icon: "🔧", does: "Makes the Workshop's work go further (crafting −0.5% per point, colony-wide)." },
 ];
@@ -248,7 +248,7 @@ const ATTRS: { id: "research" | "economy" | "combat" | "engineering"; label: str
 export function LeadersView({ state, now, onAllocatePoint, onChooseSpec }: {
   state: GameState; now: number;
   onAllocatePoint: (leaderId: string, attr: "research" | "economy" | "combat" | "engineering") => void;
-  onChooseSpec: (leaderId: string, path: "scholar" | "marshal" | "steward") => void;
+  onChooseSpec: (leaderId: string, path: "scholar" | "marshal" | "quartermaster") => void;
 }) {
   const slots = engineHelpers.leaderSlots(state);
   const active = state.leaders.filter((l) => l.status !== "lost");
@@ -367,7 +367,7 @@ function LeaderCard({ leader, job, now, onAllocate, onOpenSpec }: {
         </Tooltip>
       ) : pendingSpec ? (
         <button onClick={() => { sound.click(); onOpenSpec(); }} className="mt-2 w-full rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] font-semibold text-amber-200 hover:bg-amber-400/20">
-          🧭 Level 3 — choose a path (Scholar · Marshal · Steward)
+          🧭 Level 3 — choose a path (Scholar · Marshal · Quartermaster)
         </button>
       ) : null}
 
@@ -404,7 +404,7 @@ function LeaderCard({ leader, job, now, onAllocate, onOpenSpec }: {
 /* ---------------- Level-3 specialization modal (one-time choice) ---------------- */
 
 function SpecializationModal({ leader, onPick, onClose }: {
-  leader: Leader; onPick: (path: "scholar" | "marshal" | "steward") => void; onClose: () => void;
+  leader: Leader; onPick: (path: "scholar" | "marshal" | "quartermaster") => void; onClose: () => void;
 }) {
   const chosen = leader.specialization ? engineHelpers.specs.find((s) => s.id === leader.specialization) : null;
   return (
