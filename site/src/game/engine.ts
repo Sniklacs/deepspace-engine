@@ -49,6 +49,7 @@ import {
   freshDaily,
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
+import { ensurePrologue, freshPrologue } from "./prologue/prologue-state";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
@@ -58,7 +59,7 @@ export { claimDaily, favorScore } from "./daily";
 // from lastTick to now, resolving expeditions/studies that finished while offline
 // and accruing passive income. This is what makes the world persist while logged out.
 
-export const VERSION = 10;
+export const VERSION = 11;
 // V2: multi-game saves (account file wrapper; GameState version bumped to match).
 // V3: Leader XP/leveling/specialization (xp, unspentPoints, specialization, day,
 //     dayXp per Leader; colony-wide day-cap ledger state.leaderXpCaps).
@@ -120,6 +121,11 @@ export const VERSION = 10;
 // world-level war ledger arrives with war Phase 1 (§10.2).
 // Old saves migrate silently: missing leader XP fields default to level-1 no-xp
 // state and the day ledger is empty (see ensureLeaderXp).
+// V11 (2026-09-15): the prologue state spine ("The Fall", opening-prologue-spec
+// §4–§8). state.prologue (PrologueBlock) rides every GameState; newGame
+// and blankColony seed the default block via freshPrologue(); advance() runs
+// ensurePrologue() alongside the other ensure* passes so pre-V11 saves gain
+// the block additively and idempotently (stage "rebuilt", completed false).
 // V10 (owner-locked 2026-09-14): the L3 economy path "steward" is renamed
 // "quartermaster". "Steward" survives ONLY as
 // Kael's TITLE (the generalist caretaker) — never a path. Legacy saves with
@@ -379,6 +385,8 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
     // B12/B11 reserve seam — zero until the war layer (or Act I's seeded
     // full-power state) fills it; grows only from play.
     warReserve: freshWarReserve(),
+    // ---- Prologue state spine (V11): a legacy/new colony is past the Fall ----
+    prologue: freshPrologue(),
     log: [`The Cradle settles against the Shatterlands. The ${getRace(raceId).name} claim their colony.`],
   };
 }
@@ -457,6 +465,8 @@ export function blankColony(now = Date.now()): GameState {
     battles: [],
     battleReports: [],
     warReserve: freshWarReserve(),
+    // ---- Prologue state spine (V11): a wiped slot never ran the Fall ----
+    prologue: freshPrologue(),
     log: [],
   };
 }
@@ -1196,6 +1206,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureArmory(state);
   ensureDaily(state);
   ensureBattles(state); // V9: real-time battle entities + report ledger (no-op on new saves)
+  ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
   // V7 daily rollover: when the UTC day turned since the last advance, finalize
   // yesterday (streak exactly-once + TD3 banked-forever claims), roll the fresh
   // list, and mark visit_cradle's free tick. Runs BEFORE the resolve loops so

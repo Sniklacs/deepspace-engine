@@ -115,6 +115,9 @@ function allSummaries(saves: AccountSaves): GameSummary[] {
 // the server owns the truth (§1.4). Exported so the verification harness can
 // assert on a REAL getState payload shape (identical function the handlers use).
 export function publicState(st: GameState): GameState {
+  // V11 prologue spine: the player's OWN story (stage, sealed height records,
+  // squad, final stand, History Book + ash echoes) ships whole — nothing here
+  // is server-secret, so the block rides `rest` into the payload untouched.
   const { revelationCounters: _rc, revelationChoice: _rch, revelationFirstOpenAt: _rfo, revelationCorruptionGainMult: _rcm, revelationDrainPerMin: _rdp, revelationChorusMult: _rm, revelationsResolved: _rr, acknowledgedOnce: _ao, currency: _cur, entitlements: _ent, battlePass: _bp, daily: _daily, warReserve: _wr, ...rest } = st;
   void _rc; void _rch; void _rfo; void _rcm; void _rdp; void _rm; void _rr; void _ao; void _cur; void _ent; void _bp; void _daily; void _wr;
   const vis = new Set(engine.visibleRevelations(st));
@@ -142,6 +145,10 @@ export function publicState(st: GameState): GameState {
     // design (§15.6 — composition/duration/casualties are the History Book's
     // observable source material; the client renders its own battles).
     battles: (Array.isArray(st.battles) ? st.battles : []).map(battlePublicView),
+    // V11 prologue spine: the player's own story ledger — ships whole
+    // (stage/leaders/heroes/squad/finalStand/historyBook/echoes). No field is
+    // server-secret; defensive copy so callers can't mutate server state.
+    prologue: st.prologue ? JSON.parse(JSON.stringify(st.prologue)) : st.prologue,
     // B12/B11 reserve view: the observable numbers (troops + energy + the
     // co-op recognition ledger). `lockedHeroes` (commitment bookkeeping) stays
     // server-side — the battle decisions render the visible side of it.
