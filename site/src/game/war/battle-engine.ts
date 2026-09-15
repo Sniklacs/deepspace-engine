@@ -225,16 +225,21 @@ export interface CreateBattleInput {
  *  advancing state first — this module never mutates state on commit
  *  (persistent-world discipline: resolution belongs to advance()). */
 export function createBattle(input: CreateBattleInput, now: number): Battle {
-  const pa = computeForcePower(input.attacker);
-  const pd = computeForcePower(input.defender);
+  // Defensive copy: a battle owns its committed forces — the caller's objects
+  // are never borrowed or mutated, so reusable fixtures (and the API's colony
+  // state) stay pristine across battles. JSON-shaped snapshots: safe to copy.
+  const att = structuredClone(input.attacker);
+  const def = structuredClone(input.defender);
+  const pa = computeForcePower(att);
+  const pd = computeForcePower(def);
   const durationMs = battleDurationMs(pa, pd);
-  const id = `bat-${now}-${input.attacker.colonyId}-${input.defender.colonyId}-${input.zoneId}`;
+  const id = `bat-${now}-${att.colonyId}-${def.colonyId}-${input.zoneId}`;
   return {
     id,
     zoneId: input.zoneId,
     zoneName: input.zoneName || input.zoneId,
-    attacker: input.attacker,
-    defender: input.defender,
+    attacker: att,
+    defender: def,
     forcePower: { attacker: pa, defender: pd },
     durationMs,
     startedAt: now,
@@ -559,7 +564,48 @@ export function issueDecision(
   reserves: BattleReserves,
   payload?: ReinforcePayload,
 ): DecisionResult {
+  // RETREAT stays idempotent even after the battle is over: the one recorded
+  // retreat per side is returned (the UI never double-orders an abort).
+  if (action === "retreat") {
+    const existingRetreat = battle.decisions.find((d) => d.side === side && d.action === "retreat");
+    if (existingRetreat) return { ok: true, decision: existingRetreat, duplicate: true };
+  }
   if (battle.status !== "active") return { ok: false, error: "This battle is already decided." };
+  // RETREAT is the emergency abort — once the minimum elapsed time has passed
+  // its beacon is always lit, window or no window (the UI shows it as a live
+  // button, not a window choice). Append-only + idempotent: one retreat per
+  // side, forever; re-issuing returns the recorded decision.
+  if (action === "retreat") {
+    const elapsedFrac = battle.durationMs > 0 ? (now - battle.startedAt) / battle.durationMs : 1;
+    if (elapsedFrac < BATTLES_CONFIG.minRetreatElapsedFrac) return { ok: false, error: "Too soon to break off — hold the line." };
+    const troops = Math.max(0, Math.trunc(battle[side].troops) || 0);
+    // B10: the army is saved — the covering force (a fixed fraction, no matter
+    // how bad the rout-risk) is left behind; the enemy carries its ticked toll
+    // so far (they mostly held their ground). Battle ends as THIS side's loss.
+    const ownCas = Math.min(troops, Math.max(1, Math.round(troops * BATTLES_CONFIG.retreatCasualtyFrac)));
+    const enemyCas = liveCasualties(battle, other(side), now);
+    const winSide = other(side);
+    battle.casualties[side] = ownCas;
+    battle.casualties[winSide] = Math.min(Math.max(0, Math.trunc(battle[winSide].troops) || 0), enemyCas);
+    battle.status = "resolved";
+    battle.result = {
+      outcome: winSide === "attacker" ? "attacker_victory" : "defender_victory",
+      winnerColonyId: battle[winSide].colonyId,
+      endedAt: now,
+      endedBy: "retreat",
+    };
+    const decision: BattleDecision = {
+      id: `d-retreat-${side}`,
+      windowId: "",
+      side,
+      action: "retreat",
+      issuedAt: now,
+      effects: { kind: "retreat", casualties: { attacker: battle.casualties.attacker, defender: battle.casualties.defender }, endedAt: now },
+    };
+    battle.decisions.push(decision);
+    return { ok: true, decision };
+  }
+
   const existing = battle.decisions.find((d) => d.windowId === windowId);
   if (existing) {
     return existing.side === side
@@ -583,7 +629,13 @@ export function issueDecision(
       const cost = reinforceCost(heroes, troops);
       if (cost.troops > reserves.reserveTroops) return { ok: false, error: "Not enough reserve troops." };
       if (cost.energy > reserves.energy) return { ok: false, error: "Not enough war energy this week." };
-      const committed = new Set(battle[side].heroSquad.map((h) => h.id));
+      // A hero already in EITHER committed squad — or locked by an aid beacon
+      // (the responder's march commitment) — cannot be re-fieldsed here.
+      const committed = new Set<string>([
+        ...battle.attacker.heroSquad.map((h) => h.id),
+        ...battle.defender.heroSquad.map((h) => h.id),
+        ...battle.aidCalls.flatMap((c) => c.heroes.map((h) => h.id)),
+      ]);
       const seen = new Set<string>();
       for (const h of heroes) {
         if (committed.has(h.id) || seen.has(h.id) || !reserves.reserveHeroIds.includes(h.id)) {
@@ -635,30 +687,6 @@ export function issueDecision(
         troopsRemaining: Math.max(0, troopsRemaining),
         powerAfter: battle.forcePower[side],
       });
-      return { ok: true, decision };
-    }
-
-    case "retreat": {
-      const elapsedFrac = battle.durationMs > 0 ? (now - battle.startedAt) / battle.durationMs : 1;
-      if (elapsedFrac < BATTLES_CONFIG.minRetreatElapsedFrac) return { ok: false, error: "Too soon to break off — hold the line." };
-      const troops = Math.max(0, Math.trunc(battle[side].troops) || 0);
-      // B10: the army is saved — the covering force (a fixed fraction, no
-      // matter how bad the rout-risk) is left behind; the enemy carries its
-      // ticked toll so far (they mostly held their ground).
-      const ownCas = Math.min(troops, Math.max(1, Math.round(troops * BATTLES_CONFIG.retreatCasualtyFrac)));
-      const enemyCas = liveCasualties(battle, other(side), now);
-      const winSide = other(side);
-      const result: Battle["result"] = {
-        outcome: winSide === "attacker" ? "attacker_victory" : "defender_victory",
-        winnerColonyId: battle[winSide].colonyId,
-        endedAt: now,
-        endedBy: "retreat",
-      };
-      battle.casualties[side] = ownCas;
-      battle.casualties[winSide] = Math.min(Math.max(0, Math.trunc(battle[winSide].troops) || 0), enemyCas);
-      battle.status = "resolved";
-      battle.result = result;
-      const decision = recordDecision(battle, win, side, "retreat", now, { kind: "retreat", casualties: { attacker: battle.casualties.attacker, defender: battle.casualties.defender }, endedAt: now });
       return { ok: true, decision };
     }
 
@@ -762,6 +790,7 @@ export function advanceAidArrivals(battle: Battle, now: number): number {
       else force.weapons.push({ ...kit });
     }
     force.troops += call.troops;
+    force.fobStage = Math.max(force.fobStage, call.fobStage); // the FOB grows with the aid
     recomputePowers(battle);
     recomputeCasualties(battle);
     ensureEdgeWindow(battle, other(side), now);

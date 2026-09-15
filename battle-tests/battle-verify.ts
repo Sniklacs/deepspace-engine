@@ -47,14 +47,18 @@ import {
   BATTLES_CONFIG,
   type Battle,
   type BattleHeroSnapshot,
+  type BattleReserves,
   type CommittedForce,
 } from "/home/team/shared/site/src/game/war/war-types.ts";
 import {
+  advanceAidArrivals,
   advanceBattles,
+  appendReportOnce,
   battleDurationMs,
   battleEndAt,
   battleMoment,
   battlePublicView,
+  buildWindows,
   casualtyFraction,
   computeForcePower,
   createBattle,
@@ -62,12 +66,18 @@ import {
   ensureBattles,
   finalCasualties,
   heroUnitPower,
+  issueDecision,
   kitPower,
   liveCasualties,
   openBattle,
   outcomeFor,
   powerGap,
+  reachableActions,
+  reinforceCost,
+  respondToAid,
   stateChip,
+  windowDurationMs,
+  windowsForView,
 } from "/home/team/shared/site/src/game/war/battle-engine.ts";
 
 // ---------------------------------------------------------------------------
@@ -509,6 +519,250 @@ console.log("— 7 · migration & backfill —");
     // the battle module itself performs no hero-progression writes — snapshot fields are read-only inputs
     const src = readFileSync("/home/team/shared/site/src/game/war/battle-engine.ts", "utf8");
     return !/grantXp|levelUp|capture\s*\+|xp\s*\+=\s*10/.test(src);
+  })());
+}
+
+// ============================================================================
+// 8 · DECISION WINDOWS (B12) & AID CALLS (B11) — windows, not APM
+// ============================================================================
+console.log("— 8 · decision windows & aid calls (B12/B11) —");
+{
+  const T = 1_700_000_000_000;
+  const rich = (energy = 500): BattleReserves => ({
+    reserveHeroIds: ["r1", "r2", "r3", "a1", "a2"],
+    reserveTroops: 10_000,
+    energy,
+  });
+  // a long, near-even fight: every milestone window is comfortably separated
+  const big = rivalPair(
+    { troops: 1000, heroSquad: [hero("h1", "H1", "damage", { power: 6 })] },
+    { troops: 900, heroSquad: [hero("h2", "H2", "damage", { power: 6 })] },
+  );
+  const b = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T);
+  const dur = b.durationMs;
+  const wDur = windowDurationMs(dur);
+
+  // ---- window schedule + open/close timing ----
+  check("milestone windows stamped for BOTH sides at 25/50/75% of the duration", (() => {
+    const wids = b.windows.map((w) => w.id).sort();
+    const expect = ["w-milestone-0.25-attacker", "w-milestone-0.25-defender", "w-milestone-0.5-attacker", "w-milestone-0.5-defender", "w-milestone-0.75-attacker", "w-milestone-0.75-defender"].sort();
+    return JSON.stringify(wids) === JSON.stringify(expect);
+  })());
+  check("windows open at their milestone, close after windowDurationMs (clamped law)", (() => {
+    const w = b.windows[0];
+    return w.opensAt === T + Math.round(dur * 0.25) && w.closesAt - w.opensAt === wDur && wDur >= BATTLES_CONFIG.windowMinMs && wDur <= BATTLES_CONFIG.windowMaxMs;
+  })());
+  check("even fight: no edge window at commit (no rout-risk yet)", !b.windows.some((w) => w.kind === "edge"));
+  check("nothing is open before the first milestone, first milestone open at its moment", (() => {
+    const before = windowsForView(b, T + Math.round(dur * 0.25) - 1);
+    const at = windowsForView(b, T + Math.round(dur * 0.25));
+    return before.every((w) => !w.open) && at.some((w) => w.open && w.id === "w-milestone-0.25-attacker");
+  })());
+  check("a window closes after its close time", (() => {
+    const w = b.windows.find((x) => x.id === "w-milestone-0.25-attacker")!;
+    return !windowsForView(b, w.closesAt + 1).some((x) => x.id === w.id && x.open);
+  })());
+  check("battleMoment carries the windows + aid-call views (live view, same math)", (() => {
+    const m = battleMoment(b, T + Math.round(dur * 0.25));
+    return Array.isArray(m.windows) && m.windows.length === b.windows.length && Array.isArray(m.aidCalls) && m.aidCalls.length === 0;
+  })());
+
+  // ---- hold & one-decision-per-window idempotency ----
+  const holdT = T + Math.round(dur * 0.25);
+  const hold = issueDecision(b, "attacker", "w-milestone-0.25-attacker", "hold", holdT, rich());
+  check("hold is always available and records the decision", hold.ok === true && hold.decision.action === "hold" && hold.decision.windowId === "w-milestone-0.25-attacker");
+  check("hold changes nothing about power or casualties", b.forcePower.attacker === createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T).forcePower.attacker);
+  const dup = issueDecision(b, "attacker", "w-milestone-0.25-attacker", "reinforce", holdT, rich(), { heroes: [], troops: 10 });
+  check("re-issuing the same window is a deterministic no-op (idempotent duplicate)", dup.ok === true && dup.duplicate === true && dup.decision.action === "hold" && b.decisions.length === 1);
+  const wrongSide = issueDecision(b, "defender", "w-milestone-0.25-attacker", "hold", holdT, rich());
+  check("the other side cannot use this side's window", wrongSide.ok === false);
+  check("decisions are append-only: exactly one entry per window per side", b.decisions.length === 1 && b.decisions[0].id === "d-w-milestone-0.25-attacker");
+
+  // ---- reinforce: effect + real cost ----
+  const re = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T);
+  const ren = issueDecision(re, "defender", "w-milestone-0.25-defender", "reinforce", T + Math.round(dur * 0.25), rich(), {
+    heroes: [hero("r1", "Reinforce One", "tank", { guard: 8 }, 5)],
+    troops: 400,
+  });
+  check("reinforce succeeds against a full reserve", ren.ok === true && ren.decision.effects.kind === "reinforce");
+  const rfx = ren.decision.effects;
+  if (rfx.kind === "reinforce") {
+    const addedPower = Math.round(heroUnitPower(hero("r1", "Reinforce One", "tank", { guard: 8 }, 5)));
+    const baseDef = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T).forcePower.defender;
+    check("reinforce adds exactly the committed force's power (troops beyond the FOB cap add zero)", rfx.powerAdded === addedPower && re.forcePower.defender === baseDef + rfx.powerAdded);
+    check("reinforce costs the §6 march energy (20/hero) and the troops from reserve", rfx.energySpent === BATTLES_CONFIG.reinforcementEnergyPerHero && rfx.troopsAdded === 400);
+    check("reinforced heroes are recorded by name in the decision", rfx.heroNames[0] === "Reinforce One");
+  }
+  check("reinforced force is committed (hero squad + troops on the entity)", re.defender.heroSquad.length === 2 && re.defender.troops === 900 + 400);
+  check("outcome can FLIP from a strong reinforcement (the owner's 'result shifts while it runs')", outcomeFor(re.forcePower.attacker, re.forcePower.defender) === "defender_victory");
+  check("reinforce is refused without reserve troops / energy / unlocked heroes", (() => {
+    const poor = issueDecision(createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T), "attacker", "w-milestone-0.25-attacker", "reinforce", T + Math.round(dur * 0.25), { reserveHeroIds: ["x"], reserveTroops: 0, energy: 0 }, { heroes: [], troops: 50 });
+    const locked = issueDecision(createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T), "attacker", "w-milestone-0.25-attacker", "reinforce", T + Math.round(dur * 0.25), rich(), { heroes: [hero("not-mine", "N", "damage", {})], troops: 1 });
+    return poor.ok === false && (locked.ok === false);
+  })());
+
+  // ---- withdrawal: rearguard cost vs. the saved army (B10) ----
+  const wd = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T);
+  const preWd = wd.forcePower.attacker;
+  const wdRes = issueDecision(wd, "attacker", "w-milestone-0.25-attacker", "withdrawal", T + Math.round(dur * 0.25), rich());
+  check("steady withdrawal is issued and charges a rearguard IMMEDIATELY", wdRes.ok === true && wdRes.decision.effects.kind === "withdrawal");
+  const wfx = wdRes.decision.effects;
+  if (wfx.kind === "withdrawal") {
+    check("rearguard toll > 0, remaining troops reduced, power never rises", wfx.rearguardCasualties > 0 && wfx.troopsRemaining === 1000 - wfx.rearguardCasualties && wfx.powerAfter <= preWd);
+    check("rearguard toll is inside the committed force (never negative, never over)", wfx.rearguardCasualties <= 1000 && wfx.troopsRemaining >= 0);
+  }
+  check("the live ticker FLOORS at the rearguard toll the moment it lands", (() => {
+    const cas = liveCasualties(wd, "attacker", T + Math.round(dur * 0.25) + 1);
+    return cas >= (wfx.kind === "withdrawal" ? wfx.rearguardCasualties : 0);
+  })());
+  check("withdrawal is one per side — a second order is refused", issueDecision(wd, "attacker", "w-milestone-0.5-attacker", "withdrawal", T + Math.round(dur * 0.5), rich()).ok === false);
+  check("withdrawal under heavier pressure bleeds a bigger rearguard", (() => {
+    const lopsided = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...rivalPair({ troops: 300, fobStage: 1 }, { troops: 1000, heroSquad: [hero("h", "H", "damage", { power: 8 }, 10)] }) }, T);
+    const pummeled = issueDecision(lopsided, "attacker", lopsided.windows.find((w) => w.side === "attacker" && w.kind === "edge")?.id ?? "w-milestone-0.25-attacker", "withdrawal", lopsided.startedAt + BATTLES_CONFIG.edgeWindowDelayMs + 1, rich());
+    // compare stuck-at-base (no pressure) vs under rout-risk pressure fractions
+    const gapHere = powerGap(lopsided.forcePower.attacker, lopsided.forcePower.defender);
+    const frac = Math.min(BATTLES_CONFIG.withdrawalRearguardMaxFrac, BATTLES_CONFIG.withdrawalRearguardBase + BATTLES_CONFIG.withdrawalRearguardGapRise * gapHere);
+    return pummeled.ok === true && pummeled.decision.effects.kind === "withdrawal"
+      && Math.abs(pummeled.decision.effects.rearguardCasualties - Math.round(300 * frac)) <= 1
+      && frac > BATTLES_CONFIG.withdrawalRearguardBase;
+  })());
+
+  // ---- retreat: never free, never instant (B10) ----
+  const rt = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T);
+  const early = issueDecision(rt, "defender", "w-milestone-0.25-defender", "retreat", T + Math.round(dur * 0.05), rich());
+  check("retreat is refused before the minimum elapsed time (10%)", early.ok === false && rt.status === "active");
+  const rtT = T + Math.round(dur * 0.2);
+  check("retreat never needs a window — the abort beacon is always lit after the floor", issueDecision(rt, "defender", "w-milestone-0.25-defender", "retreat", rtT, rich()).ok === true);
+  const retreat = issueDecision(rt, "defender", "w-milestone-0.25-defender", "retreat", rtT + 1, rich());
+  check("retreat after the floor ends the battle as a LOSS for that side", retreat.ok === true && rt.status === "resolved" && rt.result?.outcome === "attacker_victory" && rt.result?.winnerColonyId === "col-a");
+  check("a re-issued retreat is an idempotent no-op (one record per side)", retreat.duplicate === true && rt.decisions.filter((d) => d.action === "retreat").length === 1);
+  check("retreat records endedBy 'retreat' and the reduced rearguard toll", rt.result?.endedBy === "retreat" && rt.result?.endedAt === rtT);
+  check("retreat saves the army: casualties ≈ retreatCasualtyFrac of committed, never the full rout", (() => {
+    const cas = rt.casualties.defender;
+    const fracCas = Math.round(900 * BATTLES_CONFIG.retreatCasualtyFrac);
+    return cas <= Math.max(fracCas, 1) + 1 && cas > 0;
+  })());
+  check("the winning side carries its ticked toll so far (they held, they didn't chase)", rt.casualties.attacker <= Math.trunc(rt.attacker.troops) && rt.casualties.attacker > 0);
+  check("appendReportOnce finalizes the retreat ledger exactly once; advanceBattles skips the resolved battle", (() => {
+    const st = { battles: [rt], battleReports: [], log: [] } as any;
+    appendReportOnce(st, rt);
+    appendReportOnce(st, rt);
+    advanceBattles(st, T + 99_999_999_999);
+    return st.battleReports.length === 1 && st.battleReports[0].endedBy === "retreat";
+  })());
+  check("resolution report carries the append-only decision trail", (() => {
+    const st = { battles: [rt], battleReports: [], log: [] } as any;
+    appendReportOnce(st, rt);
+    return Array.isArray(st.battleReports[0].decisions) && st.battleReports[0].decisions.some((d: any) => d.action === "retreat");
+  })());
+  check("retreat from a battle a side is WINNING still ends it as that side's loss (no ground gained)", (() => {
+    const strongRetreat = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...rivalPair({ troops: 1000 }, { troops: 120, fobStage: 1 }) }, T);
+    const r2 = issueDecision(strongRetreat, "attacker", "w-milestone-0.25-attacker", "retreat", T + Math.round(strongRetreat.durationMs * 0.2), rich());
+    const r3 = issueDecision(strongRetreat, "attacker", "w-milestone-0.25-attacker", "retreat", T + Math.round(strongRetreat.durationMs * 0.25), rich());
+    return r2.ok === true && r3.duplicate === true && strongRetreat.result?.outcome === "defender_victory" && strongRetreat.result?.winnerColonyId === "col-b";
+  })());
+
+  // ---- aid calls (B11): real commitment, delayed arrival ----
+  const ad = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T);
+  const callT = T + Math.round(dur * 0.25);
+  const call = issueDecision(ad, "attacker", "w-milestone-0.25-attacker", "callAid", callT, rich());
+  check("callAid raises a beacon and costs the caller's energy", call.ok === true && call.decision.effects.kind === "callAid" && ad.aidCalls.length === 1 && ad.aidCalls[0].status === "awaiting");
+  const cefx = call.decision.effects;
+  check("the call's arrival rides the travel delay (B3/B11)", cefx.kind === "callAid" && cefx.arrivalAt === callT + BATTLES_CONFIG.aidTravelDelayMs && ad.aidCalls[0].arrivalAt === cefx.arrivalAt);
+  check("a pending beacon blocks a second call for the same side (maxAidPerSide)", issueDecision(ad, "attacker", "w-milestone-0.5-attacker", "callAid", T + Math.round(dur * 0.5), rich()).ok === false);
+  const beforeArrival = ad.forcePower.attacker;
+  const aidHeroes = [hero("a1", "Aid One", "support", { presence: 9 }, 7)];
+  const resp = respondToAid(ad, ad.aidCalls[0].id, { colonyId: "col-c", colonyName: "Covenant", heroes: aidHeroes, weapons: [], troops: 0, fobStage: 4 }, callT + 1000, rich());
+  check("a responder locks in immediately (heroes committed, power computed)", resp.ok === true && resp.decision.effects.kind === "respondAid" && ad.aidCalls[0].status === "locked" && ad.aidCalls[0].power > 0);
+  check("before arrival the battle power does NOT change", ad.forcePower.attacker === beforeArrival);
+  check("a locked call cannot be answered twice (first-come)", respondToAid(ad, ad.aidCalls[0].id, { colonyId: "col-d", colonyName: "Other", heroes: [hero("a2", "Aid Two", "tank", {})], weapons: [], troops: 0, fobStage: 4 }, callT + 2000, rich()).ok === false);
+  check("responder heroes are locked against re-commit to the same battle", (() => {
+    // a second reinforce attempt using the same hero id must be refused
+    const later = issueDecision(ad, "attacker", "w-milestone-0.75-attacker", "reinforce", T + Math.round(dur * 0.75), rich(), { heroes: [hero("a1", "Aid One", "support", { presence: 9 }, 7)], troops: 0 });
+    return later.ok === false;
+  })());
+  const n = advanceAidArrivals(ad, callT + BATTLES_CONFIG.aidTravelDelayMs + 1);
+  check("the aid force lands at arrivalAt: power jumps by the responder's force", n === 1 && ad.aidCalls[0].status === "arrived" && ad.forcePower.attacker === beforeArrival + ad.aidCalls[0].power);
+  check("an offline world lands landed aid on its next advance (persistent-world rule)", (() => {
+    const off = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T);
+    const offT = T + Math.round(dur * 0.25);
+    issueDecision(off, "attacker", "w-milestone-0.25-attacker", "callAid", offT, rich());
+    respondToAid(off, off.aidCalls[0].id, { colonyId: "col-c", colonyName: "Covenant", heroes: aidHeroes, weapons: [], troops: 0, fobStage: 4 }, offT + 1000, rich());
+    const baseOff = off.forcePower.attacker;
+    const st = { battles: [off], battleReports: [], log: [] } as any;
+    advanceBattles(st, offT + BATTLES_CONFIG.aidTravelDelayMs + 1);
+    const landedOff = off.forcePower.attacker;
+    return off.aidCalls[0].status === "arrived" && landedOff >= baseOff && Math.abs(landedOff - baseOff - off.aidCalls[0].power) <= 2;
+  })());
+  check("aid arrival can FLIP a hopeless fight (arrival before the wall-clock end)", (() => {
+    const hop = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...rivalPair({ troops: 100, fobStage: 1 }, { troops: 1000, heroSquad: [hero("h", "H", "damage", { power: 7 }, 10)] }) }, T);
+    const ht = T + Math.round(hop.durationMs * 0.25);
+    issueDecision(hop, "attacker", "w-milestone-0.25-attacker", "callAid", ht, rich());
+    respondToAid(hop, hop.aidCalls[0].id, { colonyId: "col-c", colonyName: "Covenant", heroes: [hero("a1", "Aid One", "damage", { power: 9 }, 10), hero("a2", "Aid Two", "tank", { guard: 9 }, 10)], weapons: [], troops: 1500, fobStage: 4 }, ht + 1000, rich());
+    advanceAidArrivals(hop, ht + BATTLES_CONFIG.aidTravelDelayMs + 1);
+    return outcomeFor(hop.forcePower.attacker, hop.forcePower.defender) === "attacker_victory";
+  })());
+
+  // ---- edge windows: the "getting pummeled" teaching moment (§12.3) ----
+  check("a rout-risk opening gap stamps an edge window for the weaker side", (() => {
+    const lop = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...rivalPair({ troops: 1000, heroSquad: [hero("h", "H", "damage", { power: 7 }, 10)] }, { troops: 120, fobStage: 1 }) }, T);
+    const edge = lop.windows.find((w) => w.kind === "edge");
+    return !!edge && edge.side === "defender" && edge.opensAt === lop.startedAt + BATTLES_CONFIG.edgeWindowDelayMs;
+  })());
+  check("a reinforcement that routs the OTHER side opens ITS edge window", (() => {
+    const ed = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...rivalPair({ troops: 1000, heroSquad: [hero("h1", "H1", "damage", { power: 6 })] }, { troops: 392, heroSquad: [hero("h2", "H2", "damage", { power: 6 })] }) }, T);
+    const before = ed.windows.length;
+    const reinfAt = T + Math.round(ed.durationMs * 0.25);
+    issueDecision(ed, "attacker", "w-milestone-0.25-attacker", "reinforce", reinfAt, rich(), { heroes: [hero("r1", "R", "damage", { power: 10 }, 10), hero("r2", "R2", "damage", { power: 10 }, 10)], troops: 0 });
+    return before === 6 && ed.windows.length === 7 && ed.windows.some((w) => w.kind === "edge" && w.side === "defender");
+  })());
+  check("edge windows are actionable (open + reachable actions list them)", (() => {
+    const ed = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...rivalPair({ troops: 1000, heroSquad: [hero("h1", "H1", "damage", { power: 6 })] }, { troops: 392, heroSquad: [hero("h2", "H2", "damage", { power: 6 })] }) }, T);
+    const reinfAt = T + Math.round(ed.durationMs * 0.25);
+    issueDecision(ed, "attacker", "w-milestone-0.25-attacker", "reinforce", reinfAt, rich(), { heroes: [hero("r1", "R", "damage", { power: 10 }, 10), hero("r2", "R2", "damage", { power: 10 }, 10)], troops: 0 });
+    const edge = ed.windows.find((w) => w.kind === "edge")!;
+    const at = windowsForView(ed, edge.opensAt + 1);
+    const openEdge = at.find((w) => w.id === edge.id);
+    return openEdge?.open === true && reachableActions(ed, "defender", openEdge, edge.opensAt + 1, rich()).some((a) => a.action === "retreat" && a.eligible);
+  })());
+
+  // ---- determinism + migration ----
+  check("identical decision sequences produce byte-identical battles", (() => {
+    const mk = () => {
+      const x = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...rivalPair({ troops: 1000 }, { troops: 900 }) }, T);
+      issueDecision(x, "attacker", "w-milestone-0.25-attacker", "reinforce", T + Math.round(dur * 0.25), rich(), { heroes: [hero("r1", "R", "tank", { guard: 8 }, 5)], troops: 300 });
+      issueDecision(x, "defender", "w-milestone-0.25-defender", "hold", T + Math.round(dur * 0.25) + 5000, rich());
+      return x;
+    };
+    return JSON.stringify(mk()) === JSON.stringify(mk()) && JSON.stringify(battleMoment(mk(), T + Math.round(dur * 0.3))) === JSON.stringify(battleMoment(mk(), T + Math.round(dur * 0.3)));
+  })());
+  check("ensureBattles backfills windows/decisions/aidCalls/warReserve on an older save, exactly once", (() => {
+    const legacy = { battles: [{ ...createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T), windows: undefined, decisions: undefined, aidCalls: undefined }], battleReports: [], log: [] } as any;
+    ensureBattles(legacy);
+    ensureBattles(legacy);
+    return Array.isArray(legacy.battles[0].windows) && legacy.battles[0].windows.length === 6
+      && Array.isArray(legacy.battles[0].decisions) && Array.isArray(legacy.battles[0].aidCalls)
+      && legacy.warReserve && typeof legacy.warReserve.troops === "number" && legacy.warReserve.lockedHeroes && typeof legacy.warReserve.lockedHeroes === "object";
+  })());
+  check("buildWindows is deterministic at fixed inputs; window ids are unique per battle", (() => {
+    const w1 = buildWindows(100, 100, T, dur);
+    const w2 = buildWindows(100, 100, T, dur);
+    const ids = w1.map((w) => w.id);
+    return JSON.stringify(w1) === JSON.stringify(w2) && new Set(ids).size === ids.length;
+  })());
+  check("decision costs mirror the §6 action table (march 20 / participation floor 10)", (() => {
+    const c = reinforceCost([hero("r", "R", "tank", {})], 0);
+    return c.energy === BATTLES_CONFIG.reinforcementEnergyPerHero && BATTLES_CONFIG.reinforcementEnergyPerHero === 20 && BATTLES_CONFIG.aidCallEnergy === 10 && BATTLES_CONFIG.aidRespondEnergyPerHero === 20;
+  })());
+  check("public view ships windows + decisions + aid calls (observable), strips internal only", (() => {
+    const st = engine.newGame("L", "watchers", T);
+    st.gameId = "g-win";
+    st.warReserve = { troops: 100, energy: 60, cycleId: "c1", aidCredits: 0, lockedHeroes: { secretH: { battleId: "b1", until: 5 } } };
+    const pub = createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T);
+    openBattle(st, pub);
+    const p = publicState(st);
+    return Array.isArray(p.battles[0].windows) && Array.isArray(p.battles[0].decisions) && Array.isArray(p.battles[0].aidCalls)
+      && !("internal" in p.battles[0]) && p.warReserve.lockedHeroes && Object.keys(p.warReserve.lockedHeroes).length === 0;
   })());
 }
 
