@@ -151,12 +151,12 @@ class SoundManager {
     filterLfoGain.connect(filter.frequency);
     filterLfo.start();
 
-    // Fade the pad in gently. Ambient (well under the master), but with
-    // mid-range body now it's clearly audible on desktop AND phone speakers —
-    // clients can still turn it down.
+    // Fade the pad in over 3s. Owner direction (2026-09-14): the music must be
+    // LOUD — loud enough the player reaches to turn it down — so it sits well
+    // forward, not tucked under the UI. Still below clipping (partials sum ≪ 1).
     this.music.gain.cancelScheduledValues(ctx.currentTime);
     this.music.gain.setValueAtTime(0.0001, ctx.currentTime);
-    this.music.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 3);
+    this.music.gain.exponentialRampToValueAtTime(0.7, ctx.currentTime + 3);
     // (No need to hold node references: everything is connected to the
     // destination through this.music, so the graph stays alive while running.)
   }
