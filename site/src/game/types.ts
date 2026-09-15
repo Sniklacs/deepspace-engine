@@ -1,6 +1,7 @@
 // Shared game types for Deepspace Engine MVP.
 
 import type { Battle, BattleReport, WarReserve } from "./war/war-types";
+import type { PrologueBlock } from "./prologue/prologue-state";
 
 export type RaceId =
   | "grays"
@@ -69,6 +70,9 @@ export type Specialization = "scholar" | "marshal" | "quartermaster";
 export interface Leader {
   id: string;
   name: string;
+  /** Display title (V11 — the prologue's named Leaders carry owner-locked
+   *  titles, e.g. Kael "the Steward"; optional so legacy saves stay valid). */
+  title?: string;
   specialty: Specialty;
   attributes: { research: number; economy: number; combat: number; engineering: number };
   joinedAt: number;
@@ -313,6 +317,12 @@ export interface GameState {
    *  engine VALIDATES against it; the API handler (and prologue) deduct the
    *  recorded costs — never a purchasable path (battle-side §9/B4). */
   warReserve: WarReserve;
+  // ---- Prologue state spine (V11, opening-prologue-spec §4–§8 — The Fall) ----
+  // The per-colony ledger for the voiced opening: stage, sealed height
+  // records, the final stand, the History Book + ash echoes. The player's own
+  // story — ships whole in publicState (api.ts). ensurePrologue (V11)
+  // backfills pre-V11 saves additively (stage "rebuilt", completed false).
+  prologue: PrologueBlock;
   log: string[];
 }
 
