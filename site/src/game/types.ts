@@ -61,7 +61,10 @@ export interface DomainLevel {
 // domain line (economist → economy, horticulturist → agriculture, etc.).
 export type Specialty = "tactician" | "horticulturist" | "economist" | "engineer" | "logistician";
 // One-time Level-3 path choice (leader-xp.ts) — mutually exclusive per leader.
-export type Specialization = "scholar" | "marshal" | "steward";
+// Paths: Scholar / Marshal / Quartermaster. "Steward" is Kael's TITLE only
+// (a generalist caretaker label), never a specialization. Purifier = the 4th
+// path, deferred (lands with the corruption/Oracle layer).
+export type Specialization = "scholar" | "marshal" | "quartermaster";
 
 export interface Leader {
   id: string;

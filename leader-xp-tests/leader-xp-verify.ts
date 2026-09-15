@@ -88,22 +88,23 @@ check("scholar −15% duration", scholarDur < baseDur && scholarDur === Math.rou
 senna.specialization = "scholar";
 check("scholar breakthrough +5%", Math.abs(engine.breakthroughChance(st, senna) - 0.26 * 1.05) < 0.0001);
 senna.specialization = null;
-// Steward craft cost: forge medkit with/without a steward.
+// Quartermaster craft cost: forge medkit with/without a quartermaster.
 const medCostBase = engine.craftCost(st, "medkit", now);
-const steward = st.leaders.find((l) => l.id === "ld-vaera")!;
-steward.specialization = "steward";
-const medCostSteward = engine.craftCost(st, "medkit", now);
-steward.specialization = null;
-check("steward −10% craft", medCostSteward === Math.max(1, Math.round(medCostBase * 0.9)), `base=${medCostBase} st=${medCostSteward}`);
+const qm = st.leaders.find((l) => l.id === "ld-vaera")!;
+qm.specialization = "quartermaster";
+const medCostQm = engine.craftCost(st, "medkit", now);
+qm.specialization = null;
+check("quartermaster −10% craft", medCostQm === Math.max(1, Math.round(medCostBase * 0.9)), `base=${medCostBase} qm=${medCostQm}`);
 // Marshal mults
 st.leaders.forEach((l) => (l.specialization = null));
 st.leaders.find((l) => l.id === "ld-oric")!.specialization = "marshal";
 check("marshal combat +10%", Math.abs(engine.marshalCombatMult(st) - 1.1) < 0.0001);
 check("marshal protection −20%", Math.abs(engine.marshalProtectionMult(st) - 0.8) < 0.0001);
 st.leaders.forEach((l) => (l.specialization = null));
-// Steward economy on supplies + ember yield
-st.leaders.find((l) => l.id === "ld-vaera")!.specialization = "steward";
-check("steward economy +10% supplies", Math.abs(engine.stewardEconomyMult(st) - 1.1) < 0.0001);
+// Quartermaster economy on supplies + ember yield
+st.leaders.find((l) => l.id === "ld-vaera")!.specialization = "quartermaster";
+check("quartermaster economy +10% supplies", Math.abs(engine.quartermasterEconomyMult(st) - 1.1) < 0.0001);
+st.leaders.forEach((l) => (l.specialization = null));
 
 console.log("— allocate attribute point —");
 const oric2 = st.leaders.find((l) => l.id === "ld-oric")!;
@@ -126,6 +127,20 @@ engine.advance(legacy, now + 5000);
 check("legacy loads, leaders regain defaults", legacy.leaders.length === 3 && (legacy.leaders[0] as any).xp === 0);
 check("legacy ledger backfilled", typeof legacy.leaderXpCaps === "object" && legacy.leaderXpCaps !== null);
 check("legacy level 1", (legacy.leaders[0] as any).unspentPoints === 0);
+
+console.log("— V10 rename: legacy 'steward' path migrates to 'quartermaster' —");
+const legacySpec = engine.newGame("Old Spec", "grays", now);
+(legacySpec as any).leaders[0].xp = 450; // L3 so a migrated path is meaningful
+(legacySpec as any).leaders[0].specialization = "steward"; // pre-rename value
+engine.advance(legacySpec, now + 6000);
+const specAfter = (legacySpec.leaders[0] as any).specialization;
+check("legacy steward → quartermaster", specAfter === "quartermaster", `got=${specAfter}`);
+check("legacy 'steward' never survives", specAfter !== "steward");
+check("migrated quartermaster powers economy mult", Math.abs(engine.quartermasterEconomyMult(legacySpec) - 1.1) < 0.0001);
+const migBase = engine.newGame("Plain Cost", "grays", now);
+const migBaseCost = engine.craftCost(migBase, "medkit", now); // no specialized leaders → full price
+const migCost = engine.craftCost(legacySpec, "medkit", now);
+check("migrated quartermaster −10% craft", migCost === Math.max(1, Math.round(migBaseCost * 0.9)), `base=${migBaseCost} cost=${migCost}`);
 
 console.log("— resolveExpedition runs (wildcard/deep XP path) —");
 // Deep zone run with full protection: returns cleanly (randomness: force no wildcard by high protection)

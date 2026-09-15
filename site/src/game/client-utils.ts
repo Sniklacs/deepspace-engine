@@ -27,8 +27,8 @@ import {
   craftCost,
   marshalCombatMult,
   marshalProtectionMult,
-  stewardEconomyMult,
-  stewardCraftMult,
+  quartermasterEconomyMult,
+  quartermasterCraftMult,
 } from "./engine";
 import {
   xpToNextLevel,
@@ -150,12 +150,12 @@ export const engineHelpers = {
   milestone: SPECIALIZATION_MILESTONE,
   specs: SPECIALIZATIONS,
   isSpecialization(v: unknown): v is Specialization {
-    return v === "scholar" || v === "marshal" || v === "steward";
+    return v === "scholar" || v === "marshal" || v === "quartermaster";
   },
   marshalCombatMult(state: GameState) { return marshalCombatMult(state); },
   marshalProtectionMult(state: GameState) { return marshalProtectionMult(state); },
-  stewardEconomyMult(state: GameState) { return stewardEconomyMult(state); },
-  stewardCraftMult(state: GameState) { return stewardCraftMult(state); },
+  quartermasterEconomyMult(state: GameState) { return quartermasterEconomyMult(state); },
+  quartermasterCraftMult(state: GameState) { return quartermasterCraftMult(state); },
   zoneProspects(_state: GameState, zone: Zone) {
     // Rough expected ember yield for display.
     return {

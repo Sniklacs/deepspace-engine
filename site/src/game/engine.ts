@@ -58,7 +58,7 @@ export { claimDaily, favorScore } from "./daily";
 // from lastTick to now, resolving expeditions/studies that finished while offline
 // and accruing passive income. This is what makes the world persist while logged out.
 
-export const VERSION = 9;
+export const VERSION = 10;
 // V2: multi-game saves (account file wrapper; GameState version bumped to match).
 // V3: Leader XP/leveling/specialization (xp, unspentPoints, specialization, day,
 //     dayXp per Leader; colony-wide day-cap ledger state.leaderXpCaps).
@@ -120,6 +120,12 @@ export const VERSION = 9;
 // world-level war ledger arrives with war Phase 1 (§10.2).
 // Old saves migrate silently: missing leader XP fields default to level-1 no-xp
 // state and the day ledger is empty (see ensureLeaderXp).
+// V10 (owner-locked 2026-09-14): the L3 economy path "steward" is renamed
+// "quartermaster". "Steward" survives ONLY as
+// Kael's TITLE (the generalist caretaker) — never a path. Legacy saves with
+// specialization "steward" migrate to "quartermaster" in ensureLeaderXp
+// (additive, idempotent; buff numbers untouched). Purifier = the 4th path,
+// explicitly DEFERRED to the corruption/Oracle layer — no mechanics here.
 
 // Inputs are already in milliseconds; TIME_SCALE just allows demo-speed tuning.
 export const TIME_SCALE = 1;
@@ -599,7 +605,7 @@ function grantXpTo(state: GameState, leader: Leader, amount: number, source: str
     `⭐ ${leader.name} ${source}: +${Math.round(grant)} XP${leveled ? " — LEVEL UP!" : ""}${dayLeft - grant < DAILY_XP_CAP * 0.01 ? ` (day cap ${Math.round(leader.dayXp)}/${DAILY_XP_CAP})` : ""}`,
   );
   if (leveled && before + grant >= xpForLevel(3) && before < xpForLevel(3)) {
-    log(state, `🧭 ${leader.name} reaches Level 3 — a one-time path stands open: Scholar · Marshal · Steward.`);
+    log(state, `🧭 ${leader.name} reaches Level 3 — a one-time path stands open: Scholar · Marshal · Quartermaster.`);
   }
   return grant;
 }
@@ -634,18 +640,18 @@ export function leaderLevel(leader: Leader): number {
   return levelFromXp(typeof leader.xp === "number" ? leader.xp : 0);
 }
 
-/** Craft cost in supplies (i1 Auto-Forge −15%; a Steward's watch −10%). */
+/** Craft cost in supplies (i1 Auto-Forge −15%; a Quartermaster's watch −10%). */
 export function craftCost(state: GameState, kind: CraftKind, now = Date.now()): number {
   advance(state, now);
   const def = CRAFT[kind];
   const autoForge = hasTech(state, "i1") ? 0.85 : 1;
-  return Math.max(1, Math.round(def.supplies * autoForge * stewardCraftMult(state)));
+  return Math.max(1, Math.round(def.supplies * autoForge * quartermasterCraftMult(state)));
 }
 
-/** Colony-wide Steward crafting discount (any specialized Steward's watch). */
-export function stewardCraftMult(state: GameState): number {
-  const stewards = state.leaders.filter((l) => l.specialization === "steward" && l.status === "active");
-  if (stewards.length === 0) return 1;
+/** Colony-wide Quartermaster crafting discount (any specialized Quartermaster's watch). */
+export function quartermasterCraftMult(state: GameState): number {
+  const quartermasters = state.leaders.filter((l) => l.specialization === "quartermaster" && l.status === "active");
+  if (quartermasters.length === 0) return 1;
   return 0.9; // −10%
 }
 
@@ -664,11 +670,11 @@ export function marshalProtectionMult(state: GameState): number {
   return Math.max(0.5, 1 - marshals.length * 0.2); // −20% per specialized marshal, floor 50%
 }
 
-/** Colony-wide Steward economy effectiveness (+10% ember yield & supplies). */
-export function stewardEconomyMult(state: GameState): number {
-  const stewards = state.leaders.filter((l) => l.specialization === "steward" && l.status === "active");
-  if (stewards.length === 0) return 1;
-  return 1 + stewards.length * 0.1; // +10% per steward, additive
+/** Colony-wide Quartermaster economy effectiveness (+10% ember yield & supplies). */
+export function quartermasterEconomyMult(state: GameState): number {
+  const quartermasters = state.leaders.filter((l) => l.specialization === "quartermaster" && l.status === "active");
+  if (quartermasters.length === 0) return 1;
+  return 1 + quartermasters.length * 0.1; // +10% per quartermaster, additive
 }
 
 /** Research-speed modifier for a specific Leader (15% per Scholar path). */
@@ -818,7 +824,7 @@ export function revelationStage3(state: GameState): boolean {
   if (!c || typeof c !== "object") return false;
   const deep = (c.maxDomainDepth ?? 0) >= REVELATION_STAGE3_DEPTH;
   const deeds = (c.codicesEarnedByDeeds ?? 0) >= REVELATION_STAGE3_DEED_CODICES;
-  const mentor = state.leaders.some((l) => l.specialization === "scholar" || l.specialization === "marshal" || l.specialization === "steward");
+  const mentor = state.leaders.some((l) => l.specialization === "scholar" || l.specialization === "marshal" || l.specialization === "quartermaster");
   return deep && deeds && mentor;
 }
 
@@ -1016,9 +1022,9 @@ export function suppliesPerMinute(state: GameState): number {
   const econ = state.deployedDomains.economy * 2;
   const agriTechs = (hasTech(state, "a1") ? 2 : 0) + (hasTech(state, "a4") ? 2 : 0); // Hydroponics + Terraced
   const econTech = hasTech(state, "e4") ? 1 : 0; // Market Hall
-  // Steward mandate: a colony with specialized Stewards runs leaner (+10% per
-  // steward on the whole supplies line, applied to the final income).
-  return (base + agri + econ + agriTechs + econTech) * stewardEconomyMult(state);
+  // Quartermaster mandate: a colony with specialized Quartermasters runs leaner (+10% per
+  // Quartermaster on the whole supplies line, applied to the final income).
+  return (base + agri + econ + agriTechs + econTech) * quartermasterEconomyMult(state);
 }
 
 export function studyDurationMs(state: GameState, kind: "ember" | "chipset"): number {
@@ -1098,9 +1104,12 @@ function ensureLeaderXp(state: GameState) {
     if (typeof L.xp !== "number") L.xp = 0;
     if (typeof L.unspentPoints !== "number") L.unspentPoints = 0;
     if (typeof L.xpPointsGranted !== "number") L.xpPointsGranted = 0;
+    // V10 rename migration: legacy saves that picked the L3 economy path as
+    // "steward" move silently to "quartermaster" (same niche, same numbers).
+    if (L.specialization === "steward") L.specialization = "quartermaster";
     if (typeof L.specialization !== "string" && L.specialization !== null && L.specialization !== undefined) {
-      // garbage guard: only known paths
-      if (L.specialization !== "scholar" && L.specialization !== "marshal" && L.specialization !== "steward") {
+      // garbage guard: only known paths (quartermaster = renamed steward)
+      if (L.specialization !== "scholar" && L.specialization !== "marshal" && L.specialization !== "quartermaster") {
         L.specialization = null;
       }
     }
@@ -1513,10 +1522,10 @@ export function resolveExpedition(state: GameState, e: (typeof state.expeditions
   sciLost = Math.min(sciLost, sci - 1);
   if (sciLost > 0) state.scientists = Math.max(1, state.scientists - sciLost);
 
-  // ---- yield (Steward economy effectiveness applies to embers) ----
+  // ---- yield (Quartermaster economy effectiveness applies to embers) ----
   const scientistFactor = 0.7 + sci * 0.4;
   const base = zone.emberYield * scientistFactor * r.mods.emberGain * emberYieldMult(state); // e2 Salvage Contracts
-  const econBoost = (1 + state.deployedDomains.economy * 0.06) * stewardEconomyMult(state); // Steward mandate
+  const econBoost = (1 + state.deployedDomains.economy * 0.06) * quartermasterEconomyMult(state); // Quartermaster mandate
   const corruptionPenalty = 1 - state.corruption / 200;
   const variance = 0.8 + Math.random() * 0.4;
   let embers = Math.max(1, Math.round(base * econBoost * variance * corruptionPenalty));
@@ -1768,7 +1777,7 @@ export function craftItem(state: GameState, kind: CraftKind, now = Date.now()): 
   advance(state, now);
   if (!state.race) return fail("Choose a race first.");
   const def = CRAFT[kind];
-  const forgedCost = craftCost(state, kind, now); // i1 Auto-Forge −15%; Steward watch −10%
+  const forgedCost = craftCost(state, kind, now); // i1 Auto-Forge −15%; Quartermaster watch −10%
   if (state.resources.supplies < forgedCost) {
     return fail(`Not enough supplies. ${def.label} needs ${forgedCost} 📦, have ${Math.floor(state.resources.supplies)}.`);
   }

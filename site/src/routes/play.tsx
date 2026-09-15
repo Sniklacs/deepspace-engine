@@ -1778,7 +1778,7 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
 
 /* ---------------- Lab tab ---------------- */
 
-function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoint, onChooseSpec, onChooseRevelation }: { state: GameState; now: number; onStudy: (k: "ember" | "chipset") => void; onDeploy: (d: DomainId) => void; onBeginResearch: (techId: string, leaderId: string) => void; onAllocatePoint: (leaderId: string, attr: "research" | "economy" | "combat" | "engineering") => void; onChooseSpec: (leaderId: string, path: "scholar" | "marshal" | "steward") => void; onChooseRevelation: (choice: "sealed" | "open") => void }) {
+function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoint, onChooseSpec, onChooseRevelation }: { state: GameState; now: number; onStudy: (k: "ember" | "chipset") => void; onDeploy: (d: DomainId) => void; onBeginResearch: (techId: string, leaderId: string) => void; onAllocatePoint: (leaderId: string, attr: "research" | "economy" | "combat" | "engineering") => void; onChooseSpec: (leaderId: string, path: "scholar" | "marshal" | "quartermaster") => void; onChooseRevelation: (choice: "sealed" | "open") => void }) {
   const studying = engineHelpers.studying(state);
   const busy = studying.length >= state.scientists;
   const r = state.resources;

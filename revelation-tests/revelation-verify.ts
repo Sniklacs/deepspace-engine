@@ -175,7 +175,7 @@ check("rv3 not pushed at rv2-resolve (stage3 missing)", !st4.revelations.include
 // stage3 arrives LATER (AI path grinding) — reconcile must then publish rv3
 st4.revelationCounters.maxDomainDepth = 5;
 st4.revelationCounters.codicesEarnedByDeeds = 20;
-st4.leaders[0].xp = 450; st4.leaders[0].specialization = "steward";
+st4.leaders[0].xp = 450; st4.leaders[0].specialization = "quartermaster";
 st4.completedExpeditions = 50;
 engine.advance(st4, now + 70_200_000);
 check("reconcile publishes rv3 once BOTH gates flip late", st4.revelations.includes("rv3") && engine.revelationAvailable(st4, "rv3"));

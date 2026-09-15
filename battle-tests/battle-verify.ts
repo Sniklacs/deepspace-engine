@@ -487,7 +487,7 @@ console.log("— 7 · migration & backfill —");
     return keepers.every((k) => deepEq(after[k], legacy[k]));
   })());
   const fresh = engine.newGame("Fresh", "watchers", t);
-  check("newGame carries VERSION 9 + empty battle arrays", fresh.version === 9 && fresh.battles.length === 0 && fresh.battleReports.length === 0);
+  check("newGame carries VERSION 10 + empty battle arrays", fresh.version === 10 && fresh.battles.length === 0 && fresh.battleReports.length === 0);
   check("blankColony carries empty battle arrays", engine.blankColony(t).battles.length === 0 && engine.blankColony(t).battleReports.length === 0);
   // resolved-but-unreported battle: ensureBattles backfills its report exactly once
   const orphan = { battles: [createBattle({ zoneId: "z", zoneName: "Z", ...rivalPair({ troops: 300 }, { troops: 50, fobStage: 1 }) }, t)], battleReports: [], log: [] } as any;

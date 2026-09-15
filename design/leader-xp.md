@@ -42,11 +42,14 @@ One-time, permanent, mutually exclusive per Leader. If the Leader reaches L3 wit
 |---|---|---|---|
 | **Scholar** | Researcher's Mandate 🔬 | +15% research speed · +5% surprise-breakthrough chance | `researchDurationMs` ×0.85 for that Leader's projects; `breakthroughChance` ×1.05 (absolute 26%→27.3%) |
 | **Marshal** | Warden's Mandate 🛡️ | +10% combat effectiveness · −20% surprise/survival damage severity | `marshalCombatMult` (+10% per marshal, cap +30%) divides scientist attrition in `resolveExpedition`; `marshalProtectionMult` (−20% per marshal, floor 50%) scales effective protection in the wildcard roll |
-| **Steward** | Steward's Mandate ⚖️ | +10% economy effectiveness · −10% crafting cost | `stewardEconomyMult` (+10% per steward) multiplies ember yield & supplies-per-minute; `stewardCraftMult` (−10%) enters `craftCost`/`craftItem` |
+| **Quartermaster** | Quartermaster's Mandate ⚖️ | +10% economy effectiveness · −10% crafting cost | `quartermasterEconomyMult` (+10% per quartermaster) multiplies ember yield & supplies-per-minute; `quartermasterCraftMult` (−10%) enters `craftCost`/`craftItem` |
+| **Purifier** | *(not yet implemented)* | — | **DEFERRED** to the corruption/Oracle layer (continuous cleansing, Oracle-granted trust). No mechanics, no UI, no enum entry in the live build — a stub note only. Lands later with purity/corruption systems. |
 
-Scope decision (flagged): Scholar is **per-Leader** (it's about that Leader's own projects). Marshal and Steward buffs are **colony-wide per specialized Leader** (additive, with caps), because combat/crafting/economy in the current engine have no per-expedition leader slot to hang on — this keeps them real and visible ("your colony has 2 Marshals → −40% survival severity") without a spec-breaking leader-to-expedition field. Light stacking with diminishing caps prevents degenerate all-one-path colonies.
+> **Naming (owner-locked 2026-09-14):** the three implemented paths are **Scholar / Marshal / Quartermaster**. **"Steward" is NOT a path — it is Kael's TITLE only** (the generalist caretaker / starter-Leader role, matching the prologue roster: Kael the Steward · Serev the Marshal · Vyra the Scholar · Miren the Quartermaster · Delen the Purifier). The economy path was renamed from the pre-lock "Steward" to **Quartermaster** everywhere in code (V10 engine); legacy saves that picked "steward" migrate to "quartermaster" (additive, idempotent — buff numbers untouched). Purifier is the 4th path, explicitly deferred above.
 
-All three read as choices, work entirely on earned progression, and could never be gated behind spending: the modal's copy states this explicitly and the engine exposes no purchase path.
+Scope decision (flagged): Scholar is **per-Leader** (it's about that Leader's own projects). Marshal and Quartermaster buffs are **colony-wide per specialized Leader** (additive, with caps), because combat/crafting/economy in the current engine have no per-expedition leader slot to hang on — this keeps them real and visible ("your colony has 2 Marshals → −40% survival severity") without a spec-breaking leader-to-expedition field. Light stacking with diminishing caps prevents degenerate all-one-path colonies.
+
+All three implemented paths read as choices, work entirely on earned progression, and could never be gated behind spending: the modal's copy states this explicitly and the engine exposes no purchase path.
 
 ## 5. UI (mobile-first, no regression)
 
@@ -57,15 +60,16 @@ All three read as choices, work entirely on earned progression, and could never 
 
 ## 6. Persistence / migration
 
-- `VERSION = 3`. `GameState` gains `leaderXpCaps: Record<string, number>`. `Leader` gains `xp`, `unspentPoints`, `xpPointsGranted`, `specialization`, `day`, `dayXp`.
+- `VERSION = 3` (now V10; see §4 naming note). `GameState` gains `leaderXpCaps: Record<string, number>`. `Leader` gains `xp`, `unspentPoints`, `xpPointsGranted`, `specialization`, `day`, `dayXp`.
 - `ensureLeaderXp` backfills all fields idempotently: `xp=0`, `unspentPoints=0`, `xpPointsGranted=0`, `specialization=null`, rolling `day`/`dayXp` (stale → 0 today). Old saves load without errors (verified with a stripped legacy save).
+- **V10 (2026-09-14):** `ensureLeaderXp` also rewrites a legacy `specialization === "steward"` to `"quartermaster"` before the known-paths guard — additive and idempotent (the economy niche is unchanged, only renamed). New saves/games write `"quartermaster"` directly; the API validator accepts only scholar/marshal/quartermaster.
 - New API: `allocateLeaderPointFn` (leaderId, attr) and `chooseSpecializationFn` (leaderId, path) — both POST, both operate on the active game only, both reject when no point / below L3 / already bound.
 
 ## 7. Files
 
 - `src/game/leader-xp.ts` (new) — curve, thresholds, day key, specializations.
 - `src/game/types.ts` — Leader fields + `leaderXpCaps`.
-- `src/game/engine.ts` — VERSION 3, migration, `grantXpTo`/`applyLevelUps`/`researchXp`, resolve wiring, `allocateLeaderPoint`/`chooseSpecialization`, Scholar/Marshal/Steward mults.
+- `src/game/engine.ts` — VERSION 3 (now V10), migration (incl. V10 steward→quartermaster), `grantXpTo`/`applyLevelUps`/`researchXp`, resolve wiring, `allocateLeaderPoint`/`chooseSpecialization`, Scholar/Marshal/Quartermaster mults.
 - `src/game/research.ts` — leader factory defaults.
 - `src/game/api.ts` — two new server fns + exports.
 - `src/game/client-utils.ts` — display helpers (`leaderLevel`, `xpToNext`, `xpProgress`, `todayXp`, `dayKey`, `dailyCap`, `milestone`, `specs`).
@@ -75,4 +79,4 @@ All three read as choices, work entirely on earned progression, and could never 
 
 ## 8. Verification log (engine play-test, 40/40 checks)
 
-Curve thresholds L1–L10, cap at 99999 ✓ · new-game defaults ✓ · research completion grants +10 & ledger records ✓ · level 3 at 450 with 2 unspent points ✓ · daily cap binds (0 granted, logged) ✓ · spec choice persists and second choice locked ✓ · below-L3 rejected ✓ · Scholar −15% duration & +5% breakthrough ✓ · Steward −10% craft & +10% economy ✓ · Marshal +10% combat & −20% protection ✓ · allocate consumes point & raises attribute ✓ · stripped legacy save loads with defaults ✓ · deep expedition resolves ✓. Build (`bun run build`) green; publish script ran clean (see publish status in report).
+Curve thresholds L1–L10, cap at 99999 ✓ · new-game defaults ✓ · research completion grants +10 & ledger records ✓ · level 3 at 450 with 2 unspent points ✓ · daily cap binds (0 granted, logged) ✓ · spec choice persists and second choice locked ✓ · below-L3 rejected ✓ · Scholar −15% duration & +5% breakthrough ✓ · Quartermaster −10% craft & +10% economy ✓ · Marshal +10% combat & −20% protection ✓ · allocate consumes point & raises attribute ✓ · stripped legacy save loads with defaults ✓ · **legacy "steward" spec migrates to "quartermaster" and still powers the mults ✓** · deep expedition resolves ✓. Build (`bun run build`) green; publish script ran clean (see publish status in report).

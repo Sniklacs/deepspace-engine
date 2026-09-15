@@ -104,7 +104,7 @@ This is the node that unlocks the *research tree* glyph (see §3).
 **Stage 3 — "The Soul Path" (decline / ascension).**
 | # | Counter | Threshold |
 |---|---|---|
-| D | `maxDomainDepth` + Codices-by-deeds | `maxDomainDepth >= 5` **AND** `codicesEarnedByDeeds >= 20` **AND** at least one `L3`-specialized Leader (any of Scholar/Marshal/Steward) — proof of committed human-knowledge investment, not AI spam. |
+| D | `maxDomainDepth` + Codices-by-deeds | `maxDomainDepth >= 5` **AND** `codicesEarnedByDeeds >= 20` **AND** at least one `L3`-specialized Leader (any of Scholar/Marshal/Quartermaster) — proof of committed human-knowledge investment, not AI spam. |
 
 (Stage 3 is *optional* in beta; it is the deeper chain. See §6 flags.)
 

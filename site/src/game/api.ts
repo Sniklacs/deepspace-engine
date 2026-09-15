@@ -580,9 +580,9 @@ const allocateLeaderPointFn = createServerFn({ method: "POST" }).validator(
 });
 
 // Leader progression: the ONE-TIME Level-3 specialization choice (Scholar /
-// Marshal / Steward), mutually exclusive and permanent for that Leader.
+// Marshal / Quartermaster), mutually exclusive and permanent for that Leader.
 const chooseSpecializationFn = createServerFn({ method: "POST" }).validator(
-  z.object({ token: z.string(), leaderId: z.string(), path: z.enum(["scholar", "marshal", "steward"]) })
+  z.object({ token: z.string(), leaderId: z.string(), path: z.enum(["scholar", "marshal", "quartermaster"]) })
 ).handler(async ({ data }): Promise<GameResult> => {
   const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
