@@ -14,7 +14,7 @@
 //
 // The designer polishes the visuals later (visual-pass-1-style brief); this is
 // the clean minimal shell with the design-system tokens.
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameState } from "../game/types";
 import type { Battle, BattleReport, BattleSide, CommittedForce } from "../game/war/war-types";
 import { battleMoment, battleEndAt } from "../game/war/battle-engine";
@@ -31,6 +31,28 @@ import {
   respondPayload,
 } from "../game/battle-decisions";
 import { familyFor } from "../game/armory";
+import TutorialCueLayer from "./TutorialCueLayer";
+import {
+  TUTORIAL_CONFIG,
+  activeCue,
+  advanceTutorial,
+  decodeTutorialPrefs,
+  encodeTutorialPrefs,
+  freshTutorialState,
+  freshWatch,
+  observeBattle,
+  replayTutorial,
+  setSuppressed,
+  stepTutorial,
+} from "../game/war/tutorial-cues";
+import type {
+  BattleWatch,
+  TutorialAction,
+  TutorialEvent,
+  TutorialPrefs,
+  TutorialState,
+  UiTarget,
+} from "../game/war/tutorial-cues";
 
 const CHIP_META: Record<string, { label: string; cls: string }> = {
   stalemate: { label: "Stalemate", cls: "bg-sky-400/15 text-sky-200 border-sky-400/30" },
@@ -49,6 +71,138 @@ function fmtClock(ms: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+// ============================================================================
+// ACT I GUIDED TUTORIAL — the narration layer (The Fall Step 3 slice 2,
+// opening-prologue-spec §12). It OBSERVES the battle and the decision seam and
+// narrates; it never issues, gates or alters an order.
+//
+// The event log comes from two places and nowhere else:
+//   • `observeBattle` reads the public entity every render (battle start,
+//     time-in-battle marks, windows opening, the chip turning, the resolution);
+//   • the decision panel's own `onDecision` seam contributes the player's
+//     orders AFTER a successful post.
+// Both are folded through the pure machine in game/war/tutorial-cues.ts, which
+// owns the cue script, the progressive-scaffolding tiers (§12.1) and the
+// skip/step/replay controls (§12.4).
+// ============================================================================
+interface TutorialRun {
+  state: TutorialState;
+  watch: BattleWatch;
+  events: TutorialEvent[];
+}
+
+function loadTutorialPrefs(): TutorialPrefs {
+  try {
+    return decodeTutorialPrefs(localStorage.getItem(TUTORIAL_CONFIG.storageKeys.prefs));
+  } catch {
+    return { suppressed: false, battlesSeen: 0 };
+  }
+}
+
+function saveTutorialPrefs(prefs: TutorialPrefs): void {
+  try {
+    localStorage.setItem(TUTORIAL_CONFIG.storageKeys.prefs, encodeTutorialPrefs(prefs));
+  } catch {
+    /* a player with storage blocked just gets the guidance afresh next visit */
+  }
+}
+
+function useBattleTutorial(battle: Battle | null, side: BattleSide | null, now: number, enabled: boolean) {
+  const prefs = useRef<TutorialPrefs | null>(null);
+  if (prefs.current === null) prefs.current = loadTutorialPrefs();
+  const run = useRef<TutorialRun | null>(null);
+  if (run.current === null) {
+    run.current = {
+      state: freshTutorialState(prefs.current.battlesSeen, prefs.current.suppressed),
+      watch: freshWatch(),
+      events: [],
+    };
+  }
+  const [, bump] = useState(0);
+  const rerender = useCallback(() => bump((n) => n + 1), []);
+
+  // Observe the live battle. Idempotent: a poll that shows nothing new leaves
+  // the run untouched and never re-renders.
+  useEffect(() => {
+    if (!enabled || !battle) return;
+    const current = run.current as TutorialRun;
+    const { watch, events } = observeBattle({ ...current.watch, side: side ?? current.watch.side }, battle, now);
+    if (events.length === 0) {
+      if (watch !== current.watch) run.current = { ...current, watch };
+      return;
+    }
+    const state = advanceTutorial(current.state, events);
+    run.current = { ...current, watch, events: [...current.events, ...events], state };
+    saveTutorialPrefs({ suppressed: state.suppressed, battlesSeen: state.battlesSeen });
+    rerender();
+  });
+
+  /** The decision seam's event, verbatim — this layer only listens to it. */
+  const onDecision = useCallback(
+    (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => {
+      if (!enabled || !battle || d.battleId !== battle.id) return;
+      const current = run.current as TutorialRun;
+      const ev: TutorialEvent = {
+        kind: "decision",
+        battleId: d.battleId,
+        windowId: d.windowId,
+        action: d.action as TutorialAction,
+        at: Date.now(),
+      };
+      const state = advanceTutorial(current.state, [ev]);
+      run.current = { ...current, events: [...current.events, ev], state };
+      rerender();
+    },
+    [enabled, battle, rerender],
+  );
+
+  const state = run.current.state;
+  const cue = enabled && battle ? activeCue(state) : null;
+  const showControls = enabled && !!battle && state.battlesSeen > 0 && (state.battlesSeen <= TUTORIAL_CONFIG.maxGuidedTier + 1 || state.suppressed);
+
+  return {
+    cue,
+    waiting: state.pending.length,
+    suppressed: state.suppressed,
+    showControls,
+    /** The UI element the active cue asks the view to light up (§12.1). */
+    target: (cue?.pointsAt ?? null) as UiTarget | null,
+    onDecision,
+    step: () => {
+      const current = run.current as TutorialRun;
+      run.current = { ...current, state: stepTutorial(current.state) };
+      rerender();
+    },
+    suppress: () => {
+      const current = run.current as TutorialRun;
+      const next = setSuppressed(current.state, true);
+      run.current = { ...current, state: next };
+      saveTutorialPrefs({ suppressed: true, battlesSeen: next.battlesSeen });
+      rerender();
+    },
+    resume: () => {
+      const current = run.current as TutorialRun;
+      const next = setSuppressed(current.state, false);
+      run.current = { ...current, state: next };
+      saveTutorialPrefs({ suppressed: false, battlesSeen: next.battlesSeen });
+      rerender();
+    },
+    /** Replay: re-fold this battle's own log from the top (§12.4). */
+    replay: () => {
+      const current = run.current as TutorialRun;
+      const next = replayTutorial(current.state, current.events);
+      run.current = { ...current, state: next };
+      rerender();
+    },
+  };
+}
+
+/** The highlight ring the active cue puts on the element it points at. */
+const TUTORIAL_RING = "ring-2 ring-purity/70";
+function tutorialRing(target: UiTarget | null, mine: UiTarget): string {
+  return target === mine ? TUTORIAL_RING : "";
+}
+
 function weaponLabel(state: GameState, kit: { family: string; tier: number; count: number }): string {
   const fam = state.race ? familyFor(state.race, kit.family) : undefined;
   const base = fam ? fam.name : kit.family;
@@ -61,7 +215,7 @@ function fobLabel(stage: number): string {
 }
 
 /** One side's committed composition — the observable facts of the fight. */
-function ForceBlock({ state, force, power, tag }: { state: GameState; force: CommittedForce; power: number; tag: string }) {
+function ForceBlock({ state, force, power, tag, focusTarget }: { state: GameState; force: CommittedForce; power: number; tag: string; focusTarget?: UiTarget | null }) {
   const squad = force.heroSquad.length > 0 ? (
     <ul className="space-y-0.5">
       {force.heroSquad.map((h) => (
@@ -84,7 +238,10 @@ function ForceBlock({ state, force, power, tag }: { state: GameState; force: Com
     <p className="text-xs text-gray-500">No weapon kits fielded.</p>
   );
   return (
-    <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+    <div
+      className={`rounded-lg border border-white/10 bg-black/30 p-3 ${tutorialRing(focusTarget ?? null, tag === "attacker" ? "force-attacker" : "force-defender")}`}
+      data-tutorial-target={tag === "attacker" ? "force-attacker" : "force-defender"}
+    >
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <span className={`text-sm font-semibold ${tag === "attacker" ? "text-amber-200" : "text-cyan-200"}`}>
           {tag === "attacker" ? "⚔️ Attacker" : "🛡️ Defender"}
@@ -111,11 +268,12 @@ function ForceBlock({ state, force, power, tag }: { state: GameState; force: Com
 }
 
 /** The live list + detail for ongoing battles. */
-function ActiveBattles({ state, now, token, onDecision }: {
+function ActiveBattles({ state, now, token, onDecision, tutorialEnabled }: {
   state: GameState;
   now: number;
   token?: string;
   onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
+  tutorialEnabled?: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const active = (state.battles ?? []).filter((b) => b.status === "active").sort((a, b) => a.startedAt - b.startedAt);
@@ -166,7 +324,7 @@ function ActiveBattles({ state, now, token, onDecision }: {
 
       {selected && (
         <div className="space-y-3 rounded-xl border border-white/10 bg-black/30 p-4">
-          <BattleDetail state={state} battle={selected} now={now} token={token} onDecision={onDecision} />
+          <BattleDetail state={state} battle={selected} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorialEnabled} />
         </div>
       )}
     </div>
@@ -201,6 +359,7 @@ function DecisionPanel({
   colonyId,
   colonyName,
   onDecision,
+  focusTarget,
 }: {
   state: GameState;
   battle: Battle;
@@ -210,6 +369,8 @@ function DecisionPanel({
   colonyId?: string;
   colonyName?: string;
   onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
+  /** The Act I tutorial's highlighted element (§12) — a ring only, never a gate. */
+  focusTarget?: UiTarget | null;
 }) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -300,7 +461,8 @@ function DecisionPanel({
       data-testid="decision-panel"
       data-battle-id={battle.id}
       data-side={side}
-      className="rounded-xl border border-amber-400/50 bg-amber-400/5 p-3"
+      data-tutorial-target="decision-panel"
+      className={`rounded-xl border border-amber-400/50 bg-amber-400/5 p-3 ${tutorialRing(focusTarget ?? null, "decision-panel")}`}
     >
       <h4 className="text-sm font-semibold text-amber-100">Battle orders</h4>
       <p className="mt-0.5 text-[11px] text-gray-400">
@@ -339,13 +501,14 @@ function DecisionPanel({
                     data-testid="decision-callAid"
                     data-action={action}
                     data-window-id={w.id}
+                    data-tutorial-target="decision-callAid"
                     disabled={disabled}
                     title={eligible ? m.hint : reason ?? ""}
                     aria-label={eligible ? m.label : `${m.label} (unavailable: ${reason ?? "not now"})`}
                     onClick={() => (confirmAid === w.id ? postIssue(w.id, action, 0) : (setConfirmAid(w.id), setError(null)))}
                     className={`rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
                       eligible ? "border-amber-400/60 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20" : "cursor-not-allowed border-white/10 bg-white/5 text-gray-500"
-                    }`}
+                    } ${tutorialRing(focusTarget ?? null, "decision-callAid")}`}
                   >
                     {isBusy ? "Lighting..." : confirmAid === w.id ? "Confirm \u2014 light it?" : <><span aria-hidden="true">🕯️</span> {m.label}</>}
                   </button>
@@ -359,13 +522,14 @@ function DecisionPanel({
                     data-testid="decision-retreat"
                     data-action={action}
                     data-window-id={w.id}
+                    data-tutorial-target="decision-retreat"
                     disabled={disabled}
                     title={eligible ? m.hint : reason ?? ""}
                     aria-label={eligible ? m.label : `${m.label} (unavailable: ${reason ?? "not now"})`}
                     onClick={() => (confirmRetreat === w.id ? postIssue(w.id, action, 0) : (setConfirmRetreat(w.id), setError(null)))}
                     className={`rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
                       eligible ? "border-red-400/60 bg-red-400/10 text-red-100 hover:bg-red-400/20" : "cursor-not-allowed border-white/10 bg-white/5 text-gray-500"
-                    }`}
+                    } ${tutorialRing(focusTarget ?? null, "decision-retreat")}`}
                   >
                     {isBusy ? "Sounding…" : confirmRetreat === w.id ? "Confirm — break off?" : m.label}
                   </button>
@@ -392,13 +556,14 @@ function DecisionPanel({
                         data-testid="decision-reinforce"
                         data-action={action}
                         data-window-id={w.id}
+                        data-tutorial-target="decision-reinforce"
                         disabled={disabled || isBusy}
                         title={eligible ? m.hint : reason ?? ""}
                         aria-label={eligible ? m.label : `${m.label} (unavailable: ${reason ?? "not now"})`}
                         onClick={() => postIssue(w.id, action, Math.max(0, Math.trunc(Number(troopsByWindow[w.id])) || 0))}
                         className={`flex-1 rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
                           eligible ? "border-amber-400/60 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20" : "cursor-not-allowed border-white/10 bg-white/5 text-gray-500"
-                        }`}
+                        } ${tutorialRing(focusTarget ?? null, "decision-reinforce")}`}
                       >
                         {isBusy ? "Sending…" : m.label}
                       </button>
@@ -414,13 +579,14 @@ function DecisionPanel({
                   data-testid={action === "hold" ? "decision-hold" : "decision-withdrawal"}
                   data-action={action}
                   data-window-id={w.id}
+                  data-tutorial-target={action === "hold" ? "decision-hold" : "decision-withdrawal"}
                   disabled={disabled}
                   title={eligible ? m.hint : reason ?? ""}
                   aria-label={eligible ? m.label : `${m.label} (unavailable: ${reason ?? "not now"})`}
                   onClick={() => postIssue(w.id, action, 0)}
                   className={`rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
                     eligible ? "border-white/20 bg-white/5 text-gray-100 hover:bg-white/10" : "cursor-not-allowed border-white/10 bg-white/5 text-gray-500"
-                  }`}
+                  } ${tutorialRing(focusTarget ?? null, action === "hold" ? "decision-hold" : "decision-withdrawal")}`}
                 >
                   {isBusy ? "Sending…" : m.label}
                 </button>
@@ -448,7 +614,11 @@ function DecisionPanel({
 
       {/* Incoming aid beacons from teammates (B11) — answerable by anyone viewing. */}
       {aidCalls.length > 0 && (
-        <div className="mt-2 rounded-lg border border-sky-400/30 bg-sky-400/5 p-2.5" data-testid="aid-panel">
+        <div
+          className={`mt-2 rounded-lg border border-sky-400/30 bg-sky-400/5 p-2.5 ${tutorialRing(focusTarget ?? null, "aid-panel")}`}
+          data-testid="aid-panel"
+          data-tutorial-target="aid-panel"
+        >
           <p className="text-xs font-medium text-sky-100">Aid beacons — a teammate needs you</p>
           {aidCalls.map((c) => (
             <div key={c.id} data-testid="aid-call" data-aid-call-id={c.id} className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -512,12 +682,13 @@ function DecisionPanel({
 }
 
 /** The detail pane — composition both sides, ticking casualties, the line. */
-function BattleDetail({ state, battle, now, token, onDecision }: {
+function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled = true }: {
   state: GameState;
   battle: Battle;
   now: number;
   token?: string;
   onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
+  tutorialEnabled?: boolean;
 }) {
   const m = battleMoment(battle, now);
   const chip = CHIP_META[m.chip];
@@ -525,6 +696,15 @@ function BattleDetail({ state, battle, now, token, onDecision }: {
   const aCas = Math.min(m.casualties.attacker, Math.trunc(battle.attacker.troops));
   const dCas = Math.min(m.casualties.defender, Math.trunc(battle.defender.troops));
   const linePct = Math.round(m.attackerWinProb * 100);
+  const me = { colonyId: state.gameId ?? "", colonyName: state.playerName ?? "" };
+  const side = ourSide(battle, me);
+  // The tutorial narrates only OUR fight (§12.1) and only while it is live.
+  const tutorial = useBattleTutorial(battle, side, now, tutorialEnabled && side !== null && battle.status === "active");
+  /** The page's own decision hook and the tutorial's listener, in that order. */
+  const onTutorialDecision = (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => {
+    tutorial.onDecision(d);
+    onDecision?.(d);
+  };
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -532,8 +712,26 @@ function BattleDetail({ state, battle, now, token, onDecision }: {
           <h3 className="text-base font-semibold text-gray-100">{battle.zoneName || battle.zoneId}</h3>
           <p className="text-xs text-gray-500">Power {battle.forcePower.attacker} vs {battle.forcePower.defender} · gap {Math.round(m.gap * 100)}%</p>
         </div>
-        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase ${chip.cls}`}>{chip.label}</span>
+        <span
+          data-tutorial-target="live-state-chip"
+          className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase ${chip.cls} ${tutorialRing(tutorial.target, "live-state-chip")}`}
+        >
+          {chip.label}
+        </span>
       </div>
+
+      {/* The narrator, the Leaders and the heroes speak here (§12.4). */}
+      {(tutorial.cue || tutorial.showControls) && (
+        <TutorialCueLayer
+          cue={tutorial.cue}
+          waiting={tutorial.waiting}
+          suppressed={tutorial.suppressed}
+          onStep={tutorial.step}
+          onSuppress={tutorial.suppress}
+          onResume={tutorial.resume}
+          onReplay={tutorial.replay}
+        />
+      )}
 
       <div className="grid grid-cols-2 gap-2 text-xs text-gray-400">
         <span>Elapsed <b className="text-gray-200">{fmtClock(m.elapsedMs)}</b></span>
@@ -543,7 +741,7 @@ function BattleDetail({ state, battle, now, token, onDecision }: {
       </div>
 
       {/* the shifting line */}
-      <div>
+      <div data-tutorial-target="battle-line" className={tutorialRing(tutorial.target, "battle-line")}>
         <div className="flex items-center justify-between text-xs">
           <span className="text-amber-200">{battle.attacker.colonyName}</span>
           <span className="text-gray-400">line — attacker {linePct}%</span>
@@ -556,25 +754,26 @@ function BattleDetail({ state, battle, now, token, onDecision }: {
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <ForceBlock state={state} force={battle.attacker} power={battle.forcePower.attacker} tag="attacker" />
+          <ForceBlock state={state} force={battle.attacker} power={battle.forcePower.attacker} tag="attacker" focusTarget={tutorial.target} />
           <p className="mt-1 text-right text-xs text-gray-400">{aCas} casualties</p>
         </div>
         <div>
-          <ForceBlock state={state} force={battle.defender} power={battle.forcePower.defender} tag="defender" />
+          <ForceBlock state={state} force={battle.defender} power={battle.forcePower.defender} tag="defender" focusTarget={tutorial.target} />
           <p className="mt-1 text-right text-xs text-gray-400">{dCas} casualties</p>
         </div>
       </div>
 
-      {battle.status === "active" && ourSide(battle, { colonyId: state.gameId ?? "", colonyName: state.playerName ?? "" }) && (
+      {battle.status === "active" && side && (
         <DecisionPanel
           state={state}
           battle={battle}
           now={now}
-          side={ourSide(battle, { colonyId: state.gameId ?? "", colonyName: state.playerName ?? "" }) as BattleSide}
+          side={side}
           token={token}
           colonyId={state.gameId ?? ""}
           colonyName={state.playerName ?? ""}
-          onDecision={onDecision}
+          onDecision={onTutorialDecision}
+          focusTarget={tutorial.target}
         />
       )}
     </>
@@ -593,7 +792,7 @@ function BattleLog({ reports }: { reports: BattleReport[] }) {
   }
   const sorted = [...reports].sort((a, b) => b.resolvedAt - a.resolvedAt);
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-2" data-tutorial-target="battle-log">
       {sorted.map((r) => (
         <li key={r.battleId} className="rounded-lg border border-white/10 bg-black/30 p-3">
           <div className="flex items-center justify-between gap-2">
@@ -623,11 +822,13 @@ function BattleLog({ reports }: { reports: BattleReport[] }) {
 }
 
 /** The Battles tab root: live list + detail, then the report log below. */
-export default function BattlesTab({ state, now, token, onDecision }: {
+export default function BattlesTab({ state, now, token, onDecision, tutorial }: {
   state: GameState;
   now: number;
   token?: string;
   onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
+  /** The Act I guided narration (§12) — on by default, skippable in the view. */
+  tutorial?: boolean;
 }) {
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
@@ -638,7 +839,7 @@ export default function BattlesTab({ state, now, token, onDecision }: {
           and rebuild your squad against what you observe.
         </p>
       </div>
-      <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} />
+      <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorial ?? true} />
       <div className="rounded-xl border border-white/10 bg-black/20 p-4">
         <h3 className="mb-2 text-sm font-semibold text-gray-200">Battle log</h3>
         <BattleLog reports={state.battleReports ?? []} />
