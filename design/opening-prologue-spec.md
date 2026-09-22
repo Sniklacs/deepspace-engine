@@ -14,6 +14,10 @@ or the deep systems. The owner's directive (verbatim intent):
 > we bring the player in at the end of the war when they lose it all — the height of the battle at the
 > end — they've got everything, all of it — they're at the epic, unbound, ready to be everything. They see
 > what they can have. This has got to go on for a good first 12 hours of the game so they're hooked."*
+>
+> *(Revision 2026-09-22: the owner has since set the full-power stretch before the cataclysm at **~2 hours**
+> — "long enough to get attached to the colony, short enough to finish in one sitting." The 12h quote above
+> is kept as the origin of the idea; §5 carries the current number.)*
 
 This spec turns that into a build. The opening is not a tutorial and not a cutscene — it is a **playable
 full-power prologue** that ends in a scripted cataclysm, then hands the player to the real game as a
@@ -105,8 +109,19 @@ prologue *is* building the war/battle layer. There is no throwaway content.
 - **Command** — squad composition, which skill to time, purify-vs-claim. "Decision moments, not APM."
 - **Spectacle** — the live Battles tab, casualties ticking, the line shifting — *moving UI*, the thing the
   owner called out. The designer owns the battle view + the Fall's cinematography (separate brief).
-- **Length** — owner target ~12h of full-power play. This is a *content volume*, so it is staged (§9):
-  first the engine + the opening hours (the hook ships playable), then widen the stretch into a full chapter.
+- **Length** — **OWNER DECISION 2026-09-22: the cataclysm fires at ~2 hours of full-power play**, not the
+  earlier ~12h figure (which the owner set on 2026-09-13 and has now revised — see §2 and flag P2). The
+  bar: *long enough to get attached to the colony and the Leaders, short enough to finish in one sitting.*
+  Two hours is a **story trigger, not a content ceiling** — the depth of things to do inside the window
+  (§9 Step 3) is still a staged content volume, and the rebuild carries the hours after the Fall.
+  **RESOLVED — HARD CLOCK (owner 2026-09-22):** at two hours of full-power play the cataclysm fires. No
+  lingering, no opt-out, no deferral button. Everyone who plays the opening sees the Fall, in one sitting.
+  *Implementation reading (team, confirmable):* the two hours is **accumulated active play time in the
+  full-power state**, not wall-clock since the account was created — the world persists offline, so a
+  wall-clock timer would fire the Fall while the player is asleep or away. The clock starts when Act I
+  begins, pauses when the player is not in the game, and the cataclysm fires the moment it reaches ~2h.
+  *(Still to give the engine: the exact grace behaviour if the player is mid-battle at the 2h mark — the
+  recommendation is to let the live battle resolve first, then fire immediately after.)*
 
 ---
 
@@ -220,8 +235,10 @@ behind them. Then the **opening of the war-torn world**: the screen rises on the
    and every later module (competition, war) rides on it.
 2. **Step 2 — the prologue wrapper (first playable hook).** `prologueState()` seed + Act I's opening
    battles + Act II (the Fall) + Act III (reset). Ships the thrilling first session end-to-end.
-3. **Step 3 — widen the stretch.** More Act I content until the full-power segment is a genuine hours-long
-   chapter (owner's ~12h target), with the designer's battle-view/cinematography pass.
+3. **Step 3 — deepen the 2h stretch.** More Act I content *inside* the ~2h full-power window (owner decision
+   2026-09-22, §5) until those two hours are dense and varied rather than thin — plus the designer's
+   battle-view/cinematography pass. This is no longer "extend the stretch to 12h"; it is "make the two hours
+   the player gets worth having."
 4. **Step 4 — rebuild + intra-server competition.** The real game after the fall, with contested zones and
    a live leaderboard — the "competition within our own server" that keeps players after the hook.
 
@@ -234,8 +251,10 @@ The polish queue (audio, store, chat, trade) drops below this line until the hoo
 ## §10 Design flags (owner decisions — not conclusions)
 
 - **P1 — Working title:** "The Fall" (vs "The Sundering" / "The Last War").
-- **P2 — Stretch length target:** confirm ~12h of full-power play as the goal, with the staged path
-  (engine + opening hours first, widen after). vs a shorter first target.
+- **P2 — Stretch length target: RESOLVED (owner 2026-09-22).** ~**2h** of full-power play before the
+  cataclysm (was ~12h at 2026-09-13), as a **HARD CLOCK** — the Fall fires at the 2h mark, no lingering and
+  no deferral (see §5). Rationale in the owner's words: long enough to get attached to the colony, short
+  enough to finish in one sitting.
 - **P3 — Act I shape:** guided escalating battles for the opening → opening into freer endgame play as the
   stretch widens (recommended), vs a free sandbox from minute one.
 - **P4 — The fall is scripted-unwinnable:** confirm the player fights hard but *cannot* win, and the loss
