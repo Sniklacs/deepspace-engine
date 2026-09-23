@@ -41,6 +41,7 @@ import {
   SPECIALIZATIONS,
   type Specialization,
 } from "./leader-xp";
+import { weaponCost } from "./armory";
 import { getTech } from "./research";
 import { SPECIALTY_LABEL } from "./research";
 import { REVELATION_TREE, getRevelation } from "./research";
@@ -66,6 +67,25 @@ export const engineHelpers = {
   },
   insightFor,
   deployCost,
+  // ONE source for "can this domain advance?" (game-ui-shell-spec §11.1): the
+  // Lab's Deploy button, the Cradle plate's ready dot, the advance bar and the
+  // nav's Lab badge all read this. No new state, no second rule.
+  domainAffordable(state: GameState, domain: DomainId): boolean {
+    const cost = deployCost(state, domain);
+    return state.resources.embers >= cost.embers && state.insight >= cost.insight;
+  },
+  // ONE source for "can this family be built/upgraded?" (§11.1, same reason):
+  // the Armory's Build/Upgrade button and the nav's Armory badge share it.
+  armoryFamilyAffordable(state: GameState, familyId: string): boolean {
+    const { tier } = armoryFamilyState(state, familyId);
+    if (tier >= 4) return false;
+    const cost = weaponCost(Math.min(4, tier + 1) as 1 | 2 | 3 | 4);
+    const r = state.resources;
+    return (
+      r.supplies >= cost.supplies && r.embers >= cost.embers &&
+      r.gas >= cost.fuel && r.plasma >= cost.plasma
+    );
+  },
   scientistCap(state: GameState) {
     return scientistCapacity(state);
   },

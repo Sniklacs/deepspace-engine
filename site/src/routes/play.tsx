@@ -442,8 +442,8 @@ function PlayPage() {
       ) : (
         <>
       <Shell state={state} tab={tab} setTab={switchTab} onGames={() => { setGamesOpen(true); sound.click(); }} muted={muted} onToggleMute={toggleMute} onHelp={() => setHelpOpen(true)} onFeedback={() => { setFeedbackOpen(true); sound.click(); }} onLogout={doLogout} onToggleFullscreen={toggleFullscreen} isFullscreen={isFullscreen} onLedger={() => { setLedgerOpen(true); sound.click(); }} unread={Math.max(0, reports.length - reportsSeen)} onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }} />
-      {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
-      {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
+      {firstRunNotice && tab !== "battles" && <FirstRunNudge onDismiss={dismissNudge} />}
+      {toast && <div className="fixed bottom-[calc(var(--spacing-nav)+var(--dock-h,0px)+env(safe-area-inset-bottom)+12px)] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
       {state.prologue?.stage === "height" && (
         <Act1Banner
           canLeave={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
@@ -611,7 +611,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 /* ---------------- First-Run nudge (beta feedback) ---------------- */
 function FirstRunNudge({ onDismiss }: { onDismiss: () => void }) {
   return (
-    <div className="fixed top-[76px] left-1/2 -translate-x-1/2 z-[60] w-[min(94vw,44rem)] rounded-xl border border-amber-400/40 bg-[#0b0e16]/95 px-4 py-3 shadow-2xl flex items-center gap-3 backdrop-blur">
+    <div className="fixed top-[calc(var(--spacing-ribbon)+8px)] left-1/2 -translate-x-1/2 z-[60] w-[min(94vw,44rem)] rounded-xl border border-amber-400/40 bg-[#0b0e16]/95 px-4 py-3 shadow-2xl flex items-center gap-3 backdrop-blur">
       <span className="text-xl">🛰️</span>
       <div className="flex-1 text-sm text-amber-100">
         <b>This is the first world — tell us what broke.</b>
