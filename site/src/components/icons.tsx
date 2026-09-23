@@ -31,7 +31,18 @@ export type IconName =
   | "spark" // earned
   | "sword" // battle header / the attacker
   | "march" // troop column with a direction arrow (Reinforce)
-  | "beacon"; // a lit signal (Call for aid)
+  | "beacon" // a lit signal (Call for aid)
+  // ---- shell delta (game-ui-shell-spec §5.4) — the chrome's line set ----
+  | "flame" // Embers
+  | "chip" // Chipsets
+  | "flask" // Lab nav slot
+  | "map" // Circuit nav slot
+  | "wheat" // Agriculture domain tile
+  | "hammer" // Industry domain tile
+  | "chat" // the reserved chat dock
+  | "help" // Help row
+  | "gamepad" // Games (your colonies)
+  | "logout"; // Log Out
 
 const PATHS: Record<IconName, ReactNode> = {
   crate: (
@@ -176,6 +187,76 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M5 21h14" />
       <path d="M7.5 17.5c1.6 1 3 1 4.5 1s2.9 0 4.5-1" />
       <path d="M4.5 13.5l1.5 1M19.5 13.5l-1.5 1" />
+    </>
+  ),
+  // ---- shell delta (game-ui-shell-spec §5.4): 24×24, 1.75 stroke, same
+  // hand-drawn line dialect. These replace the chrome emoji (§1.7 rule 3).
+  flame: (
+    <>
+      <path d="M12 3c3.5 3.2 5.5 6 5.5 9a5.5 5.5 0 01-11 0c0-3 2-5.8 5.5-9z" />
+      <path d="M12 12.5c1.4 1.3 2 2.4 2 3.4a2 2 0 11-4 0c0-1 .6-2.1 2-3.4z" />
+    </>
+  ),
+  chip: (
+    <>
+      <rect x="7" y="7" width="10" height="10" rx="2" />
+      <path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4" />
+    </>
+  ),
+  flask: (
+    <>
+      <path d="M9 3h6" />
+      <path d="M10 3v6L5.5 17.5A2 2 0 007.3 20.5h9.4a2 2 0 001.8-3L14 9V3" />
+      <path d="M7.2 14.5h9.6" />
+    </>
+  ),
+  map: (
+    <>
+      <path d="M3 6.5l6-2.5 6 2.5 6-2.5v13l-6 2.5-6-2.5-6 2.5v-13z" />
+      <path d="M9 4v13M15 6.5v13" />
+    </>
+  ),
+  wheat: (
+    <>
+      <path d="M12 21V9" />
+      <path d="M12 9c-2.6 0-4-1.6-4-4 2.6 0 4 1.5 4 4z" />
+      <path d="M12 9c2.6 0 4-1.6 4-4-2.6 0-4 1.5-4 4z" />
+      <path d="M12 15c-2.6 0-4-1.6-4-4 2.6 0 4 1.5 4 4z" />
+      <path d="M12 15c2.6 0 4-1.6 4-4-2.6 0-4 1.5-4 4z" />
+    </>
+  ),
+  hammer: (
+    <>
+      <path d="M14.5 3.5l6 6-3 3-6-6 3-3z" />
+      <path d="M11.5 6.5L4 14v6h6l7.5-7.5" />
+      <path d="M7 17.5h2.5" />
+    </>
+  ),
+  chat: (
+    <>
+      <path d="M4.5 5.5h15v10h-9L6 19v-3.5H4.5z" />
+      <path d="M8 9.5h8M8 12.5h5" />
+    </>
+  ),
+  help: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.6 9.4a2.5 2.5 0 114.2 2.3c-.9.7-1.8 1.2-1.8 2.4" />
+      <path d="M12 17.2v.3" />
+    </>
+  ),
+  gamepad: (
+    <>
+      <rect x="2.5" y="7" width="19" height="10" rx="4" />
+      <path d="M7 10.5v4M5 12.5h4" />
+      <path d="M15.5 11.5h.01M18 13.5h.01" />
+    </>
+  ),
+  logout: (
+    <>
+      <path d="M14 4.5H6.5A1.5 1.5 0 005 6v12a1.5 1.5 0 001.5 1.5H14" />
+      <path d="M17 8.5l3.5 3.5L17 15.5" />
+      <path d="M20 12H10" />
     </>
   ),
 };

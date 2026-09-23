@@ -329,5 +329,68 @@ console.log("— 8 · circuit §5 color table machine-enforced (circuit-fullscre
     `found: ${labelHexes.join(", ")}`,
   );
 }
+
+console.log("— 9 · shell geometry + token discipline (game-ui-shell-spec §5.1/§9.1) —");
+{
+  // 1 · the seven size tokens, read from the SAME :root slice, against floors.
+  const px = (n: string): number => {
+    const v = root.get(`--${n}`);
+    if (!v) return -1;
+    const m = v.match(/([0-9.]+)(rem|px)/);
+    if (!m) return -1;
+    return m[2] === "rem" ? parseFloat(m[1]) * 16 : parseFloat(m[1]);
+  };
+  const floors: Array<[string, number]> = [
+    ["spacing-ribbon", 44], ["spacing-nav", 44], ["spacing-dock", 44],
+    ["spacing-tap", 44], ["spacing-tap-lg", 48],
+  ];
+  for (const [t, floor] of floors) {
+    check(`--${t} = ${px(t)}px ≥ ${floor}px`, px(t) >= floor, `${root.get(`--${t}`)}`);
+  }
+  // 2 · shape: the tile radius, and the 11px caption floor.
+  check(`--radius-tile parses and equals 1rem (16px)`, px("radius-tile") === 16, `${root.get("--radius-tile")}`);
+  check(`--text-nav = ${px("text-nav")}px ≥ 11 (the caption floor)`, px("text-nav") >= 11, `${root.get("--text-nav")}`);
+  // 3 · @theme and :root stay in sync for every NEW token (mirror §1's rule).
+  const NEW_TOKENS = ["spacing-ribbon", "spacing-nav", "spacing-dock", "spacing-tap", "spacing-tap-lg", "radius-tile", "text-nav"];
+  for (const t of NEW_TOKENS) {
+    check(`--${t} present in BOTH blocks and in sync`, !!root.get(`--${t}`) && root.get(`--${t}`) === theme.get(`--${t}`), `${root.get(`--${t}`)} vs ${theme.get(`--${t}`)}`);
+  }
+  const ut = readFileSync(CSS, "utf8");
+  for (const u of ["@utility pill", "@utility eyebrow", ".plate-ground", ".app-shell", ".shell-body", ".botnav"]) {
+    check(`${u} utility present`, ut.includes(u));
+  }
+  check("the shell tokens are SIZE/SHAPE ONLY (no colour token added in §A.6)", !/--(?:color-)?(?:shell|ribbon|nav|dock|tap)[a-z-]*:\s*#/.test(ut));
+  // 4 · zero hex literals in the new shell/ui components (mirrors the CircuitPage rule).
+  const fs = require("node:fs") as typeof import("node:fs");
+  const dirs = [`${SITE}/src/components/shell`, `${SITE}/src/components/ui`, `${SITE}/src/components/screens`];
+  const NEW: string[] = [];
+  for (const d of dirs) {
+    if (!fs.existsSync(d)) continue;
+    for (const f of fs.readdirSync(d)) if (f.endsWith(".tsx")) NEW.push(`${d}/${f}`);
+  }
+  check(`the new shell/ui components exist to be checked (${NEW.length} files)`, NEW.length >= 5, `${NEW.length}`);
+  let hexes: string[] = [];
+  for (const f of NEW) {
+    const src = readFileSync(f, "utf8");
+    for (const h of src.match(/#[0-9a-fA-F]{6}/g) ?? []) hexes.push(`${f.split("/").pop()}:${h}`);
+  }
+  check("ZERO hex literals in the new shell/ui components", hexes.length === 0, hexes.join(", "));
+  // 5 · the §6 sweep, machine-enforced on the new components. The one documented
+  //     exception is the Battles aid family (sky-400, battles-panel spec §A.1).
+  const HUE = /(amber|red|rose|lime|purple|fuchsia|cyan|emerald|gray|white\/|black\/)(-[0-9]{2,3})?/g;
+  const ALLOW = /sky-400/g;
+  const off: string[] = [];
+  for (const f of NEW) {
+    const src = readFileSync(f, "utf8");
+    for (const m of src.matchAll(/"[^"\n]*"/g)) {
+      const cls = m[0];
+      if (!/(^|\s)[a-z-]+:/.test(cls) && !/bg-|text-|border-|from-|to-/.test(cls)) continue;
+      const hits = (cls.replace(ALLOW, "").match(HUE) ?? []);
+      for (const h of hits) off.push(`${f.split("/").pop()}: ${h.trim()} in ${cls.slice(0, 60)}`);
+    }
+  }
+  check("no Tailwind palette hue in the new components (§6 sweep is machine-enforced)", off.length === 0, off.join(" | "));
+}
+
 console.log(`RESULT: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

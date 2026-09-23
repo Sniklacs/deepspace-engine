@@ -48,6 +48,15 @@
     "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", monospace;
+  --text-nav: 0.6875rem; /* 11px — nav labels (the floor; never smaller) */
+  /* A.6 Shell geometry — SIZE/SHAPE ONLY (game-ui-shell-spec §5.1, amendment
+     A7). Zero new colours: these are the frame's measurements. */
+  --spacing-ribbon: 3.5rem; /* 56px — the sticky ribbon HUD */
+  --spacing-nav: 4rem; /* 64px — the bottom nav (≥ the 48dp Material floor) */
+  --spacing-dock: 2.75rem; /* 44px — the collapsed chat dock (reserved room) */
+  --spacing-tap: 2.75rem; /* 44px — the hard touch floor */
+  --spacing-tap-lg: 3rem; /* 48px — anything that pays attention to the player */
+  --radius-tile: 1rem; /* 16px — base-plate tiles */
 }
 
 /* 2 · Spec-name aliases (@theme emits --color-*; these are the §A names verbatim
@@ -79,6 +88,16 @@
     "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", monospace;
+
+  /* A.6 Shell geometry — the §A.5 size/shape set extended (kept in sync with
+     the @theme block above; NO colour token is added). */
+  --text-nav: 0.6875rem;
+  --spacing-ribbon: 3.5rem;
+  --spacing-nav: 4rem;
+  --spacing-dock: 2.75rem;
+  --spacing-tap: 2.75rem;
+  --spacing-tap-lg: 3rem;
+  --radius-tile: 1rem;
 
   /* A.5 Radii / motion / glow */
   --radius-sm: 6px;
@@ -144,6 +163,57 @@
   line-height: 1.35;
   font-weight: 500;
   white-space: nowrap;
+}
+
+/* .pill — currency / resource capsule (the shell's ribbon grammar,
+   game-ui-shell-spec §5.2). 26px tall, fully round, NEVER below the 11px
+   caption floor. Colour comes from the caller's tokens; this is shape only. */
+@utility pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* .eyebrow — the 11px uppercase section label (§1.7 rule 4). */
+@utility eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-3);
+  line-height: 1.2;
+}
+
+/* 3b · Shell frame (game-ui-shell-spec §1.1) — the three layers, one z-band.
+   .shell-body reserves the nav (and, later, the dock) so NO in-flow element can
+   ever be parked under the fixed nav — that is what keeps The Fall's narration
+   plate structurally safe (§8.1). */
+.app-shell {
+  min-height: 100dvh;
+  overflow-x: clip;
+  background: var(--surf-0);
+}
+.shell-body {
+  display: block;
+  padding-bottom: calc(
+    var(--spacing-nav) + var(--dock-h, 0px) + env(safe-area-inset-bottom) + 1rem
+  ); /* nav 64 + dock 0 + safe inset + 16px breathing room (§3.4 worked sum) */
+}
+.botnav {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* .plate-ground — the "city plot" grid under the Cradle plate (§2.3). Drawn
+   from a token; zero literals, zero new hues. */
+.plate-ground {
+  background-image: radial-gradient(circle, var(--line) 1px, transparent 1px);
+  background-size: 16px 16px;
 }
 
 /* 4 · Base — dark-only app, focus ring, a11y */
@@ -364,4 +434,29 @@
 .circuit-zoom-mid .cl-chip,
 .circuit-zoom-low .cl-chip {
   visibility: hidden;
+}
+/* 12 · Shell layout switch (game-ui-shell-spec §7). The whole app is authored
+      phone-first; `isWide` (matchMedia >= 1024px) flips `data-shell-layout`, and
+      ONLY this block reacts. No component, token, copy string or state read
+      changes — that is the point of keeping the decision to one section. */
+[data-shell-layout="wide"] .shell-body {
+  padding-bottom: calc(var(--spacing-nav) + var(--dock-h, 0px) + 2rem);
+  max-width: 72rem;
+  margin-inline: auto;
+}
+[data-shell-layout="wide"] .ribbon > div,
+[data-shell-layout="wide"] .botnav > ul {
+  max-width: 72rem;
+}
+[data-shell-layout="wide"] .plate-map {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+[data-shell-layout="wide"] .resource-row {
+  overflow: visible;
+}
+[data-shell-layout="wide"] .home-columns {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 1rem;
+  align-items: start;
 }
