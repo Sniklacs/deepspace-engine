@@ -301,6 +301,14 @@ export function ensureBattles(state: GameState): void {
     }
     if (!Array.isArray(b.decisions)) b.decisions = [];
     if (!Array.isArray(b.aidCalls)) b.aidCalls = [];
+    // An older save's beacons predate `callerName` — stamp it from the side
+    // that raised it, so the aid row never has to say "an ally" (#13 slice).
+    for (const c of b.aidCalls) {
+      if (!c || typeof c !== "object") continue;
+      if (typeof c.callerName !== "string" || c.callerName.length === 0) {
+        c.callerName = c.callerSide === "attacker" ? b.attacker.colonyName : b.defender.colonyName;
+      }
+    }
     // Resolved battles must own their ledger report — exactly once.
     if (b.status === "resolved" && !reports.some((r) => r && r.battleId === b.id)) {
       reports.push(buildReport(b));
@@ -430,7 +438,14 @@ export function windowDurationMs(durationMs: number): number {
 
 /** The deterministic window schedule for a battle: milestones for BOTH sides
  *  plus one edge window for the side that starts behind enough to read
- *  rout-risk (the "getting pummeled" teaching moment, §12.3). */
+ *  rout-risk (the "getting pummeled" teaching moment, §12.3).
+ *
+ *  PACING LEVER (The Fall Act I): each side's EARLIEST opening is held open for
+ *  at least `windowFirstOpeningFloorMs` — the opening decision of the Act I
+ *  fight otherwise closes 4:47 after it opens, at +0:30 into the battle, while
+ *  the narrator is still speaking. Later openings keep the plain 12% window;
+ *  the floor is capped by the next opening's opensAt and by the battle's end,
+ *  so a longer first window can never overlap the next or outlive the fight. */
 export function buildWindows(pa: number, pd: number, startedAt: number, durationMs: number): BattleWindow[] {
   const out: BattleWindow[] = [];
   const dur = windowDurationMs(durationMs);
@@ -450,7 +465,31 @@ export function buildWindows(pa: number, pd: number, startedAt: number, duration
     const loser: BattleSide = pa >= pd ? "defender" : "attacker";
     out.push(edgeWindowFor(loser, 1, startedAt, dur));
   }
-  return out;
+  return applyFirstOpeningFloor(out, startedAt, durationMs);
+}
+
+/** Hold each side's earliest opening open for at least the first-opening floor
+ *  (a floor, never a ceiling: a window already longer than it is untouched). */
+export function applyFirstOpeningFloor(windows: BattleWindow[], startedAt: number, durationMs: number): BattleWindow[] {
+  const floor = BATTLES_CONFIG.windowFirstOpeningFloorMs;
+  if (!(floor > 0)) return windows;
+  const endAt = startedAt + durationMs;
+  const bySide = new Map<BattleSide, BattleWindow[]>();
+  for (const w of windows) {
+    const list = bySide.get(w.side) ?? [];
+    list.push(w);
+    bySide.set(w.side, list);
+  }
+  for (const list of bySide.values()) {
+    const ordered = [...list].sort((a, b) => a.opensAt - b.opensAt || a.closesAt - b.closesAt);
+    const first = ordered[0];
+    if (!first) continue;
+    const nextOpens = ordered[1]?.opensAt ?? endAt;
+    const capped = Math.min(nextOpens, endAt);
+    const target = Math.min(first.opensAt + floor, capped);
+    if (target > first.closesAt) first.closesAt = target;
+  }
+  return windows;
 }
 
 function edgeWindowFor(side: BattleSide, index: number, anchoredAt: number, dur: number): BattleWindow {
@@ -698,6 +737,8 @@ export function issueDecision(
       const call: AidCall = {
         id: `aid-${battle.id}-${side}`,
         callerSide: side,
+        // The colony that raised the beacon, by name — the aid row names it.
+        callerName: battle[side].colonyName,
         issuedAt: now,
         arrivalAt,
         status: "awaiting",
@@ -892,6 +933,7 @@ export function battleMoment(battle: Battle, now: number): BattleMoment {
     aidCalls: battle.aidCalls.map((c) => ({
       id: c.id,
       callerSide: c.callerSide,
+      callerName: c.callerName ?? (c.callerSide === "attacker" ? battle.attacker.colonyName : battle.defender.colonyName),
       status: c.status,
       arrivalAt: c.arrivalAt,
       power: c.power,

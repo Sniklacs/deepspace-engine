@@ -559,10 +559,19 @@ console.log("— 8 · decision windows & aid calls (B12/B11) —");
     const expect = ["w-milestone-0.25-attacker", "w-milestone-0.25-defender", "w-milestone-0.5-attacker", "w-milestone-0.5-defender", "w-milestone-0.75-attacker", "w-milestone-0.75-defender"].sort();
     return JSON.stringify(wids) === JSON.stringify(expect);
   })());
-  check("windows open at their milestone, close after windowDurationMs (clamped law)", (() => {
+  check("windows open at their milestone and close after windowDurationMs (clamped law)", (() => {
     const w = b.windows[0];
-    return w.opensAt === T + Math.round(dur * 0.25) && w.closesAt - w.opensAt === wDur && wDur >= BATTLES_CONFIG.windowMinMs && wDur <= BATTLES_CONFIG.windowMaxMs;
+    // The clamped law is the rule for every ordinary opening. This is the FIRST
+    // opening of the fight, which since the Act I readability slice is held open
+    // for BATTLES_CONFIG.windowFirstOpeningFloorMs — capped by the next opening,
+    // so a floor can never overlap or outlive the schedule (§A.5 pacing lever).
+    const floor = BATTLES_CONFIG.windowFirstOpeningFloorMs;
+    const capped = Math.min(Math.max(wDur, floor), T + Math.round(dur * 0.5) - w.opensAt);
+    return w.opensAt === T + Math.round(dur * 0.25) && w.closesAt - w.opensAt === capped && wDur >= BATTLES_CONFIG.windowMinMs && wDur <= BATTLES_CONFIG.windowMaxMs;
   })());
+  check("later openings keep the plain clamped window (the floor is first-opening only)", b.windows
+    .filter((w) => w.id !== "w-milestone-0.25-attacker" && w.id !== "w-milestone-0.25-defender")
+    .every((w) => w.closesAt - w.opensAt === wDur));
   check("even fight: no edge window at commit (no rout-risk yet)", !b.windows.some((w) => w.kind === "edge"));
   check("nothing is open before the first milestone, first milestone open at its moment", (() => {
     const before = windowsForView(b, T + Math.round(dur * 0.25) - 1);

@@ -271,7 +271,7 @@ check("the landing page links the way in", indexSrc.includes('to="/the-fall"'));
 check("the game renders the Act I banner only at the height", playSrc.includes('state.prologue?.stage === "height"') && playSrc.includes("<Act1Banner"));
 check("the banner holds the way out (server-verified)", playSrc.includes("leaveActOneFn({ data: { token: token! } })") && playSrc.includes('data-testid="act1-leave"'));
 check("the banner opens the front in the shipped Battles view", playSrc.includes('data-testid="act1-open-front"') && playSrc.includes('switchTab("battles")'));
-check("the Battles view is still mounted unchanged (same props as before this slice)", playSrc.includes('{tab === "battles" && <BattlesTab state={state} now={now} />}'));
+check("the Battles view is mounted with its decision seam wired (token + onDecision + guidance)", playSrc.includes('<BattlesTab') && playSrc.includes('token={token ?? undefined}') && playSrc.includes('onDecision={() => { void refresh(); }}'));
 check("the decision seam is untouched — the view still owns its own post", read("/home/team/shared/site/src/components/BattlesTab.tsx").includes("battleIssueFn({ data: issuePayload("));
 check("no purchase surface is reachable from the entry", !/storefront|purchase|buy|price|wallet|currency/i.test(fallSrc.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "")));
 check("the seeder carries no store vocabulary either", !/storefront|purchase|wallet|currency|balance|price/i.test(act1Code));

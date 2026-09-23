@@ -108,7 +108,9 @@ export type UiTarget =
   | "decision-withdrawal"
   | "decision-retreat"
   | "aid-panel"
-  | "battle-log";
+  | "battle-log"
+  /** The Battles tab itself — the last lesson ("bring the next fight here"). */
+  | "nav-battles";
 
 /** The element that lights up when a cue teaches this order. */
 export const UI_TARGET_BY_ACTION: Record<TutorialAction, UiTarget> = {

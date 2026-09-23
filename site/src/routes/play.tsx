@@ -454,7 +454,14 @@ function PlayPage() {
       {tab === "colony" && <ColonyTab state={state} onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")} onCraft={(k) => act(() => craftFn({ data: { token: token!, kind: k } }), "success")} onClaim={() => act(() => claimDailyRewardFn({ data: { token: token! } }), "success")} />}
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onPrepare={() => { setTab("colony"); sound.tab(); }} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} />}
-      {tab === "battles" && <BattlesTab state={state} now={now} />}
+      {tab === "battles" && (
+        <BattlesTab
+          state={state}
+          now={now}
+          token={token ?? undefined}
+          onDecision={() => { void refresh(); }}
+        />
+      )}
       {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} />}
         </>
       )}
@@ -893,7 +900,7 @@ function Shell({ state, tab, setTab, onGames, muted, onToggleMute, onHelp, onFee
   const maxSlots = 1 + state.deployedDomains.logistics;
   const active = state.expeditions.filter((e) => e.status === "out").length;
   return (
-    <header className="border-b border-white/10 bg-black/50 sticky top-0 z-40">
+    <header className="sticky top-0 z-40 border-b border-line-strong bg-surf-1">
       <div className="mx-auto max-w-6xl px-6 py-3">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <div className="flex items-center gap-2">
