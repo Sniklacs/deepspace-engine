@@ -34,6 +34,11 @@
 //       authored bands (jitter ≤ ±6), x inside 0.06–0.94 of width, same-row
 //       spacing ≥ 60 units, ANY pair ≥ 52 units (the r26 hit-circle floor);
 //       the heart and the Cradle never leave their bands.
+//  12 · CIRCUIT LABEL + CANVAS LAW (circuit-map-layout-spec.md §1–§3) — the
+//       display-name table (30 nodes, both forms, no articles, unique, catalog-
+//       honest), the collision ladder (no overlap, nothing below 11px, ≥28/30
+//       labelled at 1280/1440 and ≥20 at 390 over EVERY world), and the aspect-
+//       aware render canvas (kx ≥ 1, margins, spacing preserved).
 import * as engine from "/home/team/shared/site/src/game/engine.ts";
 import {
   ATLAS_CONFIG,
@@ -50,6 +55,18 @@ import {
   type AtlasGraph,
   type Tier,
 } from "/home/team/shared/site/src/game/map.ts";
+import {
+  DISPLAY_NAMES,
+  LABEL_NODE_RADIUS,
+  ASPECT_MIN,
+  ASPECT_MAX,
+  canvasFor,
+  canvasX,
+  labelTier,
+  labelFontUnits,
+  labelRect,
+  resolveLabels,
+} from "/home/team/shared/site/src/game/circuit-labels.ts";
 import { publicState, createGameFn, getState } from "/home/team/shared/site/src/game/api.ts";
 import { signup as authSignup } from "/home/team/shared/site/src/game/auth.ts";
 import { loadAccountSaves } from "/home/team/shared/site/src/game/store.ts";
@@ -347,5 +364,233 @@ for (const g of webs) {
   check(`${g.worldId}: the heart and the Cradle never move (fixed rows)`, g.nodes.find((n) => n.heart)!.y >= 0.14 * ht - 8 && g.nodes.find((n) => n.heart)!.y <= 0.24 * ht + 8 && g.nodes.find((n) => n.kind === "cradle")!.y >= 0.88 * ht - 8, `heart=${g.nodes.find((n) => n.heart)!.y} cradle=${g.nodes.find((n) => n.kind === "cradle")!.y}`);
 }
 // ======================================================================
+// 12 · CIRCUIT LABEL + CANVAS LAW (circuit-map-layout-spec.md §1–§3)
+//
+// The owner-flagged slice: the mid tier rendered "The" (the old renderer
+// derived a label by splitting the published name and keeping the first word —
+// 20 of 30 published names begin "The"), and the authored 560×760 portrait
+// canvas left 52% of a wide desktop stage dead. Both are now laws:
+//   · a display-name TABLE (full + compact per node, no articles, unique);
+//   · a collision ladder (full → compact → hidden, never below 11px);
+//   · an aspect-aware RENDER canvas (uniform kx on authored x only).
+// map.ts is NOT edited: its layout law (§11) is stated on the authored canvas
+// and the kx transform can only widen spacing (kx ≥ 1).
+// ======================================================================
+console.log("— 12 · circuit label + canvas law (display names, ladder, canvas) —");
+
+// --- 12.0 the canonical stages of §3.5 (stage = viewport minus circuit 
+// chrome: 56px header; +300px legend rail at ≥1024; +40px rail & 56px dock
+// below it). 1280×1280 is the OWNER's measured stage from the live report. ---
+const LABEL_STAGES: Array<{ label: string; w: number; h: number }> = [
+  { label: "390×844 (phone)", w: 390, h: 692 },
+  { label: "768×1024 (tablet)", w: 768, h: 872 },
+  { label: "1024×768 (first desktop)", w: 724, h: 712 },
+  { label: "1280×1280 (owner)", w: 980, h: 643 },
+  { label: "1440×900", w: 1140, h: 844 },
+  { label: "1920×1080", w: 1620, h: 1024 },
+  { label: "2560×1440 (ultra-wide)", w: 2260, h: 1384 },
+];
+/** The scale a stage really renders at: fit, floored by the 44px law. */
+const stageScale = (s: { w: number; h: number }): number => {
+  const c = canvasFor(s.w, s.h);
+  return Math.max(Math.min(s.w / c.w, s.h / c.h), 22 / 26);
+};
+
+// --- 12.1 the table is complete (a new zone can never ship unlabelled) ---
+const ATLAS_NODE_IDS = [...new Set(webs.flatMap((g) => g.nodes.map((n) => n.id)))].sort();
+check(
+  "12.1 DISPLAY_NAMES keys EXACTLY equal the atlas node ids (30/30, every world)",
+  ATLAS_NODE_IDS.length === 30 &&
+    JSON.stringify(Object.keys(DISPLAY_NAMES).sort()) === JSON.stringify(ATLAS_NODE_IDS),
+  `ids=${ATLAS_NODE_IDS.length} names=${Object.keys(DISPLAY_NAMES).length}`,
+);
+check(
+  "12.1 every node has both forms (full + compact) and they are non-empty",
+  Object.values(DISPLAY_NAMES).every((v) => typeof v.full === "string" && v.full.length > 0 && typeof v.compact === "string" && v.compact.length > 0),
+);
+
+// --- 12.2 no article, no degenerate string ---
+const FORM_LIST = Object.entries(DISPLAY_NAMES).flatMap(([id, v]) =>
+  [
+    [id, "full", v.full],
+    [id, "compact", v.compact],
+  ] as Array<[string, string, string]>,
+);
+const leadingThe = FORM_LIST.filter(([, , t]) => /^The /.test(t)).map(([id, k, t]) => `${id}.${k}="${t}"`);
+check("12.2 no display string begins with the article \"The \" (the D1 defect)", leadingThe.length === 0, leadingThe.join(", "));
+const bareThe = FORM_LIST.filter(([, , t]) => /^the$/i.test(t)).map(([id, k, t]) => `${id}.${k}`);
+check("12.2 no display string is the bare article \"The\" (what the map actually rendered)", bareThe.length === 0, bareThe.join(", "));
+// §6.2 asks for length ≥ 4. The ratified §1.2 table carries exactly ONE 3-char
+// string — ash-columns.compact = "Ash" (§1.3: "Forge / Rust / Ash are terser
+// than the rest but each is unique"). The check states the law AND pins the
+// exception, so a second short string fails here instead of drifting in.
+const shortForms = FORM_LIST.filter(([, , t]) => t.length < 4).map(([id, k, t]) => `${id}.${k}="${t}"`);
+check(
+  "12.2 every display string ≥ 4 chars (ONE ratified exception: ash-columns.compact \"Ash\")",
+  shortForms.length === 1 && shortForms[0] === 'ash-columns.compact="Ash"',
+  shortForms.join(", "),
+);
+
+// --- 12.3 pairwise uniqueness across DISTINCT nodes (both forms) ---
+const seenString = new Map<string, string>();
+let stringClash = "";
+for (const [id, , t] of FORM_LIST) {
+  const owner = seenString.get(t);
+  if (owner !== undefined && owner !== id) stringClash += `"${t}" = ${owner} + ${id}; `;
+  else seenString.set(t, id);
+}
+check("12.3 no two distinct nodes share a display string (either form)", stringClash === "", stringClash);
+
+// --- 12.4 the table cannot drift from the published catalog ---
+const PUBLISHED = new Map<string, string>();
+for (const g of webs) for (const n of g.nodes) PUBLISHED.set(n.id, n.name);
+const DOCUMENTED_OVERRIDES: Record<string, string> = {
+  "dark-matter-observatory": "Chorus-Held Heart", // map identity = its role (§1.2 ⟡)
+  observatories: "Observatories", // published tail is wider than any row gap (§1.2 ⟡)
+};
+let drift = "";
+for (const [id, v] of Object.entries(DISPLAY_NAMES)) {
+  const published = PUBLISHED.get(id) ?? "";
+  const expected = DOCUMENTED_OVERRIDES[id] ?? published.replace(/^The /, "");
+  if (v.full !== expected) drift += `${id}: "${v.full}" ≠ "${expected}" (published "${published}"); `;
+}
+check(
+  "12.4 full === published name minus a leading \"The \" (2 documented overrides; cradle follows the rule)",
+  drift === "",
+  drift,
+);
+check(
+  "12.4 the published catalog is UNCHANGED (20 of 30 names still begin \"The \")",
+  [...PUBLISHED.values()].filter((n) => n.startsWith("The ")).length === 20,
+  `${[...PUBLISHED.values()].filter((n) => n.startsWith("The ")).length}`,
+);
+check(
+  "12.4 the heart's label is its map role while its published name stays in the Sheet",
+  DISPLAY_NAMES["dark-matter-observatory"].full === "Chorus-Held Heart" && PUBLISHED.get("dark-matter-observatory") === "Dark-Matter Observatory",
+);
+
+// --- 12.5 the canvas law (every world × every canonical stage) ---
+for (const s of LABEL_STAGES) {
+  const c = canvasFor(s.w, s.h);
+  const aspect = c.w / c.h;
+  check(
+    `12.5 ${s.label}: canvas ${c.w}×${c.h}, aspect ∈ [0.7368, 1.60]`,
+    aspect >= ASPECT_MIN - 1e-9 && aspect <= ASPECT_MAX + 1e-9,
+    `aspect=${aspect.toFixed(4)}`,
+  );
+  check(`12.5 ${s.label}: kx ${c.kx.toFixed(3)} ≥ 1 (authored x is never compressed)`, c.kx >= 1);
+  check(
+    `12.5 ${s.label}: every authored x lands inside 0.06–0.94 of the canvas (all worlds)`,
+    webs.every((g) => g.nodes.every((n) => { const X = canvasX(n.x, c.w, c.kx); return X >= 0.06 * c.w && X <= 0.94 * c.w; })),
+  );
+  let minRowPx = Infinity, minPairPx = Infinity, pairRowPx = "", pairPx = "";
+  for (const g of webs) {
+    for (let i = 0; i < g.nodes.length; i++) {
+      for (let j = i + 1; j < g.nodes.length; j++) {
+        const a = g.nodes[i], b = g.nodes[j];
+        const d = Math.hypot(c.kx * (a.x - b.x), a.y - b.y);
+        if (d < minPairPx) { minPairPx = d; pairPx = `${a.id}/${b.id}`; }
+        if (rowY[a.id] === rowY[b.id] && d < minRowPx) { minRowPx = d; pairRowPx = `${a.id}/${b.id}`; }
+      }
+    }
+  }
+  check(
+    `12.5 ${s.label}: same-row spacing ≥ 60 canvas units (was ≥ 60 authored)`,
+    minRowPx >= ATLAS_CONFIG.spacing.row - 1e-6,
+    `min=${minRowPx.toFixed(1)} (${pairRowPx})`,
+  );
+  check(
+    `12.5 ${s.label}: ANY pair ≥ 52 canvas units (r26 hit-circle floor)`,
+    minPairPx >= ATLAS_CONFIG.spacing.min - 1e-6,
+    `min=${minPairPx.toFixed(1)} (${pairPx})`,
+  );
+}
+
+// --- 12.6 the label law (every world × every canonical stage) ---
+for (const s of LABEL_STAGES) {
+  const c = canvasFor(s.w, s.h);
+  const scale = stageScale(s);
+  const tier = labelTier(scale);
+  const fontUnits = labelFontUnits(tier, scale);
+  let foreignString = "", articleString = "", overlap = "", outside = "", circleHit = "";
+  let minLabelled = Infinity;
+  for (const g of webs) {
+    const m = resolveLabels(g.nodes, { tier, fontUnits, canvasW: c.w, kx: c.kx, selectedId: null });
+    minLabelled = Math.min(minLabelled, m.size);
+    const rects: Array<{ id: string; x0: number; x1: number; y0: number; y1: number }> = [];
+    for (const [id, v] of m) {
+      const names = DISPLAY_NAMES[id];
+      if (v.text !== names.full && v.text !== names.compact) foreignString += `${id}="${v.text}"; `;
+      if (/^the$/i.test(v.text)) articleString += `${id}="${v.text}"; `;
+      const node = g.nodes.find((n) => n.id === id)!;
+      const r = labelRect(node, v.text, c.w, c.kx, fontUnits);
+      if (r.x0 < 0 || r.x1 > c.w) outside += `${g.worldId}/${id} [${r.x0.toFixed(1)},${r.x1.toFixed(1)}]; `;
+      // the label must also clear every OTHER node's circle box (inflated by 2)
+      for (const o of g.nodes) {
+        if (o.id === id) continue;
+        const orad = LABEL_NODE_RADIUS[o.kind] + 2;
+        const ox = canvasX(o.x, c.w, c.kx);
+        if (r.x0 < ox + orad && ox - orad < r.x1 && r.y0 < o.y + orad && o.y - orad < r.y1) circleHit += `${g.worldId}/${id} over ${o.id}; `;
+      }
+      rects.push({ id, ...r });
+    }
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i], b = rects[j];
+        if (a.y0 < b.y1 && b.y0 < a.y1 && a.x0 < b.x1 && b.x0 < a.x1) overlap += `${g.worldId}: ${a.id}/${b.id}; `;
+      }
+    }
+  }
+  check(
+    `12.6 ${s.label}: every rendered string is one of that node's two forms`,
+    foreignString === "",
+    foreignString,
+  );
+  check(`12.6 ${s.label}: NO rendered label is an article (the owner's defect)`, articleString === "", articleString);
+  check(`12.6 ${s.label}: no two visible label rects overlap (all worlds)`, overlap === "", overlap);
+  check(`12.6 ${s.label}: every visible rect inside the canvas and clear of every other node's circle`, outside === "" && circleHit === "", outside + circleHit);
+  check(
+    `12.6 ${s.label}: labelled ≥ ${s.w === 390 ? 20 : s.w === 980 || s.w === 1140 ? 28 : 20} of 30 nodes (min over worlds = ${minLabelled})`,
+    minLabelled >= (s.w === 390 ? 20 : s.w === 980 || s.w === 1140 ? 28 : 20),
+    `min=${minLabelled}`,
+  );
+}
+
+// --- 12.7 the font law (nothing renders below 11px; none of it shrinks) ---
+let fontLaw = "";
+for (let sc = 0.55; sc <= 3.0001; sc += 0.005) {
+  const fu = labelFontUnits(labelTier(sc), sc);
+  if (fu * sc < 11 - 1e-9) { fontLaw = `scale=${sc.toFixed(3)} → ${(fu * sc).toFixed(2)}px`; break; }
+}
+check("12.7 labelFontUnits(tier, scale) × scale ≥ 11px for EVERY scale ≥ 0.55", fontLaw === "", fontLaw);
+check(
+  "12.7 scale < 0.55 → resolveLabels returns NO labels (hidden, never shrunk)",
+  [0.01, 0.25, 0.5, 0.549].every((sc) => resolveLabels(webs[0].nodes, { tier: labelTier(sc), fontUnits: labelFontUnits(labelTier(sc), sc), canvasW: 560, kx: 1 }).size === 0),
+);
+check(
+  "12.7 tier thresholds are exactly 1.00 / 0.55 (§1.4)",
+  labelTier(3) === "full" && labelTier(1) === "full" && labelTier(0.999) === "mid" && labelTier(0.55) === "mid" && labelTier(0.549) === "low",
+);
+check(
+  "12.7 mid tier renders EXACTLY 11px CSS at both mid scales the app hits (0.8462 phone/desktop, 0.9366 laptop)",
+  Math.abs(labelFontUnits("mid", 22 / 26) * (22 / 26) - 11) < 1e-9 &&
+    Math.abs(labelFontUnits("mid", 0.9366) * 0.9366 - 11) < 1e-9,
+);
+
+// --- 12.8 the renderer cannot regress to a string split (the D1 root cause) ---
+const CIRCUIT_PAGE_SRC = fs.readFileSync("/home/team/shared/site/src/components/CircuitPage.tsx", "utf8");
+const splitCalls = CIRCUIT_PAGE_SRC.match(/\.split\(\s*["'`]\s+["'`]?\s*\)/g) ?? [];
+check(
+  "12.8 CircuitPage.tsx derives NO name by splitting on spaces (the rule, not the string, was the bug)",
+  splitCalls.length === 0,
+  splitCalls.join(", "),
+);
+check(
+  "12.8 CircuitPage.tsx renders labels from the display-name table (no labelText())",
+  CIRCUIT_PAGE_SRC.includes("circuit-labels") && !/function\s+labelText\s*\(/.test(CIRCUIT_PAGE_SRC),
+);
+
+// ======================================================================
 console.log(`\natlas-tests: ${pass} passed, ${fail} failed`);
+
 process.exit(fail > 0 ? 1 : 0);

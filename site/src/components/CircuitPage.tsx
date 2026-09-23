@@ -37,6 +37,16 @@ import { Sheet, SheetHeader } from "./Sheet";
 import { Icon } from "./icons";
 import { Tooltip } from "./Tooltip";
 import {
+  DISPLAY_NAMES,
+  LABEL_DY,
+  LABEL_NODE_RADIUS,
+  canvasFor,
+  canvasX,
+  labelTier,
+  labelFontUnits,
+  resolveLabels,
+} from "../game/circuit-labels";
+import {
   TIER_COLORS,
   KIND_COLORS,
   TRACE_COLORS,
@@ -109,9 +119,14 @@ export function CircuitPage({
     return () => mq.removeEventListener("change", apply);
   }, []);
 
-  /* ---- map stage geometry (§2.1): fit + hit-floor cap + zoom clamp ---- */
-  const W = ATLAS_CONFIG.viewBox.w;
+  /* ---- map stage geometry (§2.1 rule 3/8 + §3): aspect-aware render canvas,
+     fit, hit-floor cap, zoom clamp ---- */
+  const W = ATLAS_CONFIG.viewBox.w; // authored canvas — READ ONLY (map.ts)
   const H = ATLAS_CONFIG.viewBox.h;
+  // The RENDER canvas: authored geography × one uniform x-scale (canvasX), so
+  // a wide stage gets a wide web instead of 52% dead space (§3.2). `y`,
+  // radii and font units stay authored — circles stay circles.
+  const [canvas, setCanvas] = useState(() => canvasFor(W, H));
   const [fit, setFit] = useState(0);
   const [zoom, setZoom] = useState(1); // multiplier over the fit-capped base
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -119,13 +134,30 @@ export function CircuitPage({
   const anchorRef = useRef<{ x: number; y: number } | null>(null);
   const pendingReset = useRef(false);
   const lastInner = useRef<{ w: number; h: number } | null>(null);
+  const canvasRef = useRef(canvas);
+  const lastCanvasW = useRef<number | null>(null);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
     const measure = () => {
-      if (stage.clientWidth <= 0 || stage.clientHeight <= 0) return;
-      setFit(Math.min(stage.clientWidth / W, stage.clientHeight / H));
+      // §3.6 rule 1 — hysteresis PLUS a stable measurement source. The stage is
+      // `overflow-auto`, so once the map exceeds a box the scrollbars shrink
+      // clientWidth/clientHeight and a client-box measurement feeds back into
+      // itself (commit a wider canvas → scrollbar → measure again → commit
+      // again). The LAYOUT box (offsetWidth/offsetHeight) does not move when
+      // scrollbars appear, so the canvas is derived from it and the loop cannot
+      // run. clientWidth remains the fallback for a detached/hidden stage.
+      const stageW = stage.offsetWidth || stage.clientWidth;
+      const stageH = stage.offsetHeight || stage.clientHeight;
+      if (stageW <= 0 || stageH <= 0) return;
+      const next = canvasFor(stageW, stageH);
+      const cur = canvasRef.current;
+      // only commit a new canvas when the stage aspect actually moved by > 2%
+      const committed = Math.abs(next.w - cur.w) > 0.02 * cur.w ? next : cur;
+      canvasRef.current = committed;
+      setFit(Math.min(stageW / committed.w, stageH / committed.h));
+      setCanvas(committed); // same reference when uncommitted → React bails out
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -165,12 +197,16 @@ export function CircuitPage({
     if (!stage || !inner) return;
     const prev = lastInner.current;
     lastInner.current = { w: inner.clientWidth, h: inner.clientHeight };
+    // §3.6 rule 2 — a canvas change is a new map: the old scroll offsets mean
+    // nothing, so re-centre exactly like ⇱ does.
+    const canvasChanged = lastCanvasW.current !== null && lastCanvasW.current !== canvas.w;
+    lastCanvasW.current = canvas.w;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (pendingReset.current) {
+    if (pendingReset.current || canvasChanged) {
       pendingReset.current = false;
       const tx = Math.max(0, (inner.clientWidth - stage.clientWidth) / 2);
       const ty = Math.max(0, (inner.clientHeight - stage.clientHeight) / 2);
-      stage.scrollTo({ left: tx, top: ty, behavior: reduced ? "auto" : "smooth" });
+      stage.scrollTo({ left: tx, top: ty, behavior: reduced || canvasChanged ? "auto" : "smooth" });
       return;
     }
     if (prev && anchorRef.current) {
@@ -179,12 +215,28 @@ export function CircuitPage({
       stage.scrollLeft = Math.max(0, a.x * inner.clientWidth - stage.clientWidth / 2);
       stage.scrollTop = Math.max(0, a.y * inner.clientHeight - stage.clientHeight / 2);
     }
-  }, [scale]);
+  }, [scale, canvas.w]);
 
-  // §2.3 label zoom tiers — rendered label height = 11 (units) × scale in CSS
-  // px: full ≥ 11px · first-word 6–11px · hidden < 6px (visibility, never size).
-  const labelPx = 11 * scale;
-  const zoomTier = labelPx >= 11 ? "full" : labelPx >= 6 ? "mid" : "low";
+  // §1.4 label zoom tiers — the tier sets the TYPE SIZE and VISIBILITY; the
+  // NAME STRING comes from the display-name table (§2.3 amendment). Nothing is
+  // ever rendered below 11px: at mid the font is `11/scale` units (= 11px CSS),
+  // and below scale 0.55 the tier is `low` and the labels HIDE.
+  const tier = labelTier(scale);
+  const fontUnits = labelFontUnits(tier, scale);
+  // §2.1 — the deterministic collision ladder (full → compact → hidden). Pure
+  // geometry, memoised on the canvas + tier + selection only.
+  const labels = useMemo(
+    () =>
+      resolveLabels(circuit.nodes, {
+        tier,
+        fontUnits,
+        canvasW: canvas.w,
+        kx: canvas.kx,
+        selectedId: sel,
+      }),
+    [circuit, tier, fontUnits, canvas.w, canvas.kx, sel],
+  );
+  const px = (x: number) => canvasX(x, canvas.w, canvas.kx);
 
   // Focus the map container on entry (§7); Return restores focus to the
   // Shell nav button via play.tsx's onClose.
@@ -313,29 +365,32 @@ export function CircuitPage({
                 <div
                   ref={innerRef}
                   className="circuit-map-inner m-auto flex-none"
-                  style={{ width: W * scale, height: H * scale }}
+                  style={{ width: canvas.w * scale, height: canvas.h * scale }}
                 >
                   <svg
-                    viewBox={`0 0 ${W} ${H}`}
-                    className={`circuit-zoom-${zoomTier} block h-full w-full select-none`}
+                    viewBox={`0 0 ${canvas.w} ${canvas.h}`}
+                    className={`circuit-zoom-${tier} block h-full w-full select-none`}
                     role="img"
                     aria-label="The Circuit — world map: territories, traces, and the Chorus-held heart"
                   >
-                    {/* LAYER 0+1 — severed-trace breaks, then road / ruin-pass traces */}
+                    {/* LAYER 0+1 — severed-trace breaks, then road / ruin-pass traces.
+                        x goes through the §3.2 canvas map; y, radii and stroke widths
+                        stay authored. */}
                     <g aria-hidden="true" style={{ pointerEvents: "none" }}>
                       {circuit.edges.map((e, i) => {
                         const a = coordOf(circuit, e.from);
                         const b = coordOf(circuit, e.to);
+                        const ax = px(a.x), bx = px(b.x);
                         const selected = sel !== null && (e.from === sel || e.to === sel);
                         if (e.kind === "severed") {
-                          const gx = b.x - a.x;
+                          const gx = bx - ax;
                           const gy = b.y - a.y;
-                          const p1 = { x: a.x + gx * 0.42, y: a.y + gy * 0.42 };
-                          const p2 = { x: b.x - gx * 0.42, y: b.y - gy * 0.42 };
+                          const p1 = { x: ax + gx * 0.42, y: a.y + gy * 0.42 };
+                          const p2 = { x: bx - gx * 0.42, y: b.y - gy * 0.42 };
                           return (
                             <g key={i}>
-                              <line x1={a.x} y1={a.y} x2={p1.x} y2={p1.y} stroke={TRACE_COLORS.severed} strokeWidth="1.5" strokeOpacity="0.8" />
-                              <line x1={p2.x} y1={p2.y} x2={b.x} y2={b.y} stroke={TRACE_COLORS.severed} strokeWidth="1.5" strokeOpacity="0.8" />
+                              <line x1={ax} y1={a.y} x2={p1.x} y2={p1.y} stroke={TRACE_COLORS.severed} strokeWidth="1.5" strokeOpacity="0.8" />
+                              <line x1={p2.x} y1={p2.y} x2={bx} y2={b.y} stroke={TRACE_COLORS.severed} strokeWidth="1.5" strokeOpacity="0.8" />
                             </g>
                           );
                         }
@@ -344,7 +399,7 @@ export function CircuitPage({
                         return (
                           <line
                             key={i}
-                            x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                            x1={ax} y1={a.y} x2={bx} y2={b.y}
                             stroke={e.kind === "road" ? (nearEdge ? TRACE_COLORS.roadNear : TRACE_COLORS.road) : TRACE_COLORS.ruin}
                             strokeWidth={selected ? 3 : e.kind === "road" ? (nearEdge ? 1.5 : 2) : 2}
                             strokeOpacity={selected ? 0.95 : e.kind === "road" ? 0.55 : 0.7}
@@ -359,41 +414,54 @@ export function CircuitPage({
                       {circuit.nodes.map((n) => {
                         const dim = n.kind === "near";
                         const r = nodeRadius(n);
-                        const labelDy = n.kind === "heart" ? 42 : n.kind === "near" ? 26 : 30;
-                        const nameShown = labelText(n, zoomTier);
+                        const nx = px(n.x);
+                        const place = labels.get(n.id);
+                        // §1.4 — names, sub-label and pips are all TEXT: they share
+                        // the 11px floor (fontUnits × scale ≥ 11) and the halo.
+                        const halo = {
+                          paintOrder: "stroke" as const,
+                          stroke: LABEL_COLORS.halo,
+                          strokeWidth: 3,
+                          strokeLinejoin: "round" as const,
+                        };
                         return (
                           <g key={n.id} style={{ opacity: dim ? 0.6 : 1 }}>
                             {/* zone fill — tier @ 22% over surf-0 (§2.4 layer 2) */}
                             <circle
-                              cx={n.x} cy={n.y} r={r}
+                              cx={nx} cy={n.y} r={r}
                               fill={nodeFill(n)}
                               fillOpacity={n.kind === "rim" ? TIER_FILL_OPACITY : 1}
                               stroke={sel === n.id ? "rgba(255,255,255,0.95)" : nodeRing(n)}
                               strokeWidth={sel === n.id ? 3 : n.kind === "heart" ? 3 : 1.5}
                               className={n.kind === "heart" ? "animate-pulse" : undefined}
                             />
-                            {/* sigils (layer 5) */}
-                            {n.kind === "heart" && <text x={n.x} y={n.y + 5} textAnchor="middle" fontSize="15">🔥</text>}
-                            {n.kind === "cradle" && <text x={n.x} y={n.y + 5} textAnchor="middle" fontSize="13">🔰</text>}
+                            {/* sigils (layer 5) — symbols, not text: authored sizes */}
+                            {n.kind === "heart" && <text x={nx} y={n.y + 5} textAnchor="middle" fontSize="15">🔥</text>}
+                            {n.kind === "cradle" && <text x={nx} y={n.y + 5} textAnchor="middle" fontSize="13">🔰</text>}
                             {n.kind === "rim" && n.importance && (
-                              <text className="cl-pip" x={n.x + 14} y={n.y - 12} textAnchor="middle" fontSize="11" fontWeight="bold" fill={TIER_COLORS[n.importance.tier]}>
+                              <text className="cl-pip" x={nx + 14 * canvas.kx} y={n.y - 12} textAnchor="middle" fontSize={fontUnits} fontWeight="bold" fill={TIER_COLORS[n.importance.tier]} {...halo}>
                                 {tierPip(n.importance.tier)}
                               </text>
                             )}
                             {n.kind === "rim" && n.id === "shattered-academies" && (
-                              <text x={n.x} y={n.y - 14} textAnchor="middle" fontSize="11" fill={SIGIL_COLORS.heartZoneStar}>★</text>
+                              <text x={nx} y={n.y - 14} textAnchor="middle" fontSize="11" fill={SIGIL_COLORS.heartZoneStar}>★</text>
                             )}
-                            {/* labels (layer 6) — zoom-tier gated, never < 11px */}
-                            <text
-                              className="cl-full"
-                              x={n.x} y={n.y + labelDy} textAnchor="middle" fontSize="11"
-                              fill={n.kind === "heart" ? LABEL_COLORS.heart : n.kind === "cradle" ? LABEL_COLORS.cradle : LABEL_COLORS.node}
-                              fontWeight={500} fontFamily="'Segoe UI',system-ui,sans-serif"
-                            >
-                              {nameShown}
-                            </text>
+                            {/* labels (layer 6, §2.1 ladder) — a node with no room
+                                keeps its circle, ring, pip and aria-label and simply
+                                renders no name. Nothing below 11px, ever. */}
+                            {place && (
+                              <text
+                                className="cl-full"
+                                x={place.cx} y={place.cy} textAnchor="middle" fontSize={fontUnits}
+                                fill={n.kind === "heart" ? LABEL_COLORS.heart : n.kind === "cradle" ? LABEL_COLORS.cradle : LABEL_COLORS.node}
+                                fontWeight={500} fontFamily="'Segoe UI',system-ui,sans-serif"
+                                {...halo}
+                              >
+                                {place.text}
+                              </text>
+                            )}
                             {n.kind === "heart" && (
-                              <text className="cl-sub" x={n.x} y={n.y - 38} textAnchor="middle" fontSize="11" fill={SIGIL_COLORS.heartSub} letterSpacing="1.5">
+                              <text className="cl-sub" x={nx} y={n.y - 38} textAnchor="middle" fontSize={fontUnits} fill={SIGIL_COLORS.heartSub} letterSpacing="1.5" {...halo}>
                                 THE PRIZE · THE THREAT
                               </text>
                             )}
@@ -424,7 +492,7 @@ export function CircuitPage({
                             }}
                             style={{ opacity: n.kind === "near" ? 0.6 : 1 }}
                           >
-                            <circle cx={n.x} cy={n.y} r={HIT_RADIUS} fill="transparent" />
+                            <circle cx={px(n.x)} cy={n.y} r={HIT_RADIUS} fill="transparent" />
                             <title>{title}</title>
                           </g>
                         );
@@ -534,7 +602,7 @@ function coordOf(g: AtlasGraph, id: string): { x: number; y: number } {
   return n ? { x: n.x, y: n.y } : { x: 180, y: 480 };
 }
 function nodeRadius(n: AtlasNode): number {
-  return n.kind === "heart" ? 26 : n.kind === "rim" ? 16 : n.kind === "cradle" ? 18 : 12;
+  return LABEL_NODE_RADIUS[n.kind]; // single source (circuit-labels.ts)
 }
 function nodeFill(n: AtlasNode): string {
   if (n.kind === "heart") return KIND_COLORS.heart;
@@ -551,14 +619,12 @@ function nodeTitle(n: AtlasNode): string {
   if (n.kind === "near") return `${n.name} — home-protected ground, never contestable.`;
   return `${n.name} — Burning-Rim territory${n.importance ? `, Tier ${n.importance.tier} (score ${n.importance.score.toFixed(2)})` : ""}.`;
 }
-/** §2.3 — mid tier shows the FIRST WORD ONLY of multi-word names (the
- *  examples in the spec: "Forge", "Super-Collider"); single-word names are
- *  their own full name. aria-label always carries the full sentence. */
-function labelText(n: AtlasNode, zoomTier: "full" | "mid" | "low"): string {
-  let name = n.kind === "heart" ? "THE CHORUS-HELD HEART" : n.kind === "cradle" ? "THE CRADLE" : n.name;
-  if (zoomTier === "mid" && name.includes(" ")) name = name.split(" ")[0];
-  return name;
-}
+/** §2.3 (amended) — the zoom tier sets TYPE SIZE and VISIBILITY only; the NAME
+ *  STRING comes from the display-name table + collision ladder in
+ *  game/circuit-labels.ts (never from splitting the published name: 20 of the
+ *  30 published names begin "The", so a split renders the article).
+ *  `aria-label` always carries the full sentence. The old labelText() — the
+ *  root cause of the "The" labels — is deleted entirely. */
 
 /* ---------------- chrome pieces ---------------- */
 function FloatingControls({ onLegend, onReset, onZoomIn, onZoomOut }: { onLegend: () => void; onReset: () => void; onZoomIn: () => void; onZoomOut: () => void }) {
