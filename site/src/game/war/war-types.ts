@@ -99,6 +99,15 @@ export const BATTLES_CONFIG = {
   windowDurationFrac: 0.12,
   windowMinMs: 2 * 60_000,
   windowMaxMs: 15 * 60_000,
+  /** PACING LEVER (The Fall Act I, 2026-09-23): the FIRST opening of a battle
+   *  stays open at least this long. The 12% rule gives the opening decision of
+   *  the Act I fight 4:47 — the player meets it at +0:30 while a narrator
+   *  paragraph is still being read. 8:00 is the read-the-queue-and-decide
+   *  budget: two script lines at ~15 s, the first look at five orders, and a
+   *  typed troop count, with room to spare. It applies to each side's earliest
+   *  opening ONLY (never a later one), and is capped by the next opening's
+   *  opensAt (and by the battle's own end) so no two openings ever overlap. */
+  windowFirstOpeningFloorMs: 8 * 60_000,
   /** An EDGE window opens for a side when the power gap against it reads
    *  rout-risk (same threshold as chipPressingGap) — the "getting pummeled"
    *  teaching moment (opening-prologue §12.3), survivable first. */
@@ -368,6 +377,9 @@ export interface BattleDecision {
 export interface AidCall {
   id: string; // `aid-<battleId>-<side>`
   callerSide: BattleSide;
+  /** The colony that raised the beacon — the aid row names it (never "an
+   *  ally" when the name is right there on the battle entity). */
+  callerName: string;
   issuedAt: number;
   arrivalAt: number; // issuedAt + aidTravelDelayMs (arrivals ride travel time)
   status: "awaiting" | "locked" | "arrived";
@@ -411,6 +423,8 @@ export interface BattleWindowView {
 export interface AidCallView {
   id: string;
   callerSide: BattleSide;
+  /** The colony that raised the beacon (public: it is on the battle entity). */
+  callerName: string;
   status: "awaiting" | "locked" | "arrived";
   arrivalAt: number;
   power: number;

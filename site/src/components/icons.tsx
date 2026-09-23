@@ -29,6 +29,9 @@ export type IconName =
   | "shield" // trust / G1–G4 footer
   | "card" // pass
   | "spark" // earned
+  | "sword" // battle header / the attacker
+  | "march" // troop column with a direction arrow (Reinforce)
+  | "beacon"; // a lit signal (Call for aid)
 
 const PATHS: Record<IconName, ReactNode> = {
   crate: (
@@ -147,6 +150,32 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
       <path d="M6.5 6.5L10 10M14 14l3.5 3.5M17.5 6.5L14 10M10 14l-3.5 3.5" />
+    </>
+  ),
+  sword: (
+    <>
+      <path d="M14.5 3H21v6.5L11 19.5l-6.5-6.5L14.5 3z" />
+      <path d="M6 18l-3 3" />
+      <path d="M9.5 15.5l-2 2" />
+    </>
+  ),
+  march: (
+    <>
+      <circle cx="9" cy="4.5" r="2" />
+      <path d="M9 6.5v7h4" />
+      <path d="M9 9.5l-3 2v5" />
+      <path d="M13 13.5V19" />
+      <path d="M17 8.5l3 3-3 3" />
+      <path d="M20 11.5h-6" />
+    </>
+  ),
+  beacon: (
+    <>
+      <path d="M12 3v4" />
+      <path d="M12 7l3 6H9l3-6z" />
+      <path d="M5 21h14" />
+      <path d="M7.5 17.5c1.6 1 3 1 4.5 1s2.9 0 4.5-1" />
+      <path d="M4.5 13.5l1.5 1M19.5 13.5l-1.5 1" />
     </>
   ),
 };
