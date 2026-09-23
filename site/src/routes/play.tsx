@@ -9,6 +9,7 @@ import {
   submitFeedbackFn, listMyFeedbackFn, dismissNoticeFn,
   weaponBuildFn, refinePlasmaFn,
   claimDailyRewardFn,
+  leaveActOneFn,
 } from "../game/api";
 import type { GameSummary } from "../game/api";
 import { RACES, UNBOUND_LEGEND, getRace, raceModLines } from "../game/races";
@@ -271,6 +272,25 @@ function PlayPage() {
     return res.error || "Log in failed.";
   };
 
+  // ---- THE FALL: leaving the height (opening-prologue-spec §3) ----
+  // The height is its own seat in the account, so "leave" is a plain hand-back
+  // to a colony of the player's own. If they have no other colony yet they
+  // simply stay where they are — the button can never strand anyone.
+  const doLeaveAct1 = async (): Promise<void> => {
+    sound.click();
+    const res = await leaveActOneFn({ data: { token: token! } }).catch(() => null);
+    if (!res) { flash("Failed to reach the server."); return; }
+    if (res.signedOut) { localLogout(); return; }
+    if (res.ok && res.state) {
+      setState(res.state);
+      setActiveGameId(res.activeGameId ?? null);
+      setTab("colony");
+      sound.success();
+      flash("Back at your colony.");
+      return;
+    }
+    flash(res.error || "Could not leave the field.");
+  };
   // ---- Games modal actions (return server-side error string or null = ok) ----
 
   const doCreate = async (name: string, race: RaceId): Promise<string | null> => {
@@ -424,6 +444,13 @@ function PlayPage() {
       <Shell state={state} tab={tab} setTab={switchTab} onGames={() => { setGamesOpen(true); sound.click(); }} muted={muted} onToggleMute={toggleMute} onHelp={() => setHelpOpen(true)} onFeedback={() => { setFeedbackOpen(true); sound.click(); }} onLogout={doLogout} onToggleFullscreen={toggleFullscreen} isFullscreen={isFullscreen} onLedger={() => { setLedgerOpen(true); sound.click(); }} unread={Math.max(0, reports.length - reportsSeen)} onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }} />
       {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
       {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
+      {state.prologue?.stage === "height" && (
+        <Act1Banner
+          canLeave={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
+          onField={() => switchTab("battles")}
+          onLeave={doLeaveAct1}
+        />
+      )}
       {tab === "colony" && <ColonyTab state={state} onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")} onCraft={(k) => act(() => craftFn({ data: { token: token!, kind: k } }), "success")} onClaim={() => act(() => claimDailyRewardFn({ data: { token: token! } }), "success")} />}
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onPrepare={() => { setTab("colony"); sound.tab(); }} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} />}
@@ -977,6 +1004,48 @@ function ReportsSheet({ open, onClose, reports }: { open: boolean; onClose: () =
 
 /* ---------------- Games modal / panel ---------------- */
 
+// THE FALL · Act I banner (opening-prologue-spec §3). Shown only while the
+// colony on screen IS the height. It says where the player is standing and
+// holds the one door back to their own colonies — in-universe, no mechanics
+// talk, no promises about what comes next.
+function Act1Banner({ canLeave, onField, onLeave }: { canLeave: boolean; onField: () => void; onLeave: () => void }) {
+  const [leaving, setLeaving] = useState(false);
+  return (
+    <div className="mx-auto max-w-6xl px-4 pt-4" data-testid="act1-banner">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/40 bg-amber-400/5 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-[0.3em] text-amber-300/80">The Fall · The Height</p>
+          <p className="mt-1 text-sm text-gray-200">
+            The Last Academy holds the Ashline at full strength. Its front is live.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-testid="act1-open-front"
+            data-action="openFront"
+            onClick={onField}
+            className="rounded-lg border border-amber-400/60 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-400/20"
+          >
+            Open the front
+          </button>
+          {canLeave && (
+            <button
+              type="button"
+              data-testid="act1-leave"
+              data-action="leaveHeight"
+              disabled={leaving}
+              onClick={() => { setLeaving(true); onLeave(); }}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-gray-200 hover:bg-white/10 disabled:opacity-60"
+            >
+              {leaving ? "Standing down…" : "Return to your colony"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 function GamesModal({ games, activeGameId, username, busy, onClose, onPlay, onReset, onDelete, onCreate, onTrash, flash }: {
   games: GameSummary[]; activeGameId: string | null; username: string | null; busy: boolean;
   onClose: () => void; onPlay: (id: string) => Promise<string | null>; onReset: (id: string) => Promise<string | null>;

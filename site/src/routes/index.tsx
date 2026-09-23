@@ -37,6 +37,12 @@ function LandingPage() {
           >
             Begin Your Expedition
           </Link>
+          <Link
+            to="/the-fall"
+            className="rounded-lg border border-amber-400/40 bg-amber-400/5 px-6 py-3 text-base font-semibold text-amber-100 hover:bg-amber-400/10"
+          >
+            The Fall · The Height
+          </Link>
           <a href="#world" className="rounded-lg border border-gray-700 bg-white/5 px-6 py-3 text-base font-semibold text-gray-200 hover:bg-white/10">
             The World
           </a>

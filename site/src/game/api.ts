@@ -41,6 +41,8 @@ import {
   logBattleResolved,
   respondToAid,
 } from "./war/battle-engine";
+import { ACT1_CONFIG, openAct1Front } from "./prologue/act1-battle";
+import { prologueState } from "./prologue/prologue-engine";
 import type { BattleHeroSnapshot } from "./war/war-types";
 import {
   loadAccountSaves,
@@ -330,7 +332,10 @@ const createGameFn = createServerFn({ method: "POST" }).validator(
     return { ok: true, state: publicState(fresh), activeGameId: pending.gameId, username: accountId };
   }
 
-  if (Object.keys(saves.games).length >= MAX_GAMES) {
+  // The Fall's slot is the story's own seat, not a colony — it never consumes
+  // one of the account's colony slots.
+  const colonySlots = Object.keys(saves.games).filter((id) => id !== ACT1_CONFIG.gameId).length;
+  if (colonySlots >= MAX_GAMES) {
     return { ok: false, error: `Each account can hold up to ${MAX_GAMES} colonies. Delete one to found another.` };
   }
   const now = Date.now();
@@ -711,6 +716,63 @@ const dismissNoticeFn = createServerFn({ method: "POST" }).validator(
   return { ok: true };
 });
 
+// ------- THE FALL · Act I — taking the field (opening-prologue-spec §3) -------
+// The entry into the height. Act I lives in its OWN colony slot (a fixed id),
+// so the player's real colonies are never touched: entering is "take the
+// field", leaving is a plain switch back, and the slot the height lives in is
+// the same slot the Wake (Act III) will hand back as a single Cradle.
+//
+// The seed + the first front are built by the pure prologue modules
+// (prologueEngine.prologueState + act1-battle.seedAct1Battle) and stored
+// through the ordinary save path, so the state — including the LIVE battle and
+// its clock — survives a reload exactly like every other colony. Nothing here
+// touches the decision engine, and nothing here is for sale.
+/** Take the field: seed-or-resume Act I's slot, open the front, make it active.
+ *  Idempotent — a player already standing at the height is simply resumed
+ *  (never re-seeded, never a second front). */
+const enterActOneFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = (await loadAccountSaves(accountId)) ?? emptySaves();
+  const now = Date.now();
+  const slot = saves.games[ACT1_CONFIG.gameId] ?? null;
+  const { state } = openAct1Front(slot, now, (at) => prologueState(at, ACT1_CONFIG.race));
+  const st = engine.advance(state, now);
+  saves.games[ACT1_CONFIG.gameId] = st;
+  saves.activeGameId = ACT1_CONFIG.gameId;
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(st), activeGameId: ACT1_CONFIG.gameId };
+});
+/** Leave the height: hand the account back to a colony of its own. A player
+ *  with no other colony (their first ever session) simply stays where they are
+ *  — there is no state this button can strand them in. */
+const leaveActOneFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.games[ACT1_CONFIG.gameId]) return { ok: false, error: "You are not standing at the height." };
+  const now = Date.now();
+  const homes = Object.values(saves.games)
+    .filter((g) => g.gameId && g.gameId !== ACT1_CONFIG.gameId && !!g.race)
+    .sort((a, z) => (z.createdAt ?? 0) - (a.createdAt ?? 0));
+  const homeId = homes[0]?.gameId;
+  if (!homeId) {
+    const st = engine.advance(saves.games[ACT1_CONFIG.gameId], now);
+    saves.games[ACT1_CONFIG.gameId] = st;
+    saves.activeGameId = ACT1_CONFIG.gameId;
+    await saveAccountSaves(accountId, saves);
+    return { ok: true, state: publicState(st), activeGameId: ACT1_CONFIG.gameId };
+  }
+  saves.activeGameId = homeId;
+  await saveAccountSaves(accountId, saves);
+  const st = engine.advance(saves.games[homeId], now);
+  saves.games[homeId] = st;
+  return { ok: true, state: publicState(st), activeGameId: homeId };
+});
 // ------- battle decision windows (B12) & aid calls (B11) -------
 // Server functions for mid-battle orders. Every order is VALIDATED by the
 // pure engine (window open, one per window per side, reserve affordability),
@@ -946,4 +1008,6 @@ export {
   dismissNoticeFn,
   battleIssueFn,
   battleRespondFn,
+  enterActOneFn,
+  leaveActOneFn,
 };
