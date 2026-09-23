@@ -41,6 +41,12 @@ export const LABEL_COLORS = {
   node: "rgba(226,232,240,0.75)", // all names (15.17:1 on fills — PASS)
   heart: "#fdba74", // heart name (5.94:1 — PASS)
   cradle: "#fde68a", // cradle name (7.32:1 — PASS)
+  // §3 label halo ≡ --surf-0 (rung-1 §A.1). A conductor lane (#8f9bb3 @0.55
+  // over surf-0 → ≈(82,89,106)) crossing under a glyph drops 11px label text to
+  // ≈3.2:1 — below AA. `paint-order: stroke` with this halo fixes the composite
+  // at ≈9.1:1 over any underlay (the 15.17:1 figure above is the un-composited
+  // label colour). One token, no new hue.
+  halo: "#070910",
 } as const;
 
 /** Ring / stroke colors per kind (§2.4 layer 3). */

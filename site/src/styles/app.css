@@ -346,16 +346,18 @@
     width var(--motion-base) var(--ease-out),
     height var(--motion-base) var(--ease-out);
 }
-/* §2.3 zoom-tier label gates — HIDDEN (visibility), never rendered smaller:
-   .cl-full node-name labels: full/mid content is authored by the renderer
-   (mid = first word only), hidden at low; .cl-pip tier pips: hidden at low;
-   .cl-sub heart sub-label: only at full; .cl-chip state chips (war phase):
-   only at full. Nodes' aria-labels are unaffected (always full sentences). */
+/* §2.3 zoom-tier label gates (AMENDED by circuit-map-layout-spec.md §7/1) —
+   HIDDEN (visibility), never rendered smaller. The NAME STRING is chosen in JS
+   by the display-name table + collision ladder (game/circuit-labels.ts), never
+   by splitting the published name; the tier now drives the FONT SIZE (11/scale
+   → exactly 11px at mid) and visibility only. .cl-full node names and .cl-pip
+   tier pips: hidden at low; .cl-sub heart sub-label: shown at full AND mid
+   (was hidden at mid), hidden at low; .cl-chip state chips (war phase): only at
+   full. Nodes' aria-labels are unaffected (always full sentences). */
 .circuit-zoom-low .cl-full,
 .circuit-zoom-low .cl-pip {
   visibility: hidden;
 }
-.circuit-zoom-mid .cl-sub,
 .circuit-zoom-low .cl-sub {
   visibility: hidden;
 }

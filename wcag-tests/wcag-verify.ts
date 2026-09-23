@@ -302,6 +302,32 @@ console.log("— 8 · circuit §5 color table machine-enforced (circuit-fullscre
     hexes.length === 0,
     `found: ${hexes.join(", ")}`,
   );
+  // §8 extension (circuit-map-layout-spec.md §4/§6): the label halo is ONE new
+  // token, it IS --surf-0, and the new pure label module carries no colour at
+  // all — so the map label layer can never grow a second palette.
+  const halo = tok.match(/halo:\s*"(#[0-9a-fA-F]{6})"/)?.[1]?.toLowerCase();
+  check("LABEL_COLORS.halo parses to a hex", halo !== undefined, `${halo}`);
+  check(
+    `LABEL_COLORS.halo ${halo} == --surf-0 ${surf0} (the label halo is not a new hue)`,
+    halo === surf0,
+    `${halo} vs ${surf0}`,
+  );
+  check(
+    "the label halo is applied as paint-order:stroke 3 units (the AA-over-traces fix)",
+    /paintOrder:\s*"stroke"/.test(page) && /stroke:\s*LABEL_COLORS\.halo/.test(page) && /strokeWidth:\s*3/.test(page),
+  );
+  const LABELS = `${SITE}/src/game/circuit-labels.ts`;
+  if (!existsSync(LABELS)) {
+    console.error(`MISSING SOURCE FILE: ${LABELS}`);
+    process.exit(1);
+  }
+  const labelsSrc = readFileSync(LABELS, "utf8");
+  const labelHexes = labelsSrc.match(/#[0-9a-fA-F]{6}/g) ?? [];
+  check(
+    "circuit-labels.ts has ZERO hex literals (labels carry no colour of their own)",
+    labelHexes.length === 0,
+    `found: ${labelHexes.join(", ")}`,
+  );
 }
 console.log(`RESULT: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
