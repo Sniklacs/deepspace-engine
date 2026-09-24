@@ -268,7 +268,12 @@ check("the Act I slot does not consume a colony slot (MAX_GAMES is about colonie
 check("the entry route exists and posts the entry", fallSrc.includes('createFileRoute("/the-fall")') && fallSrc.includes("enterActOneFn({ data: { token } })"));
 check("the entry route hands off to the game", fallSrc.includes('window.location.assign("/play")'));
 check("the landing page links the way in", indexSrc.includes('to="/the-fall"'));
-check("the game renders the Act I banner only at the height", playSrc.includes('state.prologue?.stage === "height"') && playSrc.includes("<Act1Banner"));
+  // Amendment A6 (game-ui-shell-spec §10): the Act I door is now the HOME
+  // screen's top plate, not a banner above every tab — gated on the height.
+  const cradleSrc = readFileSync("/home/team/shared/site/src/components/screens/CradleScreen.tsx", "utf8");
+  check("the game renders the Act I plate only at the height (A6)",
+    /state\.prologue\?\.stage === "height" \? \(/.test(cradleSrc) &&
+    cradleSrc.includes('testid="act1-banner"') && cradleSrc.includes('data-slot="height-clock"'));
 check("the banner holds the way out (server-verified)", playSrc.includes("leaveActOneFn({ data: { token: token! } })") && playSrc.includes('data-testid="act1-leave"'));
 check("the banner opens the front in the shipped Battles view", playSrc.includes('data-testid="act1-open-front"') && playSrc.includes('switchTab("battles")'));
 check("the Battles view is mounted with its decision seam wired (token + onDecision + guidance)", playSrc.includes('<BattlesTab') && playSrc.includes('token={token ?? undefined}') && playSrc.includes('onDecision={() => { void refresh(); }}'));
