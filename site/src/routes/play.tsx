@@ -33,6 +33,7 @@ import AppShell from "../components/shell/AppShell";
 import CradleSheet from "../components/shell/CradleSheet";
 import { navBadges } from "../game/nav-badges";
 import type { Tab } from "../game/nav-slots";
+import CradleScreen from "../components/screens/CradleScreen";
 import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
 import BattlesTab from "../components/BattlesTab";
@@ -84,6 +85,7 @@ function PlayPage() {
   // every control the old header held, and `isWide` only flips the (CSS-only)
   // data-shell-layout switch — no layout is re-decided in JS (§7).
   const [cradleOpen, setCradleOpen] = useState(false);
+  const [codexOpen, setCodexOpen] = useState(false);
   const [isWide, setIsWide] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
@@ -479,14 +481,19 @@ function PlayPage() {
       >
       {firstRunNotice && tab !== "battles" && <FirstRunNudge onDismiss={dismissNudge} />}
       {toast && <div className="fixed bottom-[calc(var(--spacing-nav)+var(--dock-h,0px)+env(safe-area-inset-bottom)+12px)] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
-      {state.prologue?.stage === "height" && (
-        <Act1Banner
-          canLeave={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
+      {tab === "colony" && (
+        <CradleScreen
+          state={state}
+          onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")}
+          onCraft={(k) => act(() => craftFn({ data: { token: token!, kind: k } }), "success")}
+          onClaim={() => act(() => claimDailyRewardFn({ data: { token: token! } }), "success")}
+          onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")}
+          onOpenCodex={() => { setCodexOpen(true); sound.tab(); }}
           onField={() => switchTab("battles")}
-          onLeave={doLeaveAct1}
+          onLeaveHeight={doLeaveAct1}
+          canLeaveHeight={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
         />
       )}
-      {tab === "colony" && <ColonyTab state={state} onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")} onCraft={(k) => act(() => craftFn({ data: { token: token!, kind: k } }), "success")} onClaim={() => act(() => claimDailyRewardFn({ data: { token: token! } }), "success")} />}
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onPrepare={() => { setTab("colony"); sound.tab(); }} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} />}
       {tab === "battles" && (
@@ -502,6 +509,7 @@ function PlayPage() {
         </>
       )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+      {codexOpen && <CodexModal onClose={() => { setCodexOpen(false); sound.tab(); }} />}
       <CradleSheet
         state={state}
         open={cradleOpen}
