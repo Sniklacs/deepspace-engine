@@ -541,9 +541,14 @@ export const ADJACENT_GROUPS: readonly { beat: string; ids: readonly string[]; n
  *  harness asserts these are the ONLY ones, and that R1's 0.10 pitch gap still
  *  separates them — the honest floor the sheet describes. */
 export const R3_RATE_EXCEPTIONS: readonly (readonly [string, string])[] = [
+  // §7: Beat 1.3 is the sheet's stated weak case — eight hero intros in a row.
+  // Measured over the locked §1 table, these are the pairs where the rate gap
+  // cannot carry the rule; the pitch/class gap still separates every one.
   ["azazel-3", "chained-syllabus"],
   ["unwritten-answer", "brother-candle"],
+  ["brother-candle", "vesper"],
   ["vesper", "keeper-mend"],
+  ["lecturer", "semira"],
 ];
 
 // ============================================================================

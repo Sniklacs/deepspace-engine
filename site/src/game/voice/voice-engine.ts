@@ -300,6 +300,14 @@ export class VoiceEngine {
       return;
     }
 
+    // §5.2 BEFORE THE GESTURE: exactly one line is held. This test comes first,
+    // because `blocked()` is true while unarmed — the gate must not swallow the
+    // hold, or the first thing the player reads on the plate would never speak.
+    if (!this.armedValue) {
+      this.held = next;
+      this.changed();
+      return;
+    }
     if (this.blocked()) {
       this.silence();
       this.changed();
@@ -310,12 +318,6 @@ export class VoiceEngine {
       return;
     }
     if (this.spokenIds.has(next.id)) {
-      this.changed();
-      return;
-    }
-    if (!this.armedValue) {
-      // §5.2 at most ONE line is held until the first gesture
-      this.held = next;
       this.changed();
       return;
     }
