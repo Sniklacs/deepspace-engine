@@ -72,11 +72,13 @@ import {
 import type {
   BattleWatch,
   TutorialAction,
+  TutorialCue,
   TutorialEvent,
   TutorialPrefs,
   TutorialState,
   UiTarget,
 } from "../game/war/tutorial-cues";
+import { voiceEngine } from "../game/voice/voice-engine";
 
 const CHIP_META: Record<string, { label: string; cls: string }> = {
   stalemate: { label: "Stalemate", cls: "bg-sky-400/15 text-sky-200 border-sky-400/30" },
@@ -219,6 +221,47 @@ function tutorialRing(target: UiTarget | null, mine: UiTarget): string {
   return target === mine ? TUTORIAL_RING : "";
 }
 
+// ============================================================================
+// THE VOICE — The Fall's spoken prologue (design/prologue-voice-direction.md).
+//
+// The engine is handed the SAME cue object the plate renders, and nothing else:
+// no second observer of the battle log, no invented line, no extra fetch. It is
+// session-local (no GameState field, no migration) and it is an ENHANCEMENT —
+// with no voices, no gesture or a muted device the plate renders and every order
+// button works exactly as before.
+// ============================================================================
+function useVoiceLayer({
+  cue,
+  battleId,
+  muted,
+  suppressed,
+  stage,
+  completed,
+}: {
+  cue: TutorialCue | null;
+  battleId: string;
+  muted: boolean;
+  suppressed: boolean;
+  stage: string | null;
+  completed: boolean;
+}) {
+  const [, bump] = useState(0);
+  // the plate carries the engine's mode as data-voice-mode (§2.7)
+  useEffect(() => voiceEngine.subscribe(() => bump((n) => n + 1)), []);
+  useEffect(() => {
+    voiceEngine.surface("battles");
+    return () => voiceEngine.surface("home");
+  }, []);
+  useEffect(() => voiceEngine.battle(battleId), [battleId]);
+  useEffect(() => voiceEngine.setMuted(muted), [muted]);
+  useEffect(() => voiceEngine.quiet(suppressed), [suppressed]);
+  useEffect(() => voiceEngine.stage(stage), [stage]);
+  useEffect(() => voiceEngine.complete(completed), [completed]);
+  // THE WIRE: the plate's own cue prop, verbatim.
+  useEffect(() => voiceEngine.cue(cue && { id: cue.id, line: cue.line, speaker: { id: cue.speaker.id }, retireOn: cue.retireOn }), [cue]);
+  return { mode: voiceEngine.mode() };
+}
+
 function weaponLabel(state: GameState, kit: { family: string; tier: number; count: number }): string {
   const fam = state.race ? familyFor(state.race, kit.family) : undefined;
   const base = fam ? fam.name : kit.family;
@@ -285,12 +328,13 @@ function ForceBlock({ state, force, power, tag, focusTarget }: { state: GameStat
 }
 
 /** The live list + detail for ongoing battles. */
-function ActiveBattles({ state, now, token, onDecision, tutorialEnabled }: {
+function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted = false }: {
   state: GameState;
   now: number;
   token?: string;
   onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
   tutorialEnabled?: boolean;
+  muted?: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const active = (state.battles ?? []).filter((b) => b.status === "active").sort((a, b) => a.startedAt - b.startedAt);
@@ -341,7 +385,7 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled }: {
 
       {selected && (
         <div className="space-y-3 rounded-xl border border-line bg-surf-2/60 p-4">
-          <BattleDetail state={state} battle={selected} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorialEnabled} />
+          <BattleDetail state={state} battle={selected} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorialEnabled} muted={muted} />
         </div>
       )}
     </div>
@@ -845,13 +889,15 @@ export function DecisionPanel({
 }
 
 /** The detail pane — composition both sides, ticking casualties, the line. */
-function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled = true }: {
+function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled = true, muted = false }: {
   state: GameState;
   battle: Battle;
   now: number;
   token?: string;
   onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
   tutorialEnabled?: boolean;
+  /** The sound layer's mute (the Cradle sheet's Sound row). */
+  muted?: boolean;
 }) {
   const m = battleMoment(battle, now);
   const chip = CHIP_META[m.chip];
@@ -863,6 +909,15 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
   const side = ourSide(battle, me);
   // The tutorial narrates only OUR fight (§12.1) and only while it is live.
   const tutorial = useBattleTutorial(battle, side, now, tutorialEnabled && side !== null && battle.status === "active");
+  // The voice reads the same cue the plate renders — no second observer.
+  const voice = useVoiceLayer({
+    cue: tutorial.cue,
+    battleId: battle.id,
+    muted,
+    suppressed: tutorial.suppressed,
+    stage: state.prologue?.stage ?? null,
+    completed: state.prologue?.completed ?? false,
+  });
   /** The page's own decision hook and the tutorial's listener, in that order. */
   const onTutorialDecision = (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => {
     tutorial.onDecision(d);
@@ -889,10 +944,15 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
           cue={tutorial.cue}
           waiting={tutorial.waiting}
           suppressed={tutorial.suppressed}
+          muted={muted}
+          voiceMode={voice.mode}
           onStep={tutorial.step}
           onSuppress={tutorial.suppress}
           onResume={tutorial.resume}
-          onReplay={tutorial.replay}
+          onReplay={() => {
+            tutorial.replay();
+            voiceEngine.replay(tutorial.cue?.id ?? null);
+          }}
         />
       )}
 
@@ -985,13 +1045,15 @@ function BattleLog({ reports }: { reports: BattleReport[] }) {
 }
 
 /** The Battles tab root: live list + detail, then the report log below. */
-export default function BattlesTab({ state, now, token, onDecision, tutorial }: {
+export default function BattlesTab({ state, now, token, onDecision, tutorial, muted = false }: {
   state: GameState;
   now: number;
   token?: string;
   onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
   /** The Act I guided narration (§12) — on by default, skippable in the view. */
   tutorial?: boolean;
+  /** The sound layer's mute (the Cradle sheet's Sound row) — the voice gate. */
+  muted?: boolean;
 }) {
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
@@ -1002,7 +1064,7 @@ export default function BattlesTab({ state, now, token, onDecision, tutorial }: 
           something worth bringing next time.
         </p>
       </div>
-      <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorial ?? true} />
+      <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorial ?? true} muted={muted} />
       <div className="rounded-xl border border-line bg-surf-2/40 p-4">
         <h3 className="mb-2 text-sm font-semibold text-text-1">Battle log</h3>
         <BattleLog reports={state.battleReports ?? []} />
