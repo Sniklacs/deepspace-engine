@@ -980,48 +980,6 @@ function ReportsSheet({ open, onClose, reports }: { open: boolean; onClose: () =
 
 /* ---------------- Games modal / panel ---------------- */
 
-// THE FALL · Act I banner (opening-prologue-spec §3). Shown only while the
-// colony on screen IS the height. It says where the player is standing and
-// holds the one door back to their own colonies — in-universe, no mechanics
-// talk, no promises about what comes next.
-function Act1Banner({ canLeave, onField, onLeave }: { canLeave: boolean; onField: () => void; onLeave: () => void }) {
-  const [leaving, setLeaving] = useState(false);
-  return (
-    <div className="mx-auto max-w-6xl px-4 pt-4" data-testid="act1-banner">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/40 bg-amber-400/5 px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.3em] text-amber-300/80">The Fall · The Height</p>
-          <p className="mt-1 text-sm text-gray-200">
-            The Last Academy holds the Ashline at full strength. Its front is live.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            data-testid="act1-open-front"
-            data-action="openFront"
-            onClick={onField}
-            className="rounded-lg border border-amber-400/60 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-400/20"
-          >
-            Open the front
-          </button>
-          {canLeave && (
-            <button
-              type="button"
-              data-testid="act1-leave"
-              data-action="leaveHeight"
-              disabled={leaving}
-              onClick={() => { setLeaving(true); onLeave(); }}
-              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-gray-200 hover:bg-white/10 disabled:opacity-60"
-            >
-              {leaving ? "Standing down…" : "Return to your colony"}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 function GamesModal({ games, activeGameId, username, busy, onClose, onPlay, onReset, onDelete, onCreate, onTrash, flash }: {
   games: GameSummary[]; activeGameId: string | null; username: string | null; busy: boolean;
   onClose: () => void; onPlay: (id: string) => Promise<string | null>; onReset: (id: string) => Promise<string | null>;

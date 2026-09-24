@@ -271,11 +271,28 @@ check("the landing page links the way in", indexSrc.includes('to="/the-fall"'));
   // Amendment A6 (game-ui-shell-spec §10): the Act I door is now the HOME
   // screen's top plate, not a banner above every tab — gated on the height.
   const cradleSrc = readFileSync("/home/team/shared/site/src/components/screens/CradleScreen.tsx", "utf8");
+  // The gate is hoisted into a local (`atHeight`) rather than written inline, so
+  // bind the variable name from the stage expression: the plate must still be
+  // gated on the height AND be the whole of that gate's branch — `{atHeight ? (`
+  // … `<Panel testid="act1-banner">` … `) : null}`.
+  const gateVar = /const\s+(\w+)\s*=\s*state\.prologue\?\.stage === "height"/.exec(cradleSrc)?.[1];
+  const plateUnderGate = gateVar
+    ? new RegExp(
+        `\\{${gateVar} \\? \\(\\s*<Panel[\\s\\S]{0,200}?testid="act1-banner"` +
+        `[\\s\\S]{0,2000}?data-slot="height-clock"[\\s\\S]{0,2000}?testid="act1-open-front"` +
+        `[\\s\\S]{0,2000}?</Panel>\\s*\\) : null\\}`).test(cradleSrc)
+    : false;
   check("the game renders the Act I plate only at the height (A6)",
-    /state\.prologue\?\.stage === "height" \? \(/.test(cradleSrc) &&
-    cradleSrc.includes('testid="act1-banner"') && cradleSrc.includes('data-slot="height-clock"'));
-check("the banner holds the way out (server-verified)", playSrc.includes("leaveActOneFn({ data: { token: token! } })") && playSrc.includes('data-testid="act1-leave"'));
-check("the banner opens the front in the shipped Battles view", playSrc.includes('data-testid="act1-open-front"') && playSrc.includes('switchTab("battles")'));
+    !!gateVar && plateUnderGate && (cradleSrc.match(/testid="act1-banner"/g) ?? []).length === 1);
+check("the way out of the height is a real, server-verified leave (A6)",
+  cradleSrc.includes('testid="act1-leave"') &&
+  /onClick=\{onLeaveHeight\}/.test(cradleSrc) &&
+  playSrc.includes("onLeaveHeight={doLeaveAct1}") &&
+  playSrc.includes("leaveActOneFn({ data: { token: token! } })"));
+check("the Act I plate opens the front in the shipped Battles view (A6)",
+  cradleSrc.includes('testid="act1-open-front"') &&
+  /onClick=\{onField\}/.test(cradleSrc) &&
+  playSrc.includes('onField={() => switchTab("battles")}'));
 check("the Battles view is mounted with its decision seam wired (token + onDecision + guidance)", playSrc.includes('<BattlesTab') && playSrc.includes('token={token ?? undefined}') && playSrc.includes('onDecision={() => { void refresh(); }}'));
 check("the decision seam is untouched — the view still owns its own post", read("/home/team/shared/site/src/components/BattlesTab.tsx").includes("battleIssueFn({ data: issuePayload("));
 check("no purchase surface is reachable from the entry", !/storefront|purchase|buy|price|wallet|currency/i.test(fallSrc.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "")));
