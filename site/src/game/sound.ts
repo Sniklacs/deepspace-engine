@@ -9,6 +9,14 @@
 
 type Ctx = AudioContext;
 
+/** The music pad's authored gain (owner direction 2026-09-14: loud enough the
+ *  player reaches to turn it down). */
+const MUSIC_GAIN = 0.7;
+/** Speech ducking (design/prologue-voice-direction.md §5.6): the voice loses a
+ *  fight with a 0.7 pad on a phone speaker, so the music drops to ×0.45 while a
+ *  line is speaking and comes back when it ends. */
+const MUSIC_DUCK = 0.45;
+
 class SoundManager {
   private ctx: Ctx | null = null;
   private master: GainNode | null = null;
@@ -156,9 +164,22 @@ class SoundManager {
     // forward, not tucked under the UI. Still below clipping (partials sum ≪ 1).
     this.music.gain.cancelScheduledValues(ctx.currentTime);
     this.music.gain.setValueAtTime(0.0001, ctx.currentTime);
-    this.music.gain.exponentialRampToValueAtTime(0.7, ctx.currentTime + 3);
+    this.music.gain.exponentialRampToValueAtTime(MUSIC_GAIN, ctx.currentTime + 3);
     // (No need to hold node references: everything is connected to the
     // destination through this.music, so the graph stays alive while running.)
+  }
+
+  /** Duck the music under a spoken line: ×0.45 over ~120 ms while the line
+   *  speaks, back over ~400 ms when it ends (design/prologue-voice-direction
+   *  §5.6 — the one change the voice slice makes to this file). No state, no
+   *  asset, no new noun; the speech engine calls it on every utterance. */
+  duck(on: boolean): void {
+    if (!this.ctx || !this.music || !this.musicStarted) return;
+    const t = this.ctx.currentTime;
+    this.music.gain.cancelScheduledValues(t);
+    // setTargetAtTime is an exponential approach: τ ≈ ramp/3, so 0.04 ≈ 120 ms
+    // down and 0.13 ≈ 400 ms back up.
+    this.music.gain.setTargetAtTime(on ? MUSIC_GAIN * MUSIC_DUCK : MUSIC_GAIN, t, on ? 0.04 : 0.13);
   }
 
   toggleMute(): boolean {

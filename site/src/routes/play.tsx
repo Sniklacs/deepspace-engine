@@ -26,6 +26,7 @@ import { raceFamilies, ARMORY_FAMILY_TECH, weaponStats, weaponCost, modelName, S
 import { DAILY_ITEM_BY_ID } from "../game/daily";
 import { ARMORY_TREE } from "../game/research";
 import { sound } from "../game/sound";
+import { voiceEngine } from "../game/voice/voice-engine";
 import { Tooltip } from "../components/Tooltip";
 import { StorefrontOverlay } from "../components/StorefrontOverlay";
 import { Sheet, SheetHeader } from "../components/Sheet";
@@ -183,11 +184,15 @@ function PlayPage() {
     return () => clearInterval(id);
   }, [signedIn, refresh]);
 
-  // Browser autoplay rule: audio may only begin on a user gesture.
+  // Browser autoplay rule: audio may only begin on a user gesture. The SAME
+  // gesture arms the speech engine (voice-direction §5.2): one 1-character
+  // priming utterance unlocks iOS Safari's speech queue, and the one line the
+  // plate raised before the gesture is released — if its cue is still active.
   useEffect(() => {
     const onFirst = () => {
       sound.prime();
       sound.startMusic();
+      voiceEngine.arm();
       window.removeEventListener("pointerdown", onFirst);
       window.removeEventListener("keydown", onFirst);
     };
@@ -261,7 +266,11 @@ function PlayPage() {
   };
 
   const toggleMute = () => {
-    setMuted(sound.toggleMute());
+    const next = sound.toggleMute();
+    // §5.1: a mute press must be silent within one frame, so the voice engine is
+    // told in the SAME tick (the state update only redraws the chip).
+    voiceEngine.setMuted(next);
+    setMuted(next);
   };
 
   const doLogout = async () => {
@@ -502,6 +511,7 @@ function PlayPage() {
           now={now}
           token={token ?? undefined}
           onDecision={() => { void refresh(); }}
+          muted={muted}
         />
       )}
       {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} />}

@@ -17,9 +17,18 @@
 //   • the card sits ABOVE the order panel in normal flow — it never covers or
 //     intercepts the decision buttons.
 // The layer renders state and calls back; all cue logic lives in
-// game/war/tutorial-cues.ts (pure, harness-tested).
+// game/war/tutorial-cues.ts (pure, harness-tested) and all speech lives in
+// game/voice/voice-engine.ts (session-local, never a gate).
+//
+// THE VOICE (design/prologue-voice-direction.md §2.7, §6.3): the plate carries
+// the engine's mode as `data-voice-mode` (voiced | silent | shared) and, when
+// the voices cannot be heard — globally muted, or no usable synthesis on this
+// device — one existing `.chip` reading "sound off", so a player who mutes and
+// then taps "Let them speak" is told the truth instead of guessing. Captions are
+// unaffected either way: the authored line below is rendered VERBATIM.
 import type { TutorialCue } from "../game/war/tutorial-cues";
 import { speakerLabel } from "../game/war/tutorial-cues";
+import type { VoiceMode } from "../game/voice/voice-engine";
 
 export interface TutorialCueLayerProps {
   /** The cue on screen (null = the voices are quiet). */
@@ -36,6 +45,10 @@ export interface TutorialCueLayerProps {
   onResume: () => void;
   /** Replay this battle's lesson from the top. */
   onReplay: () => void;
+  /** The sound layer's mute (the Cradle sheet's Sound row) — the first gate. */
+  muted?: boolean;
+  /** What the voice engine is doing right now (§2.7). */
+  voiceMode?: VoiceMode;
 }
 
 const BTN =
@@ -49,9 +62,23 @@ export default function TutorialCueLayer({
   onSuppress,
   onResume,
   onReplay,
+  muted = false,
+  voiceMode = "voiced",
 }: TutorialCueLayerProps) {
+  // §6.3: a word, not a colour and not a motion. It renders when the global mute
+  // is on or when there is nothing on this device that can speak.
+  const soundOff = muted || voiceMode === "silent";
+  const soundOffChip = soundOff ? (
+    <span data-testid="tutorial-sound-off" className="chip border border-line text-text-3">
+      sound off
+    </span>
+  ) : null;
   return (
-    <aside aria-label="Battle guidance" data-testid="tutorial-cue-layer">
+    <aside
+      aria-label="Battle guidance"
+      data-testid="tutorial-cue-layer"
+      data-voice-mode={voiceMode}
+    >
       {cue ? (
         <div
           data-testid="tutorial-cue"
@@ -66,10 +93,10 @@ export default function TutorialCueLayer({
               {waiting > 1 ? `${waiting} lines waiting` : "the Cradle is speaking"}
             </p>
           </div>
-          <p className="mt-1 text-sm text-text-1" aria-live="polite">
+          <p className="mt-1 text-sm text-text-1" id="tut-cue-line" aria-live="polite">
             {cue.line}
           </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {waiting > 1 && (
               <button type="button" data-testid="tutorial-step" onClick={onStep} className={BTN}>
                 Next line
@@ -81,6 +108,7 @@ export default function TutorialCueLayer({
             <button type="button" data-testid="tutorial-suppress" onClick={onSuppress} className={BTN}>
               Quiet the voices
             </button>
+            {soundOffChip}
           </div>
         </div>
       ) : (
@@ -101,6 +129,7 @@ export default function TutorialCueLayer({
               Quiet the voices
             </button>
           )}
+          {soundOffChip}
         </div>
       )}
     </aside>
