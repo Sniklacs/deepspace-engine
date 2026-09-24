@@ -109,7 +109,10 @@ section("2 · CRADLE_SLOTS integrity — six real tiles, no invented state");
     check(`slot "${s.id}" label comes from DOMAINS (no duplicated string)`, s.label === DOMAIN_BY_ID[s.domain].name, s.label);
   }
   // the allow-list: a slot may only read state we actually have (§9.2.4)
-  const ALLOW = new Set(["resources", "codices", "currency", "deployedDomains", "expeditions", "scientists", "leaders", "daily", "devotion", "devotionStreak", "corruption", "chorusAttention", "prologue", "log", "createdAt", "playerName", "race", "gameId", "armory", "armoryBuilds", "battles", "insight", "studies"]);
+  const ALLOW = new Set(["resources", "codices", "currency", "deployedDomains", "expeditions", "scientists", "leaders", "daily", "devotion", "devotionStreak", "corruption", "chorusAttention", "prologue", "log", "createdAt", "playerName", "race", "gameId", "armory", "armoryBuilds", "battles", "insight", "studies",
+    // pre-existing, DISPLAY-ONLY counters the old Cradle tab already printed (the
+    // stores band + the ledger headline); nothing new is invented by adding them.
+    "totalEmbersLooted", "totalChipsetsLooted", "completedExpeditions"]);
   const slotSrc = read("game/cradle-slots.ts");
   const reads = [...slotSrc.matchAll(/state\.([a-zA-Z_]+)/g)].map((m) => m[1]);
   check("cradle-slots.ts reads only allow-listed state paths", reads.every((r) => ALLOW.has(r)), reads.join(","));
@@ -159,7 +162,10 @@ section("3 · touch-floor arithmetic (320 / 360 / 390, 5 and 6 slots)");
 // ===========================================================================
 section("4 · presentation only — the new shell reads no state we did not have");
 {
-  const ALLOW = new Set(["resources", "codices", "currency", "deployedDomains", "expeditions", "scientists", "leaders", "daily", "devotion", "devotionStreak", "corruption", "chorusAttention", "prologue", "log", "createdAt", "playerName", "race", "gameId", "armory", "armoryBuilds", "battles", "insight", "studies"]);
+  const ALLOW = new Set(["resources", "codices", "currency", "deployedDomains", "expeditions", "scientists", "leaders", "daily", "devotion", "devotionStreak", "corruption", "chorusAttention", "prologue", "log", "createdAt", "playerName", "race", "gameId", "armory", "armoryBuilds", "battles", "insight", "studies",
+    // pre-existing, DISPLAY-ONLY counters the old Cradle tab already printed (the
+    // stores band + the ledger headline); nothing new is invented by adding them.
+    "totalEmbersLooted", "totalChipsetsLooted", "completedExpeditions"]);
   const offenders: string[] = [];
   for (const f of newFiles) {
     const src = readFileSync(`${SITE}/${f}`, "utf8");
@@ -170,7 +176,12 @@ section("4 · presentation only — the new shell reads no state we did not have
   check(`no new component reads an unlisted state path (${newFiles.length} files scanned)`, offenders.length === 0, offenders.join(" | "));
   const badgeReads = [...read("game/nav-badges.ts").matchAll(/\bstate\.([a-zA-Z_]+)/g)].map((m) => m[1]);
   check("nav-badges.ts reads only allow-listed paths", badgeReads.every((r) => ALLOW.has(r)), badgeReads.join(","));
-  check("no new component invents a prologue clock field (§8.8)", !/accumulated|playMs|watchLeft|height-clock"/.test(newFiles.map((f) => readFileSync(`${SITE}/${f}`, "utf8")).join("\n")));
+  const cradleSrc = readFileSync(`${SITE}/src/components/screens/CradleScreen.tsx`, "utf8");
+  const allNew = newFiles.map((f) => readFileSync(`${SITE}/${f}`, "utf8")).join("\n");
+  check("no new component invents a play-time accumulator (§8.8)", !/(accumulated|playMs|watchLeft|activeMs)\s*[:=]/.test(allNew.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")));
+  check('the Act I plate reserves data-slot="height-clock"', cradleSrc.includes('data-slot="height-clock"'));
+  check("the reserved clock line renders NO value (empty element, no interpolation)",
+    /data-slot="height-clock"[^>]*\/>/.test(cradleSrc) && !/data-slot="height-clock"[^>]*>\{[^}]*\}/.test(cradleSrc));
 }
 
 // ===========================================================================
@@ -228,11 +239,29 @@ section("7 · The Fall — every guarantee re-asserted against the new chrome");
   const playSrc = readFileSync(PLAY, "utf8");
   check("the first-run nudge is suppressed on the Battles tab (§8.3)", playSrc.includes('firstRunNotice && tab !== "battles"'));
   check("the toast clears the nav height (§8.4)", playSrc.includes("--spacing-nav"));
-  // PENDING (Phase 1 of the shell spec): the old Shell header is deleted in the
-  // same commit that lands Ribbon + BottomNav. This slice ships the frame's
-  // parts, so the second navigation is still standing and this check records it
-  // rather than pretending otherwise.
-  check("PENDING Phase 1: the old Shell header is still present (deleted with the ribbon+nav frame)", playSrc.includes('className="sticky top-0 z-40 border-b border-line-strong bg-surf-1"'));
+  // ---- Phase 1: the frame replaced the old header, and there is ONE nav ----
+  const appShell = readFileSync(`${SITE}/src/components/shell/AppShell.tsx`, "utf8");
+  const ribbon = readFileSync(`${SITE}/src/components/shell/Ribbon.tsx`, "utf8");
+  check("the old web <header> is gone (deleted with the ribbon+nav frame)",
+    !playSrc.includes('className="sticky top-0 z-40 border-b border-line-strong bg-surf-1"') && !playSrc.includes("function Shell("));
+  check("the old header's resource chips and meters are gone with it",
+    !playSrc.includes("ResourceChip") && !playSrc.includes("taint {") && !playSrc.includes("Chorus {Math.round"));
+  check("AppShell renders the ribbon AND the one bottom nav", appShell.includes("<Ribbon") && appShell.includes("<BottomNav"));
+  check("no second navigation survives in play.tsx", !/aria-label="Sections"/.test(playSrc));
+  check("the ribbon is sticky chrome at z-40, the nav is fixed at z-40",
+    ribbon.includes("sticky top-0 z-40") && readFileSync(BOTTOMNAV, "utf8").includes("fixed inset-x-0 bottom-0 z-40"));
+  check("the Cradle sheet exists and is wired to the identity tile", appShell.includes("onIdentity") && existsSync(`${SITE}/src/components/shell/CradleSheet.tsx`));
+  check("the Cradle sheet holds every old header control",
+    ["Your colonies", "How to Play", "Feedback", "Sound", "Full screen", "Log Out", "Account"].every((t) => readFileSync(`${SITE}/src/components/shell/CradleSheet.tsx`, "utf8").includes(t)));
+  const cradle = readFileSync(`${SITE}/src/components/screens/CradleScreen.tsx`, "utf8");
+  check("the home screen renders the plate, status strip, roster, shelf and stores band",
+    ["cradle-plate", "advance-bar", "status-strip", "roster-strip", "workshop-shelf", "stores-band"].every((id) => cradle.includes(`testid="${id}"`)));
+  check("the Act I plate keeps its testids and moves onto the home screen only",
+    cradle.includes('testid="act1-banner"') && cradle.includes('testid="act1-open-front"') && cradle.includes('testid="act1-leave"') && !playSrc.includes("<Act1Banner"));
+  check("the home screens' actions are 48px (md) and blocked ones state a reason",
+    cradle.includes('size="md"') && cradle.includes("locked={") && cradle.includes("reason={"));
+  check("the old colony surface is replaced, not duplicated", !playSrc.includes("<ColonyTab") && playSrc.includes("<CradleScreen"));
+  check("the plate's 6 tiles are the CRADLE_SLOTS table (no hand-written tiles)", cradle.includes("CRADLE_SLOTS.map("));
 }
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
