@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -27,10 +27,13 @@ import { DAILY_ITEM_BY_ID } from "../game/daily";
 import { ARMORY_TREE } from "../game/research";
 import { sound } from "../game/sound";
 import { Tooltip } from "../components/Tooltip";
-import { LedgerButton } from "../components/LedgerButton";
 import { StorefrontOverlay } from "../components/StorefrontOverlay";
 import { Sheet, SheetHeader } from "../components/Sheet";
-import { Icon } from "../components/icons";
+import AppShell from "../components/shell/AppShell";
+import CradleSheet from "../components/shell/CradleSheet";
+import { navBadges } from "../game/nav-badges";
+import type { Tab } from "../game/nav-slots";
+import CradleScreen from "../components/screens/CradleScreen";
 import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
 import BattlesTab from "../components/BattlesTab";
@@ -43,9 +46,9 @@ export const Route = createFileRoute("/play")({
   component: PlayPage,
 });
 
-// Nav consolidation (Rung 1a, spec §E): 7 -> 5. Codex folds into Cradle as the
-// Lore modal; Contribution becomes the Circuit screen's "World" segment.
-type Tab = "colony" | "expeditions" | "lab" | "armory" | "circuit" | "battles";
+// Nav consolidation (Rung 1a, spec §E): 7 -> 5, plus the conditional war slot
+// (game-ui-shell-spec A1). The `Tab` union now comes from the shell's own slot
+// table (game/nav-slots.ts) so no screen can be orphaned from the nav.
 
 const TOKEN_KEY = "deepspace_session_token";
 
@@ -78,6 +81,20 @@ function PlayPage() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [firstRunNotice, setFirstRunNotice] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // ---- The shell (game-ui-shell-spec §1): the Cradle sheet is the home of
+  // every control the old header held, and `isWide` only flips the (CSS-only)
+  // data-shell-layout switch — no layout is re-decided in JS (§7).
+  const [cradleOpen, setCradleOpen] = useState(false);
+  const [codexOpen, setCodexOpen] = useState(false);
+  const [isWide, setIsWide] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setIsWide(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   // ---- Reports bell (owner 2026-09-13) ----
   // Every server state lands through applyState, which diffs against the
@@ -236,6 +253,10 @@ function PlayPage() {
 
   const switchTab = (t: Tab) => {
     setTab(t);
+    // Mobile-game convention (§1.1 rule 5): a tab switch lands at the top of the
+    // new screen. Focus stays on the nav slot the player pressed (native), so
+    // keyboard users are not thrown and the nav never moves under them.
+    if (typeof window !== "undefined") window.scrollTo({ top: 0 });
     sound.tab();
   };
 
@@ -424,6 +445,9 @@ function PlayPage() {
   }
 
   const activeSummary = games?.find((g) => g.gameId === state.gameId);
+  // Nav badges come from the closed predicate list (game/nav-badges.ts) — a dot
+  // always means "an action is available here", never a notification (§1.3).
+  const badges = navBadges(state, tab);
   return (
     <div className="min-h-screen bg-[#070910] text-gray-200">
       {tab === "circuit" ? (
@@ -441,17 +465,35 @@ function PlayPage() {
         />
       ) : (
         <>
-      <Shell state={state} tab={tab} setTab={switchTab} onGames={() => { setGamesOpen(true); sound.click(); }} muted={muted} onToggleMute={toggleMute} onHelp={() => setHelpOpen(true)} onFeedback={() => { setFeedbackOpen(true); sound.click(); }} onLogout={doLogout} onToggleFullscreen={toggleFullscreen} isFullscreen={isFullscreen} onLedger={() => { setLedgerOpen(true); sound.click(); }} unread={Math.max(0, reports.length - reportsSeen)} onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }} />
+      <AppShell
+        state={state}
+        tab={tab}
+        isWide={isWide}
+        unread={Math.max(0, reports.length - reportsSeen)}
+        busy={busy}
+        badges={badges}
+        onSwitch={switchTab}
+        onIdentity={() => { setCradleOpen(true); sound.click(); }}
+        onLedger={() => { setLedgerOpen(true); sound.click(); }}
+        onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }}
+        onOpenStores={() => { setCradleOpen(true); sound.click(); }}
+        onAlertGo={() => switchTab("colony")}
+      >
       {firstRunNotice && tab !== "battles" && <FirstRunNudge onDismiss={dismissNudge} />}
       {toast && <div className="fixed bottom-[calc(var(--spacing-nav)+var(--dock-h,0px)+env(safe-area-inset-bottom)+12px)] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
-      {state.prologue?.stage === "height" && (
-        <Act1Banner
-          canLeave={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
+      {tab === "colony" && (
+        <CradleScreen
+          state={state}
+          onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")}
+          onCraft={(k) => act(() => craftFn({ data: { token: token!, kind: k } }), "success")}
+          onClaim={() => act(() => claimDailyRewardFn({ data: { token: token! } }), "success")}
+          onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")}
+          onOpenCodex={() => { setCodexOpen(true); sound.tab(); }}
           onField={() => switchTab("battles")}
-          onLeave={doLeaveAct1}
+          onLeaveHeight={doLeaveAct1}
+          canLeaveHeight={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
         />
       )}
-      {tab === "colony" && <ColonyTab state={state} onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")} onCraft={(k) => act(() => craftFn({ data: { token: token!, kind: k } }), "success")} onClaim={() => act(() => claimDailyRewardFn({ data: { token: token! } }), "success")} />}
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onPrepare={() => { setTab("colony"); sound.tab(); }} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} />}
       {tab === "battles" && (
@@ -463,9 +505,24 @@ function PlayPage() {
         />
       )}
       {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} />}
+      </AppShell>
         </>
       )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+      {codexOpen && <CodexModal onClose={() => { setCodexOpen(false); sound.tab(); }} />}
+      <CradleSheet
+        state={state}
+        open={cradleOpen}
+        onClose={() => { setCradleOpen(false); sound.click(); }}
+        muted={muted}
+        isFullscreen={isFullscreen}
+        onToggleMute={toggleMute}
+        onToggleFullscreen={toggleFullscreen}
+        onHelp={() => { setCradleOpen(false); setHelpOpen(true); }}
+        onFeedback={() => { setCradleOpen(false); setFeedbackOpen(true); sound.click(); }}
+        onGames={() => { setCradleOpen(false); setGamesOpen(true); sound.click(); }}
+        onLogout={doLogout}
+      />
       {state && <StorefrontOverlay state={state} open={ledgerOpen} onClose={() => { setLedgerOpen(false); sound.click(); }} />}
       {feedbackOpen && <FeedbackModal token={token!} colonyName={state.playerName} onClose={() => setFeedbackOpen(false)} flash={flash} />}
       <ReportsSheet open={reportOpen} onClose={() => { setReportOpen(false); sound.click(); }} reports={reports} />
@@ -887,101 +944,13 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
   );
 }
 
-/* ---------------- Shell / header ---------------- */
-
-function Shell({ state, tab, setTab, onGames, muted, onToggleMute, onHelp, onFeedback, onLogout, onToggleFullscreen, isFullscreen, onLedger, unread, onReports }: {
-  state: GameState; tab: Tab; setTab: (t: Tab) => void; onGames: () => void;
-  muted: boolean; onToggleMute: () => void; onHelp: () => void; onFeedback: () => void;
-  onLogout: () => void; onToggleFullscreen: () => void; isFullscreen: boolean; onLedger: () => void;
-  unread: number; onReports: () => void;
-}) {
-  const race = getRace(state.race!);
-  const r = state.resources;
-  const maxSlots = 1 + state.deployedDomains.logistics;
-  const active = state.expeditions.filter((e) => e.status === "out").length;
-  return (
-    <header className="sticky top-0 z-40 border-b border-line-strong bg-surf-1">
-      <div className="mx-auto max-w-6xl px-6 py-3">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          <div className="flex items-center gap-2">
-            <Tooltip content={tip({ what: "The Cradle — your capital settlement.", does: "The colony you lead; it persists in real time even while logged out.", how: "Found it at game start and grow it by deploying recovered AI." })}><span className="text-xl">🔰</span></Tooltip>
-            <div>
-              <div className="font-bold text-white leading-tight">{state.playerName}</div>
-              <div className="text-[11px] text-gray-400">{race.name} · {race.homeRegion}</div>
-            </div>
-          </div>
-          <ResourceChip icon="🧯" label="Embers" value={Math.floor(r.embers)} color="text-amber-200" tip={tip(RESOURCE_TIPS.embers)} />
-          <ResourceChip icon="🔩" label="Chipsets" value={r.chipsets} color="text-cyan-300" tip={tip(RESOURCE_TIPS.chipsets)} />
-          <ResourceChip icon="📦" label="Supplies" value={Math.floor(r.supplies)} color="text-lime-300" tip={tip(RESOURCE_TIPS.supplies)} />
-          <ResourceChip icon="📜" label="Codices" value={state.codices} color="text-purple-300" tip={tip(RESOURCE_TIPS.codices)} />
-          <ResourceChip icon="🔮" label="Plasma" value={Math.floor(state.resources.plasma ?? 0)} color="text-fuchsia-300" tip={tip(ARMORY_TIPS.plasma)} />
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-xs">
-            <LedgerButton scrip={state.currency.scrip} votives={state.currency.votives} onClick={onLedger} />
-            <Tooltip content={tip({ what: "Reports — the Cradle's bulletin.", does: "Blinks when something the colony sent out comes home: an expedition returning, a study finishing, a research completing, an armory build standing ready.", how: "Tap to read the recent reports. The blink clears once you've seen them." })}>
-              <button
-                onClick={onReports}
-                aria-label={unread > 0 ? `Reports — ${unread} new` : "Reports — nothing new"}
-                title={unread > 0 ? `${unread} new reports` : "Reports"}
-                className={`relative min-h-11 rounded border px-2.5 py-2 transition-colors md:min-h-0 ${unread > 0 ? "report-blink border-ember/80 bg-ember/10 text-ember-soft" : "border-white/15 text-gray-400 hover:bg-white/10"}`}
-              >
-                <Icon name="bell" size={15} aria-hidden="true" />
-                {unread > 0 && (
-                  <span className="num absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-ember px-1 text-[11px] font-bold leading-none text-black">
-                    {unread}
-                  </span>
-                )}
-              </button>
-            </Tooltip>
-            <Tooltip content={tip(LAB_TIPS.scientists)}><span className="text-gray-400">Scientists <b className="text-white">{engineHelpers.studying(state).length}/{engineHelpers.scientistCap(state)}</b></span></Tooltip>
-            <Tooltip content={tip(LAB_TIPS.fieldSlots)}><span className="text-gray-400">Field slots <b className="text-white">{active}/{maxSlots}</b></span></Tooltip>
-            <Tooltip content={tip({ what: "Sound — the UI blips and ambient drone.", does: "Toggles all game audio (click sounds + background music) together.", how: "Click to mute or unmute. Audio only begins after your first click (browser autoplay rule)." })}>
-              <button onClick={onToggleMute} title={muted ? "Unmute" : "Mute"} className="min-h-11 min-w-11 rounded border border-white/15 px-2.5 py-2 text-gray-400 hover:bg-white/10 md:min-h-0 md:min-w-0">{muted ? "🔇" : "🔊"}</button>
-            </Tooltip>
-            <Tooltip content={tip({ what: "Full screen", does: "Toggles the browser Fullscreen API so the game fills your screen.", how: "Click to enter or leave full screen. Press Esc to leave." })}>
-              <button onClick={onToggleFullscreen} title={isFullscreen ? "Exit full screen" : "Full screen"} className="min-h-11 min-w-11 rounded border border-white/15 px-2.5 py-2 text-gray-400 hover:bg-white/10 md:min-h-0 md:min-w-0">{isFullscreen ? "🗗" : "⛶"}</button>
-            </Tooltip>
-            <Tooltip content={tip({ what: "Feedback — this is the first world.", does: "Report a bug, a flow issue, or a feature suggestion straight to the dev team from inside the game.", how: "Click to open. Your submissions are only ever visible to you and the team." })}>
-              <button onClick={onFeedback} className="min-h-11 rounded border border-white/15 px-2.5 py-2 text-gray-400 hover:bg-white/10 md:min-h-0">💬 Feedback</button>
-            </Tooltip>
-            <Tooltip content={tip({ what: "How to Play — a short primer on the core loop.", does: "Opens a quick guide to Expeditions → Lab → Deploy.", how: "Click to open." })}>
-              <button onClick={onHelp} className="min-h-11 rounded border border-white/15 px-2.5 py-2 text-gray-400 hover:bg-white/10 md:min-h-0">㊉ Help</button>
-            </Tooltip>
-            <Tooltip content={tip({ what: "Games — your colonies.", does: "Lets you found new colonies, switch the active one, reset a game, delete a game, or trash the whole account.", how: "Click to open the Games panel. Each game is one race + one colony." })}>
-              <button onClick={onGames} className="min-h-11 rounded border border-amber-400/40 px-2.5 py-2 text-amber-300 hover:bg-amber-400/10 md:min-h-0">🎮 Games</button>
-            </Tooltip>
-            <Tooltip content={tip({ what: "Log Out", does: "Signs you out of this account and returns to the sign-up / login screen.", how: "Your colony saves stay on this account and reload next login." })}>
-              <button onClick={onLogout} className="min-h-11 rounded border border-red-400/30 px-2.5 py-2 text-red-300 hover:bg-red-400/10 md:min-h-0">Log Out</button>
-            </Tooltip>
-          </div>
-        </div>
-        <nav className="mt-3 flex flex-wrap gap-1">
-          {/* 7→5 nav (spec §E): Cradle · Expeditions · Lab · Armory · Circuit */}
-          {([["colony","Cradle"],["expeditions","Expeditions"],["lab","Lab"],["armory","Armory"],["battles","Battles"],["circuit","Circuit"]] as [Tab,string][]).map(([id, label]) => (
-            <button key={id} id={id === "circuit" ? "nav-tab-circuit" : undefined} onClick={() => setTab(id)} aria-current={tab === id ? "page" : undefined} className={`rounded-lg px-4 py-2 text-sm font-medium ${
-              tab === id ? "bg-ember text-black" : "text-gray-300 hover:bg-white/10"
-            }`}>{label}</button>
-          ))}
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-[11px] text-text-3">
-            <Tooltip content={tip(METER_TIPS.corruption)}><span>☣️ taint {Math.round(state.corruption)}%</span></Tooltip>
-            <Tooltip content={tip(METER_TIPS.chorus)}><span>🔺 Chorus {Math.round(state.chorusAttention)}%</span></Tooltip>
-          </div>
-        </nav>
-      </div>
-    </header>
-  );
-}
-
-function ResourceChip({ icon, label, value, color, tip: tooltip }: { icon: string; label: string; value: number; color: string; tip: ReactNode }) {
-  return (
-    <Tooltip content={tooltip}>
-      <div className="flex items-center gap-1.5 text-sm">
-        <span>{icon}</span>
-        <span className={color + " font-semibold"}>{value.toLocaleString()}</span>
-        <span className="text-text-3 text-xs hidden md:inline">{label}</span>
-      </div>
-    </Tooltip>
-  );
-}
+/* ---------------- the frame ----------------
+   The old web <header> (identity block, five emoji resource chips, the mute /
+   full screen / feedback / help / games / logout cluster, the ☣️/🔺 nav row and
+   its second navigation) is GONE — deleted in the same commit that landed the
+   ribbon, the bottom nav and the Cradle sheet. Every control it held lives on:
+   resources + Ledger + reports in the ribbon, the rest in the Cradle sheet
+   (game-ui-shell-spec §1.4). There is exactly one navigation now. */
 
 /* ---------------- reports sheet (owner 2026-09-13) ---------------- */
 
@@ -1011,48 +980,6 @@ function ReportsSheet({ open, onClose, reports }: { open: boolean; onClose: () =
 
 /* ---------------- Games modal / panel ---------------- */
 
-// THE FALL · Act I banner (opening-prologue-spec §3). Shown only while the
-// colony on screen IS the height. It says where the player is standing and
-// holds the one door back to their own colonies — in-universe, no mechanics
-// talk, no promises about what comes next.
-function Act1Banner({ canLeave, onField, onLeave }: { canLeave: boolean; onField: () => void; onLeave: () => void }) {
-  const [leaving, setLeaving] = useState(false);
-  return (
-    <div className="mx-auto max-w-6xl px-4 pt-4" data-testid="act1-banner">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/40 bg-amber-400/5 px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.3em] text-amber-300/80">The Fall · The Height</p>
-          <p className="mt-1 text-sm text-gray-200">
-            The Last Academy holds the Ashline at full strength. Its front is live.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            data-testid="act1-open-front"
-            data-action="openFront"
-            onClick={onField}
-            className="rounded-lg border border-amber-400/60 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-400/20"
-          >
-            Open the front
-          </button>
-          {canLeave && (
-            <button
-              type="button"
-              data-testid="act1-leave"
-              data-action="leaveHeight"
-              disabled={leaving}
-              onClick={() => { setLeaving(true); onLeave(); }}
-              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-gray-200 hover:bg-white/10 disabled:opacity-60"
-            >
-              {leaving ? "Standing down…" : "Return to your colony"}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 function GamesModal({ games, activeGameId, username, busy, onClose, onPlay, onReset, onDelete, onCreate, onTrash, flash }: {
   games: GameSummary[]; activeGameId: string | null; username: string | null; busy: boolean;
   onClose: () => void; onPlay: (id: string) => Promise<string | null>; onReset: (id: string) => Promise<string | null>;

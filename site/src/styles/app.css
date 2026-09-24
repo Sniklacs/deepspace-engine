@@ -209,6 +209,22 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* The ribbon's busy state (§1.2): a 2px ember rule along its top edge plus
+   `aria-busy` on the pinned cluster. NO spinner, no skeleton, and the numbers
+   never move locally — they come from server state only. */
+[data-busy] .ribbon::before,
+.ribbon[data-busy]::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--ember) 60%, transparent);
+}
+.ribbon {
+  position: sticky;
+}
+
 /* .plate-ground — the "city plot" grid under the Cradle plate (§2.3). Drawn
    from a token; zero literals, zero new hues. */
 .plate-ground {
