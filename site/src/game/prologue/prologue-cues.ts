@@ -464,18 +464,19 @@ export const RAIL_CONFIG = {
    *  sheet's cap, imported, never retyped. */
   dutySecondsPerMinute: VOICE_CONFIG.dutySecondsPerMinute,
   dutyWindowMs: 60_000,
-  /** the sheet's own model (≈135 wpm at rate 0.9) — used to price a row before
-   *  it speaks. A delay is the worst this can cause. */
-  wordsPerSecond: 2.25,
-  /** The caption dwell used ONLY while the voice cannot speak (muted, no
-   *  synthesis, or the player's "Quiet the voices") and only WITHIN a running
-   *  beat. A caption pace, never a trigger: set it to Infinity to require the
-   *  player's "Next line" instead. */
-  silentDwellMsPerWord: 380,
-  silentDwellMinMs: 3_000,
-  /** A row whose voice never starts still retires: the dwell plus this grace, so
-   *  a stalled engine can never park the story. */
-  stallGraceMs: 4_000,
+  /** The sheet's OWN pace: Act I's word budget over Act I's hard ceiling
+   *  (1340 words / 720 s ≈ 1.86 w/s). A caption is priced with it; nothing here
+   *  is invented, and a wrong price can only delay a caption. */
+  wordsPerSecond: SCENE_WORD_CAPS.actI / VOICE_CONFIG.actIMaxSeconds,
+  /** The caption's dwell while the voice cannot speak (muted, no synthesis, or
+   *  the player's "Quiet the voices") and only WITHIN a beat that already
+   *  started: the row priced at the sheet's pace, floored at the sheet's own
+   *  short silence. A caption pace, never a trigger. */
+  silentDwellMinMs: VOICE_CONFIG.gaps.silenceShort,
+  /** A row whose voice never starts still retires: the dwell plus one turn gap
+   *  of grace, so a stalled engine can never park the story. Both numbers are the
+   *  sheet's. */
+  stallGraceMs: VOICE_CONFIG.gaps.turn,
 } as const;
 
 // ============================================================================
@@ -691,7 +692,7 @@ export function interRowGapMs(prev: RailRow | null, next: RailRow | null): numbe
 /** The caption's own pace while the voice cannot speak. */
 export function silentDwellMs(row: RailRow): number {
   if (row.tier === "S") return silenceHoldMs(row);
-  return Math.max(RAIL_CONFIG.silentDwellMinMs, Math.round(railWords(row) * RAIL_CONFIG.silentDwellMsPerWord));
+  return Math.max(RAIL_CONFIG.silentDwellMinMs, Math.round((railWords(row) / RAIL_CONFIG.wordsPerSecond) * 1000));
 }
 
 /** The scene key the voice gets its `(beat)` length from. The sheet defines a
