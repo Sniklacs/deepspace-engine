@@ -568,7 +568,13 @@ console.log("\n8 · UI wiring & discipline");
   check("the overlay has a manual step (keyboard reachable)", layer.includes('data-testid="tutorial-step"'));
   check("the spoken line is announced politely to assistive tech", layer.includes('aria-live="polite"'));
   check("the overlay names the speaker and the line as text (captions, WCAG AA)", layer.includes("speakerLabel") && layer.includes("cue.line"));
-  check("the overlay is labelled for screen readers", layer.includes('aria-label="Battle guidance"') || layer.includes("aria-labelledby"));
+  // The plate is ONE component with TWO mounts since the beat-rail slice
+  // (design/prologue-beat-rail-spec.md §5.3.1): `ariaLabel` defaults to the
+  // Battles mount's ratified words and the rail passes its own. The check is the
+  // same claim — the overlay is labelled — with the label now coming in as a prop.
+  check("the overlay is labelled for screen readers",
+    layer.includes('aria-label="Battle guidance"') || layer.includes("aria-labelledby") ||
+    (layer.includes("aria-label={ariaLabel}") && layer.includes('ariaLabel = "Battle guidance"')));
   check("no focus trap in the cue layer (no autofocus, no inert)", !/autoFocus|inert\b/.test(layer) && !/tabIndex=\{-1\}/.test(layer));
   check("the cue layer adds no motion of its own (reduced-motion safe)", !/animate-|transition-/.test(layer));
   check("the cue layer never posts an order (observer only)", !/battleIssueFn|battleRespondFn|issuePayload|respondPayload/.test(layer));
