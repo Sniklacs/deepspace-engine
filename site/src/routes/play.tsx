@@ -27,6 +27,7 @@ import { DAILY_ITEM_BY_ID } from "../game/daily";
 import { ARMORY_TREE } from "../game/research";
 import { sound } from "../game/sound";
 import { voiceEngine } from "../game/voice/voice-engine";
+import RailNarration from "../components/RailNarration";
 import { Tooltip } from "../components/Tooltip";
 import { StorefrontOverlay } from "../components/StorefrontOverlay";
 import { Sheet, SheetHeader } from "../components/Sheet";
@@ -501,6 +502,10 @@ function PlayPage() {
           onField={() => switchTab("battles")}
           onLeaveHeight={doLeaveAct1}
           canLeaveHeight={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
+          // The Fall's beat rail (design/prologue-beat-rail-spec.md §5.4): the
+          // plate mounts on the home, never on the Battles view (one plate, one
+          // writer per screen). The page already holds every fact it needs.
+          narration={<RailNarration state={state} now={now} muted={muted} />}
         />
       )}
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onPrepare={() => { setTab("colony"); sound.tab(); }} />}

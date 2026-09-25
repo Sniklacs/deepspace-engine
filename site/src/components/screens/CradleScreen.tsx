@@ -14,6 +14,7 @@
 // which is a RESERVED, EMPTY element until the engine exposes accumulated
 // active play time (§8.8).
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Panel } from "../ui/Panel";
 import { BuildingTile } from "../ui/BuildingTile";
 import { ActionButton } from "../ui/ActionButton";
@@ -92,6 +93,7 @@ export default function CradleScreen({
   onField,
   onLeaveHeight,
   canLeaveHeight,
+  narration,
 }: {
   state: GameState;
   onPurify: (n: number) => void;
@@ -103,6 +105,11 @@ export default function CradleScreen({
   onField: () => void;
   onLeaveHeight: () => void;
   canLeaveHeight: boolean;
+  /** The Fall's narration plate, mounted by the page that already holds
+   *  `state`/`now`/`muted` (beat-rail spec §5.4). Presentation only: this screen
+   *  renders it between the Act I plate and the Cradle plate and reads nothing
+   *  from it — `battles`/`battleReports` never touch this component. */
+  narration?: ReactNode;
 }) {
   const race = getRace(state.race!);
   const r = state.resources;
@@ -159,6 +166,11 @@ export default function CradleScreen({
             </Panel>
           ) : null}
 
+          {/* ---- the beat rail's plate (B1.5) ------------------------------ */}
+          {/* The Fall's narration, between the Act I plate and the Cradle
+              plate: "Open the front" keeps its place above the fold, and the
+              plate sits in flow — no z-index, no overlay, no motion (§8.1). */}
+          {narration ?? null}
           {/* ---- B2 · the Cradle plate (the base view) ---------------------- */}
           <Panel
             variant="hero"
