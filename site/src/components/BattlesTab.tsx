@@ -79,6 +79,7 @@ import type {
   UiTarget,
 } from "../game/war/tutorial-cues";
 import { voiceEngine } from "../game/voice/voice-engine";
+import { railStoryDone } from "../game/prologue/prologue-cues";
 
 const CHIP_META: Record<string, { label: string; cls: string }> = {
   stalemate: { label: "Stalemate", cls: "bg-sky-400/15 text-sky-200 border-sky-400/30" },
@@ -256,7 +257,13 @@ function useVoiceLayer({
   useEffect(() => voiceEngine.setMuted(muted), [muted]);
   useEffect(() => voiceEngine.quiet(suppressed), [suppressed]);
   useEffect(() => voiceEngine.stage(stage), [stage]);
-  useEffect(() => voiceEngine.complete(completed), [completed]);
+  // D1 (beat-rail spec §5.3.3, voice sheet §5.5 amended 2026-09-24): the disarm
+  // is the END OF ACT III'S RAIL, not the `completed` flag — `resetToCradle()`
+  // sets stage "rebuilt" AND completed:true in the same tick, so an early disarm
+  // would silence all six of Act III's lines. Same exported predicate as the
+  // rail's own mount, read here as well so both call sites stay in step.
+  const storyDone = railStoryDone();
+  useEffect(() => voiceEngine.complete(completed && storyDone), [completed, storyDone]);
   // THE WIRE: the plate's own cue prop, verbatim.
   useEffect(() => voiceEngine.cue(cue && { id: cue.id, line: cue.line, speaker: { id: cue.speaker.id }, retireOn: cue.retireOn }), [cue]);
   return { mode: voiceEngine.mode() };

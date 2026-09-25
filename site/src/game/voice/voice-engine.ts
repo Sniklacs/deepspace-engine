@@ -52,6 +52,14 @@ export interface VoiceCue {
   /** §5.4: how the plate retires this line. A decision-bearing line is
    *  cancelled the moment the player acts; a colour line finishes. */
   retireOn?: "supersede" | "decision" | "resolve";
+  /** The scene the line belongs to (the rail's `beat`, e.g. "1.5") — it decides
+   *  the `(beat)` gap length through `speakable`. The C tier leaves it unset and
+   *  keeps `VOICE_SCENE_BY_CUE`. */
+  scene?: string;
+  /** Where the line belongs. WHEN SET the surface gate is per-line (§5.5.5): a
+   *  rail line may speak on the rail's own surface. Unset keeps the C tier's
+   *  exact rule — the plate lives inside the Battles view. */
+  surface?: VoiceSurface;
 }
 
 // ---------------------------------------------------------------------------
@@ -264,8 +272,13 @@ export class VoiceEngine {
     return this.host.isMuted ? !!this.host.isMuted() : sound.muted;
   }
 
-  /** Everything that stops speech, in one place. */
-  private blocked(): boolean {
+  /** Everything that stops speech, in one place. `cue` is the line being
+   *  considered — the surface gate is PER LINE (§5.3.2): a cue that declares its
+   *  own surface may speak while the engine is off the Battles view (the rail's
+   *  plate is the same plate, on the Cradle), while every cue without one keeps
+   *  today's exact rule (`surfaceValue === "battles"`). */
+  private blocked(cue: VoiceCue | null = null): boolean {
+    const surfaceOk = cue?.surface ? this.surfaceValue !== "battles" : this.surfaceValue === "battles";
     return (
       this.disposed ||
       this.modeValue === "silent" ||
@@ -273,7 +286,7 @@ export class VoiceEngine {
       this.muted ||
       this.suppressed ||
       this.completed ||
-      this.surfaceValue !== "battles" ||
+      !surfaceOk ||
       !this.synth
     );
   }
@@ -308,7 +321,7 @@ export class VoiceEngine {
       this.changed();
       return;
     }
-    if (this.blocked()) {
+    if (this.blocked(next)) {
       this.silence();
       this.changed();
       return;
@@ -341,7 +354,7 @@ export class VoiceEngine {
   enqueue(cue: VoiceCue, immediate = false): void {
     if (this.disposed) return;
     this.ensureAssignment();
-    if (this.blocked()) return;
+    if (this.blocked(cue)) return;
     if (this.spokenIds.has(cue.id) && !immediate) return;
     this.queue.push(cue);
     while (this.queue.length > VOICE_CONFIG.maxQueue) this.queue.shift();
@@ -349,9 +362,10 @@ export class VoiceEngine {
   }
 
   private pump(): void {
-    if (this.disposed || this.blocked() || this.speaking) return;
+    if (this.disposed || this.speaking) return;
     const next = this.queue.shift();
     if (!next) return;
+    if (this.blocked(next)) return;
     const delay = Math.max(this.nextLineGap, Math.max(0, this.stageBoundary - this.now()));
     this.nextLineGap = 0;
     this.stageBoundary = 0;
@@ -366,14 +380,17 @@ export class VoiceEngine {
   }
 
   private start(cue: VoiceCue): void {
-    if (this.disposed || this.blocked()) return;
+    if (this.disposed || this.blocked(cue)) return;
     this.speaking = cue;
     this.startSpeaking(cue);
   }
 
   private startSpeaking(cue: VoiceCue): void {
     const dir = voiceDirectionFor(cue.speaker.id) ?? VOICE_DIRECTIONS.narrator;
-    const pieces = speakable(cue.line, { direction: dir, scene: VOICE_SCENE_BY_CUE[cue.id] });
+    // §5.3.2: the rail's rows carry their own scene (the beat); the C tier keeps
+    // the cue→scene table, so nothing about battle speech changes.
+    const scene = cue.scene ?? VOICE_SCENE_BY_CUE[cue.id];
+    const pieces = speakable(cue.line, { direction: dir, scene });
     if (pieces.length === 0) {
       this.finish();
       return;
@@ -386,27 +403,27 @@ export class VoiceEngine {
   private speakPieces(cue: VoiceCue, dir: VoiceDirection, pieces: readonly SpokenPiece[], index: number, gen: number): void {
     if (gen !== this.generation) return;
     if (index >= pieces.length) {
-      this.afterLine(dir, pieces, gen);
+      this.afterLine(cue, dir, pieces, gen);
       return;
     }
     const piece = pieces[index];
     // the Chorus's tail hold comes AFTER its spoken echo, not before it
     const gap = index === pieces.length - 1 && dir.echoFinalWord ? 0 : piece.gapAfterMs;
-    this.say(piece.text, dir, dir.rate * piece.rateScale, dir.pitch * piece.pitchScale, () => {
+    this.say(cue, piece.text, dir, dir.rate * piece.rateScale, dir.pitch * piece.pitchScale, () => {
       this.timer(() => this.speakPieces(cue, dir, pieces, index + 1, gen), gap);
     });
   }
 
   /** §1 the Chorus only: 120 ms after the line, the final word alone, slow and
    *  low, then the 900 ms that is the last syllable bleeding through the cut. */
-  private afterLine(dir: VoiceDirection, pieces: readonly SpokenPiece[], gen: number): void {
+  private afterLine(cue: VoiceCue, dir: VoiceDirection, pieces: readonly SpokenPiece[], gen: number): void {
     if (dir.echoFinalWord) {
       const last = pieces[pieces.length - 1]?.text ?? "";
       const word = last.split(/\s+/).filter(Boolean).pop() ?? "";
       this.timer(
         () => {
           if (gen !== this.generation) return;
-          this.say(word, dir, 0.6, 0.3, () => this.timer(() => this.finish(), dir.tailGapMs));
+          this.say(cue, word, dir, 0.6, 0.3, () => this.timer(() => this.finish(), dir.tailGapMs));
         },
         VOICE_CONFIG.gaps.chorusEcho,
       );
@@ -416,9 +433,9 @@ export class VoiceEngine {
   }
 
   /** One utterance, with the speaker's seat and the duck around it. */
-  private say(text: string, dir: VoiceDirection, rate: number, pitch: number, done: () => void): void {
+  private say(cue: VoiceCue, text: string, dir: VoiceDirection, rate: number, pitch: number, done: () => void): void {
     const synth = this.synth;
-    if (!synth || this.blocked() || text.trim().length === 0) {
+    if (!synth || this.blocked(cue) || text.trim().length === 0) {
       done();
       return;
     }
@@ -516,7 +533,7 @@ export class VoiceEngine {
     }
     // back again: re-speak the active cue once, from the top, if the plate is
     // still showing it (its battle is open) and the opening is not over
-    if (this.current && !this.blocked()) {
+    if (this.current && !this.blocked(this.current)) {
       this.spokenIds.delete(this.current.id);
       this.enqueue(this.current, true);
     }
@@ -567,7 +584,7 @@ export class VoiceEngine {
     if (!id) return;
     this.spokenIds.delete(id);
     const cue = this.current && this.current.id === id ? this.current : null;
-    if (!cue || this.blocked()) {
+    if (!cue || this.blocked(cue)) {
       this.changed();
       return;
     }
