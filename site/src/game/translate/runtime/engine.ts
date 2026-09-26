@@ -26,6 +26,11 @@
 //      `ctx.readWeights()` and a tokenizer for the five shipped languages, and
 //      returns `{ name, translate }`. NOTHING ELSE CHANGES: the loader, the cache
 //      survival, the progress UI and the seam are already wired and gated.
+//      If it can also fill a KEY the catalogues are missing, implement the optional
+//      `key(key, lang, englishSource)` too — `engine-seam.ts` consults it ahead of
+//      the humanised fallback and `translate/index.ts` forwards it (translate-tests
+//      §8 asserts that forwarding). Synchronous by contract: answer only what the
+//      runtime already knows, exactly like `translate` behind the sync cache.
 //
 // COOP/COEP: a threaded wasm runtime needs SharedArrayBuffer, which needs
 // `cross-origin-embedder-policy` / `cross-origin-opener-policy` headers, which
@@ -46,6 +51,13 @@ export interface TranslatorRuntime {
   name: string;
   /** null when it cannot translate this string — never the input echoed back */
   translate(text: string, from: string, to: string): Promise<string | null>;
+  /**
+   * Optional: fill a translation key the catalogues are missing, given its English
+   * source. Synchronous by contract — `engine-seam.ts` consults it inside a render, so
+   * it may only answer what it already knows; return null when it cannot. A runtime
+   * that omits it is simply silent and the catalogue's own fallbacks take over.
+   */
+  key?(key: string, lang: string, englishSource: string): string | null;
   dispose?(): void;
 }
 

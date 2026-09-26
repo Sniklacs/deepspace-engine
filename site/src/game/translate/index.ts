@@ -203,6 +203,14 @@ async function registerEngine(env?: WeightsEnvironment): Promise<void> {
       // Synchronous by contract: answers only from what is already translated.
       text: (text, from, to) => translated.get(cacheKey(text, from, to)) ?? null,
     };
+    // A runtime that can also fill a KEY the catalogues are missing gets its chance:
+    // `engine-seam.ts` consults `key` ahead of the humanised fallback, so this bridge
+    // must forward it. (It used not to — a capability the seam documents and a runtime
+    // can implement was silently dropped on the way through, which is exactly the kind
+    // of quiet gap `translate-tests` §8 exists to catch. Still synchronous: a runtime
+    // may only answer a key it can answer without waiting, the same rule as `text`.)
+    const fillKey = created.key;
+    if (fillKey) engine.key = (k, lang, source) => fillKey(k, lang, source);
     registerTranslationEngine(engine);
     announce();
   } catch (err) {
