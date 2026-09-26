@@ -730,11 +730,13 @@ function FeedbackModal({ token, colonyName, onClose, flash }: {
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [loadRecords, onClose]);
+  const t = useT();
   const doSubmit = async () => {
-    const t = title.trim();
+    // NOT `t` — the lookup above owns that name in this component.
+    const titleText = title.trim();
     const d = description.trim();
-    if (!t) { setError("Please give your report a title."); return; }
-    if (t.length > 80) { setError("Title must be 80 characters or fewer."); return; }
+    if (!titleText) { setError("Please give your report a title."); return; }
+    if (titleText.length > 80) { setError("Title must be 80 characters or fewer."); return; }
     if (d.length < 10) { setError("Description needs at least 10 characters — a little more detail helps."); return; }
     if (d.length > 2000) { setError("Description must be 2000 characters or fewer."); return; }
     if (category === "bug" && !severity) { setError("Pick a severity for the bug."); return; }
@@ -742,7 +744,7 @@ function FeedbackModal({ token, colonyName, onClose, flash }: {
     const res = await submitFeedbackFn({
       data: {
         token, category,
-        title: t, description: d,
+        title: titleText, description: d,
         playerName: playerName.trim() || undefined,
         severity: category === "bug" && severity ? severity : undefined,
       },
@@ -1010,6 +1012,7 @@ function GamesModal({ games, activeGameId, username, busy, onClose, onPlay, onRe
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
+  const t = useT();
   return (
     <div className="fixed inset-0 z-[70] modal-wrap bg-black/70" onClick={onClose}>
       <div className="my-auto w-full max-w-3xl rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -1721,6 +1724,7 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
   const loss = engineHelpers.loss(state, zone, scientists);
   const success = engineHelpers.success(state, zone, scientists);
   const fullyCovered = loss === 0;
+  const t = useT();
   const table: { icon: string; label: string; have: number; need: number }[] = [
     { icon: "🧥", label: "Hazmat suits", have: r.hazmat, need: need.hazmat },
     { icon: "💉", label: "Radiation shots", have: r.shots, need: need.shots },

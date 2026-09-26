@@ -19,7 +19,10 @@
 //   §11 RTL — Persian (fa), the direction stamped pre-paint, and the mirrored
 //       chrome (slice 2: the language file alone would have been worse than
 //       English for a Persian speaker — Persian words in a left-to-right frame)
+//   §12 the typecheck guard — the i18n slice that shipped `useT is not defined`
+//       and took /play down for every language (P0, 2026-09-26)
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 const SITE = "/home/team/shared/site";
 const read = (p: string) => readFileSync(`${SITE}/${p}`, "utf8");
@@ -357,6 +360,28 @@ check(`no hardcoded physical-direction CSS left in the mirrored surfaces (${scan
 check("the mirrored chrome really is using logical properties (ms-auto · text-start · end-1/4 · border-s)", ["ms-auto", "text-start", "end-1/4", "border-s"].every((needle) => allFiles.some((f) => /\.tsx?$/.test(f) && readFileSync(`${SITE}/src/${f}`, "utf8").includes(needle))));
 check("the scan is not vacuous — a planted leak is caught in both dialects", directionLeaks('className="ml-auto flex"', false).length === 1 && directionLeaks('  margin-left: 4px;', true).length === 1 && directionLeaks('className="ms-auto flex"', false).length === 0 && directionLeaks('  margin-inline-start: 4px;', true).length === 0);
 check("no RTL-specific rule hides the app, shrinks text or removes a control (the mirror is layout, not reduction)", !/html\[dir="rtl"\][^{]*\{[^}]*(display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:)/.test(cssNoComments));
+
+// ------------------------------------------- §12 the typecheck guard (P0)
+// The /play crash of 2026-09-26 came in WITH an i18n slice: Sheet.tsx called
+// `useT()` without importing it, `bun run build` was green, and the error
+// boundary swallowed the app for every signed-in player in every language.
+// The i18n gate is therefore the right place to hold the line: typechecking is
+// part of "a translated string reaches the screen" — a raw key never can if the
+// lookup itself cannot resolve.
+section("12 · THE TYPECHECK GUARD (the i18n slice that shipped a ReferenceError)");
+const guardRun = spawnSync("bun", ["run", "scripts/typecheck-guard.ts"], {
+  cwd: SITE, encoding: "utf8", timeout: 300_000, env: { ...process.env, DATABASE_URL: undefined },
+});
+const guardOut = `${guardRun.stdout ?? ""}${guardRun.stderr ?? ""}`;
+const guardTail = guardOut.trim().split("\n").filter(Boolean).slice(-1)[0] ?? "";
+check("the app-code typecheck guard passes (no undefined identifier anywhere in src/)",
+  guardRun.status === 0 && /TYPECHECK-GUARD: OK/.test(guardOut), guardTail);
+check("the guard really RAN — a SKIPPED guard fails this gate, even though it exits 0 for the build's sake",
+  !/TYPECHECK-GUARD: SKIPPED/.test(guardOut) && /TYPECHECK-GUARD: OK/.test(guardOut), guardTail);
+check("`bun run build` runs the typecheck before vite (the publish path is gated, not just this suite)",
+  /typecheck/.test(JSON.parse(read("package.json")).scripts.build ?? ""));
+check("the fatal class is the whole undefined-identifier family, not one code number",
+  /2304/.test(read("scripts/typecheck-guard.ts")) && /2552/.test(read("scripts/typecheck-guard.ts")));
 
 console.log(`\n${pass}/${pass + fail} checks passed${fail ? ` — ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

@@ -1,0 +1,8 @@
+{
+  "//": "APP-CODE TYPECHECK — the gate `bun run build` does not carry. `vite build` bundles with esbuild and resolves every identifier at runtime, so a call to a hook that was never imported ships happily and only explodes in a player's browser (the /play `useT is not defined` P0 of 2026-09-26). This config narrows the root project to src/ (the shipped app), so the *-tests suites cannot mask or inflate the check. `types` adds node alongside vite/client: the app has server-side modules (db.ts, game/store.ts, game/auth.ts) and without @types/node the check drowns in ~14 false 'Cannot find name process/Buffer' errors.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}
