@@ -49,8 +49,12 @@ check("new game has entitlements", st0.entitlements.cosmetics.length === 0 && st
 check("new game has battle pass", st0.battlePass.seasonId === "s0_the_shattering" && st0.battlePass.xp === 0 && st0.battlePass.premium === false);
 check("version is 11 (V11: prologue state spine)", st0.version === 11);
 check("tier 1 at 0 XP", m.tierFromXp(0) === 1);
-check("tier 2 at 1000 XP", m.tierFromXp(1000) === 2);
-check("tier 28 at 27999 XP", m.tierFromXp(27999) === 28);
+// Re-pointed 2026-09-26: the tier price is DERIVED from the season's length and
+// the XP its objective tables can grant (economy-defects slice). Same count of
+// checks, read off the derived value instead of the hand-set literal.
+const PER_TIER = m.MONETIZATION_CONFIG.seasonXpPerTier;
+check("tier 2 at one derived tier price", m.tierFromXp(PER_TIER) === 2);
+check("tier 28 at the derived full ladder", m.tierFromXp((m.SEASON_TIER_COUNT - 1) * PER_TIER) === 28);
 check("tier 28 caps", m.tierFromXp(999999) === 28);
 
 // ======================================================================
@@ -195,7 +199,7 @@ check("claim tier 1 free at 0 XP", m.claimTierReward(st7, 1, "free", now).ok ===
 check("reclaim idempotent", m.claimTierReward(st7, 1, "free", now).idempotent === true && st7.currency.scrip === 200);
 check("claim unearned tier refused", m.claimTierReward(st7, 2, "free", now).ok === false);
 check("premium claim without pass refused", m.claimTierReward(st7, 1, "premium", now).ok === false);
-st7.battlePass.xp = 1000; // tier 2
+st7.battlePass.xp = PER_TIER; // tier 2 (the DERIVED price; economy-defects slice)
 check("tier 2 unlocked", m.tierFromXp(st7.battlePass.xp) === 2);
 m.grantCurrency(st7, "votives", 750, "vseed", "seed", now, "grant");
 check("premium pass via Votives", m.purchasePremiumPass(st7, "pass-1", now).ok === true && st7.battlePass.premium === true && st7.currency.votives === 0);
@@ -334,7 +338,11 @@ check("Season 0 duration = 6 weeks", cfg.season0DurationMs === 6 * 7 * 24 * 60 *
 check("Scrip-in-pack cap = 200", cfg.maxScripPerPack === 200);
 check("storefront disabled in beta", cfg.storefrontEnabled === false);
 check("deed display flag on", cfg.deedDisplayInShop === true);
-check("season pacing 1000 XP/tier", cfg.seasonXpPerTier === 1000);
+check("season pacing is DERIVED, not hand-set (economy-defects slice)",
+  cfg.seasonXpPerTier === m.SEASON_XP_PER_TIER &&
+  m.SEASON_FULL_LADDER_XP === Math.floor(m.SEASON_EARNABLE_XP_PER_DAY * m.SEASON_DURATION_DAYS * m.SEASON_LADDER_SHARE) &&
+  cfg.seasonXpPerTier === Math.max(1, Math.floor(m.SEASON_FULL_LADDER_XP / (m.SEASON_TIER_COUNT - 1))),
+  `derived ${m.SEASON_XP_PER_TIER}, ladder ${m.SEASON_FULL_LADDER_XP}`);
 check("weekly targets present", cfg.weeklyExpeditionTarget === 10 && cfg.weeklyCodexTarget === 8 && cfg.weeklyDailyListTarget === 5);
 check("D4 research threshold = 12", cfg.d4ResearchCompletions === 12);
 

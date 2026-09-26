@@ -115,6 +115,8 @@ export const ru: Catalogue = {
   "cradle.levelN": "Уровень {n}",
   "cradle.slotDeploy": "Развернуть — развить до ур. {n}",
   "cradle.slotDeployLocked": "Ещё нет — нужно {embers} углей и {insight} знания.",
+  "cradle.domainMax": "Ур. {cap} — линия завершена",
+  "cradle.domainMaxReason": "Каждый восстановленный ИИ этой линии уже развёрнут — она на высшем уровне.",
   "domain.weaponry.name": "Вооружение",
   "domain.weaponry.desc": "Оружие и осадные работы. Снижает рост Хора и порчи.",
   "domain.agriculture.name": "Земледелие",

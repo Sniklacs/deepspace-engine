@@ -244,7 +244,13 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // never lived in the catalogue, so deleting them changed no key that was in here. The
 // pin moved because the KEY SET grew by design.
 // Previous pin: f2cc6fc85917f29fd54a9f1d568c6cb30df3e3cc06d1d35743b0ef3feb4f8da7
-const ENGLISH_SHA = "1dce08d59d5959a86b289b7122efd4440b906faabb28aebf762a4e8d6988bc22";
+// Re-baselined 2026-09-26 — THE ECONOMY-DEFECTS slice: TWO new keys added to the
+// English catalogue (340 -> 342), both translated in all five languages in the same
+// commit (the domain ladder's top rung: the label a finished line shows, and the
+// reason it can be locked). No existing value changed; the pin moved because the
+// KEY SET grew by design.
+// Previous pin: 1dce08d59d5959a86b289b7122efd4440b906faabb28aebf762a4e8d6988bc22
+const ENGLISH_SHA = "9b184bfc6e650e9083c2a7d5a7c15a7988316f19a3b13306e2a8c6b2dba21fdf";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);

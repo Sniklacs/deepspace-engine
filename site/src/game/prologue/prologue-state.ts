@@ -38,6 +38,7 @@ import type { HeroUnit, HeroSpecialization } from "../hero-xp";
 import type { HeroRole } from "../heroes-data";
 import { RACE_WAVE_STATE } from "../heroes-data";
 import { xpForLevel } from "../leader-xp";
+import { MAX_DOMAIN_LEVEL } from "../zones";
 // (hero-xp / research are runtime-imported by prologue-engine.ts, which owns
 // the actual seed construction; this module only declares shapes + defaults.)
 import type { Specialization } from "../leader-xp";
@@ -127,8 +128,9 @@ export interface PrologueBlock {
 // numbers, never the rules; the rules are asserted by the harness).
 // ============================================================================
 export const PROLOGUE_CONFIG = {
-  /** The height: every domain maxed at level 10 (deterministic seed). */
-  maxDomainLevel: 10,
+  /** The height: every domain maxed at the ladder's top rung (deterministic
+   *  seed). Not a second literal 10 — the ONE ceiling constant. */
+  maxDomainLevel: MAX_DOMAIN_LEVEL,
   /** The height: L10 for every Leader and hero (xpForLevel(10) = 5000). */
   maxXp: xpForLevel(10),
   maxLevel: 10,

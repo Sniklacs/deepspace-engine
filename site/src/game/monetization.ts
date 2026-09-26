@@ -33,6 +33,87 @@ import type {
 import { createStripePaymentProvider, type StripeProviderOptions } from "./payments/stripe-provider";
 
 // ======================================================================
+// §4.1 — SEASON 0's OBJECTIVE TABLES, and the tier price DERIVED from them.
+//
+// These live ABOVE MONETIZATION_CONFIG on purpose: the season's pacing is a
+// CONSEQUENCE of them, never a hand-set number. A tier used to cost a flat 1,000
+// XP — 28,000 XP for the ladder, against the ~3,450 XP the objective tables can
+// actually grant inside a 42-day season (82 XP/day at most, measured
+// 2026-09-26). A pass that cannot be completed inside its own season is not a
+// tuning choice but a broken promise, so the tier price below is arithmetic over
+// the season's own length and its own earnable rate. Change the objective XP,
+// the weekly targets, or the season's length, and the pass follows automatically.
+// ======================================================================
+/** Season 0's length (§4.1/§8.5: the PvE-loop season, 6 weeks — owner may prefer 8). */
+export const SEASON0_DURATION_MS = 6 * 7 * 24 * 60 * 60 * 1000;
+/** §4.1 — weekly objective targets (spec names "N expeditions / M Codices").
+ *  Named once, read by the objective descriptions below and by the config. */
+const WEEKLY_EXPEDITION_TARGET = 10;
+const WEEKLY_CODEX_TARGET = 8;
+const WEEKLY_DAILY_LIST_TARGET = 5;
+/** The pass has 28 tiers (spec §4). */
+export const SEASON_TIER_COUNT = 28;
+
+// ---- daily/weekly objectives (spec §4.1; values per spec, targets above) ----
+export type SeasonEventId =
+  | "launch_expedition" | "study" | "craft_item" | "complete_research" | "daily_list"
+  | "expedition_complete" | "deep_site" | "codex_recovered";
+
+export interface SeasonObjectiveDef {
+  id: string;
+  xp: number; // Season XP granted when the objective completes
+  description: string;
+}
+export const DAILY_OBJECTIVES: SeasonObjectiveDef[] = [
+  { id: "launch_expedition", xp: 10, description: "Launch an exploration" },
+  { id: "study", xp: 5, description: "Study an Ember/Chipset in the lab" },
+  { id: "complete_research", xp: 15, description: "Complete a research project" },
+  { id: "daily_list", xp: 20, description: "Finish the daily to-do list (fires when the daily module lands)" },
+  { id: "craft_item", xp: 5, description: "Craft an item in the Workshop" },
+];
+export const WEEKLY_OBJECTIVES: SeasonObjectiveDef[] = [
+  { id: "expedition_complete", xp: 40, description: `Complete ${WEEKLY_EXPEDITION_TARGET} explorations` },
+  { id: "deep_site", xp: 60, description: "Complete any deep scientific site (rad ≥ 60)" },
+  { id: "codex_recovered", xp: 40, description: `Recover ${WEEKLY_CODEX_TARGET} Codices` },
+  { id: "daily_list", xp: 50, description: `Reach the daily to-do list ${WEEKLY_DAILY_LIST_TARGET}× in a week (fires when the daily module lands)` },
+];
+
+// ---- the measured earnable rate, and the tier price derived from it ----
+/** Every daily objective, once (55 today). */
+const SEASON_DAILY_XP = DAILY_OBJECTIVES.reduce((sum, o) => sum + o.xp, 0);
+/** Every weekly objective, once (190 today). */
+const SEASON_WEEKLY_XP = WEEKLY_OBJECTIVES.reduce((sum, o) => sum + o.xp, 0);
+/**
+ * What the season's objectives can grant in one day, at most: every daily
+ * objective plus the weeklies spread across the week. THE input the pacing is
+ * derived from — 55 + 190/7 ≈ 82 XP/day today, and the number that must be
+ * re-measured if a pacing change alters what a day of play can earn.
+ */
+export const SEASON_EARNABLE_XP_PER_DAY = SEASON_DAILY_XP + SEASON_WEEKLY_XP / 7;
+/** The season expressed in days, read from its own declared length (42 today). */
+export const SEASON_DURATION_DAYS = SEASON0_DURATION_MS / 86_400_000;
+/**
+ * Headroom policy — deliberately a SHARE, not an XP number: the whole ladder
+ * costs this much of everything a perfect season could grant, so a player can
+ * miss half the objectives (a week away, a bad run, a slower re-timed loop) and
+ * still clear every tier.
+ */
+export const SEASON_LADDER_SHARE = 0.5;
+/** XP the full ladder — tier 1 through tier 28 — costs. */
+export const SEASON_FULL_LADDER_XP = Math.floor(
+  SEASON_EARNABLE_XP_PER_DAY * SEASON_DURATION_DAYS * SEASON_LADDER_SHARE,
+);
+/**
+ * XP per tier, DERIVED. `tierFromXp` reaches tier N at (N − 1) × this, so the
+ * full ladder costs SEASON_FULL_LADDER_XP — inside the season by construction.
+ * Never hand-set this again: a hard-coded tier price is what went stale here.
+ */
+export const SEASON_XP_PER_TIER = Math.max(
+  1,
+  Math.floor(SEASON_FULL_LADDER_XP / (SEASON_TIER_COUNT - 1)),
+);
+
+// ======================================================================
 // §8 — OPEN DECISIONS AS CONFIG (spec defaults; owner confirmation pending).
 // ======================================================================
 export const MONETIZATION_CONFIG = {
@@ -51,9 +132,10 @@ export const MONETIZATION_CONFIG = {
   // §4.1/§8.4 — purchased passes never expire (Halo principle); unclaimed
   // season items return (DRG). No expiry field exists on pass entitlements.
   passesNeverExpire: true,
-  // §4.1/§8.5 — Season 0 runs the PvE loop. 6 weeks (owner may prefer 8).
+  // §4.1/§8.5 — Season 0 runs the PvE loop. 6 weeks (owner may prefer 8) —
+  // named once above, because the season's LENGTH is an input to the tier price.
   season0Id: "s0_the_shattering",
-  season0DurationMs: 6 * 7 * 24 * 60 * 60 * 1000,
+  season0DurationMs: SEASON0_DURATION_MS,
   // §3.3/§8.6 — the single gray area: packs may carry at most ~2 days of casual
   // earned income as Scrip. Wave-1 packs carry ZERO Scrip (spec §3.1 lists
   // none); this is the hard server-side lifetime cap if a pack ever does.
@@ -65,14 +147,18 @@ export const MONETIZATION_CONFIG = {
   // §2.2 — deed cosmetics may appear in the shop as commemorative DISPLAY
   // (viewable, never buyable).
   deedDisplayInShop: true,
-  // §7.5 — Season pacing (calibratable): tiers unlock every seasonXpPerTier XP.
-  // "~45–60 min of normal play per tier" is the design target, tuned later.
-  seasonXpPerTier: 1000,
+  // §7.5 — Season pacing, DERIVED (never hand-set again): a tier costs
+  // SEASON_XP_PER_TIER, computed above from the season's length and the XP its
+  // own objective tables can grant. Re-time the economy (season length,
+  // objective XP, weekly targets) and this follows, so the pass can never again
+  // be uncompletable inside its own season.
+  seasonXpPerTier: SEASON_XP_PER_TIER,
   // §4.1 — weekly objective targets (spec names "N expeditions / M Codices";
-  // these are the values, calibratable).
-  weeklyExpeditionTarget: 10,
-  weeklyCodexTarget: 8,
-  weeklyDailyListTarget: 5,
+  // these are the values, calibratable). Named above; the tier price above is
+  // derived from the XP they are worth.
+  weeklyExpeditionTarget: WEEKLY_EXPEDITION_TARGET,
+  weeklyCodexTarget: WEEKLY_CODEX_TARGET,
+  weeklyDailyListTarget: WEEKLY_DAILY_LIST_TARGET,
   // §2.2 D4 — pre-Cradle-tiers threshold: total research completions ≥ N
   // ("N to balance"; owner/balance team calibrate).
   d4ResearchCompletions: 12,
@@ -333,32 +419,9 @@ export const SEASON_TIERS: BattlePassTier[] = [
   { tier: 27, free: { kind: "scrip", amount: 600, label: "600 Scrip" }, premium: { kind: "votives", amount: 100, label: "100 Votives" } },
   { tier: 28, free: { kind: "capstone_deed", item: SEASON_COSMETIC_BY_ID["s0-banner-shatterlands"], label: "Shatterlands Banner — deed-earned proof you cleared the season" }, premium: { kind: "showcase", item: SEASON_COSMETIC_BY_ID["s0-facade-lastcandle"], label: "The Last Candle Facade — premium showcase" } },
 ];
-export const SEASON_TIER_COUNT = 28;
-
-// ---- daily/weekly objectives (spec §4.1; values per spec, targets config) ----
-export type SeasonEventId =
-  | "launch_expedition" | "study" | "craft_item" | "complete_research" | "daily_list"
-  | "expedition_complete" | "deep_site" | "codex_recovered";
-
-export interface SeasonObjectiveDef {
-  id: string;
-  xp: number; // Season XP granted when the objective completes
-  description: string;
-}
-export const DAILY_OBJECTIVES: SeasonObjectiveDef[] = [
-  { id: "launch_expedition", xp: 10, description: "Launch an exploration" },
-  { id: "study", xp: 5, description: "Study an Ember/Chipset in the lab" },
-  { id: "complete_research", xp: 15, description: "Complete a research project" },
-  { id: "daily_list", xp: 20, description: "Finish the daily to-do list (fires when the daily module lands)" },
-  { id: "craft_item", xp: 5, description: "Craft an item in the Workshop" },
-];
-export const WEEKLY_OBJECTIVES: SeasonObjectiveDef[] = [
-  { id: "expedition_complete", xp: 40, description: `Complete ${MONETIZATION_CONFIG.weeklyExpeditionTarget} explorations` },
-  { id: "deep_site", xp: 60, description: "Complete any deep scientific site (rad ≥ 60)" },
-  { id: "codex_recovered", xp: 40, description: `Recover ${MONETIZATION_CONFIG.weeklyCodexTarget} Codices` },
-  { id: "daily_list", xp: 50, description: `Reach the daily to-do list ${MONETIZATION_CONFIG.weeklyDailyListTarget}× in a week (fires when the daily module lands)` },
-];
-
+// (SEASON_TIER_COUNT, the objective tables and the derived tier price all moved
+// above MONETIZATION_CONFIG — the season's pacing is derived from them, so they
+// have to be defined first. Same exports, same values: only the order changed.)
 // ======================================================================
 // STATE DEFAULTS + V5 MIGRATION (ensureMonetization — same style as
 // ensureRevelation/ensureLeaderXp: idempotent, silent, legacy-safe).
