@@ -44,7 +44,7 @@ export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameS
                 <div className="mb-2 flex items-center gap-2">
                   <span className="text-lg">{d.icon}</span>
                   <span className="font-semibold text-white">{d.name}</span>
-                  <span className="ml-auto text-[11px] text-purple-300">{DOMAIN_SPECIALTY[d.id]}</span>
+                  <span className="ms-auto text-[11px] text-purple-300">{DOMAIN_SPECIALTY[d.id]}</span>
                 </div>
                 <div className="space-y-2">
                   {techs.map((t) => {
@@ -354,7 +354,7 @@ function LeaderCard({ leader, job, now, onAllocate, onOpenSpec }: {
           <div className="mt-0.5 h-1.5 rounded bg-white/10">
             <div className="h-1.5 rounded bg-ember" style={{ width: `${Math.round(progress * 100)}%` }} />
           </div>
-          <div className="mt-0.5 text-right text-xs text-text-3">today {todayXp}/{engineHelpers.dailyCap} XP</div>
+          <div className="mt-0.5 text-end text-xs text-text-3">today {todayXp}/{engineHelpers.dailyCap} XP</div>
         </div>
       </Tooltip>
 
@@ -428,7 +428,7 @@ function SpecializationModal({ leader, onPick, onClose }: {
             <p className="mt-2 text-sm text-gray-300">One choice, made permanent. Pick the mandate this Leader will carry — the other two close forever.</p>
             <div className="mt-3 space-y-2">
               {engineHelpers.specs.map((s) => (
-                <button key={s.id} onClick={() => { sound.click(); onPick(s.id); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-left hover:border-amber-400/50 hover:bg-white/10">
+                <button key={s.id} onClick={() => { sound.click(); onPick(s.id); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-amber-400/50 hover:bg-white/10">
                   <div className="flex items-center gap-2">
                     <span className="text-xl">{s.icon}</span>
                     <span className="font-semibold text-white">{s.mandate}</span>
@@ -461,7 +461,7 @@ function AllocateModal({ leader, onPick, onClose }: {
         <p className="mt-2 text-sm text-gray-300">You have <b className="text-amber-200">{leader.unspentPoints}</b> unspent point{leader.unspentPoints > 1 ? "s" : ""} from leveling. Put one into the craft YOU want to grow.</p>
         <div className="mt-3 space-y-2">
           {ATTRS.map((a) => (
-            <button key={a.id} onClick={() => { sound.click(); onPick(a.id); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-left hover:border-amber-400/50 hover:bg-white/10">
+            <button key={a.id} onClick={() => { sound.click(); onPick(a.id); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-amber-400/50 hover:bg-white/10">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-white">{a.icon} {a.label}</span>
                 <span className="text-sm text-amber-200">{leader.attributes[a.id]} <span className="text-text-3">→ {leader.attributes[a.id] + 1}</span></span>

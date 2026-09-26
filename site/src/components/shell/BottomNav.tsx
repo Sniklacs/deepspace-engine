@@ -58,13 +58,13 @@ export default function BottomNav({
                   {t(`nav.${n.id}`, n.label)}
                 </span>
                 {b.count ? (
-                  <span className="num absolute right-1/4 top-1.5 text-nav text-ember-soft">{b.count}</span>
+                  <span className="num absolute end-1/4 top-1.5 text-nav text-ember-soft">{b.count}</span>
                 ) : null}
                 {b.live ? (
-                  <span aria-hidden="true" className="report-blink absolute right-1/4 top-2 h-2 w-2 rounded-full bg-ember" />
+                  <span aria-hidden="true" className="report-blink absolute end-1/4 top-2 h-2 w-2 rounded-full bg-ember" />
                 ) : null}
                 {ready && n.id !== "battles" ? (
-                  <ReadyDot label={b.label ?? t("nav.ready", { label: t(`nav.${n.id}`, n.label) })} size="sm" className="absolute right-1/4 top-2" />
+                  <ReadyDot label={b.label ?? t("nav.ready", { label: t(`nav.${n.id}`, n.label) })} size="sm" className="absolute end-1/4 top-2" />
                 ) : null}
               </button>
             </li>

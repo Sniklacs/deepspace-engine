@@ -286,14 +286,14 @@ export function CircuitPage({
           </div>
           {isDesktop && <p className="truncate text-sm leading-tight text-text-3">the shattered circuit-web of the old world</p>}
         </div>
-        <div className="ml-auto flex flex-none items-center gap-1.5">
+        <div className="ms-auto flex flex-none items-center gap-1.5">
           {isDesktop && (
             <SegmentedControl
               ariaLabel="Circuit view — map or world"
               options={SEG_OPTIONS}
               value={seg}
               onChange={(id) => { setSeg(id as Seg); sound.tab(); }}
-              className="mr-1"
+              className="me-1"
             />
           )}
           <Tooltip content="Reports — what came home while you watched.">
@@ -519,7 +519,7 @@ export function CircuitPage({
               />
               {/* §6.4 reserved: [FOBs ▾] + live score chip land here, left of Legend ▸,
                   when the war overlay ships. No placeholder ghosts today. */}
-              <div className="ml-auto flex flex-none items-center gap-1">
+              <div className="ms-auto flex flex-none items-center gap-1">
                 <button
                   onClick={() => { setLegendSheetOpen(true); sound.click(); }}
                   aria-label="Open the full Circuit legend"
@@ -562,7 +562,7 @@ export function CircuitPage({
           <aside
             id="circuit-legend"
             tabIndex={-1}
-            className="hidden w-[300px] shrink-0 flex-col overflow-y-auto border-l border-line bg-surf-1 outline-none md:flex"
+            className="hidden w-[300px] shrink-0 flex-col overflow-y-auto border-s border-line bg-surf-1 outline-none md:flex"
           >
             <CircuitLegend />
             <div className="mt-auto px-4 pb-4">
@@ -629,7 +629,7 @@ function nodeTitle(n: AtlasNode): string {
 /* ---------------- chrome pieces ---------------- */
 function FloatingControls({ onLegend, onReset, onZoomIn, onZoomOut }: { onLegend: () => void; onReset: () => void; onZoomIn: () => void; onZoomOut: () => void }) {
   return (
-    <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1">
+    <div className="absolute bottom-3 start-3 z-10 flex items-center gap-1">
       <button onClick={onLegend} aria-label="Jump to the legend" title="Legend" className="flex h-11 items-center gap-1 rounded-lg border border-line bg-surf-1 px-2.5 text-sm text-text-2 shadow-lg hover:bg-white/10">
         Legend <span aria-hidden="true">▸</span>
       </button>
@@ -651,7 +651,7 @@ function FloatingControls({ onLegend, onReset, onZoomIn, onZoomOut }: { onLegend
  * contract already exists in circuit-tokens.ts so this card never reflows. */
 function WhosHereCard() {
   return (
-    <section aria-label="Who's here" className="min-h-[168px] rounded-l border border-line bg-surf-2 p-4">
+    <section aria-label="Who's here" className="min-h-[168px] rounded-s border border-line bg-surf-2 p-4">
       <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-3">Who's here</h3>
       <p className="mt-2 text-xs leading-relaxed text-text-3">
         The frontier is quiet — no colonies hold ground here yet. When the war comes, holders and top colonies appear in this space.
@@ -734,7 +734,7 @@ function ContributionTab({ state, token }: { state: GameState; token: string }) 
                   <span className="shrink-0">{raceEmoji(row.race)}</span>
                   <span className="min-w-0 flex-1 truncate font-semibold">
                     {row.colonyName}
-                    {isMe ? <span className="ml-2 rounded bg-amber-400/20 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-amber-200">You</span> : null}
+                    {isMe ? <span className="ms-2 rounded bg-amber-400/20 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-amber-200">You</span> : null}
                   </span>
                   <span className="shrink-0 text-sm text-gray-400">{row.score.toLocaleString()} <span className="text-text-3">score</span></span>
                 </li>
@@ -932,7 +932,7 @@ function CompactLegendRail() {
       <ul className="flex h-10 w-max items-center gap-1.5 px-2">
         {RAIL.map((r) => (
           <li key={r.label} role="listitem">
-            <span className="chip h-6 gap-1.5 border border-line bg-surf-2 pl-1.5 pr-2 text-[11px] font-medium text-text-2" style={{ maxWidth: "112px" }}>
+            <span className="chip h-6 gap-1.5 border border-line bg-surf-2 ps-1.5 pe-2 text-[11px] font-medium text-text-2" style={{ maxWidth: "112px" }}>
               <Swatch kind={r.kind} />
               <span className="truncate">{r.label}</span>
             </span>

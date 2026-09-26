@@ -214,7 +214,7 @@ export function Tooltip({ content, children, side = "top", className = "" }: Too
       {children}
       {show && pos && (
         <div
-          className="pointer-events-none fixed z-[100] max-w-[260px] whitespace-normal rounded-lg border border-amber-400/40 bg-[#0b0e16]/95 px-3 py-2 text-left text-xs leading-relaxed text-gray-200 shadow-xl shadow-black/60 backdrop-blur"
+          className="pointer-events-none fixed z-[100] max-w-[260px] whitespace-normal rounded-lg border border-amber-400/40 bg-[#0b0e16]/95 px-3 py-2 text-start text-xs leading-relaxed text-gray-200 shadow-xl shadow-black/60 backdrop-blur"
           style={{
             left,
             top: placeBelow ? pos.y + 16 : pos.y - 10,

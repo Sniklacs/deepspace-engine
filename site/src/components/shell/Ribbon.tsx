@@ -76,7 +76,7 @@ export default function Ribbon({
           {alert ? (
             <span
               aria-hidden="true"
-              className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-surf-1 bg-hazard"
+              className="absolute -end-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-surf-1 bg-hazard"
             />
           ) : null}
         </button>
@@ -104,7 +104,7 @@ export default function Ribbon({
         </div>
 
         {/* 3 · the pinned cluster: alert chip, store seam, reports */}
-        <div className="ml-auto flex flex-none items-center gap-1.5" aria-busy={busy || undefined}>
+        <div className="ms-auto flex flex-none items-center gap-1.5" aria-busy={busy || undefined}>
           {alert ? (
             <button
               type="button"
@@ -137,7 +137,7 @@ export default function Ribbon({
           >
             <Icon name="bell" size={16} aria-hidden="true" />
             {unread > 0 ? (
-              <span className="num absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-ember px-1 text-[11px] font-bold leading-none text-black">
+              <span className="num absolute -end-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-ember px-1 text-[11px] font-bold leading-none text-black">
                 {unread}
               </span>
             ) : null}

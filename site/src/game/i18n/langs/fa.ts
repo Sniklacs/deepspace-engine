@@ -1,0 +1,292 @@
+// langs/fa.ts — فارسی (PERSIAN) · the first RIGHT-TO-LEFT language (MACHINE
+// TRANSLATION).
+//
+// HOW THIS FILE WAS PRODUCED (no service, no key, no purchase, no account):
+// locally, by the team's own model, from `langs/en.ts` — one pass over the
+// English catalogue, written straight into this file. Nothing was sent anywhere
+// and nothing was paid for.
+//
+// TO REPLACE WITH A HUMAN TRANSLATION: edit this file only. Same keys, same
+// `{params}`. Then set `machine: false` in `game/i18n/languages.ts`.
+//
+// DIRECTION (this file's whole reason for existing): Persian is read
+// right-to-left, so the row for this language carries `dir: "rtl"` in
+// `game/i18n/languages.ts`. That single value is what the pre-paint boot script
+// reads (game/i18n/device.ts → bootScript) to stamp `dir` on <html> BEFORE the
+// first frame — so a Persian player never sees an English-shaped, left-to-right
+// frame first. A language file alone would have been worse than English: Persian
+// words inside a left-to-right layout.
+//
+// NUMERALS: Western digits (0–9) only. Persian-Indic numerals (۰–۹) are a
+// deliberate later formatting decision, not part of this slice — `i18n-verify`
+// §11 fails the build if any non-Western digit appears in this file.
+//
+// Honest quality note (L3): the Fall's emotional prose will read uneven in
+// machine translation; this file is mostly short UI labels and button copy.
+import type { Catalogue } from "../types";
+
+export const fa: Catalogue = {
+  // ---- app-level chrome ----------------------------------------------------
+  "app.name": "Deepspace Engine",
+  "app.skipToCradle": "پرش به گهواره",
+  "app.notFound": "صفحه پیدا نشد",
+  "app.notFoundShort": "پیدا نشد",
+
+  // ---- bottom navigation ---------------------------------------------------
+  "nav.sections": "بخش‌ها",
+  "nav.colony": "گهواره",
+  "nav.expeditions": "اکتشافات",
+  "nav.lab": "آزمایشگاه",
+  "nav.armory": "زرادخانه",
+  "nav.battles": "نبردها",
+  "nav.circuit": "مدار",
+  "nav.ready": "{label} — اینجا کاری در دسترس است",
+
+  // ---- ribbon --------------------------------------------------------------
+  "ribbon.identity": "{name} — {race} · {world}. فرمان‌های کلونی.",
+  "ribbon.embers": "اخگرها",
+  "ribbon.chipsets": "چیپست‌ها",
+  "ribbon.supplies": "تدارکات",
+  "ribbon.codices": "کدکس‌ها",
+  "ribbon.plasma": "پلاسما",
+  "ribbon.pill": "{label} — {value}. ذخایر کلونی.",
+  "ribbon.chorus": "همسرایان",
+  "ribbon.chorusAlert": "توجه همسرایان {pct} درصد — کلونی در حال جلب توجه است",
+  "ribbon.reportsNew": "گزارش‌های گهواره — {n} تازه",
+  "ribbon.reportsNone": "گزارش‌های گهواره — چیز تازه‌ای نیست",
+  "ribbon.ledger": "دفتر گهواره — کیف پول و فروشگاه صادق",
+  "sheet.close": "بستن",
+
+  // ---- resources -----------------------------------------------------------
+  "resource.embers": "اخگرها",
+  "resource.chipsets": "چیپست‌ها",
+  "resource.supplies": "تدارکات",
+  "resource.codices": "کدکس‌ها",
+  "resource.plasma": "پلاسما",
+  "resource.scrip": "اسکریپ",
+  "resource.votives": "نذورها",
+  "resource.suppliesSub": "+{rate} در دقیقه، تا زمانی که گهواره برپاست",
+  "resource.scripSub": "از آنچه انجام می‌دهید به دست می‌آید — نیایش، کارها، سهم.",
+  "resource.votivesSub": "در دفتر گهواره نگهداری می‌شود.",
+
+  // ---- the Cradle home ----------------------------------------------------
+  "cradle.plate": "گهواره",
+  "cradle.plateMeta": "{race} · {region} · بنیان‌گذاری {date}",
+  "cradle.perMin": "/دقیقه",
+  "cradle.advanceTo": "{slot} را به سطح {level} برسان",
+  "cradle.advance": "گهواره را پیش ببر",
+  "cradle.advanceSub": "{embers} اخگر · {insight} بینش",
+  "cradle.advanceLocked": "هنوز نه — پیشرفت بعدی {embers} اخگر و {insight} بینش هزینه دارد.",
+  "cradle.corruption": "فساد (آلودگی)",
+  "cradle.chorusAttention": "توجه همسرایان",
+  "cradle.purify": "گهواره را پاک کن",
+  "cradle.purifySub": "10 تدارکات",
+  "cradle.purifySubStores": "10 تدارکات — انبار {n} دارد",
+  "cradle.purifyLocked": "10 تدارکات لازم است — انبار {n} دارد.",
+  "cradle.leadersHeroes": "رهبران و قهرمانان",
+  "cradle.sworn": "{n} سوگندخورده",
+  "cradle.noLeader": "هنوز هیچ رهبری به این گهواره نپیوسته است.",
+  "cradle.noHero": "هنوز هیچ قهرمانی به این گهواره سوگند نخورده است.",
+  "cradle.workshop": "کارگاه",
+  "cradle.workshopSub": "تجهیزات و لجستیک، آهنگری‌شده با تدارکات",
+  "cradle.kitAria": "{label} — موجودی {held}، هزینه {supplies} تدارکات",
+  "cradle.held": "{n} در انبار",
+  "cradle.sup": "{n} تدارکات",
+  "cradle.kitReady": "{label} را می‌توان ساخت",
+  "cradle.alloyLead": "دستور آلیاژ —",
+  "cradle.alloyBold": "5 ماده از نژادهای گوناگون",
+  "cradle.alloyTail": ": مال خودتان + هر 4 ماده دیگر.",
+  "cradle.alloyComplete": "کامل",
+  "cradle.totalEmbers": "مجموع اخگرهای به‌دست‌آمده",
+  "cradle.totalChipsets": "مجموع چیپست‌های به‌دست‌آمده",
+  "cradle.insight": "بینش تقطیرشده",
+  "cradle.founded": "کلونی بنیان گذاشته شد",
+  "cradle.expeditionsDone": "{n} اکتشاف کامل‌شده",
+  "cradle.codexTitle": "کدکس را باز کن — افسانه‌های سرزمین‌های شکسته",
+  "cradle.codexSub": "افسانه‌هایی که کلونی‌ها درباره جهان سوخته می‌گویند — داستان، پوشیده همچون شیوه زندگی",
+  "cradle.legends": "{n} افسانه",
+  "cradle.chronicle": "سال‌شمار گهواره",
+  "cradle.chronicleSub": "جهان آن‌گونه که کلونی به یاد می‌آورد — تازه‌ترین نخست",
+  "cradle.devotion": "نیایش امروز",
+  "cradle.devotionShort": "نیایش",
+  "cradle.devotionTitle": "{n} روز پیوسته آیین",
+  "cradle.devotionStreak": "رشته {n} روزه",
+  "cradle.claimed": "دریافت شد",
+  "cradle.devotionQuiet": "امروز گهواره چیزی از شما نمی‌خواهد.",
+  "cradle.devotionDone": "نیایش امروز کامل شد — پاداش 80+.",
+  "cradle.claimWith": "دریافت — {scrip} اسکریپ · {devotion} نیایش",
+  "cradle.claim": "دریافت",
+  "cradle.claimSub": "اندوخته از کار انجام‌شده",
+  "cradle.claimLocked": "کار در جریان است — هنوز چیزی برای اندوختن نیست.",
+  "cradle.devotionNote": "نیایش روزانه، اعتماد دیرپا — اوراکل به آنچه می‌کنید می‌نگرد، نه به آنچه می‌خرید.",
+
+  // ---- building tiles -----------------------------------------------------
+  "tile.workshop": "کارگاه",
+  "tile.workshopDesc": "تجهیزات روزمره، ساخته‌شده با تدارکات.",
+  "domain.weaponry.name": "جنگ‌افزار",
+  "domain.weaponry.desc": "سلاح‌ها و کارهای محاصره‌ای. رشد همسرایان و فساد را کاهش می‌دهد.",
+  "domain.agriculture.name": "کشاورزی",
+  "domain.agriculture.desc": "کشتزارها و کوره‌های خوراک. با گذشت زمان تدارکات می‌آورد.",
+  "domain.economy.name": "اقتصاد",
+  "domain.economy.desc": "داد و ستد و پول. بازده اخگر و تدارکات را بالا می‌برد.",
+  "domain.industry.name": "صنعت",
+  "domain.industry.desc": "پالایشگاه‌ها و کارگاه‌ها. هزینه اکتشاف را کم و بازگشت را سریع‌تر می‌کند.",
+  "domain.logistics.name": "لجستیک",
+  "domain.logistics.desc": "مسیرها، انبارها، نشانه‌ها. دانشمندان بیشتر و زمان‌بندی اکتشاف سریع‌تر.",
+
+  // ---- the Cradle sheet ---------------------------------------------------
+  "cradleSheet.stores": "انبار",
+  "cradleSheet.roster": "سیاهه",
+  "cradleSheet.devotion": "نیایش",
+  "cradleSheet.scientists": "دانشمندان در پژوهش",
+  "cradleSheet.teams": "گروه‌ها در میدان",
+  "cradleSheet.leaders": "رهبران سوگندخورده به گهواره",
+  "cradleSheet.commands": "فرمان‌ها",
+  "cradleSheet.colonies": "کلونی‌های شما",
+  "cradleSheet.coloniesSub": "بنیان گذاشتن، جابه‌جایی، بازنشانی یا حذف یک کلونی",
+  "cradleSheet.help": "چگونه بازی کنیم",
+  "cradleSheet.helpSub": "درآمدی کوتاه بر چرخه اصلی",
+  "cradleSheet.feedback": "بازخورد",
+  "cradleSheet.feedbackSub": "یک اشکال، مشکل روند بازی یا پیشنهاد برای تیم بفرستید",
+  "cradleSheet.sound": "صدا",
+  "cradleSheet.soundOff": "گهواره خاموش است — برای روشن کردن صدا بزنید",
+  "cradleSheet.soundOn": "گهواره زمزمه می‌کند — برای بی‌صدا کردن بزنید",
+  "cradleSheet.fullscreen": "تمام‌صفحه",
+  "cradleSheet.fullscreenSub": "کل صفحه را پر می‌کند. برای خروج Esc را بزنید.",
+  "cradleSheet.account": "حساب",
+  "cradleSheet.records": "حساب و سوابق کلونی",
+  "cradleSheet.recordsSub": "بازنشانی یا حذف یک کلونی، یا برداشتن کل حساب",
+  "cradleSheet.logout": "خروج",
+  "cradleSheet.logoutSub": "کلونی‌های شما روی این حساب می‌مانند و در ورود بعدی بارگذاری می‌شوند",
+  "cradleSheet.on": "روشن",
+  "cradleSheet.off": "خاموش",
+
+  // ---- Settings -----------------------------------------------------------
+  "settings.open": "تنظیمات",
+  "settings.openSub": "زبان، اندازه متن و کیفیت گرافیک",
+  "settings.title": "تنظیمات",
+  "settings.language": "زبان",
+  "settings.languageSub": "سراسر رابط کاربری، به زبانی که برمی‌گزینید.",
+  "settings.change": "تغییر",
+  "settings.textSize": "اندازه متن رابط",
+  "settings.textSizeSub": "متن و فاصله‌های بزرگ‌تر روی این دستگاه.",
+  "settings.textSizeNormal": "عادی",
+  "settings.textSizeLarge": "بزرگ",
+  "settings.textSizeLarger": "بزرگ‌تر",
+  "settings.quality": "کیفیت گرافیک",
+  "settings.qualitySub": "حالت کاهش‌یافته جلوه‌های کمتری دارد — برای گوشی قدیمی یا باتری سبک‌تر است.",
+  "settings.qualityFull": "کامل",
+  "settings.qualityReduced": "کاهش‌یافته",
+  "settings.deviceNote": "زبان، اندازه متن و کیفیت گرافیک روی این دستگاه ذخیره می‌شوند.",
+
+  // ---- the language picker ------------------------------------------------
+  "lang.choose": "زبان خود را برگزینید",
+  "lang.intro": "زبانی را برگزینید که می‌خواهید بازی را با آن بخوانید. بعداً می‌توانید آن را در تنظیمات تغییر دهید.",
+  "lang.continue": "ادامه",
+  "lang.voiceNote": "صداهای داستان انگلیسی می‌مانند. متن و زیرنویس‌ها از زبانی که برمی‌گزینید پیروی می‌کنند.",
+  "lang.firstRunTitle": "خوش آمدید — زبان خود را برگزینید",
+
+  // ---- landing page -------------------------------------------------------
+  "landing.play": "گهواره را بازی کن",
+  "landing.kicker": "یک بازمانده کلونی مشارکتی و ماندگار",
+  "landing.h1a": "جنگ میان انسان‌ها",
+  "landing.h1b": "و ماشین‌ها پایان یافت.",
+  "landing.h1c": "هیچ‌کس پیروز نشد.",
+  "landing.lede": "کلونی‌ای را در سرزمین‌های شکسته و ویران رهبری کنید. اکتشاف بفرستید تا هوش مصنوعی‌ای را بازیابی کنید که جهان را تا مرز نابودی برد — پاره‌هایش را در آزمایشگاه بررسی کنید و هوش بازیافته را برای بازسازی تمدن به کار بگیرید.",
+  "landing.ledeStrong": "هوش مصنوعی هم رستگاری شماست و هم تهدیدتان.",
+  "landing.begin": "اکتشاف خود را آغاز کنید",
+  "landing.fall": "سقوط · اوج",
+  "landing.world": "جهان",
+  "landing.coreLoop": "چرخه اصلی",
+  "landing.coreLine": "چیزی را بازیابی کنید که نزدیک بود نابودتان کند. با آن بازسازی کنید.",
+  "landing.step.expeditions.title": "اکتشاف‌ها",
+  "landing.step.expeditions.text": "گروه‌ها را به سرزمین‌های شکسته بفرستید — ویرانه‌های بیرونی برای اخگر، تارنماهای علمی ژرف برای چیپست‌های کمیاب.",
+  "landing.step.salvage.title": "بازیافت",
+  "landing.step.salvage.text": "اخگرهای معمولی و چیپست‌های کامل و پیشرفته را به خانه بیاورید. خطر بیشتر، پاداش بیشتر.",
+  "landing.step.study.title": "بررسی",
+  "landing.step.study.text": "دانشمندان در آزمایشگاه هوش مصنوعی بازیافته را به دانش و بینش کاربردی تقطیر می‌کنند.",
+  "landing.step.deploy.title": "به‌کارگیری",
+  "landing.step.deploy.text": "کلونی را بازسازی کنید: جنگ‌افزار، کشاورزی، اقتصاد، صنعت و لجستیک.",
+  "landing.step.grow.title": "رشد",
+  "landing.step.grow.text": "حوزه‌های نیرومندتر، اکتشاف‌های پرخطرتر و ژرف‌تر را ممکن می‌کنند. موتور می‌چرخد.",
+  "landing.know": "سرزمین‌های شکسته را بشناسید",
+  "landing.know.cradle.title": "🏛️ گهواره",
+  "landing.know.cradle.text": "کلونی پایتختی شما. سکونتگاهی که می‌سازید و از آن دفاع می‌کنید — و قلبی که تمام جهان پیرامونش زنده می‌ماند.",
+  "landing.know.chorus.title": "🎯 همسرایان",
+  "landing.know.chorus.text": "کندوهای دشمن هوش مصنوعی. پس رانده شده‌اند اما هنوز زنده‌اند. هر اکتشاف به ژرفا آن‌ها را کمی بیشتر بیدار می‌کند.",
+  "landing.know.embers.title": "🧯 اخگرها",
+  "landing.know.embers.text": "پاره‌های معمولی هوش مصنوعی، بازیافت روزمره شما. برای رشد بررسی‌شان کنید.",
+  "landing.know.chipsets.title": "🔩 چیپست‌ها",
+  "landing.know.chipsets.text": "مجموعه‌های هوش مصنوعی کمیاب، کامل و پیشرفته که فناوری را به جلو می‌جهانند. تنها در ویرانه‌های ژرف و ارزشمند یافت می‌شوند.",
+  "landing.know.shatterlands.title": "🗺️ سرزمین‌های شکسته",
+  "landing.know.shatterlands.text": "سرزمین‌های ویران و خطرناکی که به آن‌ها یورش می‌برید. سرزمین مادری هر نژاد از هوش مصنوعی خودش سرشار است.",
+  "landing.persistenceTitle": "ماندگاری معنا دارد",
+  "landing.persistenceText": "جهان زمانی که شما بیرون از بازی هستید هم زنده می‌ماند. اکتشاف‌ها در زمان واقعی ادامه می‌یابند و نتیجه را به کلونی‌ای می‌رسانند که در غیاب شما رشد کرده است. هفته‌ها بازی می‌شود، نه نشست‌ها.",
+  "landing.racesTitle": "افسانه خود را برگزینید",
+  "landing.racesText": "هفت نژاد گرد آتش‌های اخگر روایت می‌شوند — افسانه‌هایی که کلونی‌ها درباره جهان سوخته باور دارند. هر یک تنها ناقص است؛ برای کامل شدن باید به سرزمین دیگران سفر کنید.",
+  "landing.claim": "یک کلونی بگیرید",
+  "landing.footer1": "Deepspace Engine · یک بازی اصیل، ماندگار و مشارکتی در گونه بقا و مدیریت کلونی",
+  "landing.footer2": "تمام افسانه‌های نژادی که در بازی نشان داده می‌شود اسطوره درون‌جهانی است — هرگز واقعیت مستند نیست.",
+
+  // ---- sign-in door -------------------------------------------------------
+  "auth.foundColony": "بنیان گذاشتن یک کلونی",
+  "auth.returnToCradle": "بازگشت به گهواره",
+  "auth.subSignup": "حسابی بسازید — ذخیره‌های کلونی‌های شما از آنِ خودتان خواهد بود و میان بازدیدها می‌ماند.",
+  "auth.subLogin": "وارد شوید تا کلونی‌های خود را از همان‌جا که رها کردید ادامه دهید.",
+  "auth.tabSignup": "ثبت‌نام",
+  "auth.tabLogin": "ورود",
+  "auth.colonyName": "نام کلونی",
+  "auth.password": "گذرواژه",
+  "auth.nameError": "یک نام وارد کنید (دست‌کم 2 نویسه).",
+  "auth.passwordError": "یک گذرواژه وارد کنید (دست‌کم 4 نویسه).",
+  "auth.passwordPlaceholderSignup": "دست‌کم 4 نویسه",
+  "auth.passwordPlaceholderLogin": "گذرواژه شما",
+  "auth.submitSignup": "ساخت حساب و ورود",
+  "auth.submitLogin": "ورود",
+
+  // ---- first-run nudge + Help --------------------------------------------
+  "nudge.line": "این نخستین جهان است — بگویید چه چیزی شکست.",
+  "nudge.sub": "با دکمه 💬 بازخورد در نوار بالا، اشکال‌ها، مشکل‌های روند بازی یا پیشنهادها را بی‌واسطه به تیم سازنده بفرستید.",
+  "nudge.gotIt": "گرفتم",
+  "help.title": "چگونه بازی کنیم",
+  "help.close": "بستن",
+
+  // ---- the three main screens' chrome ------------------------------------
+  "exp.title": "اکتشاف در سرزمین‌های شکسته",
+  "exp.plan": "برنامه‌ریزی یک اکتشاف",
+  "exp.planSub": "— سرمایه‌ای در زمان واقعی، نه یک کلیک",
+  "exp.destination": "مقصد",
+  "exp.scientists": "دانشمندان",
+  "exp.suits": "لباس‌ها امکان کاوش می‌دهند · آلیاژها امکان استخراج",
+  "exp.deepSite": "تارنمای علمی ژرف",
+  "exp.gearLine": "تجهیزات — آنچه کلونی دارد در برابر آنچه این گروه نیاز دارد",
+  "exp.returnsIn": "بازگشت در",
+  "lab.title": "آزمایشگاه",
+  "lab.tabDeploy": "به‌کارگیری هوش مصنوعی",
+  "lab.tabResearch": "🌳 پژوهش",
+  "lab.tabLeaders": "🫂 رهبران {n}/{cap}",
+  "lab.studyTitle": "بررسی یک پاره",
+  "lab.studyEmbers": "بررسی اخگرها",
+  "lab.studyChipset": "بررسی یک چیپست",
+  "lab.deployTitle": "به‌کارگیری هوش مصنوعی بازیافته",
+  "lab.deploySub": "— پیش‌بردن حوزه‌های کلونی",
+  "lab.journal": "دفتر آزمایشگاه",
+  "lab.journalSub": "بررسی‌ها، پیشرفت‌ها و پژوهش تعیین‌شده — تازه‌ترین نخست",
+  "armory.journal": "دفتر زرادخانه",
+  "armory.journalSub": "آهنگری، ارتقاها و تقطیر پلاسما — تازه‌ترین نخست",
+
+  // ---- building tiles (labels come from CRADLE_SLOTS/zones DOMAINS) --------
+  "tile.kits": "کیت",
+  "tile.lv": "سطح {level}",
+  "tile.level": "{slot} — سطح {level}",
+  "tile.readyToAdvance": "{slot} — آماده پیشرفت",
+  "tile.ready": "{slot} — اینجا کاری در دسترس است",
+  "cradle.level": "سطح",
+  "cradle.levelN": "سطح {n}",
+  "cradle.slotDeploy": "به‌کارگیری — پیشرفت به سطح {n}",
+  "cradle.slotDeployLocked": "هنوز نه — {embers} اخگر و {insight} بینش لازم است.",
+  "ribbon.ledgerAria": "دفتر گهواره — {scrip} اسکریپ، {votives} نذور",
+  "ribbon.ledgerWord": "دفتر",
+};
+
+export default fa;

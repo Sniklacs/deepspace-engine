@@ -503,3 +503,51 @@ html[data-quality="reduced"] * {
   animation: none !important;
   transition: none !important;
 }
+
+/* ============================================================================
+   13 · RIGHT-TO-LEFT (i18n slice 2 — Persian, the first RTL language)
+   ----------------------------------------------------------------------------
+   Three rules, and the reason the whole layer is this small is that everything
+   else mirrors for free:
+
+   1. THE FONT. `html[dir="rtl"]` re-declares the sans stack with families that
+      actually carry Persian/Arabic-script glyphs ahead of the Latin-first ones,
+      so a Persian player gets shaped, joined letters instead of whatever the
+      Latin stack happens to fall back to. Every family named here ships with the
+      platform (Android: Noto Naskh/Sans Arabic · iOS/macOS: Geeza Pro · Windows:
+      Segoe UI/Tahoma) and the last entry is the `sans-serif` generic, which the
+      browser resolves through the OS. NO @font-face, NO download, NO licence, NO
+      spend — and `i18n-verify` §11 fails the build if a web font ever appears.
+      Western digits are unaffected: `.num` keeps the mono stack (digits are
+      Latin in every shipped language).
+
+   2. THE LAYOUT. Nothing else here needs a rule, and that is deliberate: the
+      chrome was moved to LOGICAL properties (`margin-inline`, `padding-inline`,
+      `inset-inline`, `text-align: start/end`, `border-inline-start`) in the
+      components themselves (`ms-auto`, `text-start`, `end-1.5`, `border-s-2` …),
+      which are byte-identical to the physical values in LTR. A `[dir="rtl"]`
+      override layer was the alternative; it was rejected because it doubles every
+      rule that should have never been physical, and it leaves English as the
+      only direction that was ever tested by accident.
+
+   3. THE ICONS. A glyph that POINTS somewhere cannot be fixed by CSS
+      inheritance: the `march` column's arrow and the `logout` door arrow point
+      right in a left-to-right frame and must point left in a right-to-left one.
+      Components mark those glyphs `.dir-flip` (icons.tsx → DIR_FLIP); this is
+      the only transform in the layer, and it flips the small icon box only —
+      never a container, so no text can ever be mirrored.
+
+   Anchors and centred things are deliberately absent: `left-1/2` +
+   `-translate-x-1/2` (the toasts, the modal panel) and `inset-x-0` (the ribbon
+   rule, the nav bar) are symmetric, so they are already correct in both
+   directions and are allowed to keep their physical spelling — `i18n-verify` §11
+   carries that exact allow-list, so the scan stays a real gate.
+============================================================================ */
+html[dir="rtl"] {
+  --font-sans: ui-sans-serif, system-ui, "Noto Naskh Arabic", "Noto Sans Arabic",
+    "Noto Sans Arabic UI", "Geeza Pro", Tahoma, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+html[dir="rtl"] .dir-flip {
+  transform: scaleX(-1);
+}

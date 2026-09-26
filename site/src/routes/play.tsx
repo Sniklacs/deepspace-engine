@@ -859,7 +859,7 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
             <p className="text-sm font-semibold text-white">
               🌍 {WORLD_CONFIG_PUBLIC.worldName}
               {WORLD_CONFIG_PUBLIC.debugWorld && (
-                <span className="ml-2 rounded bg-purple-400/20 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-purple-200">Beta Test World</span>
+                <span className="ms-2 rounded bg-purple-400/20 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-purple-200">Beta Test World</span>
               )}
             </p>
             <p className="mt-1 text-xs text-purple-100/80">{WORLD_CONFIG_PUBLIC.tagline}</p>
@@ -873,7 +873,7 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
             <button
               key={r.id}
               onClick={() => setSelected(r.id)}
-              className={`text-left rounded-xl border p-4 transition ${
+              className={`text-start rounded-xl border p-4 transition ${
                 selected === r.id ? "border-amber-400 bg-amber-400/10" : "border-white/10 bg-white/5 hover:border-white/30"
               }`}
             >
@@ -904,7 +904,7 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
           <div className="flex flex-wrap items-baseline gap-3">
             <h2 className="text-2xl font-bold text-white">{race.name}</h2>
             <span className="text-sm text-gray-400">{race.title}</span>
-            <span className="ml-auto text-xs text-text-3">Home region: <span className="text-gray-300">{race.homeRegion}</span></span>
+            <span className="ms-auto text-xs text-text-3">Home region: <span className="text-gray-300">{race.homeRegion}</span></span>
           </div>
           <p className="mt-3 leading-relaxed text-gray-300 text-sm">{race.lore}</p>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -938,7 +938,7 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
               layer — they are not playable in this beta build yet.
             </p>
           </div>
-          <blockquote className="mt-4 border-l-2 border-amber-400/60 pl-4 text-amber-200/90 italic">{race.flavorQuote}</blockquote>
+          <blockquote className="mt-4 border-s-2 border-amber-400/60 ps-4 text-amber-200/90 italic">{race.flavorQuote}</blockquote>
 
           <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-end">
             <label className="flex-1">
@@ -1306,9 +1306,9 @@ function DevotionPanel({ state, onClaim }: { state: GameState; onClaim: () => vo
                   <span className={"w-4 text-center " + (done ? "text-ember-soft" : "text-text-3")}>{done ? "✓" : "○"}</span>
                   <span className={"text-[13px] " + (done ? "text-gray-100" : "text-gray-400")}>
                     {def?.icon ?? ""} {def?.label ?? id}
-                    {done && banked && <span className="ml-1.5 text-[11px] uppercase tracking-wide text-ember-soft/80">claimed</span>}
+                    {done && banked && <span className="ms-1.5 text-[11px] uppercase tracking-wide text-ember-soft/80">claimed</span>}
                   </span>
-                  <span className="ml-auto text-xs text-text-3">+30 · +1</span>
+                  <span className="ms-auto text-xs text-text-3">+30 · +1</span>
                 </div>
               );
             })}
@@ -1437,7 +1437,7 @@ function ColonyTab({ state, onPurify, onCraft, onClaim }: { state: GameState; on
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-semibold text-amber-200">🔑 Alloy recipe — 5 unique race materials</span>
               <span className="text-gray-400">your own + any 4 other races.</span>
-              <span className={`ml-auto font-semibold ${canForgeAlloy(state) ? "text-ember-soft" : "text-gray-300"}`}>
+              <span className={`ms-auto font-semibold ${canForgeAlloy(state) ? "text-ember-soft" : "text-gray-300"}`}>
                 {canForgeAlloy(state) ? "✓ Recipe complete — forge an alloy" : `${recipe.length === 0 ? 1 : 1 + recipe.filter((rid) => rid !== state.race).length}/5 held`}
               </span>
             </div>
@@ -1472,7 +1472,7 @@ function ColonyTab({ state, onPurify, onCraft, onClaim }: { state: GameState; on
         type="button"
         onClick={() => { setCodexOpen(true); sound.tab(); }}
         aria-haspopup="dialog"
-        className="mt-6 flex w-full items-center gap-3 rounded-xl border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-left transition-colors hover:border-amber-400/60 hover:bg-amber-400/10"
+        className="mt-6 flex w-full items-center gap-3 rounded-xl border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-start transition-colors hover:border-amber-400/60 hover:bg-amber-400/10"
       >
         <span className="text-lg" aria-hidden="true">📖</span>
         <span className="min-w-0 flex-1">
@@ -1603,7 +1603,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
           <Tooltip content={tip(LAB_TIPS.scientists)}><label className="text-xs text-gray-400">{t("exp.scientists")}</label></Tooltip>
           <input type="number" min={1} max={state.scientists} value={sci} onChange={(e) => setSci(Math.max(1, Math.min(state.scientists, Number(e.target.value) || 1)))} className="w-20 rounded-lg border border-white/15 bg-black/60 px-2 py-2 text-white outline-none focus:border-amber-400" />
           <Tooltip content={tip({ what: "Commit Supplies — launch this expedition.", does: "Spends the destination's Supplies cost and sends your team out in real time. Deep zones open the pre-launch risk pop-up first. Farther sites also draw on the convoy's fuel & battery stores.", how: "Requires a stepped-out Cradle (Tier 0 kits), enough Supplies, a free field slot, and enough fuel/battery for the distance. Returns Embers (and maybe a Chipset) when it completes." })}>
-            <button onClick={commit} disabled={!canLaunch} className="ml-auto rounded-lg bg-ember px-5 py-2 font-semibold text-black hover:brightness-110 disabled:opacity-40">
+            <button onClick={commit} disabled={!canLaunch} className="ms-auto rounded-lg bg-ember px-5 py-2 font-semibold text-black hover:brightness-110 disabled:opacity-40">
               Commit Supplies
             </button>
           </Tooltip>
@@ -1759,7 +1759,7 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
                 return (
                   <tr key={row.label} className="border-b border-white/5 last:border-0">
                     <td className="py-1.5 text-gray-300">{row.icon} {row.label}</td>
-                    <td className="py-1.5 text-right">
+                    <td className="py-1.5 text-end">
                       {row.need > 0 ? (
                         <span className={ok ? "text-ember-soft" : "text-red-300"}>
                           {row.have}/{row.need} <span className="text-text-3">({Math.round(cover * 100)}% cover)</span>
@@ -1994,7 +1994,7 @@ function ArmoryTab({ state, now, onBuild, onRefine }: {
                     {[1, 2, 3, 4].map((t) => (
                       <span key={t} className={`flex h-5 w-5 items-center justify-center rounded text-[11px] font-bold ${tier >= t ? "bg-ember text-black" : "bg-white/10 text-text-3"}`}>{t}</span>
                     ))}
-                    {build && <span className="ml-auto text-[11px] text-purple-300">{fmtDur(leftMs)} left</span>}
+                    {build && <span className="ms-auto text-[11px] text-purple-300">{fmtDur(leftMs)} left</span>}
                   </div>
                   {!unlocked ? (
                     <div className="mt-3 rounded-lg border border-purple-400/20 bg-purple-400/5 p-2.5 text-[11px] text-purple-200">
@@ -2105,7 +2105,7 @@ function CodexContent() {
               ))}
             </div>
             <p className="mt-3 text-xs text-text-3">Home region: <span className="text-gray-300">{r.homeRegion}</span></p>
-            <blockquote className="mt-2 border-l-2 border-amber-400/50 pl-3 text-amber-200/80 italic">{r.flavorQuote}</blockquote>
+            <blockquote className="mt-2 border-s-2 border-amber-400/50 ps-3 text-amber-200/80 italic">{r.flavorQuote}</blockquote>
           </div>
         ))}
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 p-5">
@@ -2116,7 +2116,7 @@ function CodexContent() {
           <p className="mt-2 text-sm text-gray-400">{UNBOUND_LEGEND.title}</p>
           <p className="mt-2 text-sm leading-relaxed text-gray-300">{UNBOUND_LEGEND.lore}</p>
           <div className="mt-3 flex flex-wrap gap-2">{UNBOUND_LEGEND.attributes.map((a) => <span key={a.label} className="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] text-gray-300">{a.label}</span>)}</div>
-          <blockquote className="mt-3 border-l-2 border-amber-400/50 pl-3 text-amber-200/80 italic">{UNBOUND_LEGEND.flavorQuote}</blockquote>
+          <blockquote className="mt-3 border-s-2 border-amber-400/50 ps-3 text-amber-200/80 italic">{UNBOUND_LEGEND.flavorQuote}</blockquote>
         </div>
       </div>
     </div>
@@ -2152,11 +2152,11 @@ function RevelationChoiceModal({ onPick }: { onPick: (choice: "sealed" | "open")
           A glimpse only. The path does not show itself twice. Something in the Cradle waits for an answer.
         </p>
         <div className="mt-5 space-y-2">
-          <button onClick={() => { sound.click(); onPick("sealed"); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-left hover:border-white/40 hover:bg-white/10">
+          <button onClick={() => { sound.click(); onPick("sealed"); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-white/40 hover:bg-white/10">
             <div className="font-semibold text-white">Seal the Record in bone</div>
             <p className="mt-1 text-xs text-gray-400">Keep what the Cradle knows the way marrow keeps its memory.</p>
           </button>
-          <button onClick={() => { sound.click(); onPick("open"); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-left hover:border-white/40 hover:bg-white/10">
+          <button onClick={() => { sound.click(); onPick("open"); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-white/40 hover:bg-white/10">
             <div className="font-semibold text-white">Leave it open</div>
             <p className="mt-1 text-xs text-gray-400">Let the pages turn in the wind no machine makes.</p>
           </button>

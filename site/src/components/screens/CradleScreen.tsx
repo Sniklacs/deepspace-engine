@@ -347,7 +347,7 @@ export default function CradleScreen({
                         role="img"
                         aria-label={t("cradle.kitReady", { label: def.label })}
                         data-ready="true"
-                        className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-ember"
+                        className="absolute end-1.5 top-1.5 h-2 w-2 rounded-full bg-ember"
                       />
                     ) : null}
                   </button>
@@ -570,12 +570,12 @@ function DevotionSection({ state, onClaim }: { state: GameState; onClaim: () => 
                   <span className={`text-[13px] ${done ? "text-text-1" : "text-text-2"}`}>
                     {def?.label ?? id}
                     {done && banked ? (
-                      <span className="ml-1.5 text-[11px] uppercase tracking-wide text-ember-soft/80">
+                      <span className="ms-1.5 text-[11px] uppercase tracking-wide text-ember-soft/80">
                         {t("cradle.claimed")}
                       </span>
                     ) : null}
                   </span>
-                  <span className="num ml-auto text-[11px] text-text-3">+30 · +1</span>
+                  <span className="num ms-auto text-[11px] text-text-3">+30 · +1</span>
                 </li>
               );
             })}

@@ -24,7 +24,7 @@ export function tip(b: TooltipBlock): ReactNode {
   }) =>
     c ? (
       <span className="block">
-        {h && <span className={"mr-1 font-semibold " + (color || "text-amber-400")}>{h}</span>}
+        {h && <span className={"me-1 font-semibold " + (color || "text-amber-400")}>{h}</span>}
         {c}
       </span>
     ) : null;

@@ -13,10 +13,16 @@
 // no purchase — each flagged `machine: true` with its provenance, so a human
 // translation can replace the file later without touching a line of code.
 //
-// Launch set (slice 1, chosen by player population among the languages the
-// current font stack and layout already render correctly — LTR, Latin/Cyrillic):
-//   es · pt-BR · ru.  CJK (ja/ko/zh) waits on font coverage and RTL (ar/he/fa/ur)
-//   waits on layout mirroring; both are named in L10 and both are later slices.
+// Launch set (slice 1, LTR, Latin/Cyrillic): es · pt-BR · ru.
+// Slice 2 adds the FIRST right-to-left language: fa (Persian). Persian-speaking
+// testers are arriving, and a language file alone would have been worse for them
+// than plain English — Persian words inside a left-to-right frame. So `fa` ships
+// together with the RTL foundation: `dir: "rtl"` below is the ONE value the
+// pre-paint boot script reads (device.ts → bootScript) to stamp `dir` on <html>
+// before the first frame, and the mirrored chrome (styles/app.css §13 + the
+// logical-property conversions in the shell/UI components) is what makes it read
+// correctly. CJK (ja/ko/zh) still waits on font coverage; ar/he/ur now wait only
+// on a translation file (the RTL plumbing is language-agnostic).
 
 export type LangDirection = "ltr" | "rtl";
 
@@ -71,9 +77,40 @@ export const LANGS: readonly LangMeta[] = [
     machine: true,
     source: "local machine translation, zero cost (team's own model; no service, no key, no account)",
   },
+  {
+    // Slice 2. The first RTL language — and the reason the boot script below in
+    // device.ts has a direction table at all. Endonym in Persian script on
+    // purpose: a player who cannot read English must recognise their own
+    // language in the picker (L1), and the picker marks the row `lang="fa"` so
+    // the name itself is laid out right-to-left even while English is on screen.
+    code: "fa",
+    endonym: "فارسی",
+    english: "Persian",
+    dir: "rtl",
+    machine: true,
+    source: "local machine translation, zero cost (team's own model; no service, no key, no account)",
+  },
 ];
 
 export const LANG_CODES: readonly string[] = LANGS.map((l) => l.code);
+/**
+ * The direction table, derived from the registry — `{ en: "ltr", …, fa: "rtl" }`.
+ * This is the ONLY place a direction is decided for a language, and it is
+ * injected into the pre-paint boot script (device.ts → bootScript) so the first
+ * painted frame is already laid out in the right direction. Adding an RTL
+ * language therefore cannot leave the boot script behind: it reads this table.
+ */
+export const LANG_DIRS: Readonly<Record<string, LangDirection>> = Object.fromEntries(
+  LANGS.map((l) => [l.code, l.dir]),
+);
+/** The direction for any code; anything unknown (or absent) is LTR, as English is. */
+export function langDir(code: string): LangDirection {
+  return LANG_DIRS[code] ?? "ltr";
+}
+/** True when the language is read right-to-left (today: fa only). */
+export function isRtlLang(code: string): boolean {
+  return langDir(code) === "rtl";
+}
 
 export function isShippedLang(code: unknown): code is string {
   return typeof code === "string" && LANG_CODES.includes(code);

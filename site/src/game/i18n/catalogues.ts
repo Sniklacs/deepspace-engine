@@ -16,12 +16,17 @@ import en from "./langs/en";
 import es from "./langs/es";
 import ptBR from "./langs/pt-BR";
 import ru from "./langs/ru";
+// Slice 2 — the first RIGHT-TO-LEFT file. Direction is NOT decided here: it lives
+// in the registry (`languages.ts` → `dir: "rtl"`), which the pre-paint boot script
+// and `applyToDocument` both read. This line only makes the text available.
+import fa from "./langs/fa";
 
 export const CATALOGUES: Record<string, Catalogue> = {
   [SOURCE_LANG]: en,
   es,
   "pt-BR": ptBR,
   ru,
+  fa,
 };
 
 /** The codes that actually have a catalogue in the bundle (gated vs the registry). */

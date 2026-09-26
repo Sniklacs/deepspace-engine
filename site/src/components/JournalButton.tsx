@@ -25,7 +25,7 @@ export function JournalButton({
         type="button"
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
-        className="mt-6 flex w-full items-center gap-3 rounded-xl border border-line bg-surf-2/60 px-4 py-3 text-left transition-colors hover:border-line-strong hover:bg-surf-4/70"
+        className="mt-6 flex w-full items-center gap-3 rounded-xl border border-line bg-surf-2/60 px-4 py-3 text-start transition-colors hover:border-line-strong hover:bg-surf-4/70"
       >
         <Icon name="scroll" size={18} className="shrink-0 text-ember-soft" aria-hidden="true" />
         <span className="min-w-0 flex-1">

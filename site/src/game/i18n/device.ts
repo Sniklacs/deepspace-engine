@@ -8,7 +8,8 @@
 // `i18n-verify` asserts that, because "per device" is a promise about *where the
 // value lives*, and a promise about behaviour is only as good as its wiring.
 
-import { LANGS, LANG_CODES, SOURCE_LANG, matchLangTag, suggestLang } from "./languages";
+import { LANGS, LANG_CODES, LANG_DIRS, SOURCE_LANG, matchLangTag, suggestLang } from "./languages";
+import type { LangDirection } from "./languages";
 import type { Catalogue } from "./types";
 
 /** One record per device. Versioned so a shape change can migrate, not guess. */
@@ -155,6 +156,9 @@ export function applyToDocument(s: DeviceSettings): void {
   const meta = LANGS.find((l) => l.code === s.lang) ?? LANGS[0];
   if (html.getAttribute("lang") !== s.lang) html.setAttribute("lang", s.lang);
   html.setAttribute("data-lang", s.lang);
+  // The direction comes from the registry row, never from a guess about the code
+  // — and the boot script below stamps exactly the same value before first paint,
+  // so this is a re-assertion (a language change inside the session), not a swap.
   html.setAttribute("dir", meta.dir);
   html.setAttribute("data-text-size", s.textSize);
   html.setAttribute("data-quality", s.quality);
@@ -171,29 +175,45 @@ export function resetDeviceCache(): void {
  * A tiny inline script for <head>. It runs BEFORE first paint and, when the
  * device is not a settled English one, hides the app until React has rendered in
  * the resolved language — that is what stops an English flash-and-swap. It also
- * stamps `lang`/`data-lang` on <html> so the very first painted frame is already
- * in the right language.
+ * stamps `lang`/`data-lang` AND `dir` on <html> so the very first painted frame
+ * is already in the right language and the right direction.
  *
- * The code list is injected from the registry, so adding a language cannot leave
- * this script behind. The 2500ms un-hide is a failsafe: a device with JS blocked
- * mid-way shows the app in English rather than a blank screen (a `<noscript>`
- * rule in the root document covers JavaScript being off entirely).
+ * WHY `dir` IS STAMPED HERE (slice 2). React can only apply the direction after
+ * hydration, and by then the browser has already laid out a left-to-right frame:
+ * for a Persian player that is not a cosmetic flicker, it is the wrong reading
+ * order for every line on screen, twice. Stamping it in the same inline script
+ * that resolves the language makes "no left-to-right flash" structural — the
+ * inline script runs before the body is painted, and `html { direction }` is what
+ * every inherited `dir` and every logical CSS property resolves against.
+ * LTR languages are stamped `ltr` by the same line: identical to what the
+ * hydrated provider has always set, so English output does not change.
+ *
+ * The code list AND the direction table are injected from the registry, so adding
+ * a language (as `fa` did) cannot leave this script behind. The 2500ms un-hide is
+ * a failsafe: a device with JS blocked mid-way shows the app in English rather
+ * than a blank screen (a `<noscript>` rule in the root document covers JavaScript
+ * being off entirely).
  */
-export function bootScript(codes: readonly string[] = LANG_CODES): string {
+export function bootScript(
+  codes: readonly string[] = LANG_CODES,
+  dirs: Readonly<Record<string, LangDirection>> = LANG_DIRS,
+): string {
   return [
     "(function(){try{",
     `var c=${JSON.stringify(codes)},k=${JSON.stringify(DEVICE_KEY)},q=${JSON.stringify(LANG_QUERY)};`,
-    "var d=null;try{d=JSON.parse(localStorage.getItem(k)||'null')}catch(e){}",
+    `var d=${JSON.stringify(dirs)};`,
+    "var d0=null;try{d0=JSON.parse(localStorage.getItem(k)||'null')}catch(e){}",
     "var p=null;try{p=new URLSearchParams(location.search).get(q)}catch(e){}",
     "var norm=function(t){if(!t)return null;t=String(t).replace(/_/g,'-');",
     "for(var i=0;i<c.length;i++){if(c[i].toLowerCase()===t.toLowerCase())return c[i]}",
     "var b=t.split('-')[0].toLowerCase();",
     "for(var j=0;j<c.length;j++){if(c[j].split('-')[0].toLowerCase()===b)return c[j]}return null};",
-    "var pin=norm(p),sto=(d&&typeof d.lang==='string')?norm(d.lang):null;",
+    "var pin=norm(p),sto=(d0&&typeof d0.lang==='string')?norm(d0.lang):null;",
     "var tags=[];try{tags=(navigator.languages||[]).concat([navigator.language])}catch(e){}",
     "var sug=null;for(var m=0;m<tags.length&&!sug;m++)sug=norm(tags[m]);",
-    "var lang=pin||sto||sug||'en',chosen=!!(pin||sto);",
+    "var lang=pin||sto||sug||'en',chosen=!!(pin||sto),dir=(d[lang]==='rtl')?'rtl':'ltr';",
     "var h=document.documentElement;h.setAttribute('lang',lang);h.setAttribute('data-lang',lang);",
+    "h.setAttribute('dir',dir);",
     "if(lang!=='en'||!chosen){h.className+=' i18n-boot';",
     "setTimeout(function(){try{h.classList.remove('i18n-boot')}catch(e){}},2500);}",
     "}catch(e){try{document.documentElement.classList.remove('i18n-boot')}catch(e2){}}})();",
