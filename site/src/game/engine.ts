@@ -293,12 +293,12 @@ export const CRAFT_RESOURCE_KEY: Record<CraftKind, ResourceKey> = {
 export const CRAFT: Record<CraftKind, CraftCosts> = {
   // Tier 0 — stepping out. Gates fielding ANY expedition.
   medkit: { supplies: 5, label: "Medical kit", icon: "🩺", description: "Bandages and basic shots against sickness. Without a medical kit no team can step out at all." },
-  mechkit: { supplies: 6, label: "Mechanics kit", icon: "🔧", description: "Patch-up and basic vehicle repair. Without it no team can field an expedition." },
-  armorkit: { supplies: 7, label: "Armor/armature kit", icon: "🛡️", description: "Armature for crew and light vehicles. Without it no team can field an expedition." },
+  mechkit: { supplies: 6, label: "Mechanics kit", icon: "🔧", description: "Patch-up and basic vehicle repair. Without it no team can field an exploration." },
+  armorkit: { supplies: 7, label: "Armor/armature kit", icon: "🛡️", description: "Armature for crew and light vehicles. Without it no team can field an exploration." },
   // Tier 1 — outer / mild zones.
   skmech: { supplies: 14, label: "Skilled mechanics", icon: "👷", description: "A crew that repairs and maintains heavier machinery in the farther ruins." },
-  gas: { supplies: 4, label: "Vehicle fuel", icon: "⛽", description: "For the long-haul convoy. Burned per expedition — refuel to go further." },
-  battery: { supplies: 5, label: "Battery packs", icon: "🔋", description: "Quiet electric running at the site. Discharged per expedition — recharge before you go." },
+  gas: { supplies: 4, label: "Vehicle fuel", icon: "⛽", description: "For the long-haul convoy. Burned per exploration — refuel to go further." },
+  battery: { supplies: 5, label: "Battery packs", icon: "🔋", description: "Quiet electric running at the site. Discharged per exploration — recharge before you go." },
   // Tier 2 — deep zones (explore vs extract).
   hazmat: { supplies: 8, label: "Hazmat suit", icon: "🧥", description: "Lets a suited team EXPLORE deep radiation zones (protection per scientist)." },
   shots: { supplies: 6, label: "Radiation shot", icon: "💉", description: "Support injector that buffers attrition (protection per scientist)." },
@@ -1649,7 +1649,7 @@ export function resolveExpedition(state: GameState, e: (typeof state.expeditions
     // corrupted fragments gathered (the first clean recovery, deep or not).
     awardDeedCosmetic(state, "deed_first_clean", now);
   }
-  awardDeed(state, "five_expeditions", 3, "your fifth expedition recovers a trove of pre-war records");
+  awardDeed(state, "five_expeditions", 3, "your fifth exploration recovers a trove of pre-war records");
 
   // Season 0 pass objectives (§4.1): expeditions completed (weekly target),
   // deep scientific sites (rad ≥ 60), and Codices recovered all accumulate
@@ -1685,7 +1685,7 @@ export function resolveExpedition(state: GameState, e: (typeof state.expeditions
     }
   }
 
-  let msg = `Expedition to ${zone.name} returned: +${embers} Embers`;
+  let msg = `Exploration of ${zone.name} returned: +${embers} Embers`;
   if (wc === "lost") {
     msg = `💀 ${zone.name} — the team never came home whole. A roaming Chorus force crossed their path, or they landed in the wrong damn spot${sciLost > 0 ? `; ${sciLost} scientist${sciLost > 1 ? "s" : ""} lost` : ";"} only ${embers} Embers dragged out of the wreck. Protection saves teams — build more.`;
   } else if (wc === "mauled") {
@@ -1694,8 +1694,8 @@ export function resolveExpedition(state: GameState, e: (typeof state.expeditions
     msg = `— ${zone.name} — the team rode out an unexpected hazard (a worse landing, a hidden pocket of Chorus). The kit took the edge off. +${embers} Embers.`;
   } else if (radiationHit) {
     msg = `☢️ ${zone.name} claimed its price: the under-geared team took radiation. +${embers} Embers recovered${e.assignedScientists > 1 ? " — scientists lost to attrition" : " — the lone scientist barely survived"}.`;
-  } else if (gotChipset) msg = `Expedition to ${zone.name} returned a prize: +${embers} Embers and a rare Chipset!`;
-  else if (zone.chipsetChance === 0) msg = `Expedition to ${zone.name} returned: +${embers} Embers (no chipsets in the outer rust).`;
+  } else if (gotChipset) msg = `Exploration of ${zone.name} returned a prize: +${embers} Embers and a rare Chipset!`;
+  else if (zone.chipsetChance === 0) msg = `Exploration of ${zone.name} returned: +${embers} Embers (no chipsets in the outer rust).`;
   if (cleanRecovery) msg += ` 📜 The team brought a surviving archive home whole — Codices +${gotCodex} (earned, not looted).`;
   if (plasmaSalvaged > 0) msg += ` — the deep vaults bled high-energy plasma (🔮 +${plasmaSalvaged}).`;
   if (corruptionGain > 8) msg += ` — the fragment left a taint on the Cradle (corruption +${Math.round(corruptionGain)}).`;
@@ -1711,7 +1711,7 @@ export function launchExpedition(state: GameState, zoneId: string, assignedScien
   advance(state, now);
   if (!state.race) return fail("Choose a race first.");
   if (state.expeditions.filter((e) => e.status === "out").length >= maxConcurrentExpeditionsState(state)) {
-    return fail("Your logistics can only keep one expedition team in the field. Deploy Logistics AI to send more.");
+    return fail("Your logistics can only keep one exploration team in the field. Deploy Logistics AI to send more.");
   }
   const zone = getZone(zoneId);
   const cost = suppliesCostForZone(state, zone);
@@ -1773,7 +1773,7 @@ export function launchExpedition(state: GameState, zoneId: string, assignedScien
     pureAtLaunch: state.corruption <= 0,
   } as (typeof state.expeditions)[number]);
   const warn = radLoss > 0 ? ` ☢️ ${radLoss}% clean-return risk — the colony went without full gear.` : "";
-  log(state, `Expedition launched into ${zone.name} (${sci} scientist${sci > 1 ? "s" : ""}). Returns in ~${(durationMs / 60000).toFixed(1)} min. Risk ${zone.risk}.${warn}`);
+  log(state, `Exploration launched into ${zone.name} (${sci} scientist${sci > 1 ? "s" : ""}). Returns in ~${(durationMs / 60000).toFixed(1)} min. Risk ${zone.risk}.${warn}`);
   recordSeasonEvent(state, "launch_expedition", now); // Season 0 daily objective
   // V7 daily to-do: launch_any always; launch_mid (risk >= 40, rad < DEEP) and
   // launch_deep (rad >= 60) are zone-gated by the funnel.

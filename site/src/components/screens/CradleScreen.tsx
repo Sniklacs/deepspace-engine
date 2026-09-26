@@ -57,7 +57,7 @@ const KIT_ICON: Record<CraftKind, IconName> = {
 };
 
 const KIT_TIERS: { note: string; kinds: CraftKind[] }[] = [
-  { note: "Tier 0 · Step Out — gates fielding ANY expedition", kinds: ["medkit", "mechkit", "armorkit"] },
+  { note: "Tier 0 · Step Out — gates fielding ANY exploration", kinds: ["medkit", "mechkit", "armorkit"] },
   { note: "Tier 1 · Outer & mild zones — radiation shots, skilled mechanics, fuel & battery", kinds: ["skmech", "gas", "battery", "shots"] },
   { note: "Tier 2 · Deep zones — suits let you EXPLORE, alloys let you EXTRACT", kinds: ["hazmat", "alloy"] },
 ];

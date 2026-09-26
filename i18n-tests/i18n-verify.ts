@@ -211,7 +211,12 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
  * point of a pin, not an obstacle. The direction half of the proof is §11 (en and
  * every other LTR language must still resolve to `ltr`, pre-paint included).
  */
-const ENGLISH_SHA = "51166bd2971cf45d72eb467514edd2c17639785d1e65a573cf6d6f1ac37d9293";
+// Re-baselined 2026-09-26 — OWNER DECISION: "Expeditions" -> "Exploration" everywhere,
+// English included (the shipped Persian already said اکتشاف, so English came into line).
+// Twelve catalogue values reworded across en/es/pt-BR/ru; fa untouched; the key count is
+// unchanged at 242. This pin was the ONLY check the rename moved, and it moved by design.
+// Previous pin: 51166bd2971cf45d72eb467514edd2c17639785d1e65a573cf6d6f1ac37d9293
+const ENGLISH_SHA = "6cd980258565d13b069523655abb0c39d5357c46060a026ab9948a046555806c";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);

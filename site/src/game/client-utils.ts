@@ -208,7 +208,7 @@ export const engineHelpers = {
       case "economy":
         return `+${state.deployedDomains.economy * 6}% ember yield · +${state.deployedDomains.economy * 2}/min supplies`;
       case "industry":
-        return `Expeditions ${Math.round((1 - Math.pow(0.94, state.deployedDomains.industry)) * 100)}% faster & cheaper`;
+        return `Exploration ${Math.round((1 - Math.pow(0.94, state.deployedDomains.industry)) * 100)}% faster & cheaper`;
       case "logistics":
         return `+${Math.floor(state.deployedDomains.logistics / 2)} scientist cap · +${state.deployedDomains.logistics} field slot`;
     }

@@ -670,10 +670,10 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("help.close")}</button>
         </div>
         <div className="mt-3 space-y-3 text-sm text-gray-300">
-          <p><b className="text-amber-200">1 · Send Expeditions</b> — fund teams into the Shatterlands (Expeditions tab) to salvage <b className="text-amber-200">Embers</b> and rare <b className="text-cyan-300">Chipsets</b>. Exports run in real time; they keep going even logged out.</p>
+          <p><b className="text-amber-200">1 · Send Explorations</b> — fund teams into the Shatterlands (Exploration tab) to salvage <b className="text-amber-200">Embers</b> and rare <b className="text-cyan-300">Chipsets</b>. Exports run in real time; they keep going even logged out.</p>
           <p><b className="text-amber-200">2 · Study in the Lab</b> — scientists study the fragments over real time to distill <b className="text-ember-soft">insight</b>.</p>
           <p><b className="text-amber-200">3 · Deploy recovered AI</b> — spend Embers + insight to advance five domains: ⚔️ Weaponry, 🌾 Agriculture, 💰 Economy, ⚙️ Industry, 🚚 Logistics. Each grants passive bonuses.</p>
-          <p><b className="text-amber-200">4 · Push deeper</b> — growth funds riskier expeditions. Watch your ☣️ taint and 🔺 Chorus — high taint dulls salvage; Purify it in the Colony tab. Hover any icon for details.</p>
+          <p><b className="text-amber-200">4 · Push deeper</b> — growth funds riskier explorations. Watch your ☣️ taint and 🔺 Chorus — high taint dulls salvage; Purify it in the Colony tab. Hover any icon for details.</p>
           <p><b className="text-amber-200">5 · The deep needs gear</b> — deep radiation sites sit in the ☢️ Hangar: suits let you EXPLORE, alloy-armed diggers (forged in the 🏭 Workshop from 5 race materials) let you EXTRACT. Under-geared runs show a pre-launch risk pop-up — you are always free to go, and you own what you risk.</p>
           <p><b className="text-amber-200">Multiple colonies</b> — the <b className="text-gray-200">Games</b> button in the header lets you found new colonies, switch active ones, reset a game (all the way back to race selection, to pick a new legend and name), or delete it. The whole account (all colonies) can be removed from the Account section.</p>
           <p className="text-xs text-text-3">This is a colony-sim MVP on a persistent world that lives on in real time — a long game, not a click-session.</p>
@@ -787,7 +787,7 @@ function FeedbackModal({ token, colonyName, onClose, flash }: {
           )}
           <div>
             <div className="flex justify-between text-xs font-semibold uppercase tracking-wide text-gray-400"><span>Title</span><span className="text-text-3">{title.length}/80</span></div>
-            <input value={title} onChange={(e) => { setTitle(e.target.value); setError(null); }} maxLength={80} placeholder="Short summary, e.g. Expedition stuck at 100%"
+            <input value={title} onChange={(e) => { setTitle(e.target.value); setError(null); }} maxLength={80} placeholder="Short summary, e.g. Exploration stuck at 100%"
               className="mt-2 w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-gray-200 placeholder:text-text-3 outline-none focus:border-amber-400/50" />
           </div>
           <div>
@@ -1184,7 +1184,7 @@ function ResetConfirm({ game, onCancel, onConfirm }: { game: GameSummary; onCanc
     <div className="text-sm">
       <p className="text-amber-200"><b>Reset “{game.name}”?</b> This wipes all progress forever and returns you to the <b>race-selection screen to pick a NEW legend AND a new name</b> for this colony slot {game.race ? `(the current legend is ${getRace(game.race).name})` : ""}.</p>
       {game.activeContent && (
-        <p className="mt-1 text-amber-300/90">⚠️ This colony has expeditions or studies still in flight. They will be abandoned immediately.</p>
+        <p className="mt-1 text-amber-300/90">⚠️ This colony has explorations or studies still in flight. They will be abandoned immediately.</p>
       )}
       <p className="mt-1 text-xs text-text-3">There is no fresh-colony-same-race shortcut anymore — a reset takes you all the way back to the start.</p>
       <label className="mt-3 flex items-start gap-2">
@@ -1402,7 +1402,7 @@ function ColonyTab({ state, onPurify, onCraft, onClaim }: { state: GameState; on
         </div>
 
         {[
-          { note: "Tier 0 · Step Out — gates fielding ANY expedition", kinds: ["medkit", "mechkit", "armorkit"] as CraftKind[] },
+          { note: "Tier 0 · Step Out — gates fielding ANY exploration", kinds: ["medkit", "mechkit", "armorkit"] as CraftKind[] },
           { note: "Tier 1 · Outer & mild zones — radiation shots, skilled mechanics, fuel & battery", kinds: ["skmech", "gas", "battery", "shots"] as CraftKind[] },
           { note: "Tier 2 · Deep zones — suits let you EXPLORE, alloys let you EXTRACT", kinds: ["hazmat", "alloy"] as CraftKind[] },
         ].map((tier, ti) => (
@@ -1417,7 +1417,7 @@ function ColonyTab({ state, onPurify, onCraft, onClaim }: { state: GameState; on
                   : def.description;
                 return (
                   <div key={k} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <Tooltip content={tip({ what: def.label, does: def.description, how: `Costs ${def.supplies} 📦. ${k === "alloy" ? "Consumes 5 race materials (own + 4 others)." : k === "gas" || k === "battery" ? "Consumed each expedition you launch." : "Stacks in the colony stores."}` })}>
+                    <Tooltip content={tip({ what: def.label, does: def.description, how: `Costs ${def.supplies} 📦. ${k === "alloy" ? "Consumes 5 race materials (own + 4 others)." : k === "gas" || k === "battery" ? "Consumed each exploration you launch." : "Stacks in the colony stores."}` })}>
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-white">{def.icon} {def.label}</span>
                         <span className="text-xs text-lime-300">{def.supplies} 📦</span>
@@ -1451,7 +1451,7 @@ function ColonyTab({ state, onPurify, onCraft, onClaim }: { state: GameState; on
               const isOwn = state.race === race.id;
               const inRecipe = recipe.includes(race.id);
               return (
-                <Tooltip key={race.id} content={tip({ what: `${race.name} territory material`, does: "A unique supply found only in their home region — part of the alloy recipe.", how: `Loot it by running Expeditions into ${race.homeRegion}. ${isOwn ? "This is YOUR race's material." : "One of the 4 foreign materials needed."}` })}>
+                <Tooltip key={race.id} content={tip({ what: `${race.name} territory material`, does: "A unique supply found only in their home region — part of the alloy recipe.", how: `Loot it by running Explorations into ${race.homeRegion}. ${isOwn ? "This is YOUR race's material." : "One of the 4 foreign materials needed."}` })}>
                   <span className={`rounded-full border px-2.5 py-0.5 text-[11px] ${inRecipe ? "border-ember/50 bg-ember/10 text-ember-soft" : count > 0 ? "border-amber-400/40 bg-amber-400/10 text-amber-200" : "border-white/10 bg-white/5 text-text-3"}`}>
                     {race.id === "grays" ? "👽" : race.id === "nephilim" ? "🗿" : race.id === "draconians" ? "🐉" : race.id === "anunnaki" ? "🏛️" : race.id === "ashtar" ? "⭐" : "📖"} {race.name.replace("The ", "")}{isOwn ? " (own)" : ""} ×{count}
                   </span>
@@ -1463,7 +1463,7 @@ function ColonyTab({ state, onPurify, onCraft, onClaim }: { state: GameState; on
       </div>
 
       <div className="mt-6 rounded-xl border border-white/10 bg-black/30 p-5">
-        <h3 className="font-semibold text-white">Expedition Ledger <span className="text-xs text-text-3">({state.completedExpeditions} completed)</span></h3>
+        <h3 className="font-semibold text-white">Exploration Ledger <span className="text-xs text-text-3">({state.completedExpeditions} completed)</span></h3>
         <div className="mt-2 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
           <Stat label="Total Embers looted" value={state.totalEmbersLooted} />
           <Stat label="Total Chipsets looted" value={state.totalChipsetsLooted} />
@@ -1579,7 +1579,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
             return (
               <div key={e.id} className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-4">
                 <div className="flex items-center justify-between">
-                  <Tooltip content={tip({ what: "Active expedition — a team out in the Shatterlands.", does: "Runs in real time and resolves while you're away, returning Embers (and maybe a Chipset) to the Cradle.", how: "Returns automatically once the timer hits zero. Runs launched under-geared carry their accepted radiation loss." })}><span className="font-semibold text-amber-100">🚚 {e.label}</span></Tooltip>
+                  <Tooltip content={tip({ what: "Active exploration — a team out in the Shatterlands.", does: "Runs in real time and resolves while you're away, returning Embers (and maybe a Chipset) to the Cradle.", how: "Returns automatically once the timer hits zero. Runs launched under-geared carry their accepted radiation loss." })}><span className="font-semibold text-amber-100">🚚 {e.label}</span></Tooltip>
                   <span className="text-xs text-gray-400">{e.assignedScientists} scientist(s){e.lossPct ? ` · ☢️ ${e.lossPct}%` : ""}</span>
                 </div>
                 <p className="mt-1 text-xs text-gray-400">{t("exp.returnsIn")} <b className="text-amber-200">{fmtDur(msLeft)}</b></p>
@@ -1595,7 +1595,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
         <h3 className="font-semibold text-white">{t("exp.plan")} <span className="text-xs font-normal text-gray-400">{t("exp.planSub")}</span></h3>
         {!stepOut && (
           <div className="mt-3 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-            🏗️ <b>The Cradle hasn't stepped out yet.</b> Fielding any expedition requires everyday logistics gear forged in the <b className="text-amber-200">🏭 Workshop</b> (Colony tab): a <b>Medical kit</b> 🩺, a <b>Mechanics kit</b> 🔧, and an <b>Armor kit</b> 🛡️ (Tier 0, ~18 📦 total). Forge all three before you Commit.
+            🏗️ <b>The Cradle hasn't stepped out yet.</b> Fielding any exploration requires everyday logistics gear forged in the <b className="text-amber-200">🏭 Workshop</b> (Colony tab): a <b>Medical kit</b> 🩺, a <b>Mechanics kit</b> 🔧, and an <b>Armor kit</b> 🛡️ (Tier 0, ~18 📦 total). Forge all three before you Commit.
           </div>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1605,7 +1605,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
           </select>
           <Tooltip content={tip(LAB_TIPS.scientists)}><label className="text-xs text-gray-400">{t("exp.scientists")}</label></Tooltip>
           <input type="number" min={1} max={state.scientists} value={sci} onChange={(e) => setSci(Math.max(1, Math.min(state.scientists, Number(e.target.value) || 1)))} className="w-20 rounded-lg border border-white/15 bg-black/60 px-2 py-2 text-white outline-none focus:border-amber-400" />
-          <Tooltip content={tip({ what: "Commit Supplies — launch this expedition.", does: "Spends the destination's Supplies cost and sends your team out in real time. Deep zones open the pre-launch risk pop-up first. Farther sites also draw on the convoy's fuel & battery stores.", how: "Requires a stepped-out Cradle (Tier 0 kits), enough Supplies, a free field slot, and enough fuel/battery for the distance. Returns Embers (and maybe a Chipset) when it completes." })}>
+          <Tooltip content={tip({ what: "Commit Supplies — launch this exploration.", does: "Spends the destination's Supplies cost and sends your team out in real time. Deep zones open the pre-launch risk pop-up first. Farther sites also draw on the convoy's fuel & battery stores.", how: "Requires a stepped-out Cradle (Tier 0 kits), enough Supplies, a free field slot, and enough fuel/battery for the distance. Returns Embers (and maybe a Chipset) when it completes." })}>
             <button onClick={commit} disabled={!canLaunch} className="ms-auto rounded-lg bg-ember px-5 py-2 font-semibold text-black hover:brightness-110 disabled:opacity-40">
               Commit Supplies
             </button>

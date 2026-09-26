@@ -93,7 +93,7 @@ function summaryOf(st: GameState): GameSummary | null {
     st.expeditions.some((e) => e.status === "out") ||
     st.studies.some((s) => s.status === "studying");
   const summary =
-    `${domains} deployed AI · ${st.completedExpeditions} expedition${st.completedExpeditions === 1 ? "" : "s"} · ` +
+    `${domains} deployed AI · ${st.completedExpeditions} exploration${st.completedExpeditions === 1 ? "" : "s"} · ` +
     `${Math.floor(st.resources.embers)} embers · ${Math.floor(st.resources.supplies)} supplies`;
   return { gameId: st.gameId, name: st.playerName, race: st.race, createdAt: st.createdAt, summary, activeContent };
 }
