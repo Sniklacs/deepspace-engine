@@ -378,5 +378,44 @@ export const ru: Catalogue = {
   "store.cosmetic.wardens-livery.blurb": "Лидер достигает L5 с выбранной специализацией.",
   "store.cosmetic.the-contribution-ring.blurb": "Награда за вклад сервера — одна на сервер за цикл.",
 
+
+  // ---- CHAT (slice A1 — the dock, the sheet and the thread) ------------------
+  // 29 keys, added with chat's first PLAYER-FACING slice: the dock bar, the five
+  // surface names, the World channel's states, the composer and its refusals,
+  // the thread's day words, and every state the per-message Translate control
+  // can be in. The five surface names are things, so they take the language's own
+  // word (fa: جهان · پیمان · اتاق‌ها · خصوصی · نامه), never a transliteration, and
+  // none collides with a real-world religious or national term. Digits stay
+  // Western: nothing here carries a numeral the formatter did not pin.
+  "chat.barNew": "Чат — {surface}, новых: {n}",
+  "chat.barClear": "Чат — {surface}, нового нет",
+  "chat.surfacesAria": "Разделы чата",
+  "chat.surface.world": "Мир",
+  "chat.surface.covenant": "Союз",
+  "chat.surface.rooms": "Комнаты",
+  "chat.surface.personal": "Личные",
+  "chat.surface.mail": "Почта",
+  "chat.world.sub": "Все на этом мире",
+  "chat.world.empty": "Мировой канал молчит. Скажите первое слово.",
+  "chat.covenant.sub": "Канал вашего Союза",
+  "chat.covenant.none": "Вы ещё не в Союзе. Этот канал откроется в день, когда вы вступите.",
+  "chat.composerPlaceholder": "Написать сообщение",
+  "chat.send": "Отправить",
+  "chat.sendFailed": "Не отправилось. Попробуйте ещё раз.",
+  "chat.tooFast": "Слишком быстро — подождите немного.",
+  "chat.tooLong": "Сообщение должно быть короче {n} символов.",
+  "chat.you": "Вы",
+  "chat.translating": "Переводим…",
+  "chat.translateUnavailable": "Эту строку нельзя перевести на этом устройстве.",
+  "chat.translatedFrom": "Перевод с языка: {language}",
+  "chat.opening": "Открываем канал…",
+  "chat.loadFailed": "Канал не загрузился.",
+  "chat.retry": "Попробовать снова",
+  "chat.newMessages": "Новых: {n}",
+  "chat.today": "Сегодня",
+  "chat.yesterday": "Вчера",
+  "chat.locked": "Откроется позже",
+  "chat.loggedOut": "Войдите, чтобы говорить со своим миром.",
+
 };
 export default ru;

@@ -114,6 +114,17 @@ const SWEPT = [
   // The bundled translator's surface joined the sweep with the translator slice
   // (owner 2026-09-26): one more file swept, no check removed.
   "src/components/shell/TranslatorNote.tsx",
+  // CHAT (slice A1, owner 2026-09-26): the seven files that carry every
+  // player-facing word of the dock, the sheet and the thread. They join the sweep
+  // so §5's un-keyed-literal scan covers them and §6 can find their call sites —
+  // a chat string that skipped the catalogue would fail HERE, not in review.
+  "src/components/shell/ChatDock.tsx",
+  "src/components/chat/ChatSheet.tsx",
+  "src/components/chat/ChatSurfaceTabs.tsx",
+  "src/components/chat/MessageList.tsx",
+  "src/components/chat/MessageRow.tsx",
+  "src/components/chat/TranslatedText.tsx",
+  "src/components/chat/Composer.tsx",
 ];
 const PROP = /\b(aria-label|title|placeholder|alt|label|sub|subtitle|text|reason|note)="([^"]{3,})"/;
 const ALLOW_PROP = /^(ltr|rtl|dialog|banner|list|none|button|tab|img|page|true|false)$/;
@@ -250,7 +261,17 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // reason it can be locked). No existing value changed; the pin moved because the
 // KEY SET grew by design.
 // Previous pin: 1dce08d59d5959a86b289b7122efd4440b906faabb28aebf762a4e8d6988bc22
-const ENGLISH_SHA = "9b184bfc6e650e9083c2a7d5a7c15a7988316f19a3b13306e2a8c6b2dba21fdf";
+// Re-baselined 2026-09-26 — THE CHAT SLICE A1: 29 new keys added to the English
+// catalogue (342 -> 371), every one translated in all five languages in the same
+// commit (the dock bar's two states, the five surface names, the World channel's
+// subtitle and empty state, the Covenant lock, the composer, its refusals, the
+// thread's day words and every state of the per-message Translate control). No
+// EXISTING value moved: the keys are additive, and the four reused translator
+// keys (`translator.translate`, `translator.original`, `translator.notReady`,
+// `translator.retry`) were already in the catalogue and were NOT duplicated. The
+// pin moved because the KEY SET grew by design.
+// Previous pin: 9b184bfc6e650e9083c2a7d5a7c15a7988316f19a3b13306e2a8c6b2dba21fdf
+const ENGLISH_SHA = "f8fd7897f37276b66dae79fb2bd382b110ab87c7a9ceab9d6fd4d0a6e63606b0";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);

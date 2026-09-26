@@ -396,6 +396,23 @@
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
+
+/* 3d · THE CHAT SHEET'S KEYBOARD CLAMP (chat-mail-spec §3.2).
+   On a phone the on-screen keyboard does not resize the layout viewport, so an
+   85vh sheet keeps its full height and its bottom row ends up UNDER the keys.
+   `ChatSheet` measures `window.visualViewport` while it is open and sets two
+   variables: --chat-vvh (the visual viewport's height) and --chat-vk (the part of
+   the layout viewport the keyboard covers). This rule spends them — the panel
+   fits above the keyboard and its composer stays visible.
+   Where the API is absent (or there is no keyboard) both variables are unset, and
+   `var()` falls back to exactly the shipped values: max-height 85vh, bottom 0.
+   Phone only: the ≥640px centered modal has no keyboard to dodge. */
+@media (max-width: 639px) {
+  .sheet-panel.chat-sheet-panel {
+    max-height: var(--chat-vvh, 85vh);
+    bottom: var(--chat-vk, 0px);
+  }
+}
 @keyframes sheetIn {
   from { transform: translateY(24px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

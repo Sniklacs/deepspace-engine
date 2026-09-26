@@ -75,7 +75,12 @@ export default function AppShell({
       <div id="screen" className="shell-body">
         {children}
       </div>
-      <ChatDock />
+      {/* The chat dock, in the stack the layout reserved for it: screen body,
+          44px bar, nav. Its room is paid for by `--dock-h` (set by the bar
+          itself), so it moves nothing — and during The Fall's height it is
+          suppressed entirely: the story owns the screen, and a chat bar must not
+          compete with the narrator (game-ui-shell-spec §1.6). */}
+      <ChatDock suppressed={state.prologue?.stage === "height"} />
       <BottomNav tab={tab} onSwitch={onSwitch} badges={badges} />
     </div>
   );

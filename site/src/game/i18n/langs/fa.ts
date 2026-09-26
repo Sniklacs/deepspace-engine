@@ -406,5 +406,44 @@ export const fa: Catalogue = {
   "store.cosmetic.wardens-livery.blurb": "یک رهبر با تخصص برگزیده به سطح 5 می‌رسد.",
   "store.cosmetic.the-contribution-ring.blurb": "نشان سهم سرور — یکی برای هر سرور در هر چرخه.",
 
+
+  // ---- CHAT (slice A1 — the dock, the sheet and the thread) ------------------
+  // 29 keys, added with chat's first PLAYER-FACING slice: the dock bar, the five
+  // surface names, the World channel's states, the composer and its refusals,
+  // the thread's day words, and every state the per-message Translate control
+  // can be in. The five surface names are things, so they take the language's own
+  // word (fa: جهان · پیمان · اتاق‌ها · خصوصی · نامه), never a transliteration, and
+  // none collides with a real-world religious or national term. Digits stay
+  // Western: nothing here carries a numeral the formatter did not pin.
+  "chat.barNew": "گفت‌وگو — {surface}، {n} تازه",
+  "chat.barClear": "گفت‌وگو — {surface}، چیز تازه‌ای نیست",
+  "chat.surfacesAria": "بخش‌های گفت‌وگو",
+  "chat.surface.world": "جهان",
+  "chat.surface.covenant": "پیمان",
+  "chat.surface.rooms": "اتاق‌ها",
+  "chat.surface.personal": "خصوصی",
+  "chat.surface.mail": "نامه",
+  "chat.world.sub": "همه‌ی ساکنان این جهان",
+  "chat.world.empty": "کانال جهان خاموش است. نخستین سخن را بگویید.",
+  "chat.covenant.sub": "کانال پیمان شما",
+  "chat.covenant.none": "هنوز در هیچ پیمانی نیستید. این کانال روزی باز می‌شود که به یکی بپیوندید.",
+  "chat.composerPlaceholder": "یک پیام بنویسید",
+  "chat.send": "فرستادن",
+  "chat.sendFailed": "فرستاده نشد. دوباره تلاش کنید.",
+  "chat.tooFast": "بیش از اندازه تند — کمی صبر کنید.",
+  "chat.tooLong": "پیام را کمتر از {n} نویسه نگه دارید.",
+  "chat.you": "شما",
+  "chat.translating": "در حال برگردان…",
+  "chat.translateUnavailable": "این خط روی این دستگاه برگردانده نمی‌شود.",
+  "chat.translatedFrom": "برگردانده از {language}",
+  "chat.opening": "در حال گشودن کانال…",
+  "chat.loadFailed": "کانال بارگذاری نشد.",
+  "chat.retry": "دوباره تلاش کنید",
+  "chat.newMessages": "{n} تازه",
+  "chat.today": "امروز",
+  "chat.yesterday": "دیروز",
+  "chat.locked": "بعداً باز می‌شود",
+  "chat.loggedOut": "برای گفتن با جهان خود وارد شوید.",
+
 };
 export default fa;
