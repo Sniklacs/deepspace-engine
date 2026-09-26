@@ -43,6 +43,15 @@ import path from "node:path";
 import fs from "node:fs";
 import { Pool } from "@neondatabase/serverless";
 import type { GameState, FeedbackRecord } from "./types";
+import type {
+  ChatMessage,
+  ChatRead,
+  ChatRoom,
+  ChatThread,
+  MailLetter,
+  RoomMember,
+} from "./chat/chat-types";
+import { CHAT_RETENTION } from "./chat/chat-types";
 
 // ── backend selection ───────────────────────────────────────────────────────
 const USE_DB = !!process.env.DATABASE_URL;
@@ -52,6 +61,9 @@ const SAVES_DIR = path.join(DATA_DIR, "saves");
 const ACCOUNTS_PATH = path.join(DATA_DIR, "accounts.json");
 const SESSIONS_PATH = path.join(DATA_DIR, "sessions.json");
 const FEEDBACK_PATH = path.join(DATA_DIR, "feedback.json");
+// Chat + mail, slice A1: ONE file on the fallback backend holding all six tables
+// (the same one-file shape as feedback.json), and six real tables on Postgres.
+const CHAT_PATH = path.join(DATA_DIR, "chat.json");
 
 // Lazy singleton pool — created on first DB use, reused across serverless warm
 // starts (never .end()'d per request; that would kill pooled connections).
@@ -86,6 +98,57 @@ function ensureTables(): Promise<void> {
       await db().query(`CREATE TABLE IF NOT EXISTS feedback (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         data JSONB NOT NULL
+      )`);
+      // ── chat + mail, slice A1 (chat-mail-spec §1 · D7) ────────────────────
+      // SIX tables, one per row shape — never one JSONB blob, so retention,
+      // deletion and the per-account guards are real SQL, not read-modify-write
+      // of a single document. The fallback backend mirrors the same six sets in
+      // `data/chat.json` so the headless battery (no DATABASE_URL) exercises the
+      // identical rules.
+      await db().query(`CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        channel TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        colony_name TEXT NOT NULL,
+        lang TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at BIGINT NOT NULL
+      )`);
+      await db().query(`CREATE TABLE IF NOT EXISTS chat_threads (
+        id TEXT PRIMARY KEY,
+        a TEXT NOT NULL,
+        b TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        closed_at BIGINT
+      )`);
+      await db().query(`CREATE TABLE IF NOT EXISTS chat_rooms (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at BIGINT NOT NULL
+      )`);
+      await db().query(`CREATE TABLE IF NOT EXISTS chat_room_members (
+        room_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        joined_at BIGINT NOT NULL,
+        PRIMARY KEY (room_id, account_id)
+      )`);
+      await db().query(`CREATE TABLE IF NOT EXISTS chat_reads (
+        account_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        last_read_at BIGINT NOT NULL,
+        PRIMARY KEY (account_id, channel)
+      )`);
+      await db().query(`CREATE TABLE IF NOT EXISTS mail_letters (
+        id TEXT PRIMARY KEY,
+        from_account TEXT NOT NULL,
+        from_name TEXT NOT NULL,
+        to_account TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL,
+        lang TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        read_at BIGINT
       )`);
     })().catch((e) => {
       tablesReady = null; // allow a retry on the next call
@@ -463,4 +526,424 @@ export async function saveFeedback(file: FeedbackFile): Promise<void> {
     return;
   }
   writeJson(FEEDBACK_PATH, file);
+}
+// ------- chat + mail (chat-mail-spec §1 · D7) -------
+//
+// Six tables, TWO backends, ONE set of rules. Every function below is the single
+// place its operation is implemented, so the fs fallback and Postgres cannot
+// drift: the same retention, the same eviction, the same hard delete.
+//
+//   Postgres  — chat_messages · chat_threads · chat_rooms · chat_room_members ·
+//               chat_reads · mail_letters (created in ensureTables above).
+//   fallback  — data/chat.json, the same six arrays inside one versioned file
+//               (mirrors feedback.json). The headless battery runs with no
+//               DATABASE_URL, so a Postgres-only table would be untestable.
+//
+// Rows carry NO presence, NO last-seen and NO receipt: the record is the message
+// (D4). `mail_letters.read_at` is the player's OWN read mark on their own letter,
+// which is not a receipt back to the sender — the sender can never see it.
+
+/** The fallback backend's whole store: the six tables as arrays, one versioned file. */
+export interface ChatFile {
+  version: 1;
+  messages: ChatMessage[];
+  threads: ChatThread[];
+  rooms: ChatRoom[];
+  members: RoomMember[];
+  reads: ChatRead[];
+  letters: MailLetter[];
+}
+const CHAT_VERSION = 1 as const;
+
+function emptyChat(): ChatFile {
+  return { version: CHAT_VERSION, messages: [], threads: [], rooms: [], members: [], reads: [], letters: [] };
+}
+
+function readChatFile(): ChatFile {
+  const raw = readJson<Partial<ChatFile>>(CHAT_PATH, emptyChat());
+  const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+  return {
+    version: CHAT_VERSION,
+    messages: arr<ChatMessage>(raw.messages),
+    threads: arr<ChatThread>(raw.threads),
+    rooms: arr<ChatRoom>(raw.rooms),
+    members: arr<RoomMember>(raw.members),
+    reads: arr<ChatRead>(raw.reads),
+    letters: arr<MailLetter>(raw.letters),
+  };
+}
+
+function writeChatFile(f: ChatFile): void {
+  writeJson(CHAT_PATH, f);
+}
+
+/** The whole store, read-only — the harness's window into the fallback tables. */
+export async function loadChatFile(): Promise<ChatFile> {
+  if (USE_DB) {
+    return {
+      version: CHAT_VERSION,
+      messages: await loadChatMessages(undefined, 100_000),
+      threads: await loadChatThreadsFor(null),
+      rooms: await loadChatRooms(),
+      members: await loadMyRoomMemberships(null),
+      reads: await loadChatReads(null),
+      letters: await loadMailFor(null),
+    };
+  }
+  return readChatFile();
+}
+
+// ---- chat_messages --------------------------------------------------------
+
+/** Newest messages of a channel, OLDEST FIRST (the render order). `channel` null = all. */
+export async function loadChatMessages(channel?: string, limit = CHAT_RETENTION): Promise<ChatMessage[]> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      const res = channel
+        ? await db().query(
+            "SELECT id, channel, account_id, colony_name, lang, body, created_at FROM chat_messages WHERE channel = $1 ORDER BY created_at DESC, id DESC LIMIT $2",
+            [channel, limit]
+          )
+        : await db().query(
+            "SELECT id, channel, account_id, colony_name, lang, body, created_at FROM chat_messages ORDER BY created_at DESC, id DESC LIMIT $1",
+            [limit]
+          );
+      const rows = res.rows.map((r) => ({
+        id: r.id as string,
+        channel: r.channel as string,
+        accountId: r.account_id as string,
+        colonyName: r.colony_name as string,
+        lang: r.lang as string,
+        body: r.body as string,
+        createdAt: Number(r.created_at),
+      }));
+      return rows.reverse();
+    } catch (e) {
+      console.error("Failed to load chat messages (db):", e);
+      return [];
+    }
+  }
+  const all = readChatFile().messages
+    .filter((m) => (channel === undefined ? true : m.channel === channel))
+    .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
+  return all.slice(Math.max(0, all.length - limit));
+}
+
+export async function appendChatMessage(m: ChatMessage): Promise<void> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      await db().query(
+        "INSERT INTO chat_messages (id, channel, account_id, colony_name, lang, body, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING",
+        [m.id, m.channel, m.accountId, m.colonyName, m.lang, m.body, m.createdAt]
+      );
+    } catch (e) {
+      console.error("Failed to append chat message (db):", e);
+    }
+    return;
+  }
+  const f = readChatFile();
+  if (!f.messages.some((x) => x.id === m.id)) f.messages.push(m);
+  writeChatFile(f);
+}
+
+/**
+ * RETENTION (D7): keep the newest `keep` messages of a channel, delete the rest —
+ * oldest first. Returns how many rows went, so the caller can log it honestly
+ * instead of claiming an eviction that did not happen.
+ */
+export async function evictChatMessages(channel: string, keep = CHAT_RETENTION): Promise<number> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      const res = await db().query(
+        `DELETE FROM chat_messages WHERE channel = $1 AND id NOT IN (
+           SELECT id FROM chat_messages WHERE channel = $1 ORDER BY created_at DESC, id DESC LIMIT $2
+         )`,
+        [channel, keep]
+      );
+      return res.rowCount ?? 0;
+    } catch (e) {
+      console.error("Failed to evict chat messages (db):", e);
+      return 0;
+    }
+  }
+  const f = readChatFile();
+  const mine = f.messages
+    .filter((m) => m.channel === channel)
+    .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
+  if (mine.length <= keep) return 0;
+  const doomed = new Set(mine.slice(0, mine.length - keep).map((m) => m.id));
+  f.messages = f.messages.filter((m) => !doomed.has(m.id));
+  writeChatFile(f);
+  return doomed.size;
+}
+
+/** How many messages this account sent at or after `since` — the per-minute guard. */
+export async function countChatMessagesSince(accountId: string, since: number): Promise<number> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      const res = await db().query(
+        "SELECT COUNT(*)::int AS n FROM chat_messages WHERE account_id = $1 AND created_at >= $2",
+        [accountId, since]
+      );
+      return Number(res.rows[0]?.n ?? 0);
+    } catch (e) {
+      console.error("Failed to count chat messages (db):", e);
+      return 0;
+    }
+  }
+  return readChatFile().messages.filter((m) => m.accountId === accountId && m.createdAt >= since).length;
+}
+
+/** The account's most recent message time, or null — the 2-second guard. */
+export async function lastChatMessageAt(accountId: string): Promise<number | null> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      const res = await db().query(
+        "SELECT MAX(created_at) AS t FROM chat_messages WHERE account_id = $1",
+        [accountId]
+      );
+      const t = res.rows[0]?.t;
+      return t == null ? null : Number(t);
+    } catch (e) {
+      console.error("Failed to read last chat message (db):", e);
+      return null;
+    }
+  }
+  const mine = readChatFile().messages.filter((m) => m.accountId === accountId);
+  if (!mine.length) return null;
+  return Math.max(...mine.map((m) => m.createdAt));
+}
+
+/**
+ * D13 — ACCOUNT DELETION. The account's messages are HARD-DELETED (not blanked:
+ * a tombstone with the body still inside would not be a deletion), and every
+ * thread it is part of is CLOSED so the other participant keeps their own lines
+ * and the thread itself. Nothing else in the store is touched here — the account
+ * row and the saves are the caller's business.
+ */
+export async function deleteChatByAccount(accountId: string): Promise<{ messages: number; threadsClosed: number }> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      const del = await db().query("DELETE FROM chat_messages WHERE account_id = $1", [accountId]);
+      const closed = await db().query(
+        "UPDATE chat_threads SET closed_at = $2 WHERE closed_at IS NULL AND (a = $1 OR b = $1)",
+        [accountId, Date.now()]
+      );
+      await db().query("DELETE FROM chat_room_members WHERE account_id = $1", [accountId]);
+      await db().query("DELETE FROM chat_reads WHERE account_id = $1", [accountId]);
+      await db().query("DELETE FROM mail_letters WHERE to_account = $1 OR from_account = $1", [accountId]);
+      return { messages: del.rowCount ?? 0, threadsClosed: closed.rowCount ?? 0 };
+    } catch (e) {
+      console.error("Failed to delete chat for account (db):", e);
+      return { messages: 0, threadsClosed: 0 };
+    }
+  }
+  const f = readChatFile();
+  const before = f.messages.length;
+  f.messages = f.messages.filter((m) => m.accountId !== accountId);
+  let threadsClosed = 0;
+  const now = Date.now();
+  for (const th of f.threads) {
+    if (th.closedAt === null && (th.a === accountId || th.b === accountId)) {
+      th.closedAt = now;
+      threadsClosed++;
+    }
+  }
+  f.members = f.members.filter((m) => m.accountId !== accountId);
+  f.reads = f.reads.filter((r) => r.accountId !== accountId);
+  f.letters = f.letters.filter((l) => l.toAccount !== accountId && l.fromAccount !== accountId);
+  writeChatFile(f);
+  return { messages: before - f.messages.length, threadsClosed };
+}
+
+// ---- chat_threads --------------------------------------------------------
+
+/** Threads an account takes part in. `accountId` null = every thread (the harness). */
+export async function loadChatThreadsFor(accountId: string | null): Promise<ChatThread[]> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      const res = accountId
+        ? await db().query("SELECT id, a, b, created_at, closed_at FROM chat_threads WHERE a = $1 OR b = $1 ORDER BY created_at ASC", [accountId])
+        : await db().query("SELECT id, a, b, created_at, closed_at FROM chat_threads ORDER BY created_at ASC");
+      return res.rows.map((r) => ({
+        id: r.id as string,
+        a: r.a as string,
+        b: r.b as string,
+        createdAt: Number(r.created_at),
+        closedAt: r.closed_at == null ? null : Number(r.closed_at),
+      }));
+    } catch (e) {
+      console.error("Failed to load chat threads (db):", e);
+      return [];
+    }
+  }
+  const all = readChatFile().threads.sort((x, y) => x.createdAt - y.createdAt);
+  return accountId ? all.filter((t) => t.a === accountId || t.b === accountId) : all;
+}
+
+export async function appendChatThread(t: ChatThread): Promise<void> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      await db().query(
+        "INSERT INTO chat_threads (id, a, b, created_at, closed_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING",
+        [t.id, t.a, t.b, t.createdAt, t.closedAt]
+      );
+    } catch (e) {
+      console.error("Failed to append chat thread (db):", e);
+    }
+    return;
+  }
+  const f = readChatFile();
+  if (!f.threads.some((x) => x.id === t.id)) f.threads.push(t);
+  writeChatFile(f);
+}
+
+// ---- chat_rooms + chat_room_members --------------------------------------
+
+export async function loadChatRooms(): Promise<ChatRoom[]> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      const res = await db().query("SELECT id, name, created_by, created_at FROM chat_rooms ORDER BY created_at ASC");
+      return res.rows.map((r) => ({
+        id: r.id as string,
+        name: r.name as string,
+        createdBy: r.created_by as string,
+        createdAt: Number(r.created_at),
+      }));
+    } catch (e) {
+      console.error("Failed to load chat rooms (db):", e);
+      return [];
+    }
+  }
+  return readChatFile().rooms.sort((x, y) => x.createdAt - y.createdAt);
+}
+
+/** Memberships. `accountId` null = every membership (the harness). */
+export async function loadMyRoomMemberships(accountId: string | null): Promise<RoomMember[]> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      const res = accountId
+        ? await db().query("SELECT room_id, account_id, joined_at FROM chat_room_members WHERE account_id = $1", [accountId])
+        : await db().query("SELECT room_id, account_id, joined_at FROM chat_room_members");
+      return res.rows.map((r) => ({
+        roomId: r.room_id as string,
+        accountId: r.account_id as string,
+        joinedAt: Number(r.joined_at),
+      }));
+    } catch (e) {
+      console.error("Failed to load room memberships (db):", e);
+      return [];
+    }
+  }
+  const all = readChatFile().members;
+  return accountId ? all.filter((m) => m.accountId === accountId) : all;
+}
+
+// ---- chat_reads ----------------------------------------------------------
+
+/** An account's read marks. `accountId` null = every mark (the harness). */
+export async function loadChatReads(accountId: string | null): Promise<ChatRead[]> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      const res = accountId
+        ? await db().query("SELECT account_id, channel, last_read_at FROM chat_reads WHERE account_id = $1", [accountId])
+        : await db().query("SELECT account_id, channel, last_read_at FROM chat_reads");
+      return res.rows.map((r) => ({
+        accountId: r.account_id as string,
+        channel: r.channel as string,
+        lastReadAt: Number(r.last_read_at),
+      }));
+    } catch (e) {
+      console.error("Failed to load chat reads (db):", e);
+      return [];
+    }
+  }
+  const all = readChatFile().reads;
+  return accountId ? all.filter((r) => r.accountId === accountId) : all;
+}
+
+/** One read mark, upserted. Never moves backwards — a mark only ever advances. */
+export async function saveChatRead(accountId: string, channel: string, lastReadAt: number): Promise<void> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      await db().query(
+        `INSERT INTO chat_reads (account_id, channel, last_read_at) VALUES ($1, $2, $3)
+         ON CONFLICT (account_id, channel) DO UPDATE SET last_read_at = GREATEST(chat_reads.last_read_at, EXCLUDED.last_read_at)`,
+        [accountId, channel, lastReadAt]
+      );
+    } catch (e) {
+      console.error("Failed to save chat read (db):", e);
+    }
+    return;
+  }
+  const f = readChatFile();
+  const existing = f.reads.find((r) => r.accountId === accountId && r.channel === channel);
+  if (existing) existing.lastReadAt = Math.max(existing.lastReadAt, lastReadAt);
+  else f.reads.push({ accountId, channel, lastReadAt });
+  writeChatFile(f);
+}
+
+// ---- mail_letters --------------------------------------------------------
+
+/** Letters. `accountId` null = every letter (the harness); otherwise RECEIVED only. */
+export async function loadMailFor(accountId: string | null): Promise<MailLetter[]> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      const res = accountId
+        ? await db().query(
+            "SELECT id, from_account, from_name, to_account, subject, body, lang, created_at, read_at FROM mail_letters WHERE to_account = $1 ORDER BY created_at ASC",
+            [accountId]
+          )
+        : await db().query(
+            "SELECT id, from_account, from_name, to_account, subject, body, lang, created_at, read_at FROM mail_letters ORDER BY created_at ASC"
+          );
+      return res.rows.map((r) => ({
+        id: r.id as string,
+        fromAccount: r.from_account as string,
+        fromName: r.from_name as string,
+        toAccount: r.to_account as string,
+        subject: r.subject as string,
+        body: r.body as string,
+        lang: r.lang as string,
+        createdAt: Number(r.created_at),
+        readAt: r.read_at == null ? null : Number(r.read_at),
+      }));
+    } catch (e) {
+      console.error("Failed to load mail (db):", e);
+      return [];
+    }
+  }
+  const all = readChatFile().letters.sort((x, y) => x.createdAt - y.createdAt);
+  return accountId ? all.filter((l) => l.toAccount === accountId) : all;
+}
+
+export async function appendMailLetter(l: MailLetter): Promise<void> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      await db().query(
+        "INSERT INTO mail_letters (id, from_account, from_name, to_account, subject, body, lang, created_at, read_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING",
+        [l.id, l.fromAccount, l.fromName, l.toAccount, l.subject, l.body, l.lang, l.createdAt, l.readAt]
+      );
+    } catch (e) {
+      console.error("Failed to append mail (db):", e);
+    }
+    return;
+  }
+  const f = readChatFile();
+  if (!f.letters.some((x) => x.id === l.id)) f.letters.push(l);
+  writeChatFile(f);
 }

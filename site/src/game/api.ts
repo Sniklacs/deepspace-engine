@@ -44,6 +44,10 @@ import {
 } from "./war/battle-engine";
 import { ACT1_CONFIG, openAct1Front } from "./prologue/act1-battle";
 import { prologueState } from "./prologue/prologue-engine";
+// Chat + mail, slice A1: the server functions live in their own module (the same
+// zod-validated shape as the feedback channel's), so the chat surface cannot grow
+// inside this file, and `chat-tests` can reach the rules without a 1000-line import.
+import { worldFeedFn, sendWorldFn, chatSyncFn } from "./chat/chat-api";
 import type { BattleHeroSnapshot } from "./war/war-types";
 import {
   loadAccountSaves,
@@ -57,6 +61,7 @@ import {
   saveAccounts,
   loadFeedback,
   saveFeedback,
+  deleteChatByAccount,
 } from "./store";
 import {
   accountForToken,
@@ -446,6 +451,10 @@ const trashAccountFn = createServerFn({ method: "POST" }).validator(
   }
   await removeAccountSave(accountId);
   await deleteAccountRecord(accountId);
+  // D13: the account's chat and mail go with it — messages HARD-DELETED and its
+  // threads CLOSED, so the other participant keeps the thread and their own lines.
+  // Nothing of the deleted colony's voice survives anywhere on the world.
+  await deleteChatByAccount(accountId);
   await revokeAllSessions(accountId);
   return { ok: true, signedOut: true };
 });
@@ -1054,4 +1063,8 @@ export {
   battleRespondFn,
   enterActOneFn,
   leaveActOneFn,
+  // ---- chat + mail (slice A1) — their own module, the same zod-validated shape
+  worldFeedFn,
+  sendWorldFn,
+  chatSyncFn,
 };
