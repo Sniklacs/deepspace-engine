@@ -42,8 +42,13 @@ section("1 · THE APP-CODE TYPECHECK CONFIG (src/ only — the tests cannot mask
 const cfgText = read("tsconfig.typecheck.json");
 check("tsconfig.typecheck.json exists and extends the project config", /"extends"\s*:\s*"\.\/tsconfig\.json"/.test(cfgText));
 check("it includes the shipped app (src/**)", /src\/\*\*\/\*\.tsx?/.test(cfgText) || /src\/\*\*\/\*/.test(cfgText));
+// The config's own "//" field NAMES `*-tests` (it explains why they are excluded),
+// so this check must read the config FIELDS, never the prose around them: matching the
+// raw text made the suite fail on a correct config (found 2026-09-26).
+const cfg = JSON.parse(cfgText) as Record<string, unknown>;
+const cfgFields = JSON.stringify({ ...cfg, "//": undefined });
 check("it does NOT include the test suites (a suite can never inflate or mask the app's diagnostics)",
-  !/\*-tests/.test(cfgText) && !/"\.\."/.test(cfgText));
+  !/\*-tests/.test(cfgFields) && !/"\.\."/.test(cfgFields), cfgFields.slice(0, 80));
 check("it typechecks with node types too (the app has server modules; without them the check drowns in false errors)",
   /"types"\s*:\s*\[[^\]]*"node"/.test(cfgText));
 check("the baseline exists, is JSON, and does not baseline an undefined identifier",
@@ -91,7 +96,14 @@ export function PlayScreen() {
   const planted = guard([`${probeDir}/tsconfig.json`]);
   const pout = `${planted.stdout ?? ""}${planted.stderr ?? ""}`;
   check("the guard exits non-zero on a planted undefined hook", planted.status === 1, `exit=${planted.status}`);
-  check("it names the file, the line and the identifier", /probe\.tsx:\d+:\d+ — TS2304 Cannot find name 'useT'/.test(pout));
+  // tsc reports the undefined-identifier family by the code that fits the situation:
+  // TS2304 ("cannot find name") when nothing similar exists, TS2552/TS2551 when it
+  // has a suggestion. All three are the same fatal class (see §2), so accept all three.
+  check(
+    "it names the file, the line and the identifier",
+    /probe\.tsx:\d+:\d+ — TS(2304|2551|2552) Cannot find name 'useT'/.test(pout),
+    pout.split("\n").find((l) => l.includes("✖")) ?? "",
+  );
   check("and it says which class of bug this is", /TYPECHECK-GUARD: FAILED/.test(pout));
   const cleanWithProbe = guard();
   check("the real tree is untouched by the probe (still OK)", cleanWithProbe.status === 0);
@@ -120,24 +132,45 @@ const walk = (dir: string, rel = ""): string[] => {
 };
 const appFiles = walk(`${SITE}/src`).filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".d.ts"));
 const HOOKS = /\b(useT|useLang|useDeviceSettings|langDir|isRtlLang)\b/;
+/** Drop comments before scanning: a symbol named in a doc block is not a call. */
+const stripComments = (s: string) =>
+  s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
 const IMPORTS_I18N = /from\s+["'][^"']*i18n\/I18n["']/;
 const callSites: { file: string; uses: string[]; imported: boolean }[] = [];
 const bad: string[] = [];
 for (const rel of appFiles) {
-  const text = readFileSync(`${SITE}/src/${rel}`, "utf8");
+  const raw = readFileSync(`${SITE}/src/${rel}`, "utf8");
+  // Comments are prose, not calls: game/i18n/index.ts MENTIONS useT in its doc block and
+  // declares nothing (it is a barrel of `export * from`). Scanning raw text flagged it.
+  const text = stripComments(raw);
   const uses = [...new Set(text.match(new RegExp(HOOKS.source, "g")) ?? [])];
   if (!uses.length) continue;
-  const defines = rel === "components/i18n/I18n.tsx";
-  const imported = IMPORTS_I18N.test(text) || defines;
+  // A file that DECLARES the symbol is its definition site, not a call site
+  // (game/i18n/languages.ts defines langDir/isRtlLang itself).
+  const declares = (u: string) => new RegExp(`(function|const)\\s+${u}\\b`).test(text);
+  const defines = rel === "components/i18n/I18n.tsx" || uses.every(declares);
+  const imported = IMPORTS_I18N.test(raw) || defines;
   callSites.push({ file: rel, uses, imported });
   if (!imported) bad.push(`${rel} uses ${uses.join("/")} but imports nothing from i18n/I18n`);
 }
 check(`every file that reaches for the i18n API imports it (${callSites.length} files checked)`, bad.length === 0, bad.join(" | "));
 check("the sweep is not vacuous — it found the call sites at all", callSites.length >= 5, `${callSites.length}`);
-const lookups = appFiles.filter((rel) => /\bt\(\s*"/.test(readFileSync(`${SITE}/src/${rel}`, "utf8")));
+// Same rule as above: a `t("…")` shown in a COMMENT is documentation, not a call —
+// game/i18n/index.ts and game/i18n/types.ts document the API in their doc blocks and
+// are not call sites. Scan the same comment-stripped text the sweep above uses.
+const strippedSrc = (rel: string) => stripComments(readFileSync(`${SITE}/src/${rel}`, "utf8"));
+const lookups = appFiles.filter((rel) => /\bt\(\s*"/.test(strippedSrc(rel)));
 const undeclared = lookups.filter((rel) => {
-  const t = readFileSync(`${SITE}/src/${rel}`, "utf8");
-  return !/const t = useT\(\)/.test(t) && rel !== "components/i18n/I18n.tsx" && !/useT|makeT/.test(t);
+  const t = strippedSrc(rel);
+  // `t` must come from somewhere. game/battle-decisions.ts calls a LOCAL helper
+  // (`const t = (text: string) => ({ text })` — it builds order-line parts, it is not a
+  // translation lookup), so a plain `const t = …` / `const t: …` satisfies this too.
+  return (
+    !/const t\s*[=:]/.test(t) &&
+    rel !== "components/i18n/I18n.tsx" &&
+    !/useT|makeT/.test(t) &&
+    !/\bt\b[^;\n]*from\s+["'][^"']*i18n/.test(t)
+  );
 });
 check(`every file with a key lookup holds a lookup (${lookups.length} files with t("a.key") style calls)`, undeclared.length === 0, undeclared.join(" | "));
 console.log("      i18n call sites checked:");
