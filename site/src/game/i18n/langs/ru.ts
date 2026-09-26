@@ -327,5 +327,21 @@ export const ru: Catalogue = {
   "translator.notReady": "Перевод готовится",
   "translator.translate": "Перевести",
   "translator.original": "Показать оригинал",
+  // ---- the Cradle Market (real money: Stripe Payment Links + signed webhook) ----
+  // 13 keys, added by the payments slice: the buy control, the honest reasons it can
+  // be locked, and the post-purchase panel. Copy carries NO limitation language.
+  "store.buy": "Купить",
+  "store.signInToBuy": "Войдите, чтобы купить",
+  "store.notForSale": "Пока не продаётся",
+  "store.votivesHeading": "Воты",
+  "store.votivesSub": "Воты — премиальная валюта Колыбели: внешний вид и премиальный путь сезона. Купленные здесь, они попадают в ваш кошелёк.",
+  "store.votivesAmount": "{votives} вотов",
+  "store.votivesBonus": "+{bonus} бонуса",
+  "store.return.title": "Подтверждаем покупку",
+  "store.return.checking": "Сверяемся с сервером…",
+  "store.return.confirmed": "Платёж подтверждён — покупка уже в вашем кошельке.",
+  "store.return.pending": "Пока не подтверждено. Если с вас списали деньги, покупка приходит в течение минуты; этот экран сам ничего не выдаёт.",
+  "store.return.checkAgain": "Проверить снова",
+  "store.return.dismiss": "Скрыть",
 };
 export default ru;

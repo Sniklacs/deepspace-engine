@@ -344,5 +344,21 @@ export const en: Catalogue = {
   "translator.notReady": "Translation is preparing",
   "translator.translate": "Translate",
   "translator.original": "Show original",
+  // ---- the Cradle Market (real money: Stripe Payment Links + signed webhook) ----
+  // 13 keys, added by the payments slice: the buy control, the honest reasons it can
+  // be locked, and the post-purchase panel. Copy carries NO limitation language.
+  "store.buy": "Buy",
+  "store.signInToBuy": "Sign in to purchase",
+  "store.notForSale": "Not for sale yet",
+  "store.votivesHeading": "Votives",
+  "store.votivesSub": "Votives are the Cradle's premium currency — appearance and the premium season track. Bought here, they land in your wallet.",
+  "store.votivesAmount": "{votives} Votives",
+  "store.votivesBonus": "+{bonus} bonus",
+  "store.return.title": "Confirming your purchase",
+  "store.return.checking": "Checking with the server…",
+  "store.return.confirmed": "Payment confirmed — your purchase is in your wallet.",
+  "store.return.pending": "Not confirmed yet. If you were charged, it lands within a minute — this screen grants nothing by itself.",
+  "store.return.checkAgain": "Check again",
+  "store.return.dismiss": "Dismiss",
 };
 export default en;

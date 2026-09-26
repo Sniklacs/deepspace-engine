@@ -11,6 +11,7 @@
 import handler from "./dist/server/server.js";
 import { createHash } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
+import { STRIPE_WEBHOOK_PATH, handleStripeWebhookRequest, webhookResponse } from "./src/game/payments/webhook-route";
 
 // Pinned, NOT read from the environment. The published preview URL
 // (<label>.<PUBLIC_SITE_DOMAIN>) is reverse-proxied to 0.0.0.0:3000 inside the
@@ -198,6 +199,31 @@ export function cacheHeaders(pathname: string, build = BUILD): Record<string, st
  */
 export async function appFetch(req: Request): Promise<Response> {
   const { pathname } = new URL(req.url);
+  /**
+   * THE STRIPE WEBHOOK — the one POST route this server owns.
+   *
+   * Why here and not a TanStack Start route file: the signature is computed over
+   * the EXACT bytes Stripe sent, so this handler must read the request body
+   * itself, before any framework parses it, and it must answer with status codes
+   * (400/500 tell Stripe to retry and show the failure in their dashboard)
+   * instead of a page. A route file renders HTML through the app shell; this is
+   * transport, so it sits in the transport layer — the same module the dev
+   * server's middleware calls, so both hosts behave identically.
+   */
+  if (pathname === STRIPE_WEBHOOK_PATH) {
+    if (req.method !== "POST") {
+      return new Response(JSON.stringify({ ok: false, error: "method_not_allowed" }), {
+        status: 405,
+        headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", allow: "POST" },
+      });
+    }
+    return webhookResponse(
+      await handleStripeWebhookRequest({
+        rawBody: await req.text(),
+        signatureHeader: req.headers.get("stripe-signature"),
+      }),
+    );
+  }
   // The bundled translator's weights live outside dist/client (see serveWeights).
   const weights = await serveWeights(req);
   if (weights) return weights;
