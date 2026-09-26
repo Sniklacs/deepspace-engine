@@ -8,6 +8,7 @@ import {
   signupFn, loginFn, logoutFn, meFn,
   submitFeedbackFn, listMyFeedbackFn, dismissNoticeFn,
   weaponBuildFn, refinePlasmaFn,
+  forgeRollFn, forgeMeltFn,
   claimDailyRewardFn,
   leaveActOneFn,
 } from "../game/api";
@@ -37,6 +38,7 @@ import { useT } from "../components/i18n/I18n";
 import { navBadges } from "../game/nav-badges";
 import type { Tab } from "../game/nav-slots";
 import CradleScreen from "../components/screens/CradleScreen";
+import { ForgedRack } from "../components/ForgeViews";
 import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
 import BattlesTab from "../components/BattlesTab";
@@ -502,13 +504,16 @@ function PlayPage() {
           onClaim={() => act(() => claimDailyRewardFn({ data: { token: token! } }), "success")}
           onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")}
           onOpenCodex={() => { setCodexOpen(true); sound.tab(); }}
+          onForgeRoll={(recipeId, requestId) => act(() => forgeRollFn({ data: { token: token!, recipeId, requestId } }), "build")}
+          onForgeMelt={(itemId) => act(() => forgeMeltFn({ data: { token: token!, itemId } }), "success")}
+          forgeBusy={busy}
           onField={() => switchTab("battles")}
           onLeaveHeight={doLeaveAct1}
           canLeaveHeight={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
         />
       )}
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onPrepare={() => { setTab("colony"); sound.tab(); }} />}
-      {tab === "armory" && <ArmoryTab state={state} now={now} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} />}
+      {tab === "armory" && <ArmoryTab state={state} now={now} busy={busy} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} onForgeMelt={(itemId) => act(() => forgeMeltFn({ data: { token: token!, itemId } }), "success")} />}
       {tab === "battles" && (
         <BattlesTab
           state={state}
@@ -1914,10 +1919,13 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
 }
 
 /* ---------------- Armory tab (V6 — colony-side war hardware, earn-only) ---------------- */
-function ArmoryTab({ state, now, onBuild, onRefine }: {
+function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
   state: GameState; now: number;
   onBuild: (familyId: string) => void;
   onRefine: () => void;
+  /** melt a forged piece back into the crucible (the Forge's junk valve) */
+  onForgeMelt: (itemId: string) => void;
+  busy?: boolean;
 }) {
   const t = useT();
   const r = state.resources;
@@ -2043,6 +2051,9 @@ function ArmoryTab({ state, now, onBuild, onRefine }: {
           </div>
         </>
       )}
+      <div className="mt-4">
+        <ForgedRack state={state} now={now} onMelt={onForgeMelt} busy={busy} />
+      </div>
       <JournalButton title={t("armory.journal")} subtitle={t("armory.journalSub")} log={state.log} />
     </main>
   );

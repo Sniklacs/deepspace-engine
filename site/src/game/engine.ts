@@ -41,6 +41,17 @@ import {
   weaponTimeMs,
 } from "./armory";
 import {
+  FORGE_CONFIG,
+  forgeDropAmount,
+  forgeDropChance,
+  forgeDepthTier,
+  forgeGrade,
+  getForgeRecipe,
+  meltRefund,
+  rollForgeItem,
+  type ForgeItem,
+} from "./forge";
+import {
   ensureDaily,
   reconcileDaily,
   sweepDaily,
@@ -334,6 +345,8 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
       battery: 0,
       mats: { grays: 0, nephilim: 0, draconians: 0, anunnaki: 0, ashtar: 0, watchers: 0 },
       plasma: 0,
+      // THE FORGE's ingredient — a rare drop in the deeper Explorations.
+      warplate: 0,
     },
     scientists: 2,
     totalScientists: 2,
@@ -374,6 +387,11 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
     armory: {},
     armoryBuilds: {},
     weaponsBuilt: 0,
+    // ---- THE FORGE (owner 2026-09-26): a new colony's racks are empty ----
+    forgeItems: [],
+    forgeRolls: {},
+    forgeSeq: 0,
+    forgeMelts: 0,
     // ---- Daily to-do + Oracle Devotion (V7): quiet fresh block — the first
     // advance rolls today's list (dayKey "" != today). Devotion is zero. ----
     daily: freshDaily(now),
@@ -415,6 +433,8 @@ export function blankColony(now = Date.now()): GameState {
       battery: 0,
       mats: { grays: 0, nephilim: 0, draconians: 0, anunnaki: 0, ashtar: 0, watchers: 0 },
       plasma: 0,
+      // THE FORGE's ingredient — a rare drop in the deeper Explorations.
+      warplate: 0,
     },
     scientists: 0,
     totalScientists: 0,
@@ -455,6 +475,11 @@ export function blankColony(now = Date.now()): GameState {
     armory: {},
     armoryBuilds: {},
     weaponsBuilt: 0,
+    // ---- THE FORGE: a wiped colony's racks are empty (no items survive) ----
+    forgeItems: [],
+    forgeRolls: {},
+    forgeSeq: 0,
+    forgeMelts: 0,
     // ---- Daily to-do + Oracle Devotion (V7): quiet state — a blank/reset
     // colony holds no list (race null -> generator returns []); the panel
     // renders "the Cradle asks nothing of you today". ----
@@ -1082,6 +1107,8 @@ function ensureResources(state: GameState) {
   for (const rid of ALL_RACE_IDS) if (typeof mats[rid] !== "number") mats[rid] = 0;
   // V6: condensed high-energy plasma (weapons-system §2) — zero on legacy saves.
   if (typeof r.plasma !== "number" || !isFinite(r.plasma as number) || (r.plasma as number) < 0) r.plasma = 0;
+  // THE FORGE's ingredient: a legacy save starts with an empty crucible.
+  if (typeof r.warplate !== "number" || !isFinite(r.warplate as number) || (r.warplate as number) < 0) r.warplate = 0;
 }
 
 /** Brings legacy saves up to the research-tree / leaders / codices shape. */
@@ -1198,12 +1225,52 @@ function ensureArmory(state: GameState) {
   }
 }
 
+/**
+ * THE FORGE's migration (owner 2026-09-26).
+ *
+ * Legacy saves get empty racks, no recorded roll requests, a zero sequence and
+ * a zero melt counter. Idempotent, and — the point — a row is SHAPE-CHECKED,
+ * never regenerated: an item's rolled numbers are never recomputed, because
+ * materializing them is exactly what makes a roll un-rerollable. Rows that are
+ * not objects, or that carry no identity (the thing trade and plunder move),
+ * are dropped.
+ */
+function ensureForge(state: GameState) {
+  if (!Array.isArray(state.forgeItems)) state.forgeItems = [];
+  state.forgeItems = state.forgeItems.filter((it) => !!it && typeof it === "object" && typeof it.id === "string");
+  for (const it of state.forgeItems) {
+    if (typeof it.power !== "number" || !isFinite(it.power)) it.power = 0;
+    if (typeof it.locationSince !== "number") it.locationSince = it.provenance?.rolledAt ?? 0;
+    if (it.location !== "cradle" && it.location !== "transit" && it.location !== "field") it.location = "cradle";
+    if (it.location !== "transit") it.transit = undefined;
+    if (!it.ownerName) it.ownerName = state.playerName;
+    if (typeof it.ownerId !== "string") it.ownerId = "";
+  }
+  if (!state.forgeRolls || typeof state.forgeRolls !== "object") state.forgeRolls = {};
+  if (typeof state.forgeSeq !== "number" || !isFinite(state.forgeSeq) || state.forgeSeq < 0) state.forgeSeq = 0;
+  if (typeof state.forgeMelts !== "number" || !isFinite(state.forgeMelts) || state.forgeMelts < 0) state.forgeMelts = 0;
+}
+/** A supply run that has ARRIVED: in transit → the field (or back to the racks).
+ *  Lazy and idempotent, like every other resolver in advance(): the transit
+ *  record is consumed on arrival, so an offline world resolves on the next read
+ *  and a double-tick cannot double-resolve. */
+export function resolveForgeTransit(state: GameState, now: number) {
+  for (const it of state.forgeItems ?? []) {
+    if (it.location !== "transit" || !it.transit) continue;
+    if (now < it.transit.arriveAt) continue;
+    it.location = it.transit.to;
+    it.locationSince = it.transit.arriveAt;
+    it.transit = undefined;
+  }
+}
+
 export function advance(state: GameState, now = Date.now()): GameState {
   ensureResources(state);
   ensureKnowledge(state);
   ensureRevelation(state);
   ensureMonetization(state);
   ensureArmory(state);
+  ensureForge(state);
   ensureDaily(state);
   ensureBattles(state); // V9: real-time battle entities + report ledger (no-op on new saves)
   ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
@@ -1278,6 +1345,8 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // expeditions: built AT THE CRADLE while the world was offline. The deed
   // dents fire here exactly once (build records are consumed on completion).
   resolveArmoryBuilds(state, now);
+  // Resolve arrivals of Forge supply runs (the ~24h transit — lazy, idempotent).
+  resolveForgeTransit(state, now);
 
   // Resolve completed battles (V9, the real-time battle engine — battle-side
   // §15): every active battle whose wall-clock end has passed is finalized
@@ -1581,6 +1650,18 @@ export function resolveExpedition(state: GameState, e: (typeof state.expeditions
     state.resources.plasma += plasmaSalvaged;
   }
 
+  // ---- THE FORGE's ingredient: WARPLATE (owner 2026-09-26) ----
+  // "rare drops in some of the deeper explorations for materials" — and DEPTH is
+  // the whole of it: the shallow ring yields none at all (chance 0), the deep
+  // ring is thin, the deep scientific sites are where it actually lives. The
+  // odds and the amounts are one table (forge.FORGE_CONFIG). Earn-only: no
+  // currency, no store entry, no shortcut produces this.
+  const wpTier = forgeDepthTier(zone);
+  let warplateFound = 0;
+  if (wc !== "lost" && wpTier > 0 && coin(forgeDropChance(wpTier))) {
+    warplateFound = forgeDropAmount(wpTier);
+    if (warplateFound > 0) state.resources.warplate += warplateFound;
+  }
   // Corruption & Chorus consequence — the cost of the deal. Radiation adds
   // corruption directly (not Chorus). A wildcard mauling leaves wounds.
   const weaponryShield = Math.pow(0.85, state.deployedDomains.weaponry);
@@ -1698,6 +1779,13 @@ export function resolveExpedition(state: GameState, e: (typeof state.expeditions
   else if (zone.chipsetChance === 0) msg = `Exploration of ${zone.name} returned: +${embers} Embers (no chipsets in the outer rust).`;
   if (cleanRecovery) msg += ` 📜 The team brought a surviving archive home whole — Codices +${gotCodex} (earned, not looted).`;
   if (plasmaSalvaged > 0) msg += ` — the deep vaults bled high-energy plasma (🔮 +${plasmaSalvaged}).`;
+  if (warplateFound > 0) {
+    msg += ` — the wreck gave up ${warplateFound} Warplate (THE FORGE's stock — only the deep sites carry it).`;
+  } else if (wpTier === 0 && !zone.chipsetChance) {
+    // the shallow hint: a team that never sees warplate is told where it lives,
+    // which is how a player learns the depth link without a wiki.
+    msg += ` — no Warplate here; that only comes out of the deep sites.`;
+  }
   if (corruptionGain > 8) msg += ` — the fragment left a taint on the Cradle (corruption +${Math.round(corruptionGain)}).`;
   if (chorusGain > 10) msg += ` — the Chorus stirred at the disturbance (attention +${Math.round(chorusGain)}).`;
   log(state, msg);
@@ -2238,6 +2326,196 @@ export function discipline(state: GameState, spend: number, now = Date.now()): {
 
 function domainFor(d: DomainId): string {
   return { weaponry: "Weaponry", agriculture: "Agriculture", economy: "Economy", industry: "Industry", logistics: "Logistics" }[d]!;
+}
+
+
+// ------- THE FORGE (owner 2026-09-26) -------
+// The facility that renders ONE weapon per roll. The rules live in forge.ts
+// (grades, recipes, the earnable ceiling, the depth drop); this section is what
+// MOVES STATE, and it is deliberately small:
+//
+//   • forgeRoll() consumes the ingredients, ROLLS, materializes the item and
+//     returns both in ONE state object. api.ts persists that object before the
+//     response leaves the server, so:
+//       – there is no window between "charge" and "roll" (no charge without a
+//         result, no result without a charge);
+//       – the RNG runs inside the engine, once, on the server — the client
+//         never sends stats, a grade, a seed or a power number, so it cannot
+//         choose its own outcome (the request carries a recipe id and a
+//         request id, and nothing else);
+//       – a refresh, a re-login, a replay or an offline advance can never
+//         reroll it: the item is STORED, not derived, and nothing in advance()
+//         ever rewrites it.
+//   • a repeated request id (a double-submit, a retried fetch) returns the item
+//     the first call produced and consumes nothing — an idempotent roll.
+//   • EARN-ONLY, structurally: this section reads resources and deployed AI and
+//     nothing else. There is no price, no currency and no entitlement here.
+
+/** Is the recipe's recovered-AI gate met? (Never a hard-lock — false just means
+ *  the UI prints what it needs, and the API refuses with the same sentence.) */
+export function forgeUnlocked(state: GameState, recipeId: string): boolean {
+  const recipe = getForgeRecipe(recipeId);
+  if (!recipe) return false;
+  return (state.deployedDomains[recipe.unlock.domain] ?? 0) >= recipe.unlock.level;
+}
+
+/** The whole "you cannot roll this yet" sentence, with the numbers — the UI
+ *  renders its own keyed version of the same facts. */
+export function forgeUnlockLine(state: GameState, recipeId: string): string {
+  const recipe = getForgeRecipe(recipeId);
+  if (!recipe) return "There is no such pattern in the Forge.";
+  const have = state.deployedDomains[recipe.unlock.domain] ?? 0;
+  return `${domainFor(recipe.unlock.domain)} AI L${recipe.unlock.level} recovers the pattern — you have L${have}. Deploy more AI in the Lab.`;
+}
+
+/** Everything the roll would cost, with what the colony actually holds —
+ *  the "what will be consumed" panel, computed from state, never guessed. */
+export function forgeCostView(state: GameState, recipeId: string): {
+  warplate: { need: number; have: number };
+  supplies: { need: number; have: number };
+  embers: { need: number; have: number };
+  unlocked: boolean;
+  affordable: boolean;
+} | null {
+  const recipe = getForgeRecipe(recipeId);
+  if (!recipe) return null;
+  const r = state.resources;
+  const warplate = { need: recipe.cost.warplate, have: Math.floor(r.warplate ?? 0) };
+  const supplies = { need: recipe.cost.supplies, have: Math.floor(r.supplies) };
+  const embers = { need: recipe.cost.embers, have: Math.floor(r.embers) };
+  const unlocked = forgeUnlocked(state, recipeId);
+  return {
+    warplate,
+    supplies,
+    embers,
+    unlocked,
+    affordable:
+      unlocked &&
+      warplate.have >= warplate.need &&
+      supplies.have >= supplies.need &&
+      embers.have >= embers.need,
+  };
+}
+
+/**
+ * LIGHT THE FORGE — one roll, one item, committed and persisted with the
+ * consumption that paid for it.
+ *
+ * `requestId` is the client's idempotency key: the same id can never buy a
+ * second roll, and can never produce a second item.
+ */
+export function forgeRoll(
+  state: GameState,
+  recipeId: string,
+  requestId: string,
+  ownerId = "",
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; item?: ForgeItem; replay?: boolean } {
+  advance(state, now);
+  const recipe = getForgeRecipe(recipeId);
+  if (!recipe) return fail("The Forge has no such pattern.");
+  if (!requestId || requestId.length < 8) return fail("The Forge needs a request id — a roll is committed, not repeated.");
+  // ---- idempotency first: a replay returns the FIRST result, unchanged ----
+  const priorId = state.forgeRolls?.[requestId];
+  if (priorId) {
+    const prior = (state.forgeItems ?? []).find((i) => i.id === priorId);
+    if (prior) return { ok: true, state, item: prior, replay: true };
+  }
+  if (!forgeUnlocked(state, recipeId)) return fail(forgeUnlockLine(state, recipeId));
+  if ((state.forgeItems ?? []).length >= FORGE_CONFIG.maxItems) {
+    return fail(`The racks are full (${FORGE_CONFIG.maxItems}). Melt something down or deploy a piece to the field.`);
+  }
+  const r = state.resources;
+  if (Math.floor(r.warplate ?? 0) < recipe.cost.warplate) {
+    return fail(`The crucible needs ${recipe.cost.warplate} Warplate, and you hold ${Math.floor(r.warplate ?? 0)}. Warplate is a rare drop in the DEEP Explorations.`);
+  }
+  if (Math.floor(r.supplies) < recipe.cost.supplies) {
+    return fail(`The Forge needs ${recipe.cost.supplies} supplies to fire, and you hold ${Math.floor(r.supplies)}.`);
+  }
+  if (Math.floor(r.embers) < recipe.cost.embers) {
+    return fail(`The Forge needs ${recipe.cost.embers} embers to fire, and you hold ${Math.floor(r.embers)}.`);
+  }
+  // ---- THE ATOMIC OPERATION: consume, roll, materialize, in one object ----
+  r.warplate = Math.floor(r.warplate ?? 0) - recipe.cost.warplate;
+  r.supplies = Math.floor(r.supplies) - recipe.cost.supplies;
+  r.embers = Math.floor(r.embers) - recipe.cost.embers;
+  state.forgeSeq = (state.forgeSeq ?? 0) + 1;
+  // THE RNG: here, on the server, exactly once, AFTER the deduction and BEFORE
+  // the return — so the only state the world can see is a state that already
+  // carries the rolled item.
+  const item = rollForgeItem({
+    recipe,
+    race: state.race,
+    ownerId,
+    ownerName: state.playerName,
+    gameId: state.gameId ?? null,
+    seq: state.forgeSeq,
+    now,
+  });
+  state.forgeItems.push(item);
+  state.forgeRolls[requestId] = item.id;
+  const gradeLabel = forgeGrade(item.grade).id;
+  log(state, `🔥 The Forge drinks ${recipe.cost.warplate} Warplate and renders ${item.name} — ${gradeLabel} grade, power ${item.power}. One piece, and it will never be made again.`);
+  return { ok: true, state, item };
+}
+
+/** MELT-DOWN — the junk valve. An unwanted piece goes back into the crucible for
+ *  a fraction of what it cost, SCALED BY GRADE (a good roll is worth more even as
+ *  scrap). The piece is removed: it is not tradable after it is melted. */
+export function meltForgeItem(
+  state: GameState,
+  itemId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; refund?: { warplate: number; supplies: number } } {
+  advance(state, now);
+  const idx = (state.forgeItems ?? []).findIndex((i) => i.id === itemId);
+  if (idx < 0) return fail("That piece is not in the Cradle's racks.");
+  const item = state.forgeItems[idx];
+  if (item.location === "transit") {
+    return fail("That piece is on a supply run — a convoy in transit cannot be recalled into the furnace.");
+  }
+  const refund = meltRefund(item);
+  state.resources.warplate = Math.floor(state.resources.warplate ?? 0) + refund.warplate;
+  state.resources.supplies += refund.supplies;
+  state.forgeItems.splice(idx, 1);
+  state.forgeMelts = (state.forgeMelts ?? 0) + 1;
+  log(state, `♻️ ${item.name} (${forgeGrade(item.grade).id}) goes back into the crucible: +${refund.warplate} Warplate, +${refund.supplies} supplies.`);
+  return { ok: true, state, refund };
+}
+
+/** SUPPLY RUN — move a piece between the Cradle's racks and the field.
+ *  ~24h transit, never instant (owner: "the shipping times should be like a
+ *  24-hour shipping it doesn't get there right away"). REAL state today: the
+ *  arrival resolves lazily and offline in advance(). What beta does NOT have is
+ *  a forward base to receive it — so nothing in the UI launches one yet, and a
+ *  deployed piece earns no battle power until war ships. */
+export function beginSupplyRun(
+  state: GameState,
+  itemId: string,
+  to: "field" | "cradle" = "field",
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; arriveAt?: number } {
+  advance(state, now);
+  const item = (state.forgeItems ?? []).find((i) => i.id === itemId);
+  if (!item) return fail("That piece is not in the Cradle's racks.");
+  if (item.location === "transit") return fail("That piece is already on a supply run.");
+  if (item.location === to) return fail(`That piece is already ${to === "field" ? "in the field" : "in the Cradle's racks"}.`);
+  const arriveAt = now + FORGE_CONFIG.supplyRunMs;
+  item.transit = { from: item.location, to, departAt: now, arriveAt };
+  item.location = "transit";
+  log(
+    state,
+    `🚚 ${item.name} leaves the Cradle on a supply run — ${to === "field" ? "to the field" : "home to the racks"}. Arrives in ${Math.round(FORGE_CONFIG.supplyRunMs / 3_600_000)} hours, and it is exposed while it is out there.`,
+  );
+  return { ok: true, state, arriveAt };
+}
+
+/** The pieces a successful plunder could take: the ones IN USE IN THE FIELD
+ *  (owner: "if they're using them in the field"). Everything in the racks is
+ *  out of reach — which is what makes toggling a piece home a real decision.
+ *  War rolls the chance; this decides what is at stake. */
+export function forgeFieldItems(state: GameState): ForgeItem[] {
+  return (state.forgeItems ?? []).filter((i) => i.location === "field");
 }
 
 function fail(error: string) {

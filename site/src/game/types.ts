@@ -2,6 +2,7 @@
 
 import type { Battle, BattleReport, WarReserve } from "./war/war-types";
 import type { PrologueBlock } from "./prologue/prologue-state";
+import type { ForgeItem } from "./forge";
 
 export type RaceId =
   | "grays"
@@ -197,6 +198,10 @@ export interface GameState {
     // research-gated) and salvaged from deep chipset sites. The lifeblood of
     // high-tier weapons — rare, never cheap, earn-only (weapons-system §2).
     plasma: number;
+    // THE FORGE's ingredient (owner 2026-09-26): torn off war wrecks, and only
+    // the DEEP sites have it — a rare drop in the deeper Explorations. Earn-only
+    // by construction: nothing purchasable can grant it (forge §earn-only).
+    warplate: number;
   };
 
   scientists: number;
@@ -287,6 +292,17 @@ export interface GameState {
   // live in armoryBuilds and resolve lazily in advance() (offline-safe).
   armory: Record<string, ArmoryFamilyState>; // familyId (the 5 war roles) -> state
   armoryBuilds: Record<string, ArmoryBuild>; // familyId -> in-flight build (max 1)
+  // ---- THE FORGE (owner 2026-09-26) ----
+  // ONE roll, ONE item, never reproducible — no copies, no blueprint, no mass
+  // production. `forgeItems` holds MATERIALIZED pieces (unique identity, owner,
+  // location) so a refresh, a re-login or an offline advance can never reroll
+  // one; `forgeRolls` maps a client request id to the item it produced, which
+  // makes a double-submit a no-op instead of a second charge. Both ship to the
+  // client unchanged (they are the player's own gear; nothing here is a secret).
+  forgeItems: ForgeItem[]; // the racks — stored at the Cradle until deployed
+  forgeRolls: Record<string, string>; // requestId -> item id (idempotent rolls)
+  forgeSeq: number; // monotonic counter feeding each item's unique id
+  forgeMelts: number; // melt-downs ever (the junk valve)
   weaponsBuilt: number; // completed builds ever (war "might" surface — NOT the
   // contribution formula; the Unbound gate is untouched, see engine V6 note)
 

@@ -21,6 +21,7 @@ import type {
   GameState,
   RaceId,
 } from "./types";
+import type { ForgeItem } from "./forge";
 import { RACES } from "./races";
 import { ZONES } from "./zones";
 import * as engine from "./engine";
@@ -549,6 +550,41 @@ const refinePlasmaFn = createServerFn({ method: "POST" }).validator(
   if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
+// THE FORGE (owner 2026-09-26) — the roll is made and COMMITTED here, on the
+// server, in the same operation that consumes the ingredients, and the resulting
+// state is persisted before the response leaves. The request carries a recipe id
+// and a request id and NOTHING else: no stats, no grade, no seed, no power — so
+// the client cannot pick its own outcome, and `requestId` makes a retried
+// double-submit a replay of the first result instead of a second roll.
+const forgeRollFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), recipeId: z.string(), requestId: z.string() })
+).handler(async ({ data }): Promise<GameResult & { item?: ForgeItem; replay?: boolean }> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.forgeRoll(st, data.recipeId, data.requestId, accountId, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return {
+    ok: res.ok,
+    error: res.error,
+    replay: res.replay,
+    item: res.item ? JSON.parse(JSON.stringify(res.item)) : undefined,
+    state: res.state ? publicState(res.state) : undefined,
+  };
+});
+// THE FORGE's junk valve: melt a piece back into a fraction of its ingredients.
+const forgeMeltFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), itemId: z.string() })
+).handler(async ({ data }): Promise<GameResult & { refund?: { warplate: number; supplies: number } }> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.meltForgeItem(st, data.itemId, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, refund: res.refund, state: res.state ? publicState(res.state) : undefined };
+});
 // Research tree: appoint a Leader to research a tech (costs Codices + time).
 const beginResearchFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), techId: z.string(), leaderId: z.string() })
@@ -990,6 +1026,8 @@ export {
   craftFn,
   weaponBuildFn,
   refinePlasmaFn,
+  forgeRollFn,
+  forgeMeltFn,
   beginResearchFn,
   chooseRevelationFn,
   allocateLeaderPointFn,

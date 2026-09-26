@@ -257,6 +257,8 @@ export function resolveCataclysm(state: GameState, ashMemory: "archive" | "names
     skmech: 0, gas: 0, battery: 0,
     mats: zero,
     plasma: 0,
+    // THE FORGE's ingredient: the cataclysm empties the crucible too.
+    warplate: 0,
   };
   state.scientists = 0;
   state.totalScientists = 0;
