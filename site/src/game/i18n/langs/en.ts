@@ -402,5 +402,44 @@ export const en: Catalogue = {
   "store.cosmetic.wardens-livery.blurb": "A Leader reaches L5 with a specialization chosen.",
   "store.cosmetic.the-contribution-ring.blurb": "Server Contribution Award — one per server per cycle.",
 
+
+  // ---- CHAT (slice A1 — the dock, the sheet and the thread) ------------------
+  // 29 keys, added with chat's first PLAYER-FACING slice: the dock bar, the five
+  // surface names, the World channel's states, the composer and its refusals,
+  // the thread's day words, and every state the per-message Translate control
+  // can be in. The five surface names are things, so they take the language's own
+  // word (fa: جهان · پیمان · اتاق‌ها · خصوصی · نامه), never a transliteration, and
+  // none collides with a real-world religious or national term. Digits stay
+  // Western: nothing here carries a numeral the formatter did not pin.
+  "chat.barNew": "Chat — {surface}, {n} new",
+  "chat.barClear": "Chat — {surface}, nothing new",
+  "chat.surfacesAria": "Chat surfaces",
+  "chat.surface.world": "World",
+  "chat.surface.covenant": "Covenant",
+  "chat.surface.rooms": "Rooms",
+  "chat.surface.personal": "Personal",
+  "chat.surface.mail": "Mail",
+  "chat.world.sub": "Everyone on this world",
+  "chat.world.empty": "The world channel is quiet. Say the first thing.",
+  "chat.covenant.sub": "Your Covenant's channel",
+  "chat.covenant.none": "You are not in a Covenant yet. This channel opens the day you join one.",
+  "chat.composerPlaceholder": "Write a message",
+  "chat.send": "Send",
+  "chat.sendFailed": "That did not send. Try again.",
+  "chat.tooFast": "Too fast — wait a moment.",
+  "chat.tooLong": "Keep a message under {n} characters.",
+  "chat.you": "You",
+  "chat.translating": "Translating…",
+  "chat.translateUnavailable": "This line cannot be translated on this device.",
+  "chat.translatedFrom": "Translated from {language}",
+  "chat.opening": "Opening the channel…",
+  "chat.loadFailed": "The channel did not load.",
+  "chat.retry": "Try again",
+  "chat.newMessages": "{n} new",
+  "chat.today": "Today",
+  "chat.yesterday": "Yesterday",
+  "chat.locked": "Opens later",
+  "chat.loggedOut": "Sign in to talk with your world.",
+
 };
 export default en;

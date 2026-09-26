@@ -152,12 +152,22 @@ function syncTimer(): void {
 }
 
 /**
- * Point the store at the signed-in account. Called once by the shell when the
- * session resolves (and again on a change); a null token stops everything and
- * empties the feed, so a signed-out device keeps no conversation on screen.
+ * Point the store at the signed-in account. Called by the shell when the session
+ * resolves. A null token stops everything and empties the feed, so a signed-out
+ * device keeps no conversation on screen.
+ *
+ * `me` is only a PLACEHOLDER for who I am: the account id the server compares is
+ * not knowable on the client, so every sync answers with it (`ChatResult.me`) and
+ * that answer wins. Until the first sync lands there is nothing on screen to
+ * judge, so the placeholder can never mislabel a line.
  */
 export function configureChat(nextToken: string | null, me: string | null): void {
-  if (nextToken === token && me === state.me) return;
+  // Same account: nothing to re-point, but the poll's gates may have changed while
+  // a screen was away (the dock unmounts on the Circuit page).
+  if (nextToken === token) {
+    syncTimer();
+    return;
+  }
   token = nextToken;
   if (!nextToken) {
     stopTimer();
@@ -235,6 +245,8 @@ export async function refreshChat(): Promise<void> {
     set({
       messages: res.messages ?? state.messages,
       unread: res.unread ?? state.unread,
+      // The server's answer is the authority on who I am (see configureChat).
+      me: res.me ?? state.me,
       phase: "ready",
       errorKey: null,
       signedOut: false,

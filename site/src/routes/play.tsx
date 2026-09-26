@@ -40,6 +40,8 @@ import { Sheet, SheetHeader } from "../components/Sheet";
 import AppShell from "../components/shell/AppShell";
 import CradleSheet from "../components/shell/CradleSheet";
 import SettingsSheet from "../components/shell/SettingsSheet";
+import ChatSheet from "../components/chat/ChatSheet";
+import { configureChat } from "../game/chat/chat-store";
 import { useT } from "../components/i18n/I18n";
 import { navBadges } from "../game/nav-badges";
 import type { Tab } from "../game/nav-slots";
@@ -204,6 +206,16 @@ function PlayPage() {
     const id = setInterval(refresh, 4000);
     return () => clearInterval(id);
   }, [signedIn, refresh]);
+  // ---- CHAT (slice A1, chat-mail-spec §1 D8) ---------------------------------
+  // The chat store is pointed at the session here and nowhere else. It is a
+  // SEPARATE cadence from the 4s state poll above: chat's own ~5s beat runs only
+  // while the dock bar is on screen or the sheet is open, and it pauses on
+  // `visibilitychange` inside the store. `me` is a placeholder only — the server
+  // answers with the real account id on every sync, which is what decides whether
+  // a line is mine.
+  useEffect(() => {
+    configureChat(signedIn === true ? token : null, null);
+  }, [signedIn, token]);
   // ---- PAYMENT RETURN (Payments) ----------------------------------------------------
   // Stripe sends the player back to /play?purchase=return&sku=…&session_id=… . The
   // session id is kept for support only: it proves nothing, so it is never used to
@@ -581,6 +593,10 @@ function PlayPage() {
       {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} />}
       </AppShell>
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {/* The chat surface lives OUTSIDE AppShell's frame, like every other sheet:
+          the dock bar is chrome (inside the shell's stack), the conversation is a
+          modal. Both read the same store, so they cannot disagree. */}
+      <ChatSheet />
         </>
       )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}

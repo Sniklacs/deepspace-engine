@@ -161,6 +161,14 @@ export interface ChatResult {
   errorKey?: string;
   messages?: ChatMessage[];
   unread?: Record<ChatSurface, number>;
+  /**
+   * The signed-in account id, as the SERVER resolved it. The client cannot derive
+   * it (the session token is not an account id), and it needs it for one honest
+   * question only: is this line mine? A client that guessed would either label
+   * another colony's words "You" or push my own line to the wrong side of the
+   * thread. Never contains anything the account itself could not already read.
+   */
+  me?: string;
   /** server time at the moment of the answer */
   stamp?: number;
 }
@@ -181,7 +189,7 @@ export async function worldFeed(input: { token: string }): Promise<ChatResult> {
   const accountId = await accountForToken(input.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in.", errorKey: "chat.loggedOut" };
   const messages = await loadChatMessages(WORLD_CHANNEL, CHAT_RETENTION);
-  return { ok: true, messages, stamp: Date.now() };
+  return { ok: true, messages, me: accountId, stamp: Date.now() };
 }
 
 // ── writing to the world ────────────────────────────────────────────────────
@@ -259,7 +267,7 @@ export async function chatSync(input: { token: string }): Promise<ChatResult> {
     roomIds: memberships.map((m) => m.roomId),
     me: accountId,
   });
-  return { ok: true, messages: world, unread, stamp: Date.now() };
+  return { ok: true, messages: world, unread, me: accountId, stamp: Date.now() };
 }
 
 // ── the mark that clears a count ────────────────────────────────────────────

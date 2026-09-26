@@ -21,6 +21,7 @@ export function Sheet({
   onClose,
   labelledBy,
   title,
+  panelClass,
   children,
 }: {
   open: boolean;
@@ -29,6 +30,12 @@ export function Sheet({
   labelledBy: string;
   /** Accessible name fallback when labelledBy is absent. */
   title: string;
+  /**
+   * Extra class on the panel itself — used by the chat sheet to clamp its height
+   * to the VISUAL viewport while a keyboard is up (chat-mail-spec §3.2). Optional
+   * and additive: every other sheet renders exactly as it did.
+   */
+  panelClass?: string;
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -103,7 +110,7 @@ export function Sheet({
         aria-label={title}
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className="sheet-panel outline-none"
+        className={panelClass ? `sheet-panel outline-none ${panelClass}` : "sheet-panel outline-none"}
       >
         <div
           className="sheet-handle"

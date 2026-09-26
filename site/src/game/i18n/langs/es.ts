@@ -383,5 +383,44 @@ export const es: Catalogue = {
   "store.cosmetic.wardens-livery.blurb": "Un Líder alcanza el L5 con una especialización elegida.",
   "store.cosmetic.the-contribution-ring.blurb": "Premio de Contribución del Servidor: uno por servidor y ciclo.",
 
+
+  // ---- CHAT (slice A1 — the dock, the sheet and the thread) ------------------
+  // 29 keys, added with chat's first PLAYER-FACING slice: the dock bar, the five
+  // surface names, the World channel's states, the composer and its refusals,
+  // the thread's day words, and every state the per-message Translate control
+  // can be in. The five surface names are things, so they take the language's own
+  // word (fa: جهان · پیمان · اتاق‌ها · خصوصی · نامه), never a transliteration, and
+  // none collides with a real-world religious or national term. Digits stay
+  // Western: nothing here carries a numeral the formatter did not pin.
+  "chat.barNew": "Chat — {surface}, {n} nuevos",
+  "chat.barClear": "Chat — {surface}, nada nuevo",
+  "chat.surfacesAria": "Superficies del chat",
+  "chat.surface.world": "Mundo",
+  "chat.surface.covenant": "Pacto",
+  "chat.surface.rooms": "Salas",
+  "chat.surface.personal": "Privado",
+  "chat.surface.mail": "Correo",
+  "chat.world.sub": "Todos en este mundo",
+  "chat.world.empty": "El canal del mundo está en silencio. Di lo primero.",
+  "chat.covenant.sub": "El canal de tu Pacto",
+  "chat.covenant.none": "Todavía no estás en un Pacto. Este canal se abre el día que te unas a uno.",
+  "chat.composerPlaceholder": "Escribe un mensaje",
+  "chat.send": "Enviar",
+  "chat.sendFailed": "No se envió. Inténtalo de nuevo.",
+  "chat.tooFast": "Demasiado rápido — espera un momento.",
+  "chat.tooLong": "Mantén el mensaje por debajo de {n} caracteres.",
+  "chat.you": "Tú",
+  "chat.translating": "Traduciendo…",
+  "chat.translateUnavailable": "Esta línea no se puede traducir en este dispositivo.",
+  "chat.translatedFrom": "Traducido del {language}",
+  "chat.opening": "Abriendo el canal…",
+  "chat.loadFailed": "El canal no se cargó.",
+  "chat.retry": "Reintentar",
+  "chat.newMessages": "{n} nuevos",
+  "chat.today": "Hoy",
+  "chat.yesterday": "Ayer",
+  "chat.locked": "Se abre más tarde",
+  "chat.loggedOut": "Inicia sesión para hablar con tu mundo.",
+
 };
 export default es;
