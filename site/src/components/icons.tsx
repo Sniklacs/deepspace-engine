@@ -42,7 +42,13 @@ export type IconName =
   | "chat" // the reserved chat dock
   | "help" // Help row
   | "gamepad" // Games (your colonies)
-  | "logout"; // Log Out
+  | "logout" // Log Out
+  // ---- chat delta (chat-mail-spec §2/§4) — the chat surface's line set ----
+  | "send" // the composer's send control (an ARROW: joins DIR_FLIP)
+  | "mail" // the Mail surface tab
+  | "globe" // the World surface tab
+  | "users" // the Covenant / Rooms tab (a group, never a person)
+  | "hash"; // a room / channel marker
 
 const PATHS: Record<IconName, ReactNode> = {
   crate: (
@@ -259,6 +265,44 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M20 12H10" />
     </>
   ),
+  // ---- chat delta: same 24×24, 1.75 stroke, hand-drawn line dialect.
+  // `send` is an ARROW — the one glyph whose meaning is a direction, so it joins
+  // DIR_FLIP below and points left in Persian (a mirrored chrome with a
+  // right-pointing "send" would be the classic RTL bug).
+  send: (
+    <>
+      <path d="M4 12h13.5" />
+      <path d="M11.5 6l6 6-6 6" />
+    </>
+  ),
+  mail: (
+    <>
+      <rect x="3" y="5.5" width="18" height="13" rx="2" />
+      <path d="M3.6 7.2l8.4 5.8 8.4-5.8" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3c3.2 3.4 3.2 14.6 0 18" />
+      <path d="M12 3c-3.2 3.4-3.2 14.6 0 18" />
+    </>
+  ),
+  users: (
+    <>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 20v-1.6a3.9 3.9 0 013.9-3.9h3.2a3.9 3.9 0 013.9 3.9V20" />
+      <path d="M16 4.9a3.2 3.2 0 010 6.2" />
+      <path d="M17.6 14.7a3.9 3.9 0 012.9 3.7V20" />
+    </>
+  ),
+  hash: (
+    <>
+      <path d="M9 3.5L7.5 20.5M16.5 3.5L15 20.5" />
+      <path d="M4 9h16M3.5 15h16" />
+    </>
+  ),
 };
 
 /**
@@ -274,7 +318,7 @@ const PATHS: Record<IconName, ReactNode> = {
  * flipped (`scaleX(-1)` mirrors letters and digits), and no container is ever
  * flipped — that is what keeps this list safe as it grows.
  */
-export const DIR_FLIP: ReadonlySet<IconName> = new Set<IconName>(["march", "logout"]);
+export const DIR_FLIP: ReadonlySet<IconName> = new Set<IconName>(["march", "logout", "send"]);
 
 export function Icon({
   name,
