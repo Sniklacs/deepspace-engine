@@ -259,6 +259,17 @@ export const ru: Catalogue = {
   "lab.journalSub": "исследования, прорывы и назначенная работа — сначала новое",
   "armory.journal": "Журнал арсенала",
   "armory.journalSub": "ковка, улучшения и сгущение плазмы — сначала новое",
+
+  // ---- the installable app shell (slice: app shell) -------------------
+  "device.title": "На этом устройстве",
+  "install.title": "Установить игру",
+  "install.body": "Добавьте на главный экран — игра откроется во весь экран, как приложение.",
+  "install.cta": "Установить",
+  "install.ios": "Нажмите «Поделиться», затем «Добавить на главный экран».",
+  "install.dismiss": "Не сейчас",
+  "storage.title": "Офлайн-хранилище",
+  "storage.line": "Использовано {used} из {quota}, доступных для офлайн-данных.",
+
 };
 
 export default ru;

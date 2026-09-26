@@ -259,6 +259,17 @@ export const ptBR: Catalogue = {
   "lab.journalSub": "estudos, avanços e pesquisa designada — o mais novo primeiro",
   "armory.journal": "Diário do arsenal",
   "armory.journalSub": "forjas, melhorias e condensação de plasma — o mais novo primeiro",
+
+  // ---- the installable app shell (slice: app shell) -------------------
+  "device.title": "Neste dispositivo",
+  "install.title": "Instale o jogo",
+  "install.body": "Adicione à tela inicial: ele abre em tela cheia, como um app.",
+  "install.cta": "Instalar",
+  "install.ios": "Toque em Compartilhar e depois em Adicionar à Tela de Início.",
+  "install.dismiss": "Agora não",
+  "storage.title": "Armazenamento offline",
+  "storage.line": "Usando {used} de {quota} que este dispositivo permite para dados offline.",
+
 };
 
 export default ptBR;

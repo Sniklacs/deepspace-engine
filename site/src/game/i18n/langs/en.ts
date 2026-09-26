@@ -276,6 +276,17 @@ export const en: Catalogue = {
   "ribbon.ledgerAria": "Cradle Ledger — {scrip} Scrip, {votives} Votives",
   "ribbon.ledgerWord": "Ledger",
 
+
+  // ---- the installable app shell (slice: app shell) -------------------
+  "device.title": "On this device",
+  "install.title": "Install the game",
+  "install.body": "Add it to your home screen - it opens full screen, like an app.",
+  "install.cta": "Install",
+  "install.ios": "Tap Share, then Add to Home Screen.",
+  "install.dismiss": "Not now",
+  "storage.title": "Offline storage",
+  "storage.line": "Using {used} of the {quota} this device allows for offline data.",
+
 };
 
 export default en;

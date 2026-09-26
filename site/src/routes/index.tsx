@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import InstallAffordance from "~/components/shell/InstallAffordance";
 import { useT } from "~/components/i18n/I18n";
 
 export const Route = createFileRoute("/")({
@@ -8,7 +9,7 @@ export const Route = createFileRoute("/")({
 function LandingPage() {
   const t = useT();
   return (
-    <div className="min-h-screen bg-[#070910] text-gray-200">
+    <div className="safe-area-top min-h-screen bg-[#070910] text-gray-200">
       {/* hero */}
       <header className="mx-auto max-w-6xl px-6 py-10 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -47,6 +48,14 @@ function LandingPage() {
           <a href="#world" className="rounded-lg border border-gray-700 bg-white/5 px-6 py-3 text-base font-semibold text-gray-200 hover:bg-white/10">
             {t("landing.world")}
           </a>
+        </div>
+
+        {/* The install door, on the first screen. Renders nothing at all when the
+            browser offers no install path, or when this is already an installed
+            app (display-mode: standalone). It can be dismissed; Settings keeps a
+            permanent row so dismissing it here never closes the door for good. */}
+        <div className="mx-auto mt-8 max-w-2xl px-6 text-start">
+          <InstallAffordance variant="card" />
         </div>
       </section>
 
@@ -105,7 +114,7 @@ function LandingPage() {
         </div>
       </section>
 
-      <footer className="border-t border-white/5 py-8 text-center text-xs text-text-3">
+      <footer className="safe-area-bottom border-t border-white/5 py-8 text-center text-xs text-text-3">
         <p>{t("landing.footer1")}</p>
         <p className="mt-1">{t("landing.footer2")}</p>
       </footer>

@@ -209,6 +209,60 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* 3c · SAFE AREAS — the installable app shell (viewport-fit=cover).
+   ----------------------------------------------------------------------------
+   An installed launch draws UNDER the status bar and the home indicator (the
+   head sets `viewport-fit=cover` + `apple-mobile-web-app-status-bar-style:
+   black-translucent`). That is the right look — full screen, no letterbox — but
+   it means the notch is a real obstacle for the top chips, and the home
+   indicator for the nav dock and the bottom sheets. The rules below are the
+   other half of that trade: every edge of the chrome that would otherwise sit
+   under a cutout is padded by the platform's own inset. With no notch every
+   value is 0, so the desktop layout is byte-for-byte what it was.
+
+   The insets are mapped to the document's INLINE axis, not to physical
+   left/right: in a landscape rotated phone the cutout is on one side, and for a
+   Persian (rtl) player `inset-inline-start` is the RIGHT edge — the swap below
+   is what keeps the padding on the cutout in both directions. */
+:root {
+  --safe-inset-top: env(safe-area-inset-top, 0px);
+  --safe-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-inline-start: env(safe-area-inset-left, 0px);
+  --safe-inline-end: env(safe-area-inset-right, 0px);
+}
+/* The ribbon keeps its 56px of content and gains the status bar's height, so its
+   own background fills the cutout instead of the page showing through. */
+.ribbon {
+  height: calc(var(--spacing-ribbon) + var(--safe-inset-top));
+  padding-top: var(--safe-inset-top);
+  padding-inline: var(--safe-inline-start) var(--safe-inline-end);
+}
+
+/* The nav sits on the home indicator: the bar grows, the targets do not move. */
+.botnav {
+  padding-inline: var(--safe-inline-start) var(--safe-inline-end);
+}
+
+/* A bottom sheet's last row must clear the home indicator, and the modal wrap
+   keeps its dialogs off the top cutout. */
+.sheet-panel {
+  padding-block-end: var(--safe-inset-bottom);
+  padding-inline: var(--safe-inline-start) var(--safe-inline-end);
+}
+.modal-wrap {
+  padding-block: calc(10vh + var(--safe-inset-top)) calc(1.5rem + var(--safe-inset-bottom));
+  padding-inline: max(1rem, var(--safe-inline-start)) max(1rem, var(--safe-inline-end));
+}
+
+/* The full-bleed pages that have no ribbon of their own (the landing page and
+   the prologue) pad themselves with these two utilities. */
+.safe-area-top {
+  padding-top: var(--safe-inset-top);
+}
+.safe-area-bottom {
+  padding-bottom: var(--safe-inset-bottom);
+}
+
 /* The ribbon's busy state (§1.2): a 2px ember rule along its top edge plus
    `aria-busy` on the pinned cluster. NO spinner, no skeleton, and the numbers
    never move locally — they come from server state only. */
@@ -550,4 +604,13 @@ html[dir="rtl"] {
 }
 html[dir="rtl"] .dir-flip {
   transform: scaleX(-1);
+}
+
+/* 4b · THE NOTCH, IN BOTH DIRECTIONS (§3c's other half). The safe-area tokens
+   are mapped to the INLINE axis, so a landscape cutout pads the correct edge for
+   a Persian player too. This is direction, so it belongs in this layer — and it
+   carries no transform of its own. */
+html[dir="rtl"] {
+  --safe-inline-start: env(safe-area-inset-right, 0px);
+  --safe-inline-end: env(safe-area-inset-left, 0px);
 }

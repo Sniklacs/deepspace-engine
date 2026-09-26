@@ -9,6 +9,8 @@
 import { Sheet, SheetHeader } from "../Sheet";
 import { SegmentedControl } from "../SegmentedControl";
 import { LanguageRows } from "../i18n/LanguagePicker";
+import InstallAffordance from "./InstallAffordance";
+import StorageNote from "./StorageNote";
 import {
   langMeta,
   setDeviceLang,
@@ -85,6 +87,19 @@ export default function SettingsSheet({ open, onClose }: { open: boolean; onClos
             />
           </div>
           <p className="text-[11px] leading-snug text-text-3">{t("settings.deviceNote")}</p>
+        </section>
+
+        {/* 4 · On this device — the app shell: install it, and what it may keep.
+               Both rows are silent when there is nothing true to say: no install
+               path renders nothing, and a browser without the StorageManager API
+               renders no storage line. */}
+        <section aria-labelledby="settings-device" className="space-y-1.5">
+          <h3 id="settings-device" className="eyebrow">
+            {t("device.title")}
+          </h3>
+          <InstallAffordance variant="row" />
+          <h4 className="eyebrow pt-1">{t("storage.title")}</h4>
+          <StorageNote />
         </section>
       </div>
     </Sheet>

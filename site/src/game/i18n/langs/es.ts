@@ -264,6 +264,17 @@ export const es: Catalogue = {
   "lab.journalSub": "estudios, avances e investigación asignada — lo más nuevo primero",
   "armory.journal": "Diario del arsenal",
   "armory.journalSub": "forjas, mejoras y condensación de plasma — lo más nuevo primero",
+
+  // ---- the installable app shell (slice: app shell) -------------------
+  "device.title": "En este dispositivo",
+  "install.title": "Instala el juego",
+  "install.body": "Añádelo a tu pantalla de inicio: se abre a pantalla completa, como una app.",
+  "install.cta": "Instalar",
+  "install.ios": "Toca Compartir y luego Añadir a pantalla de inicio.",
+  "install.dismiss": "Ahora no",
+  "storage.title": "Almacenamiento sin conexión",
+  "storage.line": "Usando {used} de {quota} que este dispositivo permite para datos sin conexión.",
+
 };
 
 export default es;
