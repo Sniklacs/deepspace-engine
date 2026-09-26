@@ -333,6 +333,16 @@ export const en: Catalogue = {
   "forge.depth.1": "Warplate: scarce",
   "forge.depth.2": "Warplate: uncommon",
   "forge.depth.3": "Warplate: rich",
+  // ---- the bundled translator (the weights, on this device) -----------------
+  "translator.title": "Translation",
+  "translator.sub": "Bundled with the game and kept on this device. No cloud service, no account, and nothing to switch on.",
+  "translator.preparing": "Translation is preparing — {done} of {size} ({percent}%)",
+  "translator.ready": "Ready on this device — {size}, kept after updates",
+  "translator.failed": "The download stopped. {done} of {size} is kept — try again.",
+  "translator.retry": "Try again",
+  "translator.freeSpace": "Free the space",
+  "translator.notReady": "Translation is preparing",
+  "translator.translate": "Translate",
+  "translator.original": "Show original",
 };
-
 export default en;

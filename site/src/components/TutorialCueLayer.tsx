@@ -26,6 +26,7 @@
 // device — one existing `.chip` reading "sound off", so a player who mutes and
 // then taps "Let them speak" is told the truth instead of guessing. Captions are
 // unaffected either way: the authored line below is rendered VERBATIM.
+import { TranslateAffordance } from "./shell/TranslatorNote";
 import type { TutorialCue } from "../game/war/tutorial-cues";
 import { speakerLabel } from "../game/war/tutorial-cues";
 import type { VoiceMode } from "../game/voice/voice-engine";
@@ -108,6 +109,10 @@ export default function TutorialCueLayer({
             <button type="button" data-testid="tutorial-suppress" onClick={onSuppress} className={BTN}>
               Quiet the voices
             </button>
+            {/* Live prose (the Cradle's own line), in the player's language, from
+                the engine we bundle — the browser's free translator is
+                desktop-only and this game is phone-first. */}
+            <TranslateAffordance text={cue.line} from="en" />
             {soundOffChip}
           </div>
         </div>

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import appCss from "~/styles/app.css?url";
 import { bootScript } from "~/game/i18n";
+import { prepareTranslator } from "~/game/translate";
 import { registerServiceWorker } from "~/game/pwa/register";
 import { I18nProvider, LanguageGate } from "~/components/i18n/I18n";
 
@@ -60,6 +61,13 @@ function RootComponent() {
   // It precaches the shell and never touches game state (see public/sw.js).
   useEffect(() => {
     void registerServiceWorker();
+    // THE BUNDLED TRANSLATOR (owner: ship it with the app for every player, no
+    // opt-in). Effect-scoped and client-only, like the worker above: it looks at
+    // the device, downloads the weights if they are not there yet — with visible
+    // progress in Settings, never a prompt — and only then loads the ML runtime
+    // with a dynamic import. Nothing is registered with the seam until weights and
+    // runtime are actually present, so `engine-seam` keeps its null default.
+    void prepareTranslator();
   }, []);
 
   return (

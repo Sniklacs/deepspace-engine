@@ -43,6 +43,91 @@ const BUILD_TOKEN = "@@BUILD@@";
 const SW_PATH = "/sw.js";
 const MANIFEST_PATH = "/manifest.webmanifest";
 
+/**
+ * THE WEIGHTS ROUTE — where the bundled translator's model is served from.
+ *
+ * WHY A ROUTE OF OUR OWN AND NOT `public/`: everything in `public/` is copied into
+ * `dist/client` and therefore into the build id (`fingerprintClient` below reads
+ * the name + size of every file in that directory). A 603 MB model there would
+ * make EVERY deploy look like a new build AND be re-fetched by every player — the
+ * opposite of the owner's "updates stay incremental" rule. `site/models/` is
+ * outside the build, is gitignored, and is served by this function instead.
+ *
+ * RANGE SUPPORT IS NOT OPTIONAL: the loader downloads the model in chunks
+ * (`src/game/translate/weights.ts`) so a dropped connection resumes from the
+ * chunks already in Cache Storage rather than restarting 603 MB. That needs
+ * `accept-ranges` and honest 206 responses with `content-range`. A client that
+ * asks for a range we cannot satisfy gets a 416 and an honest `bytes *／size`,
+ * never a truncated 200 that would be cached as a whole file.
+ *
+ * CACHE-CONTROL: the file name carries the model AND its version, so the bytes at
+ * a given URL never change — immutable for a year, which also keeps the browser's
+ * own HTTP cache from re-fetching what Cache Storage already holds.
+ */
+const WEIGHTS_PREFIX = "/models/";
+const WEIGHTS_DIR = `${import.meta.dir}/models`;
+
+function weightsHeaders(name: string): Record<string, string> {
+  return {
+    "content-type": "application/octet-stream",
+    "accept-ranges": "bytes",
+    "cache-control": "public, max-age=31536000, immutable",
+    "x-deepspace-weights": name,
+  };
+}
+
+/**
+ * Serve one weights file, byte ranges honoured. Exported so `translate-tests` can
+ * drive the real response builder (206 shape, 416 shape, resumable slices) over a
+ * real socket without binding port 3000. Returns null for any other path.
+ */
+export async function serveWeights(req: Request, dir = WEIGHTS_DIR): Promise<Response | null> {
+  const { pathname } = new URL(req.url);
+  if (!pathname.startsWith(WEIGHTS_PREFIX)) return null;
+  const name = pathname.slice(WEIGHTS_PREFIX.length);
+  // One flat file name, no traversal: the manifest names the file, nothing else does.
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(name) || name.startsWith(".")) {
+    return new Response("not found", { status: 404, headers: { "content-type": "text/plain" } });
+  }
+  const file = Bun.file(`${dir}/${name}`);
+  if (!(await file.exists())) {
+    return new Response("not found", { status: 404, headers: { "content-type": "text/plain" } });
+  }
+  const size = file.size;
+  const headers = weightsHeaders(name);
+  const range = req.headers.get("range");
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (match) {
+      const first = match[1] ?? "";
+      const last = match[2] ?? "";
+      const start = first === "" ? 0 : Number(first);
+      const wantedEnd = last === "" ? size - 1 : Number(last);
+      if (Number.isInteger(start) && Number.isInteger(wantedEnd) && start < size && wantedEnd >= start) {
+        const end = Math.min(wantedEnd, size - 1);
+        const length = end - start + 1;
+        return new Response(file.slice(start, end + 1).stream(), {
+          status: 206,
+          headers: {
+            ...headers,
+            "content-range": `bytes ${String(start)}-${String(end)}/${String(size)}`,
+            "content-length": String(length),
+          },
+        });
+      }
+      return new Response(null, {
+        status: 416,
+        headers: { ...headers, "content-range": `bytes */${String(size)}` },
+      });
+    }
+    // An unparsable Range is not a reason to fail: send the whole file, which is
+    // what a Range-ignoring server does, and the loader reports ranged:false.
+  }
+  return new Response(file, {
+    headers: { ...headers, "content-length": String(size) },
+  });
+}
+
 function fingerprintClient(): string {
   const parts: string[] = [];
   const walk = (dir: string, rel: string) => {
@@ -113,6 +198,9 @@ export function cacheHeaders(pathname: string, build = BUILD): Record<string, st
  */
 export async function appFetch(req: Request): Promise<Response> {
   const { pathname } = new URL(req.url);
+  // The bundled translator's weights live outside dist/client (see serveWeights).
+  const weights = await serveWeights(req);
+  if (weights) return weights;
   if (pathname !== "/") {
     if (pathname === SW_PATH) {
       const worker = Bun.file(CLIENT_DIR + SW_PATH);
