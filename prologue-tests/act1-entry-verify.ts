@@ -259,7 +259,11 @@ const apiSrc = read("/home/team/shared/site/src/game/api.ts");
 const fallSrc = read("/home/team/shared/site/src/routes/the-fall.tsx");
 const playSrc = read("/home/team/shared/site/src/routes/play.tsx");
 const indexSrc = read("/home/team/shared/site/src/routes/index.tsx");
-check("the server exports an entry and an exit", apiSrc.includes("const enterActOneFn") && apiSrc.includes("const leaveActOneFn") && /\n\s+enterActOneFn,\n/.test(apiSrc) && apiSrc.includes("leaveActOneFn,\n};"));
+// 2026-09-26 — RE-POINTED. The old form required `leaveActOneFn,\n};`, i.e. that the
+// export object ENDED with that name. That is a position pin, not a claim about wiring:
+// any later slice appending its own exports (chat A1 appended three) turns this red while
+// the entry/exit wiring is untouched. The claim is "both are exported as list entries".
+check("the server exports an entry and an exit", apiSrc.includes("const enterActOneFn") && apiSrc.includes("const leaveActOneFn") && /\n\s+enterActOneFn,\n/.test(apiSrc) && /\n\s+leaveActOneFn,\n/.test(apiSrc));
 check("the entry handler calls the pure entry core (the same code the harness runs)", apiSrc.includes("openAct1Front(") && apiSrc.includes("prologueState(at, ACT1_CONFIG.race)"));
 check("the entry writes the Act I slot through the ordinary save path", apiSrc.includes("saves.games[ACT1_CONFIG.gameId] = st") && apiSrc.includes("saves.activeGameId = ACT1_CONFIG.gameId") && apiSrc.includes("publicState(st)"));
 check("the exit hands the account back to a colony of its own", apiSrc.includes("homeId") && apiSrc.includes("saves.activeGameId = homeId"));
