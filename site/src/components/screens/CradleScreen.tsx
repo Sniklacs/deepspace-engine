@@ -30,6 +30,8 @@ import { CRAFT, CRAFT_RESOURCE_KEY, canForgeAlloy, alloyRecipeRaces } from "../.
 import { DOMAIN_BY_ID } from "../../game/zones";
 import { RACES, getRace } from "../../game/races";
 import { domainDescription, slotLabel } from "../../game/i18n";
+import { ForgeDoor, ForgeRoom } from "../ForgeViews";
+import { sound } from "../../game/sound";
 import { useT } from "../i18n/I18n";
 import { DAILY_ITEM_BY_ID } from "../../game/daily";
 import { SPECIALTY_LABEL } from "../../game/research";
@@ -91,6 +93,9 @@ export default function CradleScreen({
   onClaim,
   onDeploy,
   onOpenCodex,
+  onForgeRoll,
+  onForgeMelt,
+  forgeBusy,
   onField,
   onLeaveHeight,
   canLeaveHeight,
@@ -101,6 +106,11 @@ export default function CradleScreen({
   onClaim: () => void;
   onDeploy: (d: DomainId) => void;
   onOpenCodex: () => void;
+  /** THE FORGE (owner 2026-09-26): the roll is a server operation — the room
+   *  hands up a recipe id and a fresh request id and nothing else. */
+  onForgeRoll: (recipeId: string, requestId: string) => void;
+  onForgeMelt: (itemId: string) => void;
+  forgeBusy: boolean;
   /** the Fall's front door (tab battles) */
   onField: () => void;
   onLeaveHeight: () => void;
@@ -110,7 +120,7 @@ export default function CradleScreen({
   const race = getRace(state.race!);
   const r = state.resources;
   const spm = engineHelpers.suppliesPerMinute(state);
-  const [sheet, setSheet] = useState<null | { kind: "slot" | "leader" | "hero"; id: string }>(null);
+  const [sheet, setSheet] = useState<null | { kind: "slot" | "leader" | "hero" | "forge"; id: string }>(null);
   const close = () => setSheet(null);
   const adv = nextAdvance(state);
   const recipe = alloyRecipeRaces(state);
@@ -394,6 +404,9 @@ export default function CradleScreen({
               onClick={onOpenCodex}
             />
           </Panel>
+          <Panel>
+            <ForgeDoor state={state} onOpen={() => { setSheet({ kind: "forge", id: "forge" }); sound.tab(); }} />
+          </Panel>
           <JournalButton
             title={t("cradle.chronicle")}
             subtitle={t("cradle.chronicleSub")}
@@ -402,6 +415,21 @@ export default function CradleScreen({
         </div>
       </div>
 
+      {/* ---------------- THE FORGE (owner 2026-09-26) ---------------- */}
+      <Sheet
+        open={sheet?.kind === "forge"}
+        onClose={close}
+        labelledBy="cradle-forge-title"
+        title={t("forge.title")}
+      >
+        <SheetHeader
+          id="cradle-forge-title"
+          title={t("forge.title")}
+          subtitle={t("forge.sub")}
+          onClose={close}
+        />
+        <ForgeRoom state={state} now={Date.now()} onRoll={onForgeRoll} onMelt={onForgeMelt} busy={forgeBusy} />
+      </Sheet>
       {/* ---------------- the slot sheets (B2/B3/B7) ---------------- */}
       <SlotSheet
         state={state}
