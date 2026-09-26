@@ -34,7 +34,12 @@ function runExpedition(st: GameState, zoneId: string, lossPct: number, pureAtLau
 }
 /** Give a colony everything needed to launch a real expedition. */
 function gearUp(st: GameState) {
-  st.resources.supplies = 1000; st.resources.gas = 50; st.resources.battery = 50;
+  // RE-POINTED 2026-09-26 (THE RE-TIME): a run now pays the rung's own demand
+  // (R = 6 x the rung's timer, in the colony's own income) plus ordnance on top
+  // of the operations cost, so 1000 📦 no longer buys a launch at all. The
+  // fixture's intent is unchanged — gear the colony up and launch — it just has
+  // to hold what a launch now costs.
+  st.resources.supplies = 20000; st.resources.gas = 50; st.resources.battery = 50;
   st.resources.skmech = 5; st.resources.medkit = 2; st.resources.mechkit = 2;
   st.resources.armorkit = 2; st.resources.embers = 10;
 }

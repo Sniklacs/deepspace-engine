@@ -445,5 +445,16 @@ export const fa: Catalogue = {
   "chat.locked": "بعداً باز می‌شود",
   "chat.loggedOut": "برای گفتن با جهان خود وارد شوید.",
 
+
+  // ---- THE RE-TIME (owner-ratified 2026-09-26) -------------------------
+  // Durations are DAY-SCALE now: the ratified ladder runs 4 h at the rim to
+  // 168 h at the deepest rung, so every "returns in…" string needs units above
+  // minutes. Four keys, one per scale, interpolated with nu-latn digits and
+  // rendered inside `<Bdi dir="ltr">` — the number is a run of its own, or a
+  // right-to-left sentence reorders it.
+  "dur.day": "{d} روز {h} ساعت",
+  "dur.hour": "{h} ساعت {m} دقیقه",
+  "dur.minute": "{m} دقیقه {s} ثانیه",
+  "dur.second": "{s} ثانیه",
 };
 export default fa;

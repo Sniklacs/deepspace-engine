@@ -56,7 +56,7 @@ export const SEASON_TIER_COUNT = 28;
 
 // ---- daily/weekly objectives (spec §4.1; values per spec, targets above) ----
 export type SeasonEventId =
-  | "launch_expedition" | "study" | "craft_item" | "complete_research" | "daily_list"
+  | "launch_expedition" | "study" | "craft_item" | "deploy_program" | "daily_list"
   | "expedition_complete" | "deep_site" | "codex_recovered";
 
 export interface SeasonObjectiveDef {
@@ -67,7 +67,16 @@ export interface SeasonObjectiveDef {
 export const DAILY_OBJECTIVES: SeasonObjectiveDef[] = [
   { id: "launch_expedition", xp: 10, description: "Launch an exploration" },
   { id: "study", xp: 5, description: "Study an Ember/Chipset in the lab" },
-  { id: "complete_research", xp: 15, description: "Complete a research project" },
+  // THE RE-TIME (owner-ratified 2026-09-26) retired `complete_research` here.
+  // The objective assumed a research project FINISHES every day; under the
+  // ratified ladder a project runs for hours to days, so the objective was
+  // unachievable and the daily ceiling silently fell 55 -> 40 XP. It is replaced
+  // by an ACTIVITY — starting a programme — which costs Embers and insight and
+  // completes the moment the player spends them. Same XP weight (15), so the
+  // daily ceiling (and therefore the DERIVED tier price below) is unchanged.
+  // STANDING RULE, asserted by retime-tests: **no season objective may require
+  // completing a timed build.**
+  { id: "deploy_program", xp: 15, description: "Deploy a recovered programme to the colony" },
   { id: "daily_list", xp: 20, description: "Finish the daily to-do list (fires when the daily module lands)" },
   { id: "craft_item", xp: 5, description: "Craft an item in the Workshop" },
 ];
@@ -77,6 +86,29 @@ export const WEEKLY_OBJECTIVES: SeasonObjectiveDef[] = [
   { id: "codex_recovered", xp: 40, description: `Recover ${WEEKLY_CODEX_TARGET} Codices` },
   { id: "daily_list", xp: 50, description: `Reach the daily to-do list ${WEEKLY_DAILY_LIST_TARGET}× in a week (fires when the daily module lands)` },
 ];
+
+/**
+ * THE STANDING RULE, as data — a season objective may never be the completion
+ * of a TIMED BUILD (research, armory, domain deployment, an exploration run).
+ * Under the re-time those all run for hours-to-days, so an objective built on
+ * one of them is unachievable inside a season and silently re-prices the whole
+ * pass. `retime-tests` asserts no shipped objective id appears here; the ids are
+ * listed (rather than a regex over descriptions) so adding a timed-build
+ * objective has to be done in front of this list.
+ */
+export const TIMED_BUILD_OBJECTIVE_IDS: readonly string[] = [
+  "complete_research",
+  "complete_build",
+  "complete_armory_build",
+  "complete_deploy",
+  "complete_expedition",
+];
+
+/** Objective ids that violate the standing rule. Empty today; must stay empty. */
+export function timedBuildObjectiveViolations(): string[] {
+  const all = [...DAILY_OBJECTIVES, ...WEEKLY_OBJECTIVES].map((o) => o.id);
+  return all.filter((id) => TIMED_BUILD_OBJECTIVE_IDS.includes(id));
+}
 
 // ---- the measured earnable rate, and the tier price derived from it ----
 /** Every daily objective, once (55 today). */

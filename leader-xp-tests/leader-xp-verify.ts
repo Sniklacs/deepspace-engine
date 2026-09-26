@@ -148,7 +148,11 @@ check("migrated quartermaster −10% craft", migCost === Math.max(1, Math.round(
 
 console.log("— resolveExpedition runs (wildcard/deep XP path) —");
 // Deep zone run with full protection: returns cleanly (randomness: force no wildcard by high protection)
-st.resources.supplies = 5000; st.resources.hazmat = 50; st.resources.shots = 50; st.resources.alloys = 50;
+// RE-POINTED 2026-09-26 (THE RE-TIME): the deep run now also pays the rung's
+// own demand before it leaves, so 5000 📦 could no longer fund a quantum-facility
+// launch — and a skipped launch would have silently DROPPED this suite's deep-
+// resolve check instead of failing it.
+st.resources.supplies = 200000; st.resources.hazmat = 50; st.resources.shots = 50; st.resources.alloys = 50;
 st.resources.medkit = 5; st.resources.mechkit = 5; st.resources.armorkit = 5; st.resources.skmech = 10; st.resources.gas = 50; st.resources.battery = 50;
 st.scientists = 4;
 const lres = engine.launchExpedition(st, "quantum-facility", 4, now + 200000);
