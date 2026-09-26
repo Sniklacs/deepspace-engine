@@ -82,6 +82,8 @@ export function Sheet({
     };
   }, [open, onClose]);
 
+  const t = useT();
+
   if (!open) return null;
 
   return (
@@ -163,7 +165,7 @@ export function SheetHeader({
       </div>
       <button
         onClick={onClose}
-        aria-label="Close"
+        aria-label={t("sheet.close")}
         className="flex h-11 w-11 flex-none items-center justify-center rounded-lg border border-line text-text-2 hover:bg-surf-4 hover:text-text-1"
       >
         <Icon name="x" size={16} />

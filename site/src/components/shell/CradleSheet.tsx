@@ -19,6 +19,7 @@ import { WORLD_CONFIG_PUBLIC } from "../../game/world-config";
 import { RESOURCE_TIPS, ARMORY_TIPS } from "../../game/tooltips";
 import type { GameState } from "../../game/types";
 import type { IconName } from "../icons";
+import { useT } from "../i18n/I18n";
 
 function StoreRow({
   icon,
@@ -61,6 +62,7 @@ export default function CradleSheet({
   isFullscreen,
   onToggleMute,
   onToggleFullscreen,
+  onSettings,
   onHelp,
   onFeedback,
   onGames,
@@ -73,11 +75,13 @@ export default function CradleSheet({
   isFullscreen: boolean;
   onToggleMute: () => void;
   onToggleFullscreen: () => void;
+  onSettings: () => void;
   onHelp: () => void;
   onFeedback: () => void;
   onGames: () => void;
   onLogout: () => void;
 }) {
+  const t = useT();
   const race = getRace(state.race!);
   const r = state.resources;
   const spm = engineHelpers.suppliesPerMinute(state);
@@ -100,30 +104,30 @@ export default function CradleSheet({
         {/* 1 · Stores — every figure, with the prose that used to be hover-only */}
         <section aria-labelledby="cradle-stores">
           <h3 id="cradle-stores" className="eyebrow">
-            Stores
+            {t("cradleSheet.stores", "Stores")}
           </h3>
           <ul className="mt-2 space-y-1.5">
-            <StoreRow icon="flame" label="Embers" value={Math.floor(r.embers)} sub={RESOURCE_TIPS.embers.what} />
-            <StoreRow icon="chip" label="Chipsets" value={r.chipsets} sub={RESOURCE_TIPS.chipsets.what} />
+            <StoreRow icon="flame" label={t("resource.embers", "Embers")} value={Math.floor(r.embers)} sub={RESOURCE_TIPS.embers.what} />
+            <StoreRow icon="chip" label={t("resource.chipsets", "Chipsets")} value={r.chipsets} sub={RESOURCE_TIPS.chipsets.what} />
             <StoreRow
               icon="crate"
-              label="Supplies"
+              label={t("resource.supplies", "Supplies")}
               value={Math.floor(r.supplies)}
-              sub={`+${spm.toFixed(1)} per minute while the Cradle stands`}
+              sub={t("resource.suppliesSub", "+{rate} per minute while the Cradle stands", { rate: spm.toFixed(1) })}
             />
-            <StoreRow icon="scroll" label="Codices" value={state.codices} sub={RESOURCE_TIPS.codices.what} />
-            <StoreRow icon="spark" label="Plasma" value={Math.floor(r.plasma ?? 0)} sub={ARMORY_TIPS.plasma.what} />
+            <StoreRow icon="scroll" label={t("resource.codices", "Codices")} value={state.codices} sub={RESOURCE_TIPS.codices.what} />
+            <StoreRow icon="spark" label={t("resource.plasma", "Plasma")} value={Math.floor(r.plasma ?? 0)} sub={ARMORY_TIPS.plasma.what} />
             <StoreRow
               icon="coin"
-              label="Scrip"
+              label={t("resource.scrip", "Scrip")}
               value={Math.floor(state.currency.scrip)}
-              sub="Earned by what you do — Devotion, deeds, contribution."
+              sub={t("resource.scripSub", "Earned by what you do — Devotion, deeds, contribution.")}
             />
             <StoreRow
               icon="star"
-              label="Votives"
+              label={t("resource.votives", "Votives")}
               value={Math.floor(state.currency.votives)}
-              sub="Held in the Cradle Ledger."
+              sub={t("resource.votivesSub", "Held in the Cradle Ledger.")}
             />
           </ul>
         </section>
@@ -131,15 +135,15 @@ export default function CradleSheet({
         {/* 2 · Roster — counts only; the rosters themselves are on the home screen */}
         <section aria-labelledby="cradle-roster">
           <h3 id="cradle-roster" className="eyebrow">
-            Roster
+            {t("cradleSheet.roster", "Roster")}
           </h3>
           <ul className="mt-2 space-y-1.5">
-            <CountRow icon="flask" label="Scientists in study" value={`${scientists}/${scientistCap}`} />
-            <CountRow icon="march" label="Teams in the field" value={`${teamsAway}/${fieldSlots}`} />
-            <CountRow icon="person" label="Leaders sworn to the Cradle" value={`${state.leaders.length}`} />
+            <CountRow icon="flask" label={t("cradleSheet.scientists", "Scientists in study")} value={`${scientists}/${scientistCap}`} />
+            <CountRow icon="march" label={t("cradleSheet.teams", "Teams in the field")} value={`${teamsAway}/${fieldSlots}`} />
+            <CountRow icon="person" label={t("cradleSheet.leaders", "Leaders sworn to the Cradle")} value={`${state.leaders.length}`} />
             <CountRow
               icon="star"
-              label={streak > 0 ? `Devotion · ${streak}-day streak` : "Devotion"}
+              label={streak > 0 ? `${t("cradleSheet.devotion", "Devotion")} · ${t("cradle.devotionStreak", "{n}-day streak", { n: streak })}` : t("cradleSheet.devotion", "Devotion")}
               value={`${devotion}`}
             />
           </ul>
@@ -148,41 +152,74 @@ export default function CradleSheet({
         {/* 3 · Commands — the old header's controls, at 44/48px */}
         <section aria-labelledby="cradle-commands" className="space-y-1.5">
           <h3 id="cradle-commands" className="eyebrow">
-            Commands
+            {t("cradleSheet.commands", "Commands")}
           </h3>
-          <RowButton icon="gamepad" title="Your colonies" sub="Found, switch, reset or delete a colony" onClick={onGames} />
-          <RowButton icon="help" title="How to Play" sub="A short primer on the core loop" onClick={onHelp} />
-          <RowButton icon="chat" title="Feedback" sub="Send a bug, a flow issue or a suggestion to the team" onClick={onFeedback} />
+          <RowButton
+            icon="gamepad"
+            title={t("cradleSheet.colonies", "Your colonies")}
+            sub={t("cradleSheet.coloniesSub", "Found, switch, reset or delete a colony")}
+            onClick={onGames}
+          />
+          <RowButton
+            icon="help"
+            title={t("cradleSheet.help", "How to Play")}
+            sub={t("cradleSheet.helpSub", "A short primer on the core loop")}
+            onClick={onHelp}
+          />
+          <RowButton
+            icon="chat"
+            title={t("cradleSheet.feedback", "Feedback")}
+            sub={t("cradleSheet.feedbackSub", "Send a bug, a flow issue or a suggestion to the team")}
+            onClick={onFeedback}
+          />
           <RowButton
             icon="beacon"
-            title="Sound"
-            sub={muted ? "The Cradle is silent — tap to unmute" : "The Cradle hums — tap to mute"}
-            chip={<span className="chip border border-line text-text-2">{muted ? "off" : "on"}</span>}
+            title={t("cradleSheet.sound", "Sound")}
+            sub={
+              muted
+                ? t("cradleSheet.soundOff", "The Cradle is silent — tap to unmute")
+                : t("cradleSheet.soundOn", "The Cradle hums — tap to mute")
+            }
+            chip={
+              <span className="chip border border-line text-text-2">
+                {muted ? t("cradleSheet.off", "off") : t("cradleSheet.on", "on")}
+              </span>
+            }
             onClick={onToggleMute}
           />
           <RowButton
             icon="map"
-            title="Full screen"
-            sub="Fills your screen. Press Esc to leave."
-            chip={<span className="chip border border-line text-text-2">{isFullscreen ? "on" : "off"}</span>}
+            title={t("cradleSheet.fullscreen", "Full screen")}
+            sub={t("cradleSheet.fullscreenSub", "Fills your screen. Press Esc to leave.")}
+            chip={
+              <span className="chip border border-line text-text-2">
+                {isFullscreen ? t("cradleSheet.on", "on") : t("cradleSheet.off", "off")}
+              </span>
+            }
             onClick={onToggleFullscreen}
+          />
+          <RowButton
+            icon="gear"
+            title={t("settings.open", "Settings")}
+            sub={t("settings.openSub", "Language, text size and graphics quality")}
+            onClick={onSettings}
           />
         </section>
 
         {/* 4 · Account — the existing destructive flow, in ONE place */}
         <section aria-labelledby="cradle-account" className="space-y-1.5 pb-2">
           <h3 id="cradle-account" className="eyebrow">
-            Account
+            {t("cradleSheet.account", "Account")}
           </h3>
           <RowButton
             icon="ledger"
-            title="Account and colony records"
-            sub="Reset or delete a colony, or remove the whole account"
+            title={t("cradleSheet.records", "Account and colony records")}
+            sub={t("cradleSheet.recordsSub", "Reset or delete a colony, or remove the whole account")}
             onClick={onGames}
           />
           <ActionButton
-            label="Log Out"
-            sub="Your colonies stay on this account and reload next login"
+            label={t("cradleSheet.logout", "Log Out")}
+            sub={t("cradleSheet.logoutSub", "Your colonies stay on this account and reload next login")}
             icon="logout"
             variant="destructive"
             size="sm"

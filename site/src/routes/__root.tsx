@@ -2,6 +2,8 @@ import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-r
 import type { ReactNode } from "react";
 
 import appCss from "~/styles/app.css?url";
+import { bootScript } from "~/game/i18n";
+import { I18nProvider, LanguageGate } from "~/components/i18n/I18n";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -19,16 +21,32 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <RootDocument>
-      <Outlet />
+      <I18nProvider>
+        <Outlet />
+        {/* First run, on every route — the picker is met BEFORE the game door
+            (L1), and the app behind it is already in the suggested language. */}
+        <LanguageGate />
+      </I18nProvider>
     </RootDocument>
   );
 }
 
+/**
+ * `suppressHydrationWarning` on <html> is deliberate: the inline boot script
+ * stamps `lang`/`data-lang` on the element before React hydrates, exactly so the
+ * first painted frame is already in the player's language (see
+ * game/i18n/device.ts → bootScript).
+ */
 function RootDocument({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <script dangerouslySetInnerHTML={{ __html: bootScript() }} />
+        <noscript>
+          {/* JavaScript off: no language resolution can run, so show the app. */}
+          <style>{`html.i18n-boot body > :not(.i18n-gate){visibility:visible}`}</style>
+        </noscript>
       </head>
       <body>
         {children}

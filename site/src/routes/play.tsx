@@ -32,6 +32,8 @@ import { StorefrontOverlay } from "../components/StorefrontOverlay";
 import { Sheet, SheetHeader } from "../components/Sheet";
 import AppShell from "../components/shell/AppShell";
 import CradleSheet from "../components/shell/CradleSheet";
+import SettingsSheet from "../components/shell/SettingsSheet";
+import { useT } from "../components/i18n/I18n";
 import { navBadges } from "../game/nav-badges";
 import type { Tab } from "../game/nav-slots";
 import CradleScreen from "../components/screens/CradleScreen";
@@ -86,6 +88,7 @@ function PlayPage() {
   // every control the old header held, and `isWide` only flips the (CSS-only)
   // data-shell-layout switch — no layout is re-decided in JS (§7).
   const [cradleOpen, setCradleOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [codexOpen, setCodexOpen] = useState(false);
   const [isWide, setIsWide] = useState(false);
   useEffect(() => {
@@ -467,6 +470,7 @@ function PlayPage() {
           muted={muted}
           onToggleMute={toggleMute}
           onToggleFullscreen={toggleFullscreen}
+        onSettings={() => { setCradleOpen(false); setSettingsOpen(true); }}
           isFullscreen={isFullscreen}
           onLedger={() => { setLedgerOpen(true); sound.click(); }}
           unread={Math.max(0, reports.length - reportsSeen)}
@@ -516,6 +520,7 @@ function PlayPage() {
       )}
       {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} />}
       </AppShell>
+      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </>
       )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
@@ -528,6 +533,7 @@ function PlayPage() {
         isFullscreen={isFullscreen}
         onToggleMute={toggleMute}
         onToggleFullscreen={toggleFullscreen}
+        onSettings={() => { setCradleOpen(false); setSettingsOpen(true); }}
         onHelp={() => { setCradleOpen(false); setHelpOpen(true); }}
         onFeedback={() => { setCradleOpen(false); setFeedbackOpen(true); sound.click(); }}
         onGames={() => { setCradleOpen(false); setGamesOpen(true); sound.click(); }}
@@ -562,6 +568,7 @@ function AuthScreen({ busy, onSignup, onLogin }: {
   onSignup: (u: string, p: string) => Promise<string | null>;
   onLogin: (u: string, p: string) => Promise<string | null>;
 }) {
+  const t = useT();
   const [mode, setMode] = useState<"login" | "signup">("signup");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -570,8 +577,8 @@ function AuthScreen({ busy, onSignup, onLogin }: {
 
   const submit = async () => {
     setError(null);
-    if (username.trim().length < 2) { setError("Enter a name (at least 2 characters)."); return; }
-    if (password.length < 4) { setError("Enter a password (at least 4 characters)."); return; }
+    if (username.trim().length < 2) { setError(t("auth.nameError")); return; }
+    if (password.length < 4) { setError(t("auth.passwordError")); return; }
     setSubmitting(true);
     const err = mode === "signup" ? await onSignup(username, password) : await onLogin(username, password);
     setSubmitting(false);
@@ -581,14 +588,14 @@ function AuthScreen({ busy, onSignup, onLogin }: {
   return (
     <div className="min-h-screen bg-[#070910] text-gray-200 flex items-center justify-center px-4">
       <div className="w-full max-w-md rounded-2xl border border-white/10 bg-black/40 p-8 shadow-2xl">
-        <p className="text-center text-xs uppercase tracking-[0.3em] text-amber-300/80">Deepspace Engine</p>
+        <p className="text-center text-xs uppercase tracking-[0.3em] text-amber-300/80">{t("app.name")}</p>
         <h1 className="mt-2 text-center text-3xl font-bold text-white">
-          {mode === "signup" ? "Found a Colony" : "Return to the Cradle"}
+          {mode === "signup" ? t("auth.foundColony") : t("auth.returnToCradle")}
         </h1>
         <p className="mt-2 text-center text-sm text-gray-400">
           {mode === "signup"
-            ? "Create an account — your colonies' saves will belong to you and persist across visits."
-            : "Log in to pick up your colonies where you left them."}
+            ? t("auth.subSignup")
+            : t("auth.subLogin")}
         </p>
 
         <div className="mt-6 rounded-lg border border-white/10 bg-white/5 p-1 flex">
@@ -600,13 +607,13 @@ function AuthScreen({ busy, onSignup, onLogin }: {
                 mode === m ? "bg-ember text-black" : "text-gray-400 hover:bg-white/10"
               }`}
             >
-              {m === "signup" ? "Sign Up" : "Log In"}
+              {m === "signup" ? t("auth.tabSignup") : t("auth.tabLogin")}
             </button>
           ))}
         </div>
 
         <label className="mt-6 block">
-          <span className="block text-xs text-gray-400 mb-1">Colony name</span>
+          <span className="block text-xs text-gray-400 mb-1">{t("auth.colonyName")}</span>
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -616,7 +623,7 @@ function AuthScreen({ busy, onSignup, onLogin }: {
           />
         </label>
         <label className="mt-3 block">
-          <span className="block text-xs text-gray-400 mb-1">Password</span>
+          <span className="block text-xs text-gray-400 mb-1">{t("auth.password")}</span>
           <input
             type="password"
             value={password}
@@ -624,7 +631,7 @@ function AuthScreen({ busy, onSignup, onLogin }: {
             autoComplete={mode === "signup" ? "new-password" : "current-password"}
             onKeyDown={(e) => e.key === "Enter" && submit()}
             className="w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white outline-none focus:border-amber-400"
-            placeholder={mode === "signup" ? "At least 4 characters" : "Your password"}
+            placeholder={mode === "signup" ? t("auth.passwordPlaceholderSignup") : t("auth.passwordPlaceholderLogin")}
           />
         </label>
 
@@ -635,7 +642,7 @@ function AuthScreen({ busy, onSignup, onLogin }: {
           disabled={busy || submitting}
           className="mt-6 w-full rounded-lg bg-ember px-6 py-2.5 font-semibold text-black hover:brightness-110 disabled:opacity-40"
         >
-          {mode === "signup" ? "Create Account & Enter" : "Log In"}
+          {mode === "signup" ? t("auth.submitSignup") : t("auth.submitLogin")}
         </button>
 
         <p className="mt-4 text-center text-[11px] text-text-3">
@@ -654,12 +661,13 @@ function HelpModal({ onClose }: { onClose: () => void }) {
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
+  const t = useT();
   return (
     <div className="fixed inset-0 z-[80] modal-wrap bg-black/70" onClick={onClose}>
       <div className="my-auto max-w-lg rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-white">How to Play</h3>
-          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">Close</button>
+          <h3 className="text-lg font-bold text-white">{t("help.title")}</h3>
+          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("help.close")}</button>
         </div>
         <div className="mt-3 space-y-3 text-sm text-gray-300">
           <p><b className="text-amber-200">1 · Send Expeditions</b> — fund teams into the Shatterlands (Expeditions tab) to salvage <b className="text-amber-200">Embers</b> and rare <b className="text-cyan-300">Chipsets</b>. Exports run in real time; they keep going even logged out.</p>
@@ -677,14 +685,15 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 
 /* ---------------- First-Run nudge (beta feedback) ---------------- */
 function FirstRunNudge({ onDismiss }: { onDismiss: () => void }) {
+  const t = useT();
   return (
     <div className="fixed top-[calc(var(--spacing-ribbon)+8px)] left-1/2 -translate-x-1/2 z-[60] w-[min(94vw,44rem)] rounded-xl border border-amber-400/40 bg-[#0b0e16]/95 px-4 py-3 shadow-2xl flex items-center gap-3 backdrop-blur">
       <span className="text-xl">🛰️</span>
       <div className="flex-1 text-sm text-amber-100">
-        <b>This is the first world — tell us what broke.</b>
-        <span className="text-gray-400"> Use the 💬 Feedback button in the header to send bugs, flow issues, or suggestions straight to the dev team.</span>
+        <b>{t("nudge.line")}</b>
+        <span className="text-gray-400"> {t("nudge.sub")}</span>
       </div>
-      <button onClick={onDismiss} className="shrink-0 rounded border border-amber-400/40 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/10">Got it</button>
+      <button onClick={onDismiss} className="shrink-0 rounded border border-amber-400/40 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/10">{t("nudge.gotIt")}</button>
     </div>
   );
 }
@@ -752,7 +761,7 @@ function FeedbackModal({ token, colonyName, onClose, flash }: {
       <div className="my-auto w-full max-w-lg rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-white">💬 Feedback</h3>
-          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">Close</button>
+          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("help.close")}</button>
         </div>
         <p className="mt-1 text-xs text-text-3">This is the first world — tell us what broke or what you'd like to see. Reports go straight to the dev team.</p>
         <div className="mt-4 space-y-4">
@@ -1006,7 +1015,7 @@ function GamesModal({ games, activeGameId, username, busy, onClose, onPlay, onRe
       <div className="my-auto w-full max-w-3xl rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-white">Your Colonies</h2>
-          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">Close</button>
+          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("help.close")}</button>
         </div>
         <GamesPanel
           forced={false}
@@ -1505,6 +1514,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
   state: GameState; now: number; onLaunch: (zone: string, sci: number) => void;
   onFlash: (m?: string) => void; onPrepare: () => void;
 }) {
+  const t = useT();
   const [sel, setSel] = useState("outer-ruins");
   const [sci, setSci] = useState(1);
   const [riskZone, setRiskZone] = useState<Zone | null>(null);
@@ -1552,7 +1562,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
       <div className="flex flex-wrap items-baseline justify-between">
-        <h2 className="text-2xl font-bold text-white">Expeditions into the Shatterlands</h2>
+        <h2 className="text-2xl font-bold text-white">{t("exp.title")}</h2>
         <p className="text-sm text-gray-400">Teams away: <b className="text-white">{active.length}/{maxSlots}</b> {!canLaunch && <span className="text-amber-300"> — deploy Logistics AI for more slots</span>}</p>
       </div>
 
@@ -1569,7 +1579,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
                   <Tooltip content={tip({ what: "Active expedition — a team out in the Shatterlands.", does: "Runs in real time and resolves while you're away, returning Embers (and maybe a Chipset) to the Cradle.", how: "Returns automatically once the timer hits zero. Runs launched under-geared carry their accepted radiation loss." })}><span className="font-semibold text-amber-100">🚚 {e.label}</span></Tooltip>
                   <span className="text-xs text-gray-400">{e.assignedScientists} scientist(s){e.lossPct ? ` · ☢️ ${e.lossPct}%` : ""}</span>
                 </div>
-                <p className="mt-1 text-xs text-gray-400">Returns in <b className="text-amber-200">{fmtDur(msLeft)}</b></p>
+                <p className="mt-1 text-xs text-gray-400">{t("exp.returnsIn")} <b className="text-amber-200">{fmtDur(msLeft)}</b></p>
                 <div className="mt-2 h-2 rounded bg-white/10"><div className="h-2 rounded bg-ember" style={{ width: `${pct}%` }} /></div>
               </div>
             );
@@ -1579,18 +1589,18 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
 
       {/* planning */}
       <div className="mt-6 rounded-2xl border border-white/10 bg-black/40 p-5">
-        <h3 className="font-semibold text-white">Plan an Expedition <span className="text-xs font-normal text-gray-400">— an investment in real time, not a click</span></h3>
+        <h3 className="font-semibold text-white">{t("exp.plan")} <span className="text-xs font-normal text-gray-400">{t("exp.planSub")}</span></h3>
         {!stepOut && (
           <div className="mt-3 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
             🏗️ <b>The Cradle hasn't stepped out yet.</b> Fielding any expedition requires everyday logistics gear forged in the <b className="text-amber-200">🏭 Workshop</b> (Colony tab): a <b>Medical kit</b> 🩺, a <b>Mechanics kit</b> 🔧, and an <b>Armor kit</b> 🛡️ (Tier 0, ~18 📦 total). Forge all three before you Commit.
           </div>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <label className="text-xs text-gray-400">Destination</label>
+          <label className="text-xs text-gray-400">{t("exp.destination")}</label>
           <select value={sel} onChange={(e) => setSel(e.target.value)} className="rounded-lg border border-white/15 bg-black/60 px-3 py-2 text-white outline-none focus:border-amber-400">
             {accessible.map((z) => <option key={z.id} value={z.id}>{z.name}{isDeepZone(z.radiationLevel) ? " ☢️" : ""}</option>)}
           </select>
-          <Tooltip content={tip(LAB_TIPS.scientists)}><label className="text-xs text-gray-400">Scientists</label></Tooltip>
+          <Tooltip content={tip(LAB_TIPS.scientists)}><label className="text-xs text-gray-400">{t("exp.scientists")}</label></Tooltip>
           <input type="number" min={1} max={state.scientists} value={sci} onChange={(e) => setSci(Math.max(1, Math.min(state.scientists, Number(e.target.value) || 1)))} className="w-20 rounded-lg border border-white/15 bg-black/60 px-2 py-2 text-white outline-none focus:border-amber-400" />
           <Tooltip content={tip({ what: "Commit Supplies — launch this expedition.", does: "Spends the destination's Supplies cost and sends your team out in real time. Deep zones open the pre-launch risk pop-up first. Farther sites also draw on the convoy's fuel & battery stores.", how: "Requires a stepped-out Cradle (Tier 0 kits), enough Supplies, a free field slot, and enough fuel/battery for the distance. Returns Embers (and maybe a Chipset) when it completes." })}>
             <button onClick={commit} disabled={!canLaunch} className="ml-auto rounded-lg bg-ember px-5 py-2 font-semibold text-black hover:brightness-110 disabled:opacity-40">
@@ -1639,7 +1649,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
       <div className="mt-6 rounded-2xl border border-red-400/20 bg-red-400/5 p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="font-semibold text-white">☢️ The Hangar — Deep Shatterlands <span className="text-xs font-normal text-gray-400">— visually distant, radiation-locked</span></h3>
-          <span className="text-[11px] text-gray-400">Suits let you EXPLORE · alloys let you EXTRACT</span>
+          <span className="text-[11px] text-gray-400">{t("exp.suits")}</span>
         </div>
         {deepZones.map((z) => {
           const locked = !accessibleDeep.includes(z);
@@ -1651,7 +1661,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
                 <Tooltip content={tip({ what: `${z.name} — a hangared deep site.`, does: z.flavor, how: locked ? "Locked until you forge enough hazmat for a suited recon team. Craft suits in the Workshop." : "Selectable through the hangar. Committing opens the pre-launch risk pop-up." })}>
                   <span className={`font-semibold ${locked ? "text-text-3" : "text-white"}`}>{locked ? "🔒 " : "☢️ "}{z.name}</span>
                 </Tooltip>
-                <span className="text-[11px] uppercase text-text-3">Deep scientific site</span>
+                <span className="text-[11px] uppercase text-text-3">{t("exp.deepSite")}</span>
               </div>
               <p className="mt-1 text-xs text-gray-400">{z.flavor}</p>
               {locked ? (
@@ -1740,7 +1750,7 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
         </div>
 
         <div className="mt-4">
-          <p className="text-xs uppercase tracking-wider text-text-3">Gear — what the colony HAS vs what this team NEEDS</p>
+          <p className="text-xs uppercase tracking-wider text-text-3">{t("exp.gearLine")}</p>
           <table className="mt-2 w-full text-sm">
             <tbody>
               {table.map((row) => {
@@ -1792,6 +1802,7 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
 /* ---------------- Lab tab ---------------- */
 
 function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoint, onChooseSpec, onChooseRevelation }: { state: GameState; now: number; onStudy: (k: "ember" | "chipset") => void; onDeploy: (d: DomainId) => void; onBeginResearch: (techId: string, leaderId: string) => void; onAllocatePoint: (leaderId: string, attr: "research" | "economy" | "combat" | "engineering") => void; onChooseSpec: (leaderId: string, path: "scholar" | "marshal" | "quartermaster") => void; onChooseRevelation: (choice: "sealed" | "open") => void }) {
+  const t = useT();
   const studying = engineHelpers.studying(state);
   const busy = studying.length >= state.scientists;
   const r = state.resources;
@@ -1799,11 +1810,11 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
   const leaderCount = state.leaders.filter((l) => l.status === "active").length;
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      <h2 className="text-2xl font-bold text-white">The Lab</h2>
+      <h2 className="text-2xl font-bold text-white">{t("lab.title")}</h2>
       <p className="mt-1 text-sm text-gray-400">Two tracks: <b className="text-amber-200">Recovered AI</b> (study Embers & Chipsets → Deploy) and <b className="text-purple-300">Human knowledge</b> (spend 📜 Codices on the Research Tree, run by your Leaders).</p>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {([["deploy", `Deploy AI`], ["research", `🌳 Research`], ["leaders", `🫂 Leaders ${leaderCount}/${engineHelpers.leaderSlots(state)}`]] as [typeof view, string][]).map(([id, label]) => (
+        {([["deploy", t("lab.tabDeploy")], ["research", t("lab.tabResearch")], ["leaders", t("lab.tabLeaders", { n: leaderCount, cap: engineHelpers.leaderSlots(state) })]] as [typeof view, string][]).map(([id, label]) => (
           <button key={id} onClick={() => { setView(id); sound.tab(); }} className={`rounded-lg px-3 py-2 text-sm font-medium ${view === id ? "bg-ember text-black" : "text-gray-300 hover:bg-white/10"}`}>{label}</button>
         ))}
       </div>
@@ -1822,12 +1833,12 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
       {/* study */}
       <div className="mt-6 rounded-2xl border border-white/10 bg-black/40 p-5">
         <Tooltip content={tip(LAB_TIPS.studyEmbers)}>
-          <h3 className="font-semibold text-white">Study a Fragment</h3>
+          <h3 className="font-semibold text-white">{t("lab.studyTitle")}</h3>
         </Tooltip>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <Tooltip content={tip(LAB_TIPS.studyEmbers)}>
-              <div className="flex items-center justify-between"><span className="font-semibold text-amber-200">Study Embers</span><span className="text-xs text-text-3">cost: 2 🧯 · ~{engineHelpers.studySecs(state, "ember")}s</span></div>
+              <div className="flex items-center justify-between"><span className="font-semibold text-amber-200">{t("lab.studyEmbers")}</span><span className="text-xs text-text-3">cost: 2 🧯 · ~{engineHelpers.studySecs(state, "ember")}s</span></div>
             </Tooltip>
             <p className="mt-1 text-xs text-gray-400">Consumes 2 Embers, yields ~{engineHelpers.insightFor(state, "ember")} insight, over real time.</p>
             <button onClick={() => onStudy("ember")} disabled={busy || r.embers < 2} className="mt-3 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
@@ -1836,7 +1847,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
           </div>
           <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
             <Tooltip content={tip(LAB_TIPS.studyChipset)}>
-              <div className="flex items-center justify-between"><span className="font-semibold text-cyan-300">Study a Chipset</span><span className="text-xs text-text-3">1 🔩 · ~{engineHelpers.studySecs(state, "chipset")}s</span></div>
+              <div className="flex items-center justify-between"><span className="font-semibold text-cyan-300">{t("lab.studyChipset")}</span><span className="text-xs text-text-3">1 🔩 · ~{engineHelpers.studySecs(state, "chipset")}s</span></div>
             </Tooltip>
             <p className="mt-1 text-xs text-gray-400">Consumes a rare Chipset, yields ~{engineHelpers.insightFor(state, "chipset")} insight. A real leap forward.</p>
             <button onClick={() => onStudy("chipset")} disabled={busy || r.chipsets < 1} className="mt-3 w-full rounded-lg bg-cyan-400 px-3 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40">
@@ -1866,7 +1877,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
       {/* deploy */}
       <div className="mt-6 rounded-2xl border border-white/10 bg-black/40 p-5">
         <Tooltip content={tip(LAB_TIPS.deploy)}>
-          <h3 className="font-semibold text-white">Deploy Recovered AI <span className="text-xs font-normal text-gray-400">— advance the colony's domains</span></h3>
+          <h3 className="font-semibold text-white">{t("lab.deployTitle")} <span className="text-xs font-normal text-gray-400">{t("lab.deploySub")}</span></h3>
         </Tooltip>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {DOMAINS.map((d) => {
@@ -1893,7 +1904,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
       </div>
       </>)}
 
-      <JournalButton title="Lab journal" subtitle="studies, breakthroughs, and appointed research — newest first" log={state.log} />
+      <JournalButton title={t("lab.journal")} subtitle={t("lab.journalSub")} log={state.log} />
     </main>
   );
 }
@@ -1904,6 +1915,7 @@ function ArmoryTab({ state, now, onBuild, onRefine }: {
   onBuild: (familyId: string) => void;
   onRefine: () => void;
 }) {
+  const t = useT();
   const r = state.resources;
   const race = state.race ? getRace(state.race) : null;
   const families = state.race ? raceFamilies(state.race) : [];
@@ -2027,7 +2039,7 @@ function ArmoryTab({ state, now, onBuild, onRefine }: {
           </div>
         </>
       )}
-      <JournalButton title="Armory journal" subtitle="forges, upgrades, and plasma condensing — newest first" log={state.log} />
+      <JournalButton title={t("armory.journal")} subtitle={t("armory.journalSub")} log={state.log} />
     </main>
   );
 }

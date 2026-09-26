@@ -10,6 +10,7 @@ import type { Tab } from "../../game/nav-slots";
 import type { NavBadge } from "../../game/nav-badges";
 import { Icon } from "../icons";
 import { ReadyDot } from "../ui/ReadyDot";
+import { useT } from "../i18n/I18n";
 
 export default function BottomNav({
   tab,
@@ -20,10 +21,11 @@ export default function BottomNav({
   onSwitch: (t: Tab) => void;
   badges: Record<string, NavBadge>;
 }) {
+  const t = useT();
   const ids = visibleNavIds(!!badges.battles);
   return (
     <nav
-      aria-label="Sections"
+      aria-label={t("nav.sections")}
       data-testid="bottom-nav"
       className="botnav fixed inset-x-0 bottom-0 z-40 border-t border-line-strong bg-surf-1/95 backdrop-blur-sm"
     >
@@ -53,7 +55,7 @@ export default function BottomNav({
                 ) : null}
                 <Icon name={n.icon} size={24} strokeWidth={active ? 2.25 : 1.75} aria-hidden="true" />
                 <span className={`text-nav leading-none ${active ? "font-semibold" : "font-medium"}`}>
-                  {n.label}
+                  {t(`nav.${n.id}`, n.label)}
                 </span>
                 {b.count ? (
                   <span className="num absolute right-1/4 top-1.5 text-nav text-ember-soft">{b.count}</span>
@@ -62,7 +64,7 @@ export default function BottomNav({
                   <span aria-hidden="true" className="report-blink absolute right-1/4 top-2 h-2 w-2 rounded-full bg-ember" />
                 ) : null}
                 {ready && n.id !== "battles" ? (
-                  <ReadyDot label={b.label ?? `${n.label} — there is an action available here`} size="sm" className="absolute right-1/4 top-2" />
+                  <ReadyDot label={b.label ?? t("nav.ready", { label: t(`nav.${n.id}`, n.label) })} size="sm" className="absolute right-1/4 top-2" />
                 ) : null}
               </button>
             </li>

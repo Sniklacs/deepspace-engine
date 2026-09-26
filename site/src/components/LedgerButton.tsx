@@ -7,6 +7,7 @@
 // sticky HUD uses: glyph + the two figures, no word, still 44px tall so the
 // touch floor holds. The wallet is never invented or adjusted here.
 import { Icon } from "./icons";
+import { useT } from "./i18n/I18n";
 
 export function LedgerButton({
   scrip,
@@ -19,6 +20,7 @@ export function LedgerButton({
   onClick: () => void;
   variant?: "default" | "ribbon";
 }) {
+  const t = useT();
   if (variant === "ribbon") {
     return (
       <button
@@ -26,8 +28,11 @@ export function LedgerButton({
         data-testid="ribbon-ledger"
         onClick={onClick}
         aria-haspopup="dialog"
-        aria-label={`Cradle Ledger — ${Math.floor(scrip)} Scrip, ${Math.floor(votives)} Votives`}
-        title="Cradle Ledger — wallet and the honest shop"
+        aria-label={t("ribbon.ledgerAria", {
+          scrip: Math.floor(scrip),
+          votives: Math.floor(votives),
+        })}
+        title={t("ribbon.ledger")}
         className="flex h-tap flex-none items-center gap-2 rounded-xl border border-line bg-surf-2 px-2 text-text-2"
       >
         <Icon name="ledger" size={16} className="shrink-0 text-text-2" aria-hidden="true" />
@@ -48,12 +53,15 @@ export function LedgerButton({
       data-testid="ledger-button"
       onClick={onClick}
       aria-haspopup="dialog"
-      aria-label={`Cradle Ledger — ${Math.floor(scrip)} Scrip, ${Math.floor(votives)} Votives`}
-      title="Cradle Ledger — wallet and the honest shop"
+      aria-label={t("ribbon.ledgerAria", {
+          scrip: Math.floor(scrip),
+          votives: Math.floor(votives),
+        })}
+      title={t("ribbon.ledger")}
       className="flex min-h-tap items-center gap-2 rounded-xl border border-line bg-surf-2/60 px-2.5 py-2 text-text-2 hover:bg-surf-3"
     >
       <Icon name="ledger" size={16} className="shrink-0 text-text-2" />
-      <span className="hidden text-xs font-semibold text-text-2 sm:inline">Ledger</span>
+      <span className="hidden text-xs font-semibold text-text-2 sm:inline">{t("ribbon.ledgerWord")}</span>
       <span className="chip gap-1 text-text-2">
         <Icon name="coin" size={12} className="shrink-0 text-ember-soft" />
         <b className="num text-ember-soft">{Math.floor(scrip).toLocaleString()}</b>
