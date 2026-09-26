@@ -1,0 +1,25 @@
+{
+  "note": "Frozen pre-existing type debt in the shipped app (site/src), snapshot 2026-09-26 with the /play `useT is not defined` hotfix. The guard FAILS on any increase and on any code that is not listed here; it prints a nudge when a number drops, so lower these as the debt is paid. The undefined-identifier family (TS2304/TS2551/TS2552) is deliberately NOT baselined — zero tolerance, see scripts/typecheck-guard.ts.",
+  "snapshot": "2026-09-26",
+  "generatedWith": "typescript 5.9.x · tsconfig.typecheck.json (src/**)",
+  "counts": {
+    "6133": 4,
+    "2614": 1,
+    "2322": 4,
+    "2769": 3,
+    "2739": 1,
+    "2345": 2,
+    "18048": 2,
+    "2741": 1
+  },
+  "where": {
+    "6133": "unused locals — CircuitPage DISPLAY_NAMES/LABEL_DY, client-utils 'state', play.tsx ColonyTab (dead since the Cradle home moved to CradleScreen)",
+    "2614": "RailNarration: TutorialCueLayer has no exported member 'PlateLine' (beat-rail work)",
+    "2322": "RailNarration ariaLabel, ResearchViews ResearchJob|undefined, battle-engine FobStage, play.tsx CircuitPage onSettings",
+    "2769": "Tooltip: document listener overloads (passive)",
+    "2739": "game/api.ts DailyState missing events/rolledAt",
+    "2345": "game/daily.ts: string where DailyItemId is required",
+    "18048": "game/daily.ts: d.banked possibly undefined",
+    "2741": "war-energy.ts ACTIONS missing 'defense'"
+  }
+}

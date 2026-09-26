@@ -8,6 +8,10 @@
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { Icon } from "./icons";
+// The lookup every player-facing label goes through. It MUST be imported: it is
+// not a global, and `vite build` does not resolve identifiers (see
+// scripts/typecheck-guard.ts — the /play P0 of 2026-09-26 was exactly this).
+import { useT } from "./i18n/I18n";
 
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -82,8 +86,6 @@ export function Sheet({
     };
   }, [open, onClose]);
 
-  const t = useT();
-
   if (!open) return null;
 
   return (
@@ -155,6 +157,7 @@ export function SheetHeader({
   subtitle?: string;
   onClose: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex flex-none items-start justify-between gap-3 border-b border-line px-4 py-3 md:px-5">
       <div className="min-w-0">

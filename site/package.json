@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "typecheck": "bun run scripts/typecheck-guard.ts",
+    "typecheck:selftest": "bun run scripts/typecheck-guard.ts --selftest",
+    "build": "bun run typecheck && vite build",
     "start": "bun run serve.ts",
     "publish": "bash ./publish.sh",
     "go-live": "bash ./go-live.sh",
