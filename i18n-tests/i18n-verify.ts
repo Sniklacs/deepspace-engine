@@ -271,7 +271,7 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // `translator.retry`) were already in the catalogue and were NOT duplicated. The
 // pin moved because the KEY SET grew by design.
 // Previous pin: 9b184bfc6e650e9083c2a7d5a7c15a7988316f19a3b13306e2a8c6b2dba21fdf
-const ENGLISH_SHA = "9b184bfc6e650e9083c2a7d5a7c15a7988316f19a3b13306e2a8c6b2dba21fdf";
+const ENGLISH_SHA = "f8fd7897f37276b66dae79fb2bd382b110ab87c7a9ceab9d6fd4d0a6e63606b0";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);
