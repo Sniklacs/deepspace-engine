@@ -160,13 +160,18 @@ check("unknown item refused", m.purchaseWithVotives(st5, "wat", "buy-4", now).ok
 
 // ======================================================================
 console.log("— 6 · payment provider seam (§7.3) —");
+// SWAPPED 2026-09-26 (payments slice): the factory no longer returns the stub — it
+// returns the real Stripe provider (Payment Links + signature-verified webhook). The
+// seven checks below are the SAME seven, re-pointed at the new reality; the full
+// verifier lives in payments-tests/payments-verify.ts.
 const prov = m.createPaymentProvider();
-check("factory returns the stub", prov.name === "StubPaymentProvider");
-check("createIntent simulates success", await (async () => { const r = await prov.createIntent({ accountId: "a", skuId: "votive-steady", idempotencyKey: "k1", amountCents: 999, currency: "usd" }); return r.ok === true && typeof r.intentId === "string"; })());
-check("stub(simulate:false) rejects", await (async () => { const p = m.createStubPaymentProvider(false); const r = await p.createIntent({ accountId: "a", skuId: "x", idempotencyKey: "k", amountCents: 1, currency: "usd" }); return !r.ok; })());
-check("verifyWebhook returns verified purchase", await (async () => { const r = await prov.verifyWebhook({ purchaseId: "purch-1", skuId: "votive-steady", accountId: "a" }); return r.ok === true && r.purchase?.skuId === "votive-steady"; })());
-check("webhook without skuId rejected", await (async () => { const r = await prov.verifyWebhook({ foo: 1 }); return !r.ok; })());
-check("refund simulates ok", await (async () => { const r = await prov.refund({ purchaseId: "purch-1", reason: "chargeback" }); return r.ok; })());
+check("the factory no longer returns the stub — it returns the real provider", prov.name === "StripePaymentProvider");
+check("an unconfigured provider REFUSES instead of simulating (no simulate fallback)", await (async () => { const r = await prov.createIntent({ accountId: "a", skuId: "votive-steady", idempotencyKey: "k1", amountCents: 999, currency: "usd" }); return r.ok === false && typeof r.error === "string"; })());
+check("the stub is still exported for interface tests and still refuses with simulate:false", await (async () => { const p = m.createStubPaymentProvider(false); const r = await p.createIntent({ accountId: "a", skuId: "x", idempotencyKey: "k", amountCents: 1, currency: "usd" }); return p.name === "StubPaymentProvider" && !r.ok; })());
+check("verifyWebhook refuses a bare payload object (a Stripe webhook is verified over its RAW body)", await (async () => { const r = await prov.verifyWebhook({ purchaseId: "purch-1", skuId: "votive-steady", accountId: "a" }); return r.ok === false; })());
+check("verifyWebhook refuses a raw body with no signature header", await (async () => { const r = await prov.verifyWebhook({ rawBody: "{\"id\":\"evt_1\"}", signatureHeader: null }); return r.ok === false; })());
+check("no payload verifies while no signing secret is configured", await (async () => { const r = await prov.verifyWebhook({ rawBody: "{\"id\":\"evt_1\",\"type\":\"checkout.session.completed\"}", signatureHeader: "t=1,v1=deadbeef" }); return r.ok === false && !r.purchase; })());
+check("refund is refused honestly (refunds are issued in the Stripe dashboard)", await (async () => { const r = await prov.refund({ purchaseId: "purch-1", reason: "chargeback" }); return r.ok === false && typeof r.error === "string"; })());
 
 // ---- applyExternalPurchase: provider-confirmed purchases, idempotent ----
 const st6 = engine.newGame("Mon6", "watchers", now);

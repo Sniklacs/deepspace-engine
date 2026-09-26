@@ -27,6 +27,10 @@ import type {
   EntitlementsState,
   GameState,
 } from "./types";
+// The real payment provider (payment-links + signature-verified webhook). Its
+// imports back into this file are TYPE-ONLY, so there is no runtime cycle and
+// this module stays pure for the client bundle.
+import { createStripePaymentProvider, type StripeProviderOptions } from "./payments/stripe-provider";
 
 // ======================================================================
 // §8 — OPEN DECISIONS AS CONFIG (spec defaults; owner confirmation pending).
@@ -946,10 +950,20 @@ export function createStubPaymentProvider(simulate = true): PaymentProvider {
   };
 }
 
-/** THE single swap point: wiring Stripe later touches ONLY this factory
- *  (return a real provider; everything else already speaks the interface). */
-export function createPaymentProvider(): PaymentProvider {
-  return createStubPaymentProvider(true);
+/**
+ * THE single swap point — SWAPPED (2026-09-26). This returns the REAL provider
+ * (payments/stripe-provider.ts): Stripe Payment Links are opened by the client,
+ * and an entitlement is granted ONLY by a signature-verified webhook. The stub
+ * above is kept for tests that exercise the interface, but no code path reaches
+ * it any more: an unconfigured real provider REFUSES everything (it has no
+ * "simulate" mode to fall back on), which is the honest behaviour for money.
+ *
+ * The signing secret is injected by the caller — the webhook route reads it from
+ * the environment (`STRIPE_WEBHOOK_SECRET`), so this pure module never touches
+ * env or node APIs and stays importable by the client bundle.
+ */
+export function createPaymentProvider(options: StripeProviderOptions = {}): PaymentProvider {
+  return createStripePaymentProvider(options);
 }
 
 // ======================================================================

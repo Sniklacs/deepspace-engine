@@ -30,6 +30,12 @@ import { sound } from "../game/sound";
 import { voiceEngine } from "../game/voice/voice-engine";
 import { Tooltip } from "../components/Tooltip";
 import { StorefrontOverlay } from "../components/StorefrontOverlay";
+import {
+  clearPurchaseIntent,
+  readPurchaseIntent,
+  walletSignature,
+  type PurchaseIntent,
+} from "../game/payments/purchase-intent";
 import { Sheet, SheetHeader } from "../components/Sheet";
 import AppShell from "../components/shell/AppShell";
 import CradleSheet from "../components/shell/CradleSheet";
@@ -77,6 +83,15 @@ function PlayPage() {
   const [username, setUsername] = useState<string | null>(null);
   const [gamesOpen, setGamesOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
+  // ---- Back from Stripe (Payments). `intent` is the note written at click time
+  // (game/payments/purchase-intent.ts). What the player is told is derived from the
+  // SERVER's wallet compared against that note — never from the URL — and this panel
+  // grants nothing: the entitlement arrives only through the signed webhook.
+  const [purchaseReturn, setPurchaseReturn] = useState<{
+    skuId: string | null;
+    intent: PurchaseIntent | null;
+    seenAt: number;
+  } | null>(null);
   const [tab, setTab] = useState<Tab>("colony");
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -188,6 +203,43 @@ function PlayPage() {
     const id = setInterval(refresh, 4000);
     return () => clearInterval(id);
   }, [signedIn, refresh]);
+  // ---- PAYMENT RETURN (Payments) ----------------------------------------------------
+  // Stripe sends the player back to /play?purchase=return&sku=…&session_id=… . The
+  // session id is kept for support only: it proves nothing, so it is never used to
+  // grant or to claim anything. The panel re-reads what the server holds.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("purchase") !== "return") return;
+    const skuId = params.get("sku");
+    const intent = readPurchaseIntent(window.localStorage, Date.now());
+    setPurchaseReturn({ skuId: skuId ?? intent?.skuId ?? null, intent, seenAt: Date.now() });
+    setLedgerOpen(true);
+    // One-shot signal: strip it so a reload cannot re-open the panel.
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
+  // "confirmed" needs a BEFORE and an AFTER: with no note (another device, cleared
+  // storage) the honest answer is "not confirmed yet", never a claim. The 4s poll
+  // moves a fresh return from "checking" to "pending" without the player doing anything.
+  const purchaseReturnView = (() => {
+    if (!purchaseReturn) return null;
+    const status: "checking" | "confirmed" | "pending" = !purchaseReturn.intent
+      ? "pending"
+      : state && walletSignature(state) !== purchaseReturn.intent.signature
+        ? "confirmed"
+        : now - purchaseReturn.seenAt > 8000
+          ? "pending"
+          : "checking";
+    return {
+      status,
+      onCheckAgain: () => { void refresh(); },
+      onDismiss: () => {
+        clearPurchaseIntent(typeof window === "undefined" ? null : window.localStorage);
+        setPurchaseReturn(null);
+        sound.click();
+      },
+    };
+  })();
 
   // Browser autoplay rule: audio may only begin on a user gesture. The SAME
   // gesture arms the speech engine (voice-direction §5.2): one 1-character
@@ -544,7 +596,15 @@ function PlayPage() {
         onGames={() => { setCradleOpen(false); setGamesOpen(true); sound.click(); }}
         onLogout={doLogout}
       />
-      {state && <StorefrontOverlay state={state} open={ledgerOpen} onClose={() => { setLedgerOpen(false); sound.click(); }} />}
+      {state && (
+        <StorefrontOverlay
+          state={state}
+          open={ledgerOpen}
+          onClose={() => { setLedgerOpen(false); sound.click(); }}
+          accountId={username}
+          purchaseReturn={purchaseReturnView}
+        />
+      )}
       {feedbackOpen && <FeedbackModal token={token!} colonyName={state.playerName} onClose={() => setFeedbackOpen(false)} flash={flash} />}
       <ReportsSheet open={reportOpen} onClose={() => { setReportOpen(false); sound.click(); }} reports={reports} />
       {gamesOpen && (

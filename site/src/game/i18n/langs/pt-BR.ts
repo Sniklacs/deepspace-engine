@@ -327,5 +327,21 @@ export const ptBR: Catalogue = {
   "translator.notReady": "A tradução está sendo preparada",
   "translator.translate": "Traduzir",
   "translator.original": "Ver o original",
+  // ---- the Cradle Market (real money: Stripe Payment Links + signed webhook) ----
+  // 13 keys, added by the payments slice: the buy control, the honest reasons it can
+  // be locked, and the post-purchase panel. Copy carries NO limitation language.
+  "store.buy": "Comprar",
+  "store.signInToBuy": "Entre para comprar",
+  "store.notForSale": "Ainda não está à venda",
+  "store.votivesHeading": "Votivos",
+  "store.votivesSub": "Os Votivos são a moeda premium do Berço: aparência e a trilha premium da temporada. Comprados aqui, eles chegam à sua carteira.",
+  "store.votivesAmount": "{votives} Votivos",
+  "store.votivesBonus": "+{bonus} de bônus",
+  "store.return.title": "Confirmando sua compra",
+  "store.return.checking": "Consultando o servidor…",
+  "store.return.confirmed": "Pagamento confirmado — sua compra já está na sua carteira.",
+  "store.return.pending": "Ainda não confirmado. Se você foi cobrado, chega em um minuto; esta tela não concede nada sozinha.",
+  "store.return.checkAgain": "Verificar de novo",
+  "store.return.dismiss": "Dispensar",
 };
 export default ptBR;

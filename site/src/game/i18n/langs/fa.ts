@@ -355,5 +355,21 @@ export const fa: Catalogue = {
   "translator.notReady": "ترجمه در حال آمادهسازی است",
   "translator.translate": "ترجمه کن",
   "translator.original": "نمایش متن اصلی",
+  // ---- the Cradle Market (real money: Stripe Payment Links + signed webhook) ----
+  // 13 keys, added by the payments slice: the buy control, the honest reasons it can
+  // be locked, and the post-purchase panel. Copy carries NO limitation language.
+  "store.buy": "خرید",
+  "store.signInToBuy": "برای خرید وارد شوید",
+  "store.notForSale": "هنوز برای فروش نیست",
+  "store.votivesHeading": "نذور",
+  "store.votivesSub": "نذور ارز ویژهٔ گهواره است: ظاهر و مسیر ویژهٔ فصل. اگر از اینجا بخرید، به کیف شما می‌رسد.",
+  "store.votivesAmount": "{votives} نذور",
+  "store.votivesBonus": "+{bonus} هدیه",
+  "store.return.title": "در حال تأیید خرید شما",
+  "store.return.checking": "در حال بررسی با سرور…",
+  "store.return.confirmed": "پرداخت تأیید شد — خرید شما در کیف شماست.",
+  "store.return.pending": "هنوز تأیید نشده است. اگر مبلغ کسر شده، تا یک دقیقه می‌رسد؛ این صفحه خودش چیزی نمی‌بخشد.",
+  "store.return.checkAgain": "بررسی دوباره",
+  "store.return.dismiss": "بستن",
 };
 export default fa;

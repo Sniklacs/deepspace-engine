@@ -226,7 +226,12 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // catalogue (242 -> 287), every one translated in all five languages in the same
 // commit. No existing value changed; the pin moved because the KEY SET grew by
 // design. Previous pin: 6cd980258565d13b069523655abb0c39d5357c46060a026ab9948a046555806c
-const ENGLISH_SHA = "6230de97d9e54cb9c730c67c8eb3b3353ea0bcf6fb6e5836724c17d533407c82";
+// Re-baselined 2026-09-26 — THE PAYMENTS slice: 13 new keys added to the English
+// catalogue (297 -> 310), every one translated in all five languages in the same
+// commit (the storefront's buy control, the honest reasons it can be locked, and the
+// post-purchase panel). No existing value changed; the pin moved because the KEY SET
+// grew by design. Previous pin: 6230de97d9e54cb9c730c67c8eb3b3353ea0bcf6fb6e5836724c17d533407c82
+const ENGLISH_SHA = "f2cc6fc85917f29fd54a9f1d568c6cb30df3e3cc06d1d35743b0ef3feb4f8da7";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);

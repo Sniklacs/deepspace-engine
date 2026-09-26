@@ -332,5 +332,21 @@ export const es: Catalogue = {
   "translator.notReady": "La traducción se está preparando",
   "translator.translate": "Traducir",
   "translator.original": "Ver el original",
+  // ---- the Cradle Market (real money: Stripe Payment Links + signed webhook) ----
+  // 13 keys, added by the payments slice: the buy control, the honest reasons it can
+  // be locked, and the post-purchase panel. Copy carries NO limitation language.
+  "store.buy": "Comprar",
+  "store.signInToBuy": "Inicia sesión para comprar",
+  "store.notForSale": "Todavía no está a la venta",
+  "store.votivesHeading": "Votivos",
+  "store.votivesSub": "Los Votivos son la moneda premium de la Cuna: apariencia y la vía premium de la temporada. Comprados aquí, llegan a tu cartera.",
+  "store.votivesAmount": "{votives} Votivos",
+  "store.votivesBonus": "+{bonus} de bonificación",
+  "store.return.title": "Confirmando tu compra",
+  "store.return.checking": "Consultando con el servidor…",
+  "store.return.confirmed": "Pago confirmado: tu compra ya está en tu cartera.",
+  "store.return.pending": "Todavía no está confirmado. Si te cobraron, llega en un minuto; esta pantalla no otorga nada por sí sola.",
+  "store.return.checkAgain": "Volver a comprobar",
+  "store.return.dismiss": "Descartar",
 };
 export default es;
