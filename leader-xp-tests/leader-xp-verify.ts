@@ -99,7 +99,11 @@ check("quartermaster −10% craft", medCostQm === Math.max(1, Math.round(medCost
 st.leaders.forEach((l) => (l.specialization = null));
 st.leaders.find((l) => l.id === "ld-oric")!.specialization = "marshal";
 check("marshal combat +10%", Math.abs(engine.marshalCombatMult(st) - 1.1) < 0.0001);
-check("marshal protection −20%", Math.abs(engine.marshalProtectionMult(st) - 0.8) < 0.0001);
+// Direction re-pointed 2026-09-26 with the defect fix (economy-pacing-report §7.1): the
+// Marshal mandate multiplies protection UP. This check used to pin 0.8 — the INVERTED
+// value that made specializing a Marshal raise catastrophe odds. Protection is the safer
+// number at every use site (`1 - protection`), so one Marshal = +20% protection = 1.2.
+check("marshal protection +20%", Math.abs(engine.marshalProtectionMult(st) - 1.2) < 0.0001);
 st.leaders.forEach((l) => (l.specialization = null));
 // Quartermaster economy on supplies + ember yield
 st.leaders.find((l) => l.id === "ld-vaera")!.specialization = "quartermaster";
