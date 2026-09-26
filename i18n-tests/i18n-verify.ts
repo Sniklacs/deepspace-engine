@@ -16,9 +16,26 @@
 //   §8 the pre-paint resolve (no English flash for a non-English device)
 //   §9 the engine seam (chat/live translation plugs in later, UI untouched)
 //   §10 English is unchanged
-import { readFileSync, readdirSync } from "node:fs";
+//   §11 RTL — Persian (fa), the direction stamped pre-paint, and the mirrored
+//       chrome (slice 2: the language file alone would have been worse than
+//       English for a Persian speaker — Persian words in a left-to-right frame)
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 const SITE = "/home/team/shared/site";
 const read = (p: string) => readFileSync(`${SITE}/${p}`, "utf8");
+/** Every file under site/src, relative to it — the §11 mirror scan walks this. */
+const allFiles: string[] = (() => {
+  const out: string[] = [];
+  const walk = (dir: string, rel: string) => {
+    for (const e of readdirSync(dir)) {
+      const full = `${dir}/${e}`;
+      if (statSync(full).isDirectory()) walk(full, rel ? `${rel}/${e}` : e);
+      else out.push(rel ? `${rel}/${e}` : e);
+    }
+  };
+  walk(`${SITE}/src`, "");
+  return out.sort();
+})();
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean, extra = "") => {
   if (cond) { pass++; console.log(`  ✅ ${name}`); } else { fail++; console.log(`  ❌ ${name} ${extra}`); }
@@ -182,6 +199,164 @@ check("the English literals at the call sites match the catalogue (no silent Eng
   return pairs.length > 40 && bad.length === 0;
 })());
 check("the storefront is untouched by this slice", (await import(`${SITE}/src/game/monetization.ts`)).MONETIZATION_CONFIG.storefrontEnabled === false);
+/**
+ * §10 EXTENDED (slice 2). "English is unchanged" is asserted against a HASH of
+ * the English catalogue rather than against a few remembered strings: key set and
+ * text, byte for byte, as shipped in slice 1. A future slice that deliberately
+ * adds or rewords English updates ENGLISH_SHA in the same commit — that is the
+ * point of a pin, not an obstacle. The direction half of the proof is §11 (en and
+ * every other LTR language must still resolve to `ltr`, pre-paint included).
+ */
+const ENGLISH_SHA = "ba8d7a93852d924cd26531ddfb6289a30109b547e617f353e06e240d283625e9";
+const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
+const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
+check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);
+check("English still resolves every key to its own catalogue text", englishKeys.every((k) => translate("en", k) === CATALOGUES.en[k]));
+check("English is not Persian: no Arabic-script character anywhere in the English catalogue", englishKeys.every((k) => !/[\u0600-\u06FF]/.test(CATALOGUES.en[k])));
+
+// ================================================================== §11 RTL
+section("11 · RTL — PERSIAN AND THE RIGHT-TO-LEFT FOUNDATION (slice 2)");
+const { LANG_DIRS, langDir: dirOf, isRtlLang } = i18n;
+const faMeta = LANGS.find((l: any) => l.code === "fa");
+// ---- 11.1 the registry carries the direction ---------------------------------
+check("fa is registered, in its own script, as a right-to-left language", !!faMeta && faMeta.dir === "rtl" && faMeta.endonym === "فارسی" && faMeta.english === "Persian", JSON.stringify(faMeta ?? null));
+check("fa carries machine provenance like every other non-English file", !!faMeta && faMeta.machine === true && faMeta.source.length > 20);
+check("every other language is still explicitly ltr (English's direction is unchanged)", LANGS.filter((l: any) => l.code !== "fa").every((l: any) => l.dir === "ltr"));
+check("fa is the ONLY rtl language in the registry (the plumbing is per-language, not global)", LANGS.filter((l: any) => l.dir === "rtl").length === 1 && isRtlLang("fa") === true);
+check("the direction table is derived from the registry — the boot script cannot drift from it", LANG_DIRS.fa === "rtl" && Object.keys(LANG_DIRS).length === LANGS.length && dirOf("en") === "ltr" && dirOf("fa") === "rtl");
+check("an unknown code falls back to ltr, never to rtl", dirOf("zz") === "ltr" && dirOf("") === "ltr");
+
+// ---- 11.2 the file is complete, and Persian ----------------------------------
+const compFa = catalogueCompleteness("fa");
+const faKeys = Object.keys(CATALOGUES.fa);
+console.log(`     fa keys in the file: ${faKeys.length} / ${englishKeys.length} in the English source`);
+console.log(`     fa: ${compFa.present}/${compFa.total} present, ${compFa.identical.length} identical to English (${compFa.identical.join(",") || "none"})`);
+check(`fa is complete against the English source (${compFa.present}/${compFa.total})`, compFa.complete && compFa.present === compFa.total && compFa.total === englishKeys.length);
+check(`fa's file holds exactly the English key count (${faKeys.length}/${englishKeys.length})`, faKeys.length === englishKeys.length);
+check("fa invents no key the English source does not know", faKeys.every((k) => k in CATALOGUES[SOURCE_LANG]));
+check("fa's identical-to-English entries are only the product name (never prose, never a label)", compFa.identical.every((k) => k === "app.name"));
+check("fa keeps every {placeholder} of its English source (a dropped param is a broken sentence)", englishKeys.every((k) => {
+  const params = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join(",");
+  return params(CATALOGUES.fa[k] ?? "") === params(CATALOGUES.en[k]);
+}));
+
+// ---- 11.3 zero raw-key tokens, zero silent English ----------------------------
+const rawKeyShapeFa = (s: string) => KEY_SHAPE.test(s.trim());
+resetMissingKeys();
+const faRaw: string[] = [];
+const faFallback: string[] = [];
+const faNotPersian: string[] = [];
+for (const k of englishKeys) {
+  const out = translate("fa", k);
+  if (!out || rawKeyShapeFa(out)) faRaw.push(k);
+  if (out !== CATALOGUES.fa[k]) faFallback.push(k);
+  if (!/[\u0600-\u06FF]/.test(out) && k !== "app.name") faNotPersian.push(k);
+}
+check(`0 raw-key tokens in fa — every one of its ${englishKeys.length} keys resolves to text, none to a key`, faRaw.length === 0, faRaw.slice(0, 6).join(","));
+check("no fa lookup falls back to English (a fallback is a silently untranslated string)", faFallback.length === 0, faFallback.slice(0, 6).join(","));
+check("every fa string is actually Persian script, except the product name", faNotPersian.length === 0, faNotPersian.slice(0, 6).join(","));
+check("no fa lookup is recorded in the missing-key ledger", missingKeys().filter((e) => e.startsWith("fa::")).length === 0);
+check("the fallback chain still holds for fa: a nonsense key humanises instead of printing a key", !rawKeyShapeFa(translate("fa", "does.notExistHere")) && translate("fa", "does.notExistHere").length > 0);
+
+// ---- 11.4 numerals stay Western ----------------------------------------------
+const faValues = faKeys.map((k) => CATALOGUES.fa[k]);
+const INDIC = /[\u0660-\u0669\u06F0-\u06F9]/; // Arabic-Indic ١٢٣ and Persian-Indic ۱۲۳
+check("WESTERN DIGITS ONLY — no Persian-Indic/Arabic-Indic numeral in any fa string", faValues.every((v) => !INDIC.test(v)), faValues.filter((v) => INDIC.test(v))[0] ?? "");
+check("the digits a Persian player sees are the catalogue's Latin ones (10 · 5 · 80 · 2 · 4)", ["cradle.purifySub", "cradle.alloyBold", "cradle.devotionDone", "auth.nameError", "auth.passwordError"].every((k) => /[0-9]/.test(CATALOGUES.fa[k])));
+check("the CSS carries no numeral-overriding rule (digits are never re-mapped)", !/font-variant-numeric:\s*(persian|arabic)/.test(css));
+
+// ---- 11.5 the direction is set BEFORE the first paint ------------------------
+const bootFa = bootScript();
+check("the boot script carries the registry's direction table (it cannot drift)", bootFa.includes(JSON.stringify(LANG_DIRS)) && bootFa.includes('"fa":"rtl"'));
+check("it stamps dir on <html> in the same inline script as lang/data-lang, dir last", /setAttribute\('lang',lang\);h\.setAttribute\('data-lang',lang\);[^]*?setAttribute\('dir',dir\)/.test(bootFa));
+check("an LTR language is stamped ltr by that same line (English is not switched to rtl)", bootFa.includes("(d[lang]==='rtl')?'rtl':'ltr'"));
+check("the boot script still hides the app for a non-English or un-chosen device", bootFa.includes("if(lang!=='en'||!chosen)") && bootFa.includes("i18n-boot"));
+check("the server document declares a real direction of its own (lang=en dir=ltr), not an undefined one", /<html lang="en" dir="ltr"/.test(root));
+check("the hydrated provider re-asserts the registry's direction (a change inside the session)", read("src/game/i18n/device.ts").includes('html.setAttribute("dir", meta.dir)'));
+check("the picker marks each row with its own language (the Persian endonym lays out RTL even inside an English frame)", read("src/components/i18n/LanguagePicker.tsx").includes("lang={l.code}"));
+check("the picker states the voices stay English — in the player's own language file", typeof CATALOGUES.fa["lang.voiceNote"] === "string" && /[\u0600-\u06FF]/.test(CATALOGUES.fa["lang.voiceNote"]));
+
+// ---- 11.6 Persian renders: a real font in the stack, and no download ---------
+const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+const rtlLayer = cssNoComments.slice(cssNoComments.indexOf('html[dir="rtl"]'));
+check("the RTL document re-declares the sans stack with Arabic-script families ahead of the Latin ones", /html\[dir="rtl"\]\s*\{[^}]*--font-sans:[^}]*"Noto Naskh Arabic"/.test(cssNoComments) && /"Noto Sans Arabic"/.test(rtlLayer) && /Tahoma/.test(rtlLayer) && /"Geeza Pro"/.test(rtlLayer));
+check("the LTR stack is untouched by that rule (English typography cannot move)", /--font-sans:\s*ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,/.test(cssNoComments));
+/** Comments are stripped first, so this reads CODE, not prose about fonts. */
+const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+const fontPayloadFiles = allFiles.filter((f) => /\.(woff2?|ttf|otf|eot)$/.test(f));
+const fontFace = allFiles.filter((f) => /\.(css|tsx?)$/.test(f) && /@font-face|fonts\.googleapis|fonts\.gstatic/.test(stripComments(readFileSync(`${SITE}/src/${f}`, "utf8"))));
+check(`Persian rendering costs nothing: no web font is downloaded (${fontPayloadFiles.length} font files, ${fontFace.length} @font-face declarations, 0 purchases)`, fontPayloadFiles.length === 0 && fontFace.length === 0, [...fontPayloadFiles.slice(0, 3), ...fontFace.slice(0, 3)].join(","));
+check("the RTL layer flips exactly one thing — a glyph box — and never a container or a run of text", (rtlLayer.match(/transform:/g) ?? []).length === 1 && /html\[dir="rtl"\]\s*\.dir-flip\s*\{\s*transform:\s*scaleX\(-1\);\s*\}/.test(rtlLayer));
+check("the directional glyphs that carry an arrow are marked with it (march · logout)", read("src/components/icons.tsx").includes("DIR_FLIP") && /DIR_FLIP\.has\(name\)\s*\?\s*`dir-flip/.test(read("src/components/icons.tsx")) && /"march"/.test(read("src/components/icons.tsx")) && /"logout"/.test(read("src/components/icons.tsx")));
+
+// ---- 11.7 the mirrored chrome carries no physical direction ------------------
+/**
+ * The scan is the real gate behind "mirror the chrome": it reads every source
+ * file, strips comments, and fails on a physical-direction utility or CSS
+ * property. Two explicit lists keep it honest:
+ *   • ALLOW — things that are SYMMETRIC, so direction cannot matter:
+ *     `inset-x-*` (left+right), `left-1/2 -translate-x-1/2` (centred), and the
+ *     `.sheet-panel` block, which is `left:0;right:0` on phones and
+ *     `left:50% + translate(-50%,-50%)` on wide screens — the same box in both
+ *     directions.
+ *   • SKIP — files this slice deliberately does not mirror, named one by one, so
+ *     a new leak cannot hide behind a folder-wide exemption.
+ * The planted-leak check below proves the scanner is not vacuous.
+ */
+const DIR_UTIL = [
+  /(^|[\s"'`])(-?(ml|mr|pl|pr)-)(\[|\d|auto)/,
+  /(^|[\s"'`])(left|right)-(0|0\.5|1|1\.5|2|2\.5|3|4|5|6|8|10|12|full|auto|1\/2|1\/3|1\/4|3\/4)(?![0-9A-Za-z_-])/,
+  /(^|[\s"'`])text-(left|right)(?![A-Za-z-])/,
+  /(^|[\s"'`])rounded-(l|r|tl|tr|bl|br)(?![A-Za-z-])/,
+  /(^|[\s"'`])border-(l|r)(?![A-Za-z-])/,
+  /(^|[\s"'`])space-x-/,
+  /\b(margin|padding|border)(Left|Right)\b/,
+  /\b(textAlign)\s*:\s*["'](left|right)["']/,
+];
+const DIR_CSS = [
+  /^\s*(margin|padding)-(left|right)\s*:/,
+  /^\s*(left|right)\s*:\s*(?!0\s*;)/,
+  /text-align\s*:\s*(left|right)/,
+  /border-(left|right)(-width)?\s*:/,
+  /scaleX\(|rotateY?\(|translateX\(/,
+];
+const DIR_ALLOW = [
+  /inset-x-/, // left + right at once: symmetric
+  /left-1\/2/, // centred with the -translate-x-1/2 that always accompanies it
+  /-translate-x-1\/2/,
+  /translate\(-50%,\s*-50%\)/,
+  /transform:\s*scaleX\(-1\)/, // the glyph flip, asserted by §11.6
+];
+const DIR_SKIP = [
+  // The storefront seam: `storefrontEnabled === false`, nothing is purchasable,
+  // and it is a later slice's surface (no new strings there either).
+  "components/StorefrontOverlay.tsx",
+];
+const strippedNoBox = cssNoComments.replace(/\.sheet-panel\s*\{[^}]*\}/g, "");
+/** Every physical-direction leak in one file's text (exported shape for the self-test). */
+function directionLeaks(text: string, isCss: boolean): string[] {
+  const out: string[] = [];
+  text.split("\n").forEach((line, i) => {
+    if (DIR_ALLOW.some((a) => a.test(line))) return;
+    const hit = (isCss ? DIR_CSS : DIR_UTIL).some((p) => p.test(line));
+    if (hit) out.push(`${i + 1}: ${line.trim().slice(0, 90)}`);
+  });
+  return out;
+}
+let scanned = 0;
+const leakLines: string[] = [];
+for (const rel of allFiles) {
+  if (!/\.(tsx?|css)$/.test(rel)) continue;
+  if (rel.endsWith(".d.ts")) continue;
+  if (DIR_SKIP.includes(rel)) continue;
+  scanned++;
+  const text = rel === "styles/app.css" ? strippedNoBox : readFileSync(`${SITE}/src/${rel}`, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const l of directionLeaks(text, rel.endsWith(".css"))) leakLines.push(`${rel} ${l}`);
+}
+check(`no hardcoded physical-direction CSS left in the mirrored surfaces (${scanned} files scanned, ${DIR_SKIP.length} file deliberately skipped, ${DIR_ALLOW.length} symmetric patterns allowed)`, leakLines.length === 0, leakLines.slice(0, 5).join(" | "));
+check("the mirrored chrome really is using logical properties (ms-auto · text-start · end-1/4 · border-s)", ["ms-auto", "text-start", "end-1/4", "border-s"].every((needle) => allFiles.some((f) => /\.tsx?$/.test(f) && readFileSync(`${SITE}/src/${f}`, "utf8").includes(needle))));
+check("the scan is not vacuous — a planted leak is caught in both dialects", directionLeaks('className="ml-auto flex"', false).length === 1 && directionLeaks('  margin-left: 4px;', true).length === 1 && directionLeaks('className="ms-auto flex"', false).length === 0 && directionLeaks('  margin-inline-start: 4px;', true).length === 0);
+check("no RTL-specific rule hides the app, shrinks text or removes a control (the mirror is layout, not reduction)", !/html\[dir="rtl"\][^{]*\{[^}]*(display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:)/.test(cssNoComments));
 
 console.log(`\n${pass}/${pass + fail} checks passed${fail ? ` — ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

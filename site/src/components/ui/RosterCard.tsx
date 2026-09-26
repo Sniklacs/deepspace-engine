@@ -73,7 +73,7 @@ export function RosterCard({
       </div>
     </>
   );
-  const cls = "flex w-[168px] flex-none gap-2 rounded-2xl border border-line bg-surf-2 p-2 text-left";
+  const cls = "flex w-[168px] flex-none gap-2 rounded-2xl border border-line bg-surf-2 p-2 text-start";
   if (!onClick) return <article className={cls}>{inner}</article>;
   return (
     <button

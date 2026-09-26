@@ -58,7 +58,7 @@ export default function AppShell({
       {/* First focusable node (§3.6): straight to the screen, past the chrome. */}
       <a
         href="#screen"
-        className="sr-only rounded-xl border border-line bg-surf-2 px-3 py-2 text-[13px] text-text-1 focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[80]"
+        className="sr-only rounded-xl border border-line bg-surf-2 px-3 py-2 text-[13px] text-text-1 focus:not-sr-only focus:absolute focus:start-2 focus:top-2 focus:z-[80]"
       >
         {t("app.skipToCradle")}
       </a>

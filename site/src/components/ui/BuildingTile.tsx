@@ -47,7 +47,7 @@ export function BuildingTile({
         <span className="num text-[11px] text-ember-soft">{t("tile.lv", { level })}</span>
       )}
       {ready ? (
-        <ReadyDot label={t("tile.ready", { slot: label })} className="absolute right-1.5 top-1.5" />
+        <ReadyDot label={t("tile.ready", { slot: label })} className="absolute end-1.5 top-1.5" />
       ) : null}
     </button>
   );

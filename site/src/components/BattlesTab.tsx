@@ -364,7 +364,7 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
               key={b.id}
               onClick={() => setSelectedId(b.id)}
               aria-pressed={selected?.id === b.id}
-              className={`w-full rounded-lg border p-3 text-left transition-colors ${
+              className={`w-full rounded-lg border p-3 text-start transition-colors ${
                 selected?.id === b.id ? "border-ember/40 bg-surf-3" : "border-line bg-surf-2/60 hover:bg-surf-4"
               }`}
             >
@@ -418,7 +418,7 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
 // `data-reason`, and an optional `onDecision` fired AFTER a successful post.
 // Props `token`/`colonyId`/`colonyName` default to the local session.
 // ============================================================================
-const ORDER_BASE = "flex w-full flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-colors";
+const ORDER_BASE = "flex w-full flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-start transition-colors";
 type OrderFamily = "free" | "cost" | "ally" | "move" | "break" | "off";
 /** Order families (§A.1): neutral = the zero-cost default, ember = spend,
  *  sky = your world's co-op path, danger = ends the fight, off = not legal. */
@@ -666,7 +666,7 @@ export function DecisionPanel({
             key={w.id}
             data-testid="decision-window"
             data-window-id={w.id}
-            className="mt-2 scroll-mb-40 scroll-mt-32 rounded-lg border border-ember/30 border-l-2 border-l-ember bg-surf-2/70 p-2.5"
+            className="mt-2 scroll-mb-40 scroll-mt-32 rounded-lg border border-ember/30 border-s-2 border-s-ember bg-surf-2/70 p-2.5"
             onKeyDown={(e) => {
               if (e.key !== "Escape" || !confirmHere) return;
               e.stopPropagation();
@@ -830,7 +830,7 @@ export function DecisionPanel({
                 data-eligible="true"
                 disabled={busy}
                 onClick={() => postRespond(c.id, true)}
-                className="flex flex-col items-start gap-0.5 rounded-lg border border-sky-400/60 bg-sky-400/10 px-3 py-2 text-left text-sky-100 transition-colors hover:bg-sky-400/20 disabled:opacity-50"
+                className="flex flex-col items-start gap-0.5 rounded-lg border border-sky-400/60 bg-sky-400/10 px-3 py-2 text-start text-sky-100 transition-colors hover:bg-sky-400/20 disabled:opacity-50"
               >
                 <span className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight">
                   <Icon name="march" size={16} /> {busyKey === `respond:${c.id}:accept` ? "Marching…" : "March to aid"}
@@ -960,7 +960,7 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
         <span>Elapsed <b className="text-text-1">{fmtClock(m.elapsedMs)}</b></span>
         <span>Ends in <b className="text-text-1">{fmtClock(m.remainingMs)}</b></span>
         <span>Casualties are counted every minute</span>
-        <span className="text-right">Ends by {new Date(end).toLocaleTimeString()}</span>
+        <span className="text-end">Ends by {new Date(end).toLocaleTimeString()}</span>
       </div>
 
       {/* the shifting line */}
@@ -978,11 +978,11 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <ForceBlock state={state} force={battle.attacker} power={battle.forcePower.attacker} tag="attacker" focusTarget={tutorial.target} />
-          <p className="mt-1 text-right text-xs text-text-2">{aCas} casualties</p>
+          <p className="mt-1 text-end text-xs text-text-2">{aCas} casualties</p>
         </div>
         <div>
           <ForceBlock state={state} force={battle.defender} power={battle.forcePower.defender} tag="defender" focusTarget={tutorial.target} />
-          <p className="mt-1 text-right text-xs text-text-2">{dCas} casualties</p>
+          <p className="mt-1 text-end text-xs text-text-2">{dCas} casualties</p>
         </div>
       </div>
 

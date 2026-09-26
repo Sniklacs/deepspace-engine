@@ -261,6 +261,21 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
 };
 
+/**
+ * DIRECTIONAL GLYPHS (i18n slice 2 — RTL). These paths carry an arrow that POINTS
+ * somewhere: the `march` column's arrow and the `logout` door arrow both point
+ * right, which is "forward" only in a left-to-right frame. In a right-to-left
+ * language they must point left. A glyph cannot inherit a direction, so the icon
+ * box is flipped by one CSS rule (`styles/app.css` §13 → `html[dir="rtl"]
+ * .dir-flip`) and every glyph in this set gets the class unconditionally — in LTR
+ * the rule does not match, so the English render is untouched.
+ *
+ * Only box-level glyphs belong here. Nothing that carries TEXT may ever be
+ * flipped (`scaleX(-1)` mirrors letters and digits), and no container is ever
+ * flipped — that is what keeps this list safe as it grows.
+ */
+export const DIR_FLIP: ReadonlySet<IconName> = new Set<IconName>(["march", "logout"]);
+
 export function Icon({
   name,
   size = 16,
@@ -286,7 +301,7 @@ export function Icon({
       strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
-      className={className}
+      className={DIR_FLIP.has(name) ? `dir-flip${className ? ` ${className}` : ""}` : className}
       style={style}
     >
       {PATHS[name]}

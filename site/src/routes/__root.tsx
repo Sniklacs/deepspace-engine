@@ -33,13 +33,16 @@ function RootComponent() {
 
 /**
  * `suppressHydrationWarning` on <html> is deliberate: the inline boot script
- * stamps `lang`/`data-lang` on the element before React hydrates, exactly so the
- * first painted frame is already in the player's language (see
- * game/i18n/device.ts → bootScript).
+ * stamps `lang`/`data-lang`/`dir` on the element before React hydrates, exactly so
+ * the first painted frame is already in the player's language AND direction (see
+ * game/i18n/device.ts → bootScript). `lang="en" dir="ltr"` is the server's honest
+ * default — the server cannot know the device — and the boot script replaces both
+ * before paint for any device that is not a settled English one, which is also why
+ * the attribute diff must not warn.
  */
 function RootDocument({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" dir="ltr" suppressHydrationWarning>
       <head>
         <HeadContent />
         <script dangerouslySetInnerHTML={{ __html: bootScript() }} />

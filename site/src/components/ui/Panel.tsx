@@ -45,7 +45,7 @@ export function Panel({
       aria-labelledby={labelledBy}
       data-testid={testid}
       className={`rounded-2xl border p-3 sm:p-4 ${VARIANT[variant]} ${
-        accent ? "border-l-2" : ""
+        accent ? "border-s-2" : ""
       } ${className}`}
       style={accent ? { ...style, borderLeftColor: accent } : style}
     >

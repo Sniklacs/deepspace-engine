@@ -40,7 +40,7 @@ export function LanguageRows({
               lang={l.code}
               aria-pressed={active}
               onClick={() => onPick(l.code)}
-              className={`flex min-h-tap w-full items-center justify-between gap-2 rounded-tile border px-3 py-2 text-left ${
+              className={`flex min-h-tap w-full items-center justify-between gap-2 rounded-tile border px-3 py-2 text-start ${
                 active
                   ? "border-ember/60 bg-ember/10 text-text-1"
                   : "border-line bg-surf-3/70 text-text-2 hover:bg-surf-4"

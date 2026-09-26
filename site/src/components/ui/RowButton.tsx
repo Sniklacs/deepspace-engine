@@ -30,7 +30,7 @@ export function RowButton({
       data-testid={testid}
       aria-haspopup="dialog"
       onClick={onClick}
-      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors ${
+      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-start transition-colors ${
         tone === "destructive"
           ? "min-h-tap-lg border-danger/40 bg-danger/5 text-danger-soft hover:bg-danger/10"
           : "min-h-tap border-line bg-surf-3/60 text-text-1 hover:bg-surf-4"
