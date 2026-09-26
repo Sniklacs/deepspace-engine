@@ -105,6 +105,7 @@ section("5 · THE SWEPT SURFACES — nothing player-facing left un-keyed");
 const SWEPT = [
   "src/components/shell/Ribbon.tsx", "src/components/shell/BottomNav.tsx", "src/components/shell/AppShell.tsx",
   "src/components/shell/CradleSheet.tsx", "src/components/shell/SettingsSheet.tsx",
+  "src/components/shell/InstallAffordance.tsx", "src/components/shell/StorageNote.tsx",
   "src/components/ui/ResourcePill.tsx", "src/components/LedgerButton.tsx", "src/components/Sheet.tsx",
   "src/components/i18n/I18n.tsx", "src/components/i18n/LanguagePicker.tsx", "src/routes/index.tsx",
 ];
@@ -210,7 +211,7 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
  * point of a pin, not an obstacle. The direction half of the proof is §11 (en and
  * every other LTR language must still resolve to `ltr`, pre-paint included).
  */
-const ENGLISH_SHA = "ba8d7a93852d924cd26531ddfb6289a30109b547e617f353e06e240d283625e9";
+const ENGLISH_SHA = "51166bd2971cf45d72eb467514edd2c17639785d1e65a573cf6d6f1ac37d9293";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);

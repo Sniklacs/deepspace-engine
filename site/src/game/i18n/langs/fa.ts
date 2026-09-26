@@ -287,6 +287,17 @@ export const fa: Catalogue = {
   "cradle.slotDeployLocked": "هنوز نه — {embers} اخگر و {insight} بینش لازم است.",
   "ribbon.ledgerAria": "دفتر گهواره — {scrip} اسکریپ، {votives} نذور",
   "ribbon.ledgerWord": "دفتر",
+
+  // ---- the installable app shell (slice: app shell) -------------------
+  "device.title": "روی این دستگاه",
+  "install.title": "نصب بازی",
+  "install.body": "آن را به صفحهٔ خانه اضافه کنید — تمام‌صفحه باز می‌شود، مانند یک برنامه.",
+  "install.cta": "نصب",
+  "install.ios": "روی «اشتراک‌گذاری» بزنید و سپس «افزودن به صفحهٔ خانه» را انتخاب کنید.",
+  "install.dismiss": "الان نه",
+  "storage.title": "حافظهٔ آفلاین",
+  "storage.line": "استفاده از {used} از {quota} که این دستگاه برای داده‌های آفلاین در اختیار می‌گذارد.",
+
 };
 
 export default fa;
