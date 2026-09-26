@@ -89,45 +89,86 @@ check("the shipped sw.js carries the @@BUILD@@ token for the server to stamp",
 // ==================================================== §3 the service worker
 section("3 · THE SERVICE WORKER, RUN — what it caches and what it refuses");
 const swSrc = read("dist/client/sw.js");
+
+/**
+ * RUN the worker — never read it. A stub `self`/`caches`/`fetch` is installed and
+ * the source is executed in it, so every assertion below is a fact about what the
+ * worker DID to a request rather than a phrase found in a file.
+ *
+ * §4 reuses this to run the STAMPED worker — the bytes a browser actually
+ * receives. That matters because the cache names are COMPUTED at runtime from a
+ * single `BUILD` constant (`dse-shell-${BUILD}`), so the string `dse-shell-<id>`
+ * never appears in any source file: `serve.ts` substitutes the token into the
+ * constant and the worker builds the names from it. A string match on the stamped
+ * source therefore proves nothing either way; only running it does.
+ */
 type Handler = (e: any) => void;
-const listeners: Record<string, Handler[]> = {};
-const cachesStore = new Map<string, Map<string, any>>();
-const keyOf = (r: any): string => {
-  try {
-    const raw = typeof r === "string" ? (r.startsWith("/") ? ORIGIN + r : r) : String(r.url);
-    const u = new URL(raw);
-    return u.pathname + u.search;
-  } catch { return String(r); }
-};
-const cacheOf = (n: string) => {
-  if (!cachesStore.has(n)) cachesStore.set(n, new Map());
-  return cachesStore.get(n)!;
-};
-let fetchCalls: string[] = [];
-const mkRes = (body: string, opts: { status?: number; type?: string } = {}) => {
-  const res = new Response(body, { status: opts.status ?? 200 });
-  if (opts.type) Object.defineProperty(res, "type", { value: opts.type });
-  return res;
-};
-const stubSelf = {
-  location: { origin: ORIGIN },
-  addEventListener: (t: string, fn: Handler) => { (listeners[t] ||= []).push(fn); },
-  skipWaiting: async () => {},
-  clients: { claim: async () => {} },
-};
-const stubCaches = {
-  open: async (n: string) => ({
-    put: async (req: any, res: any) => { cacheOf(n).set(keyOf(req), res); },
-    match: async (req: any) => cacheOf(n).get(keyOf(req)),
-  }),
-  keys: async () => [...cachesStore.keys()],
-  delete: async (n: string) => cachesStore.delete(n),
-};
-const stubFetch = async (req: any) => {
-  fetchCalls.push(typeof req === "string" ? req : String(req.url));
-  return mkRes("ok", { type: "basic" });
-};
-new Function("self", "caches", "fetch", swSrc)(stubSelf, stubCaches, stubFetch);
+function runWorker(src: string) {
+  const listeners: Record<string, Handler[]> = {};
+  const cachesStore = new Map<string, Map<string, any>>();
+  const keyOf = (r: any): string => {
+    try {
+      const raw = typeof r === "string" ? (r.startsWith("/") ? ORIGIN + r : r) : String(r.url);
+      const u = new URL(raw);
+      return u.pathname + u.search;
+    } catch { return String(r); }
+  };
+  const cacheOf = (n: string) => {
+    if (!cachesStore.has(n)) cachesStore.set(n, new Map());
+    return cachesStore.get(n)!;
+  };
+  let fetchCalls: string[] = [];
+  const mkRes = (body: string, opts: { status?: number; type?: string } = {}) => {
+    const res = new Response(body, { status: opts.status ?? 200 });
+    if (opts.type) Object.defineProperty(res, "type", { value: opts.type });
+    return res;
+  };
+  const stubSelf = {
+    location: { origin: ORIGIN },
+    addEventListener: (t: string, fn: Handler) => { (listeners[t] ||= []).push(fn); },
+    skipWaiting: async () => {},
+    clients: { claim: async () => {} },
+  };
+  const stubCaches = {
+    open: async (n: string) => ({
+      put: async (req: any, res: any) => { cacheOf(n).set(keyOf(req), res); },
+      match: async (req: any) => cacheOf(n).get(keyOf(req)),
+    }),
+    keys: async () => [...cachesStore.keys()],
+    delete: async (n: string) => cachesStore.delete(n),
+  };
+  const stubFetch = async (req: any) => {
+    fetchCalls.push(typeof req === "string" ? req : String(req.url));
+    return mkRes("ok", { type: "basic" });
+  };
+  new Function("self", "caches", "fetch", src)(stubSelf, stubCaches, stubFetch);
+
+  /** Fire a lifecycle event and wait for everything it handed to `waitUntil`. */
+  const lifecycle = async (type: "install" | "activate") => {
+    const waiting: Promise<unknown>[] = [];
+    listeners[type]![0]!({ waitUntil: (p: Promise<unknown>) => waiting.push(p) });
+    await Promise.all(waiting);
+  };
+  /** Fire a request and report whether the worker answered it at all. */
+  const fire = async (method: string, path: string, mode = "no-cors"): Promise<{ responded: boolean; body?: string }> => {
+    const request = new Request(`${ORIGIN}${path}`, { method, mode: mode as RequestMode });
+    let answered: Promise<Response> | null = null;
+    listeners.fetch![0]!({ request, respondWith: (p: Promise<Response>) => { answered = p; } });
+    if (!answered) return { responded: false };
+    const res = await (answered as Promise<Response>);
+    return { responded: true, body: await res.text() };
+  };
+  /** Every cache the worker has created by now, in creation order. */
+  const cacheNames = () => [...cachesStore.keys()];
+  return {
+    listeners, cachesStore, keyOf, cacheOf, mkRes, lifecycle, fire, cacheNames,
+    get fetchCalls() { return fetchCalls; },
+    resetFetchCalls: () => { fetchCalls = []; },
+  };
+}
+
+const W = runWorker(swSrc);
+const { listeners, cachesStore, cacheOf, mkRes, fire } = W;
 check("the worker registers install, activate and fetch listeners",
   ["install", "activate", "fetch"].every((t) => (listeners[t]?.length ?? 0) === 1),
   Object.keys(listeners).join(","));
@@ -142,30 +183,18 @@ check("SHELL_FILES precaches the document, the manifest and all four icons",
   SHELL_FILES.length === 6 && SHELL_FILES.includes("/") &&
   SHELL_FILES.includes("/manifest.webmanifest") && Object.keys(ICONS).every((p) => SHELL_FILES.includes(p)),
   SHELL_FILES.join(" "));
-fetchCalls = [];
-await (async () => {
-  const waiting: Promise<unknown>[] = [];
-  listeners.install![0]!({ waitUntil: (p: Promise<unknown>) => waiting.push(p) });
-  await Promise.all(waiting);
-})();
-const shellCacheName = [...cachesStore.keys()].find((n) => n.startsWith("dse-shell-")) ?? "";
+W.resetFetchCalls();
+await W.lifecycle("install");
+const shellCacheName = W.cacheNames().find((n) => n.startsWith("dse-shell-")) ?? "";
 check("install creates a shell cache named after the build (dse-shell-<build>)",
   /^dse-shell-\S+$/.test(shellCacheName), shellCacheName);
 check("every precached shell file actually landed in that cache",
   SHELL_FILES.every((f) => cacheOf(shellCacheName).has(f)),
   [...cacheOf(shellCacheName).keys()].join(" "));
 check("the precache fetches with cache:'reload' (never a stale browser copy)",
-  fetchCalls.length === SHELL_FILES.length, fetchCalls.join(" "));
+  W.fetchCalls.length === SHELL_FILES.length, W.fetchCalls.join(" "));
 
 // --- the fetch policy, exercised request by request
-const fire = async (method: string, path: string, mode = "no-cors"): Promise<{ responded: boolean; body?: string }> => {
-  const request = new Request(`${ORIGIN}${path}`, { method, mode: mode as RequestMode });
-  let answered: Promise<Response> | null = null;
-  listeners.fetch![0]!({ request, respondWith: (p: Promise<Response>) => { answered = p; } });
-  if (!answered) return { responded: false };
-  const res = await (answered as Promise<Response>);
-  return { responded: true, body: await res.text() };
-};
 section("3a · NOTHING THAT IS NOT A PLAIN GET IS EVER TOUCHED OR CACHED");
 for (const [m, p] of [["POST", "/"], ["POST", "/assets/index-abc.js"], ["PUT", "/manifest.webmanifest"], ["DELETE", "/icons/icon-192.png"]] as [string, string][]) {
   const r = await fire(m, p);
@@ -194,9 +223,7 @@ section("3d · A NEW BUILD CLEARS THE OLD SHELL");
 {
   const stale = "dse-shell-oldbuild0000";
   cacheOf(stale).set("/", mkRes("stale"));
-  const waiting: Promise<unknown>[] = [];
-  listeners.activate![0]!({ waitUntil: (p: Promise<unknown>) => waiting.push(p) });
-  await Promise.all(waiting);
+  await W.lifecycle("activate");
   check("activate deletes every cache that is not of this build", !cachesStore.has(stale));
   check("activate keeps this build's own caches (nothing to re-precache on a reload)",
     SHELL_FILES.every(() => cachesStore.has(shellCacheName)));
@@ -207,14 +234,39 @@ section("4 · THE BUILD ID AND THE HEADERS (serve.ts, no port bound)");
 const serve = await import(`${SITE}/serve.ts`);
 const BUILD = String(serve.BUILD);
 check("the build id is content-derived and 16 hex chars", /^[0-9a-f]{16}$/.test(BUILD), BUILD);
-check("the token exists exactly twice in the shipped worker (two cache names)",
-  swSrc.split("@@BUILD@@").length - 1 === 2, String(swSrc.split("@@BUILD@@").length - 1));
+// The token must live in the worker's CODE — a token that survived only in the
+// prose would leave the shipped worker un-stamped and the app unable to update.
+// There is exactly ONE, and both cache names are computed from it; the earlier
+// version of this check claimed "twice" and counted the token in the header
+// comment, so it was green for the wrong reason.
+const swCode = swSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+check("the @@BUILD@@ token appears exactly once in the shipped worker's code (both cache names derive from it)",
+  swCode.split("@@BUILD@@").length - 1 === 1, String(swCode.split("@@BUILD@@").length - 1));
 const stamped = String(serve.stampBuildToken(swSrc));
 check("stampBuildToken replaces EVERY @@BUILD@@ and leaves none behind",
-  !stamped.includes("@@BUILD@@") && stamped.split(BUILD).length - 1 === 2);
-check("the stamped cache names carry this build", stamped.includes(`dse-shell-${BUILD}`) && stamped.includes(`dse-assets-${BUILD}`));
-check("a different build id produces different cache names (this is what makes an app update reach a player)",
-  serve.stampBuildToken(swSrc, "0000000000000000") !== stamped);
+  !stamped.includes("@@BUILD@@"));
+
+// The cache names are COMPUTED at runtime from that constant (`dse-shell-${BUILD}`),
+// so the literal `dse-shell-<build>` appears in no file on disk. The only honest way
+// to prove the stamped worker caches under this build's names is to RUN it — which is
+// what this suite does with the worker everywhere else.
+const STAMPED = runWorker(stamped);
+await STAMPED.lifecycle("install");
+await STAMPED.fire("GET", "/assets/index-abc.js"); // the assets cache is created lazily
+check("the stamped worker caches under THIS build's names — dse-shell-<build> and dse-assets-<build>",
+  STAMPED.cacheNames().includes(`dse-shell-${BUILD}`) && STAMPED.cacheNames().includes(`dse-assets-${BUILD}`),
+  STAMPED.cacheNames().join(" "));
+{
+  const OTHER = "0000000000000000";
+  const other = runWorker(String(serve.stampBuildToken(swSrc, OTHER)));
+  await other.lifecycle("install");
+  await other.fire("GET", "/assets/index-abc.js");
+  const otherNames = other.cacheNames();
+  check("a different build id makes the worker cache under entirely different names (this is what makes an app update reach a player)",
+    otherNames.includes(`dse-shell-${OTHER}`) && otherNames.includes(`dse-assets-${OTHER}`) &&
+    otherNames.every((n) => !STAMPED.cacheNames().includes(n)),
+    otherNames.join(" "));
+}
 const swHeaders = serve.cacheHeaders("/sw.js") as Record<string, string>;
 check("sw.js is never cached (a stale worker is a stuck app)",
   /no-cache/.test(swHeaders["cache-control"] ?? "") && /no-store/.test(swHeaders["cache-control"] ?? ""), swHeaders["cache-control"]);
@@ -260,7 +312,14 @@ section("4a · WHAT THE SERVER ACTUALLY SENDS");
 
 // ================================================= §5 the standalone branch
 section("5 · AN INSTALLED APP RENDERS NOTHING (the branch a player would notice)");
-const installSrc = read("src/game/pwa/install.ts");
+// TWO files, and the checks below need the right one:
+//   • `game/pwa/install.ts` — the DECISION (imported and exercised as functions).
+//   • `components/shell/InstallAffordance.tsx` — the SURFACE: the early return, the
+//     diagnostics hook on <html>, the per-device dismissal. The source checks in
+//     this block read the COMPONENT; they used to read the decision module, where
+//     none of those three patterns exist, so all three failed on a component that
+//     behaves correctly in a browser.
+const affordanceSrc = read("src/components/shell/InstallAffordance.tsx");
 const install = await import(`${SITE}/src/game/pwa/install.ts`);
 const realWindow = (globalThis as any).window;
 const realNavigator = (globalThis as any).navigator;
@@ -303,16 +362,23 @@ check("the server render (no user agent) falls through to 'unavailable', never t
 {
   // The component must bow out BEFORE it builds any surface — a `showsInstall`
   // check that ran after the JSX would still render a card.
-  const guardAt = installSrc.indexOf("if (!showsInstall(path)) return null;");
-  const firstJsx = installSrc.indexOf("const action = (");
-  const firstRender = installSrc.indexOf("<section");
+  const guardAt = affordanceSrc.indexOf("if (!showsInstall(path)) return null;");
+  const firstJsx = affordanceSrc.indexOf("const action = (");
+  const firstRender = affordanceSrc.indexOf("<section");
   check("InstallAffordance returns null on !showsInstall BEFORE any JSX is built",
     guardAt > 0 && firstJsx > guardAt && firstRender > guardAt,
     `guard@${String(guardAt)} jsx@${String(firstJsx)}`);
   check("it writes data-install-path on <html> so 'it hid itself, and why' is measurable",
-    installSrc.includes("dataset.installPath = path"));
+    affordanceSrc.includes("document.documentElement.dataset.installPath = path"));
+  // Both mount sites, named: the card on the landing page (dismissible per device)
+  // and the row in Settings, which stays after a dismissal so the door never closes.
+  const landingSrc = read("src/routes/index.tsx");
+  const settingsSrc = read("src/components/shell/SettingsSheet.tsx");
   check("the landing card can be dismissed per device, and the row in Settings still offers the door",
-    install.INSTALL_DISMISS_KEY === "dse.install.v1" && installSrc.includes('variant === "card" && dismissed'));
+    install.INSTALL_DISMISS_KEY === "dse.install.v1" &&
+    affordanceSrc.includes('variant === "card" && dismissed') &&
+    landingSrc.includes('<InstallAffordance variant="card" />') &&
+    settingsSrc.includes('<InstallAffordance variant="row" />'));
 }
 section("5a · THE DEVICE STORAGE SEAM THE TRANSLATOR LANDS IN (nothing downloaded here)");
 const storage = await import(`${SITE}/src/game/pwa/storage.ts`);
