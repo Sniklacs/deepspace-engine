@@ -17,6 +17,7 @@ import { LedgerButton } from "../LedgerButton";
 import { ResourcePill } from "../ui/ResourcePill";
 import { Tooltip } from "../Tooltip";
 import type { GameState } from "../../game/types";
+import { useT } from "../i18n/I18n";
 
 export default function Ribbon({
   state,
@@ -40,6 +41,7 @@ export default function Ribbon({
   /** the alert chip's door — the home screen, where the status strip lives */
   onAlertGo: () => void;
 }) {
+  const t = useT();
   const race = getRace(state.race!);
   const r = state.resources;
   const alert = state.chorusAttention >= 50 || state.corruption >= 50;
@@ -57,7 +59,11 @@ export default function Ribbon({
           type="button"
           data-testid="ribbon-identity"
           aria-haspopup="dialog"
-          aria-label={`${state.playerName} — ${race.name} · ${WORLD_CONFIG_PUBLIC.worldName}. Colony commands.`}
+          aria-label={t("ribbon.identity", {
+            name: state.playerName,
+            race: race.name,
+            world: WORLD_CONFIG_PUBLIC.worldName,
+          })}
           onClick={onIdentity}
           className="relative flex h-tap w-tap flex-none items-center justify-center rounded-xl border border-line bg-surf-2 text-[13px] font-bold text-text-1"
         >
@@ -81,19 +87,19 @@ export default function Ribbon({
           data-testid="ribbon-stores"
         >
           <Tooltip className="flex-none" content={tip(RESOURCE_TIPS.embers)}>
-            <ResourcePill icon="flame" value={Math.floor(r.embers)} tone="ember" label="Embers" onClick={onOpenStores} />
+            <ResourcePill icon="flame" value={Math.floor(r.embers)} tone="ember" label={t("ribbon.embers")} onClick={onOpenStores} />
           </Tooltip>
           <Tooltip className="flex-none" content={tip(RESOURCE_TIPS.chipsets)}>
-            <ResourcePill icon="chip" value={r.chipsets} tone="plain" label="Chipsets" onClick={onOpenStores} />
+            <ResourcePill icon="chip" value={r.chipsets} tone="plain" label={t("ribbon.chipsets")} onClick={onOpenStores} />
           </Tooltip>
           <Tooltip className="flex-none" content={tip(RESOURCE_TIPS.supplies)}>
-            <ResourcePill icon="crate" value={Math.floor(r.supplies)} tone="ember" label="Supplies" onClick={onOpenStores} />
+            <ResourcePill icon="crate" value={Math.floor(r.supplies)} tone="ember" label={t("ribbon.supplies")} onClick={onOpenStores} />
           </Tooltip>
           <Tooltip className="flex-none" content={tip(RESOURCE_TIPS.codices)}>
-            <ResourcePill icon="scroll" value={state.codices} tone="plain" label="Codices" onClick={onOpenStores} />
+            <ResourcePill icon="scroll" value={state.codices} tone="plain" label={t("ribbon.codices")} onClick={onOpenStores} />
           </Tooltip>
           <Tooltip className="flex-none" content={tip(ARMORY_TIPS.plasma)}>
-            <ResourcePill icon="spark" value={Math.floor(r.plasma ?? 0)} tone="ember" label="Plasma" onClick={onOpenStores} />
+            <ResourcePill icon="spark" value={Math.floor(r.plasma ?? 0)} tone="ember" label={t("ribbon.plasma")} onClick={onOpenStores} />
           </Tooltip>
         </div>
 
@@ -103,13 +109,13 @@ export default function Ribbon({
             <button
               type="button"
               data-testid="ribbon-alert"
-              aria-label={`Chorus attention ${Math.round(state.chorusAttention)} percent — the colony is drawing notice`}
+              aria-label={t("ribbon.chorusAlert", { pct: Math.round(state.chorusAttention) })}
               onClick={onAlertGo}
               className="flex h-tap flex-none items-center gap-1 rounded-xl border border-hazard/50 bg-hazard/10 px-2 text-[11px] font-semibold text-hazard-soft"
             >
               <Icon name="beacon" size={12} aria-hidden="true" />
               <span>
-                Chorus <b className="num">{Math.round(state.chorusAttention)}%</b>
+                {t("ribbon.chorus")} <b className="num">{Math.round(state.chorusAttention)}%</b>
               </span>
             </button>
           ) : null}
@@ -124,7 +130,9 @@ export default function Ribbon({
             data-testid="ribbon-reports"
             aria-haspopup="dialog"
             onClick={onReports}
-            aria-label={unread > 0 ? `Cradle Reports — ${unread} new` : "Cradle Reports — nothing new"}
+            aria-label={
+              unread > 0 ? t("ribbon.reportsNew", { n: unread }) : t("ribbon.reportsNone")
+            }
             className="relative flex h-tap w-tap flex-none items-center justify-center rounded-xl border border-line bg-surf-2 text-text-2"
           >
             <Icon name="bell" size={16} aria-hidden="true" />

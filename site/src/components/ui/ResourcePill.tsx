@@ -6,6 +6,7 @@
 // palette has none, and inventing one would cross meaning with hazard.
 import { Icon } from "../icons";
 import type { IconName } from "../icons";
+import { useT } from "../i18n/I18n";
 
 export function ResourcePill({
   icon,
@@ -22,12 +23,13 @@ export function ResourcePill({
   onClick?: () => void;
   testid?: string;
 }) {
+  const t = useT();
   return (
     <button
       type="button"
       data-testid={testid}
       aria-haspopup="dialog"
-      aria-label={`${label} — ${value.toLocaleString()}. Colony stores.`}
+      aria-label={t("ribbon.pill", { label, value: value.toLocaleString() })}
       onClick={onClick}
       className="pill flex-none gap-1 border border-line bg-surf-2/80 text-text-2 hover:bg-surf-3"
     >

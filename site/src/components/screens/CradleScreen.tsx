@@ -29,6 +29,8 @@ import { CRADLE_SLOTS, CRADLE_SLOT_BY_ID, kitsHeld } from "../../game/cradle-slo
 import { CRAFT, CRAFT_RESOURCE_KEY, canForgeAlloy, alloyRecipeRaces } from "../../game/engine";
 import { DOMAIN_BY_ID } from "../../game/zones";
 import { RACES, getRace } from "../../game/races";
+import { domainDescription, slotLabel } from "../../game/i18n";
+import { useT } from "../i18n/I18n";
 import { DAILY_ITEM_BY_ID } from "../../game/daily";
 import { SPECIALTY_LABEL } from "../../game/research";
 import { DEED_BY_ID } from "../../game/heroes-data";
@@ -104,6 +106,7 @@ export default function CradleScreen({
   onLeaveHeight: () => void;
   canLeaveHeight: boolean;
 }) {
+  const t = useT();
   const race = getRace(state.race!);
   const r = state.resources;
   const spm = engineHelpers.suppliesPerMinute(state);
@@ -169,19 +172,22 @@ export default function CradleScreen({
           >
             <header className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="eyebrow">The Cradle</p>
+                <p className="eyebrow">{t("cradle.plate")}</p>
                 <h1 id="cradle-plate-title" className="truncate text-lg font-bold text-text-1">
                   {state.playerName}
                 </h1>
                 <p className="mt-0.5 truncate text-[11px] text-text-3">
-                  {race.name} · {race.homeRegion} · founded{" "}
-                  {new Date(state.createdAt).toLocaleDateString()}
+                  {t("cradle.plateMeta", {
+                    race: race.name,
+                    region: race.homeRegion,
+                    date: new Date(state.createdAt).toLocaleDateString(),
+                  })}
                 </p>
               </div>
               <Tooltip className="flex-none" content={tip(LAB_TIPS.fieldSlots)}>
                 <span className="pill border border-line bg-surf-2 text-text-2">
                   <b className="num text-ember-soft">+{spm.toFixed(1)}</b>
-                  <span className="text-[11px]">/min</span>
+                  <span className="text-[11px]">{t("cradle.perMin")}</span>
                 </span>
               </Tooltip>
             </header>
@@ -200,12 +206,18 @@ export default function CradleScreen({
               icon="gear"
               label={
                 adv.affordable
-                  ? `Advance ${adv.slot.label} to Lv ${adv.slot.level(state) + 1}`
-                  : "Advance the Cradle"
+                  ? t("cradle.advanceTo", { slot: slotLabel(t, adv.slot), level: adv.slot.level(state) + 1 })
+                  : t("cradle.advance")
               }
-              sub={`${adv.cost.embers.toLocaleString()} Embers · ${adv.cost.insight.toLocaleString()} insight`}
+              sub={t("cradle.advanceSub", {
+                embers: adv.cost.embers.toLocaleString(),
+                insight: adv.cost.insight.toLocaleString(),
+              })}
               locked={!adv.affordable}
-              reason={`Not yet — the next advance costs ${adv.cost.embers.toLocaleString()} Embers and ${adv.cost.insight.toLocaleString()} insight.`}
+              reason={t("cradle.advanceLocked", {
+                embers: adv.cost.embers.toLocaleString(),
+                insight: adv.cost.insight.toLocaleString(),
+              })}
               onClick={() => setSheet({ kind: "slot", id: adv.slot.id })}
             />
           </div>
@@ -214,13 +226,13 @@ export default function CradleScreen({
           <Panel testid="status-strip" className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <StatTile
-                label="Corruption (taint)"
+                label={t("cradle.corruption")}
                 icon="beacon"
                 value={`${Math.round(state.corruption)}%`}
                 meter={{ value: state.corruption, danger: state.corruption > 50 }}
               />
               <StatTile
-                label="Chorus Attention"
+                label={t("cradle.chorusAttention")}
                 icon="shield"
                 value={`${Math.round(state.chorusAttention)}%`}
                 meter={{ value: state.chorusAttention, danger: state.chorusAttention > 50 }}
@@ -232,10 +244,14 @@ export default function CradleScreen({
                 size="md"
                 variant="secondary"
                 icon="spark"
-                label="Purify the Cradle"
-                sub={`10 Supplies${r.supplies < 10 ? ` — the stores hold ${Math.floor(r.supplies)}` : ""}`}
+                label={t("cradle.purify")}
+                sub={
+                  r.supplies < 10
+                    ? t("cradle.purifySubStores", { n: Math.floor(r.supplies) })
+                    : t("cradle.purifySub")
+                }
                 locked={r.supplies < 10}
-                reason={`Need 10 Supplies — the stores hold ${Math.floor(r.supplies)}.`}
+                reason={t("cradle.purifyLocked", { n: Math.floor(r.supplies) })}
                 onClick={() => onPurify(1)}
               />
             </Tooltip>
@@ -250,14 +266,14 @@ export default function CradleScreen({
           {/* ---- B6 · the roster strip ------------------------------------ */}
           <Panel testid="roster-strip" className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
-              <h3 className="text-[15px] font-semibold text-text-1">Leaders &amp; Heroes</h3>
+              <h3 className="text-[15px] font-semibold text-text-1">{t("cradle.leadersHeroes")}</h3>
               <span className="chip border border-line text-text-2">
-                <b className="num">{state.leaders.length}</b> sworn
+                {t("cradle.sworn", { n: state.leaders.length })}
               </span>
             </div>
             <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
               {state.leaders.length === 0 ? (
-                <RosterEmpty text="No Leader has joined this Cradle yet." />
+                <RosterEmpty text={t('cradle.noLeader')} />
               ) : (
                 state.leaders.map((l) => (
                   <RosterCard
@@ -273,7 +289,7 @@ export default function CradleScreen({
                 ))
               )}
               {!atHeight || heroes.length === 0 ? (
-                <RosterEmpty text="No hero is sworn to this Cradle yet." icon="sword" />
+                <RosterEmpty text={t('cradle.noHero')} icon="sword" />
               ) : (
                 heroes.map((h) => (
                   <RosterCard
@@ -300,8 +316,8 @@ export default function CradleScreen({
           {/* ---- B7 · the workshop shelf ---------------------------------- */}
           <Panel testid="workshop-shelf" className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
-              <h3 className="text-[15px] font-semibold text-text-1">Workshop</h3>
-              <span className="text-[11px] text-text-3">gear &amp; logistics, forged with Supplies</span>
+              <h3 className="text-[15px] font-semibold text-text-1">{t("cradle.workshop")}</h3>
+              <span className="text-[11px] text-text-3">{t("cradle.workshopSub")}</span>
             </div>
             <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
               {(Object.keys(CRAFT) as CraftKind[]).map((k) => {
@@ -314,20 +330,22 @@ export default function CradleScreen({
                     type="button"
                     data-testid={`kit-${k}`}
                     aria-haspopup="dialog"
-                    aria-label={`${def.label} — held ${held}, costs ${def.supplies} supplies`}
+                    aria-label={t("cradle.kitAria", { label: def.label, held, supplies: def.supplies })}
                     onClick={() => setSheet({ kind: "slot", id: "workshop" })}
                     className="relative flex min-h-[84px] w-[92px] flex-none flex-col items-center justify-center gap-1 rounded-tile border border-line bg-surf-3/85 px-1 py-2 text-center"
                   >
                     <Icon name={KIT_ICON[k]} size={20} className="text-text-2" aria-hidden="true" />
                     <span className="text-[11px] font-medium leading-tight text-text-1">{def.label}</span>
                     <span className="num text-[11px] text-ember-soft">
-                      {held} held
+                      {t("cradle.held", { n: held })}
                     </span>
-                    <span className="num text-[11px] text-text-3">{def.supplies} sup</span>
+                    <span className="num text-[11px] text-text-3">
+                      {t("cradle.sup", { n: def.supplies })}
+                    </span>
                     {can ? (
                       <span
                         role="img"
-                        aria-label={`${def.label} can be forged`}
+                        aria-label={t("cradle.kitReady", { label: def.label })}
                         data-ready="true"
                         className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-ember"
                       />
@@ -340,23 +358,24 @@ export default function CradleScreen({
             <div className="flex min-h-tap items-center gap-2 rounded-xl border border-line bg-surf-3/60 px-3 py-2">
               <Icon name="crate" size={16} className="shrink-0 text-ember-soft" aria-hidden="true" />
               <span className="min-w-0 flex-1 text-[12px] text-text-2">
-                Alloy recipe — <b className="text-text-1">5 unique race materials</b>: your own + any 4 others.
+                {t("cradle.alloyLead")} <b className="text-text-1">{t("cradle.alloyBold")}</b>
+                {t("cradle.alloyTail")}
               </span>
               <b className="num shrink-0 text-[12px] text-text-1">
-                {canForgeAlloy(state) ? "complete" : `${1 + recipe.filter((id) => id !== state.race).length}/5`}
+                {canForgeAlloy(state) ? t("cradle.alloyComplete") : `${1 + recipe.filter((id) => id !== state.race).length}/5`}
               </b>
             </div>
           </Panel>
 
           {/* ---- B8 · the stores band ------------------------------------- */}
           <div data-testid="stores-band" className="grid grid-cols-2 gap-2">
-            <StatTile label="Total Embers looted" value={state.totalEmbersLooted.toLocaleString()} icon="flame" />
-            <StatTile label="Total Chipsets looted" value={state.totalChipsetsLooted.toLocaleString()} icon="chip" />
-            <StatTile label="Insight distilled" value={Math.round(state.insight).toLocaleString()} icon="spark" />
+            <StatTile label={t("cradle.totalEmbers")} value={state.totalEmbersLooted.toLocaleString()} icon="flame" />
+            <StatTile label={t("cradle.totalChipsets")} value={state.totalChipsetsLooted.toLocaleString()} icon="chip" />
+            <StatTile label={t("cradle.insight")} value={Math.round(state.insight).toLocaleString()} icon="spark" />
             <StatTile
-              label="Colony founded"
+              label={t("cradle.founded")}
               value={new Date(state.createdAt).toLocaleDateString()}
-              sub={`${state.completedExpeditions} expeditions completed`}
+              sub={t("cradle.expeditionsDone", { n: state.completedExpeditions })}
               icon="building"
             />
           </div>
@@ -365,19 +384,19 @@ export default function CradleScreen({
           <Panel className="space-y-2">
             <RowButton
               icon="scroll"
-              title="Open the Codex — Legends of the Shatterlands"
-              sub="the myths the colonies tell about the world that burned — fiction, worn as ways of life"
+              title={t("cradle.codexTitle")}
+              sub={t("cradle.codexSub")}
               chip={
                 <span className="chip border border-line text-text-2">
-                  {RACES.length + 1} legends
+                  {t("cradle.legends", { n: RACES.length + 1 })}
                 </span>
               }
               onClick={onOpenCodex}
             />
           </Panel>
           <JournalButton
-            title="Chronicle of the Cradle"
-            subtitle="the world as the colony remembers it — newest first"
+            title={t("cradle.chronicle")}
+            subtitle={t("cradle.chronicleSub")}
             log={state.log}
           />
         </div>
@@ -499,6 +518,7 @@ function RecordRow({ label, value }: { label: string; value: string }) {
    chrome is the shell's Panel, and Claim is a full-width 48px action. */
 
 function DevotionSection({ state, onClaim }: { state: GameState; onClaim: () => void }) {
+  const t = useT();
   const daily = state.daily;
   const list = daily?.list ?? [];
   const completed = daily?.completed ?? [];
@@ -514,24 +534,24 @@ function DevotionSection({ state, onClaim }: { state: GameState; onClaim: () => 
     <Panel testid="devotion-panel" className="space-y-3" labelledBy="cradle-devotion">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 id="cradle-devotion" className="text-[15px] font-semibold text-text-1">
-          Today&rsquo;s Devotion{" "}
+          {t("cradle.devotion")}{" "}
           <span className="num text-[11px] font-normal text-text-3">
             ({completed.length}/{list.length})
           </span>
         </h3>
         <span className="flex items-center gap-3 text-[11px] text-text-2">
           <span>
-            Devotion <b className="num text-purity">{devotion}</b>
+            {t("cradle.devotionShort")} <b className="num text-purity">{devotion}</b>
           </span>
           {streak > 0 ? (
-            <span title={`${streak} consecutive days of practice`}>
-              <b className="num text-purity">{streak}-day streak</b>
+            <span title={t("cradle.devotionTitle", { n: streak })}>
+              <b className="num text-purity">{t("cradle.devotionStreak", { n: streak })}</b>
             </span>
           ) : null}
         </span>
       </header>
       {quiet ? (
-        <p className="text-[13px] text-text-3">The Cradle asks nothing of you today.</p>
+        <p className="text-[13px] text-text-3">{t("cradle.devotionQuiet")}</p>
       ) : (
         <>
           <ul className="space-y-1.5">
@@ -550,7 +570,9 @@ function DevotionSection({ state, onClaim }: { state: GameState; onClaim: () => 
                   <span className={`text-[13px] ${done ? "text-text-1" : "text-text-2"}`}>
                     {def?.label ?? id}
                     {done && banked ? (
-                      <span className="ml-1.5 text-[11px] uppercase tracking-wide text-ember-soft/80">claimed</span>
+                      <span className="ml-1.5 text-[11px] uppercase tracking-wide text-ember-soft/80">
+                        {t("cradle.claimed")}
+                      </span>
                     ) : null}
                   </span>
                   <span className="num ml-auto text-[11px] text-text-3">+30 · +1</span>
@@ -558,19 +580,23 @@ function DevotionSection({ state, onClaim }: { state: GameState; onClaim: () => 
               );
             })}
           </ul>
-          {allDone ? <p className="text-[12px] text-purity">The day&rsquo;s devotion is complete — +80 bonus.</p> : null}
+          {allDone ? <p className="text-[12px] text-purity">{t("cradle.devotionDone")}</p> : null}
           <ActionButton
             full
             size="md"
             variant="secondary"
-            label={pendingScrip > 0 ? `Claim — ${pendingScrip} Scrip · ${pendingDevotion} Devotion` : "Claim"}
-            sub={pendingScrip > 0 ? "banked from the work already done" : "Work in progress — nothing to bank yet."}
+            label={
+              pendingScrip > 0
+                ? t("cradle.claimWith", { scrip: pendingScrip, devotion: pendingDevotion })
+                : t("cradle.claim")
+            }
+            sub={pendingScrip > 0 ? t("cradle.claimSub") : t("cradle.claimLocked")}
             locked={pendingScrip <= 0}
-            reason="Work in progress — nothing to bank yet."
+            reason={t("cradle.claimLocked")}
             onClick={onClaim}
           />
           <p className="text-[11px] text-text-3">
-            Daily devotion, long-term trust — the Oracle watches what you do, not what you buy.
+            {t("cradle.devotionNote")}
           </p>
         </>
       )}
@@ -597,6 +623,7 @@ function SlotSheet({
   recipe: string[];
   ownMat: number;
 }) {
+  const t = useT();
   if (!slot) return null;
   const def = CRADLE_SLOT_BY_ID[slot];
   const isWorkshop = slot === "workshop";
@@ -605,12 +632,14 @@ function SlotSheet({
       open
       onClose={onClose}
       labelledBy="cradle-slot-title"
-      title={isWorkshop ? "Workshop" : def.label}
+      title={isWorkshop ? t("cradle.workshop") : slotLabel(t, def)}
     >
       <SheetHeader
         id="cradle-slot-title"
-        title={isWorkshop ? "Workshop" : def.label}
-        subtitle={isWorkshop ? "gear & logistics, forged with Supplies" : `Level ${def.level(state)}`}
+        title={isWorkshop ? t("cradle.workshop") : slotLabel(t, def)}
+        subtitle={
+          isWorkshop ? t("cradle.workshopSub") : t("cradle.levelN", { n: def.level(state) })
+        }
         onClose={onClose}
       />
       <div className="sheet-body space-y-3 px-4 py-3 md:px-5">
@@ -696,24 +725,30 @@ function SlotSheet({
             const level = state.deployedDomains[domain];
             const cost = engineHelpers.deployCost(state, domain);
             const affordable = engineHelpers.domainAffordable(state, domain);
-            const t = DOMAIN_TIPS[domain];
+            const domainTip = DOMAIN_TIPS[domain];
             return (
               <>
-                <p className="text-[13px] text-text-2">{info.description}</p>
+                <p className="text-[13px] text-text-2">{domainDescription(t, domain, info.description)}</p>
                 <ul className="space-y-1.5">
-                  <RecordRow label="Level" value={`${level}`} />
+                  <RecordRow label={t("cradle.level")} value={`${level}`} />
                   <RecordRow label="Effect now" value={engineHelpers.domainEffect(state, domain)} />
                   <RecordRow label="Next advance costs" value={`${cost.embers.toLocaleString()} Embers · ${cost.insight.toLocaleString()} insight`} />
                 </ul>
-                <p className="text-[11px] leading-tight text-text-3">{t.what}</p>
+                <p className="text-[11px] leading-tight text-text-3">{domainTip.what}</p>
                 <ActionButton
                   full
                   size="md"
                   icon="gear"
-                  label={`Deploy — advance to Lv ${level + 1}`}
-                  sub={`${cost.embers.toLocaleString()} Embers · ${cost.insight.toLocaleString()} insight`}
+                  label={t("cradle.slotDeploy", { n: level + 1 })}
+                  sub={t("cradle.advanceSub", {
+                    embers: cost.embers.toLocaleString(),
+                    insight: cost.insight.toLocaleString(),
+                  })}
                   locked={!affordable}
-                  reason={`Not yet — needs ${cost.embers.toLocaleString()} Embers and ${cost.insight.toLocaleString()} insight.`}
+                  reason={t("cradle.slotDeployLocked", {
+                    embers: cost.embers.toLocaleString(),
+                    insight: cost.insight.toLocaleString(),
+                  })}
                   onClick={() => onDeploy(domain)}
                 />
               </>

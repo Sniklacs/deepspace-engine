@@ -20,6 +20,7 @@ import ChatDock from "./ChatDock";
 import type { Tab } from "../../game/nav-slots";
 import type { NavBadge } from "../../game/nav-badges";
 import type { GameState } from "../../game/types";
+import { useT } from "../i18n/I18n";
 
 export default function AppShell({
   state,
@@ -51,6 +52,7 @@ export default function AppShell({
   onAlertGo: () => void;
   children: ReactNode;
 }) {
+  const t = useT();
   return (
     <div className="app-shell" data-shell-layout={isWide ? "wide" : "phone"}>
       {/* First focusable node (§3.6): straight to the screen, past the chrome. */}
@@ -58,7 +60,7 @@ export default function AppShell({
         href="#screen"
         className="sr-only rounded-xl border border-line bg-surf-2 px-3 py-2 text-[13px] text-text-1 focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[80]"
       >
-        Skip to the Cradle
+        {t("app.skipToCradle")}
       </a>
       <Ribbon
         state={state}
