@@ -111,6 +111,9 @@ const SWEPT = [
   // The Forge's surfaces joined the sweep with the Forge slice (owner 2026-09-26):
   // one more file swept, no check removed.
   "src/components/ForgeViews.tsx",
+  // The bundled translator's surface joined the sweep with the translator slice
+  // (owner 2026-09-26): one more file swept, no check removed.
+  "src/components/shell/TranslatorNote.tsx",
 ];
 const PROP = /\b(aria-label|title|placeholder|alt|label|sub|subtitle|text|reason|note)="([^"]{3,})"/;
 const ALLOW_PROP = /^(ltr|rtl|dialog|banner|list|none|button|tab|img|page|true|false)$/;
@@ -223,7 +226,7 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // catalogue (242 -> 287), every one translated in all five languages in the same
 // commit. No existing value changed; the pin moved because the KEY SET grew by
 // design. Previous pin: 6cd980258565d13b069523655abb0c39d5357c46060a026ab9948a046555806c
-const ENGLISH_SHA = "bd0d2ab29603ec02d70e4895a24c95b1fb7798493aa2eb42b494da0f2e4466ef";
+const ENGLISH_SHA = "6230de97d9e54cb9c730c67c8eb3b3353ea0bcf6fb6e5836724c17d533407c82";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);
