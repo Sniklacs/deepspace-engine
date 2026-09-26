@@ -127,8 +127,8 @@ export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameS
       <div className="mt-4 rounded-2xl border border-white/10 bg-black/40 p-5">
         <h3 className="font-semibold text-white">📜 How Codices are earned</h3>
         <ul className="mt-2 space-y-1 text-xs text-gray-400 list-disc list-inside">
-          <li>A <b className="text-gray-200">clean recovery</b> — an expedition returns with no radiation loss and no surprise encounter — recovers a surviving archive whole (deeper sites hide more).</li>
-          <li><b className="text-gray-200">Deeds & merit</b> — first clean return, first Deploy, fifth expedition, and a deep clean recovery all award Codices.</li>
+          <li>A <b className="text-gray-200">clean recovery</b> — an exploration returns with no radiation loss and no surprise encounter — recovers a surviving archive whole (deeper sites hide more).</li>
+          <li><b className="text-gray-200">Deeds & merit</b> — first clean return, first Deploy, fifth exploration, and a deep clean recovery all award Codices.</li>
           <li>Rare <b className="text-gray-200">discovery</b> on exploration as a bonus. Embers you salvage, chipsets you raid for, Codices you <b className="text-purple-300">earn</b>.</li>
         </ul>
       </div>

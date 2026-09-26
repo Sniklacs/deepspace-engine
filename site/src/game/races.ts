@@ -33,9 +33,9 @@ export const RACES: Race[] = [
     flavorQuote: "\"The Chorus broke the mountains before you were born. The mountains are still here. So are we.\"",
     attributes: [
       { label: "Warfare — strongest hand in open combat and siege (arrives with the combat & survival layer)", kind: "future" },
-      { label: "Endurance — shrugs off losses and long, grinding expeditions (arrives with the combat & survival layer)", kind: "future" },
+      { label: "Endurance — shrugs off losses and long, grinding explorations (arrives with the combat & survival layer)", kind: "future" },
       { label: "Research — the slowest learners, last to adapt", kind: "weakness" },
-      { label: "Heavy costs — expensive expeditions, thin baseline supplies, slow study", kind: "weakness" },
+      { label: "Heavy costs — expensive explorations, thin baseline supplies, slow study", kind: "weakness" },
     ],
     mods: { studySpeed: 1.9, emberGain: 1.25, chipsetChance: 1.0, suppliesEfficiency: 1.3, corruptionResist: 0.9, chorusResist: 0.9, yieldSupply: 0.8 },
     accent: "#c96f3f", // canon fill/tint (A.3)
@@ -150,7 +150,7 @@ export function raceModLines(race: Race): ModLine[] {
   if (off(m.emberGain)) add(`Ember loot ${m.emberGain >= 1 ? "+" : "−"}${Math.round(Math.abs((m.emberGain - 1) * 100))}%`, m.emberGain > 1);
   if (off(m.chipsetChance)) add(`Chipset chance ${m.chipsetChance >= 1 ? "+" : "−"}${Math.round(Math.abs((m.chipsetChance - 1) * 100))}%`, m.chipsetChance > 1);
   // suppliesEfficiency: lower = cheaper expeditions.
-  if (off(m.suppliesEfficiency)) add(`Expedition cost ${m.suppliesEfficiency < 1 ? "−" : "+"}${Math.round(Math.abs((1 - m.suppliesEfficiency) * 100))}%`, m.suppliesEfficiency < 1);
+  if (off(m.suppliesEfficiency)) add(`Exploration cost ${m.suppliesEfficiency < 1 ? "−" : "+"}${Math.round(Math.abs((1 - m.suppliesEfficiency) * 100))}%`, m.suppliesEfficiency < 1);
   // corruptionResist / chorusResist: gain multipliers; lower = more resistant.
   if (off(m.corruptionResist)) add(`Corruption gain ×${m.corruptionResist.toFixed(2)}`, m.corruptionResist < 1);
   if (off(m.chorusResist)) add(`Chorus gain ×${m.chorusResist.toFixed(2)}`, m.chorusResist < 1);

@@ -98,7 +98,7 @@ export const COSMETICS: CosmeticDef[] = [
   // ---- §2.1 Purchasable (9) — Votives only, pure appearance ----
   { id: "the-observatory-hull", name: "The Observatory Hull", slot: "cradleFacade", source: "purchasable", priceVotives: 850, providerSkuId: "", blurb: "Observatory brass-and-glass exterior; Grays-adjacent aesthetic, no faction lock." },
   { id: "basalt-citadel", name: "Basalt Citadel", slot: "cradleFacade", source: "purchasable", priceVotives: 750, providerSkuId: "", blurb: "Dark volcanic stone with fissure glow; pairs with site lighting." },
-  { id: "the-long-vigil", name: "The Long Vigil", slot: "banner", source: "purchasable", priceVotives: 450, providerSkuId: "", blurb: "Banner flown on your expedition column — the most-seen cosmetic slot." },
+  { id: "the-long-vigil", name: "The Long Vigil", slot: "banner", source: "purchasable", priceVotives: 450, providerSkuId: "", blurb: "Banner flown on your exploration column — the most-seen cosmetic slot." },
   { id: "emberline", name: "Emberline", slot: "vehicleTrim", source: "purchasable", priceVotives: 350, providerSkuId: "", blurb: "Ember-orange racing trim + lamp pattern; per-vehicle cosmetic slot." },
   { id: "votive-bell", name: "Votive Bell", slot: "shrineMotif", source: "purchasable", priceVotives: 400, providerSkuId: "", blurb: "Shrine hanging-bell lighting; rings subtly on shrine daily resets — sight and sound only, no effect." },
   { id: "the-archivists-duster", name: "The Archivist's Duster", slot: "leaderGarb", source: "purchasable", priceVotives: 800, providerSkuId: "", blurb: "Worn-leather-and-glass duster for your appointed Leader." },
@@ -106,7 +106,7 @@ export const COSMETICS: CosmeticDef[] = [
   { id: "star-atlas-cloth", name: "Star Atlas Cloth", slot: "banner", source: "purchasable", priceVotives: 450, providerSkuId: "", blurb: "Star-chart appliqué banner; Nav-themed." },
   { id: "scaffold-bastion", name: "Scaffold Bastion", slot: "cradleFacade", source: "purchasable", priceVotives: 650, providerSkuId: "", blurb: "Builder-chic: structural beams, cranes, hazard striping." },
   // ---- §2.2 Deed-earned (7) — NEVER purchasable, ever ----
-  { id: "first-light-sigil", name: "First Light Sigil", slot: "sigilFrame", source: "deed", deedId: "deed_first_clean", blurb: "First clean recovery — first expedition that returns with zero corrupted fragments gathered." },
+  { id: "first-light-sigil", name: "First Light Sigil", slot: "sigilFrame", source: "deed", deedId: "deed_first_clean", blurb: "First clean recovery — first exploration that returns with zero corrupted fragments gathered." },
   { id: "frontier-banner", name: "Frontier Banner", slot: "banner", source: "deed", deedId: "deed_frontier", blurb: "Pushed frontier — first colony on the server to reach the deepest scientific site zone." },
   { id: "cleansed-hull", name: "Cleansed Hull", slot: "cradleFacade", source: "deed", deedId: "deed_purify", blurb: "Purified a site/zone — first corrupted ruin cleared (tees up the Oracle purity layer)." },
   { id: "the-visionarys-robes", name: "The Visionary's Robes", slot: "leaderGarb", source: "deed", deedId: "deed_tier3_research", blurb: "Milestone — Cradle reaches Tier III (pre-Cradle-tiers: research completions ≥ N)." },
@@ -169,11 +169,11 @@ export const HEAD_START_PACKS: HeadStartPackDef[] = [
     priceUsd: 4.99,
     providerSkuId: "",
     blurb: "Base supplies bundle, fuel for the first convoys, a basic gear set, and a first offering of Votives.",
-    playEquivalent: "≈ one week of steady expeditions at a casual pace",
+    playEquivalent: "≈ one week of steady explorations at a casual pace",
     scrip: 0, // §3.1 lists no Scrip for this pack (and §3.3 caps it at 200 anyway)
     grants: [
       { kind: "resource", key: "supplies", amount: 150, note: "base supplies bundle (materials for ~10 crafts)" },
-      { kind: "resource", key: "gas", amount: 24, note: "fuel for ~6 expeditions" },
+      { kind: "resource", key: "gas", amount: 24, note: "fuel for ~6 explorations" },
       { kind: "resource", key: "medkit", amount: 1, note: "basic gear set (tier-1 schematics included — craftable kinds)" },
       { kind: "resource", key: "mechkit", amount: 1, note: "basic gear set — mechanics kit" },
       { kind: "resource", key: "armorkit", amount: 1, note: "basic gear set — armor kit" },
@@ -182,7 +182,7 @@ export const HEAD_START_PACKS: HeadStartPackDef[] = [
   },
   {
     id: "expeditionary-kit",
-    name: "Expeditionary Kit",
+    name: "Exploration Kit",
     priceUsd: 9.99,
     providerSkuId: "",
     blurb: "A crafted gear set, double fuel and supplies, and a deeper offering of Votives.",
@@ -342,14 +342,14 @@ export interface SeasonObjectiveDef {
   description: string;
 }
 export const DAILY_OBJECTIVES: SeasonObjectiveDef[] = [
-  { id: "launch_expedition", xp: 10, description: "Launch an expedition" },
+  { id: "launch_expedition", xp: 10, description: "Launch an exploration" },
   { id: "study", xp: 5, description: "Study an Ember/Chipset in the lab" },
   { id: "complete_research", xp: 15, description: "Complete a research project" },
   { id: "daily_list", xp: 20, description: "Finish the daily to-do list (fires when the daily module lands)" },
   { id: "craft_item", xp: 5, description: "Craft an item in the Workshop" },
 ];
 export const WEEKLY_OBJECTIVES: SeasonObjectiveDef[] = [
-  { id: "expedition_complete", xp: 40, description: `Complete ${MONETIZATION_CONFIG.weeklyExpeditionTarget} expeditions` },
+  { id: "expedition_complete", xp: 40, description: `Complete ${MONETIZATION_CONFIG.weeklyExpeditionTarget} explorations` },
   { id: "deep_site", xp: 60, description: "Complete any deep scientific site (rad ≥ 60)" },
   { id: "codex_recovered", xp: 40, description: `Recover ${MONETIZATION_CONFIG.weeklyCodexTarget} Codices` },
   { id: "daily_list", xp: 50, description: `Reach the daily to-do list ${MONETIZATION_CONFIG.weeklyDailyListTarget}× in a week (fires when the daily module lands)` },

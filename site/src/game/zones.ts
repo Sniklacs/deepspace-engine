@@ -469,8 +469,8 @@ export const DOMAINS: {
   { id: "weaponry", name: "Weaponry", description: "Arms and siege-works. Reduces Chorus/Corruption gain.", icon: "⚔️" },
   { id: "agriculture", name: "Agriculture", description: "Farms and forges of food. Earns supplies over time.", icon: "🌾" },
   { id: "economy", name: "Economy", description: "Trade and currency. Boosts ember yields and supplies.", icon: "💰" },
-  { id: "industry", name: "Industry", description: "Refineries and workshops. Cuts expedition costs and speeds return.", icon: "⚙️" },
-  { id: "logistics", name: "Logistics", description: "Routes, depots, signals. More scientists and faster expedition scheduling.", icon: "🚚" },
+  { id: "industry", name: "Industry", description: "Refineries and workshops. Cuts exploration costs and speeds return.", icon: "⚙️" },
+  { id: "logistics", name: "Logistics", description: "Routes, depots, signals. More scientists and faster exploration scheduling.", icon: "🚚" },
 ];
 
 export const DOMAIN_BY_ID: Record<DomainId, { id: DomainId; name: string; description: string; icon: string }> =

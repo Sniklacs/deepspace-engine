@@ -55,21 +55,21 @@ export const TECH_TREE: Tech[] = [
 
   // Agriculture — food & life. Boosts supplies.
   { id: "a1", domain: "agriculture", index: 0, name: "Hydroponics Grid", icon: "💧", description: "Water-fed towers that never stop growing.", effect: "+2 supplies/min", codicesCost: 4, durationMs: 40_000 },
-  { id: "a2", domain: "agriculture", index: 1, name: "Seed Vaults", icon: "🌱", description: "Locked stores of the old world's crops.", effect: "+60% supplies recovered from expeditions", codicesCost: 8, durationMs: 70_000 },
+  { id: "a2", domain: "agriculture", index: 1, name: "Seed Vaults", icon: "🌱", description: "Locked stores of the old world's crops.", effect: "+60% supplies recovered from explorations", codicesCost: 8, durationMs: 70_000 },
   { id: "a3", domain: "agriculture", index: 2, name: "Triage Gardens", icon: "🩹", description: "Healing grounds that mend the wounded.", effect: "Scientist loss on raids −40%", codicesCost: 15, durationMs: 120_000 },
   { id: "a4", domain: "agriculture", index: 3, name: "Terraced Farms", icon: "🌾", description: "Ridged fields carved into the slopes.", effect: "+2 supplies/min", codicesCost: 25, durationMs: 180_000 },
 
   // Economy — trade & currency. Boosts exchange / yield.
   { id: "e1", domain: "economy", index: 0, name: "Trade Ledgers", icon: "📒", description: "Honest books for an honest exchange.", effect: "Embers→supplies trade 2× better", codicesCost: 4, durationMs: 40_000 },
   { id: "e2", domain: "economy", index: 1, name: "Salvage Contracts", icon: "📜", description: "Buyers bid on what you drag home.", effect: "+8% ember yield", codicesCost: 8, durationMs: 70_000 },
-  { id: "e3", domain: "economy", index: 2, name: "Price Index", icon: "🏷️", description: "The Cradle stops overpaying.", effect: "Expedition cost −10%", codicesCost: 15, durationMs: 120_000 },
+  { id: "e3", domain: "economy", index: 2, name: "Price Index", icon: "🏷️", description: "The Cradle stops overpaying.", effect: "Exploration cost −10%", codicesCost: 15, durationMs: 120_000 },
   { id: "e4", domain: "economy", index: 3, name: "Market Hall", icon: "🏛️", description: "A covered square where goods move.", effect: "+1 supplies/min", codicesCost: 25, durationMs: 180_000 },
 
   // Industry — workshops & fabrication. Cuts crafting cost / needs.
   { id: "i1", domain: "industry", index: 0, name: "Auto-Forge", icon: "🔥", description: "A furnace that works the night shift.", effect: "Workshop crafting cost −15%", codicesCost: 4, durationMs: 40_000 },
   { id: "i2", domain: "industry", index: 1, name: "Machine Shop", icon: "🔧", description: "Jigs and lathes that teach hands to fix.", effect: "Skilled-mechanics need −50%", codicesCost: 8, durationMs: 70_000 },
   { id: "i3", domain: "industry", index: 2, name: "Battery Fabrication", icon: "🔋", description: "Stamp fresh packs instead of scavenging.", effect: "Battery need −50%", codicesCost: 15, durationMs: 120_000 },
-  { id: "i4", domain: "industry", index: 3, name: "Foundry Lines", icon: "⚙️", description: "A real production line at last.", effect: "Expedition duration −10%", codicesCost: 25, durationMs: 180_000 },
+  { id: "i4", domain: "industry", index: 3, name: "Foundry Lines", icon: "⚙️", description: "A real production line at last.", effect: "Exploration duration −10%", codicesCost: 25, durationMs: 180_000 },
 
   // Logistics — range / vehicles / people. Extends fuel & bays.
   { id: "l1", domain: "logistics", index: 0, name: "Long-Haul Chassis", icon: "🛻", description: "Rigs built for the far road.", effect: "Vehicle fuel (gas) need −50%", codicesCost: 4, durationMs: 40_000 },

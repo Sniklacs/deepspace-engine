@@ -23,7 +23,7 @@ export interface NavSlot {
 
 export const NAV: readonly NavSlot[] = [
   { id: "colony", label: "Cradle", icon: "building" },
-  { id: "expeditions", label: "Expeditions", icon: "march" },
+  { id: "expeditions", label: "Exploration", icon: "march" },
   { id: "lab", label: "Lab", icon: "flask" },
   { id: "armory", label: "Armory", icon: "armor" },
   { id: "battles", label: "Battles", icon: "sword", war: true },

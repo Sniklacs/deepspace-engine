@@ -794,7 +794,7 @@ export const SPOKEN_LEXICON: readonly LexiconEntry[] = [
   { authored: "Devotion", spoken: "Devotion", why: "real word" },
   { authored: "Purify", spoken: "Purify", why: "real word" },
   { authored: "Supplies", spoken: "Supplies", why: "real word" },
-  { authored: "Expeditions", spoken: "Expeditions", why: "real word" },
+  { authored: "Exploration", spoken: "Exploration", why: "real word" },
   { authored: "Armory", spoken: "Armory", why: "real word" },
   { authored: "Votives", spoken: "Votives", why: "real word" },
   { authored: "Workshop", spoken: "Workshop", why: "real word" },

@@ -70,7 +70,7 @@ export function navBadges(state: GameState, tab: Tab): Record<string, NavBadge> 
   const out: Record<string, NavBadge> = {};
   if (devotionReady(state)) out.colony = { lit: true, label: "Cradle — Devotion awaits" };
   const away = teamsAway(state);
-  if (away > 0) out.expeditions = { count: away, label: `Expeditions — ${away} teams away` };
+  if (away > 0) out.expeditions = { count: away, label: `Explorations — ${away} teams away` };
   if (recoveryReady(state)) out.lab = { lit: true, label: "Lab — a recovery can be deployed" };
   if (forgeReady(state)) out.armory = { lit: true, label: "Armory — a family can be forged" };
   const live = liveFights(state);

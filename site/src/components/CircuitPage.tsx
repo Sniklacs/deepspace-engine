@@ -710,7 +710,7 @@ function ContributionTab({ state, token }: { state: GameState; token: string }) 
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs leading-relaxed text-gray-400">
-                Earned by completed expeditions, deeds, Codices recovered, and research — the dent your colony has left on this world so far.
+                Earned by completed explorations, deeds, Codices recovered, and research — the dent your colony has left on this world so far.
               </p>
             </div>
           </div>
@@ -801,7 +801,7 @@ function NodeSheet({ node, onClose }: { node?: AtlasNode; onClose: () => void })
               </div>
             )}
             {node.kind === "near" && (
-              <p className="text-xs text-text-3">Home-protected ground — expeditions run here as today; the frontier cut never touches it.</p>
+              <p className="text-xs text-text-3">Home-protected ground — explorations run here as today; the frontier cut never touches it.</p>
             )}
             {node.kind === "cradle" && (
               <p className="text-xs text-text-3">The supply lanes run Cradle → Near Ring → Rim along the traces you see here.</p>

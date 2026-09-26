@@ -42,17 +42,17 @@ export const RESOURCE_TIPS: Record<string, TooltipBlock> = {
   embers: {
     what: "Embers — common AI fragments salvaged throughout the Shatterlands.",
     does: "The bread-and-butter resource. Given to the Lab to study for insight, or spent to Deploy recovered AI and advance the colony.",
-    how: "Looted from Expeditions into the Shatterlands (deeper ruins yield more). Study 2 in the Lab, or spend them on Deploy.",
+    how: "Looted from Explorations into the Shatterlands (deeper ruins yield more). Study 2 in the Lab, or spend them on Deploy.",
   },
   chipsets: {
     what: "Chipsets — rare, complete, advanced AI sets.",
     does: "A leap forward. Studying a Chipset yields far more insight than Embers (~70 vs ~18).",
-    how: "Found only in deep scientific sites — Quantum Research Facility, Super-Collider Ruins, Dark-Matter Observatory — as a chance result of expeditions.",
+    how: "Found only in deep scientific sites — Quantum Research Facility, Super-Collider Ruins, Dark-Matter Observatory — as a chance result of explorations.",
   },
   supplies: {
     what: "Supplies (📦) — the colony's stores: food, fuel, parts.",
-    does: "Funds Expeditions into the Shatterlands, can be burned to Purify the Cradle, and forges radiation gear in the Workshop.",
-    how: "Accrues over real time (boosted by Agriculture & Economy domains) and from scrapped salvage on expedition returns. Spent on expedition Cost, Purify, and Workshop crafting.",
+    does: "Funds Explorations into the Shatterlands, can be burned to Purify the Cradle, and forges radiation gear in the Workshop.",
+    how: "Accrues over real time (boosted by Agriculture & Economy domains) and from scrapped salvage on exploration returns. Spent on exploration Cost, Purify, and Workshop crafting.",
   },
   hazmat: {
     what: "Hazmat suits (🧥) — radiation protection that lets a team EXPLORE deep zones.",
@@ -72,16 +72,16 @@ export const RESOURCE_TIPS: Record<string, TooltipBlock> = {
   mats: {
     what: "Territory materials — each race's home region yields a unique supply.",
     does: "The radiation-resistant alloy needs your OWN race's material + 4 OTHER races' = 5 distinct materials. No race can forge it alone.",
-    how: "Run expeditions to each race's home region (Observatories, Boneyard, Warrens, Forge Valleys, Lantern Reach, Academies) to loot their material. Consumed 1-of-each when you forge the alloy.",
+    how: "Run explorations to each race's home region (Observatories, Boneyard, Warrens, Forge Valleys, Lantern Reach, Academies) to loot their material. Consumed 1-of-each when you forge the alloy.",
   },
   medkit: {
     what: "Medical kit (🩺) — bandages and basic shots against sickness.",
-    does: "A colony must hold a medical kit to field ANY expedition — the first thing a team needs before stepping out.",
+    does: "A colony must hold a medical kit to field ANY exploration — the first thing a team needs before stepping out.",
     how: "Forged in the Workshop (5 📦). Kept in the colony's stores; a held kit lets your teams step out. Also part of the protection that absorbs surprise encounters.",
   },
   mechkit: {
     what: "Mechanics kit (🔧) — patch-up and basic vehicle repair.",
-    does: "One of the three stepping-out kits. Without it no team can field an expedition; it also keeps light vehicles running out in the field.",
+    does: "One of the three stepping-out kits. Without it no team can field an exploration; it also keeps light vehicles running out in the field.",
     how: "Forged in the Workshop (6 📦). Held kit; also counts toward the protection that absorbs surprise encounters.",
   },
   armorkit: {
@@ -97,12 +97,12 @@ export const RESOURCE_TIPS: Record<string, TooltipBlock> = {
   gas: {
     what: "Vehicle fuel (⛽) — for the long-haul convoy.",
     does: "Burned on the way out and back. Some sites are simply too far to reach without enough fuel in the depot.",
-    how: "Forged in the Workshop (4 📦). Consumed each expedition you launch. Refuel before the long runs.",
+    how: "Forged in the Workshop (4 📦). Consumed each exploration you launch. Refuel before the long runs.",
   },
   battery: {
     what: "Battery packs (🔋) — quiet electric running at the site.",
     does: "Discharged running the engines silent while the team works. Necessary at sites too close to the Chorus to risk loud operation.",
-    how: "Forged in the Workshop (5 📦). Consumed each expedition you launch. Recharge before you go.",
+    how: "Forged in the Workshop (5 📦). Consumed each exploration you launch. Recharge before you go.",
   },
   insight: {
     what: "Insight — the research currency distilled by scientists in the Lab.",
@@ -119,7 +119,7 @@ export const RESOURCE_TIPS: Record<string, TooltipBlock> = {
 export const DOMAIN_TIPS: Record<string, TooltipBlock> = {
   weaponry: {
     what: "Weaponry ⚔️ — arms and siege-works.",
-    does: "Shields the colony: each level reduces expedition danger — cutting corruption & Chorus gains from risky salvage.",
+    does: "Shields the colony: each level reduces exploration danger — cutting corruption & Chorus gains from risky salvage.",
     how: "Advance by Deploying recovered AI in the Lab (Embers + insight).",
   },
   agriculture: {
@@ -129,17 +129,17 @@ export const DOMAIN_TIPS: Record<string, TooltipBlock> = {
   },
   economy: {
     what: "Economy 💰 — trade and currency.",
-    does: "Each level boosts ember yields from expeditions by +6% and adds +2 supplies/min.",
+    does: "Each level boosts ember yields from explorations by +6% and adds +2 supplies/min.",
     how: "Advance by Deploying recovered AI in the Lab.",
   },
   industry: {
     what: "Industry ⚙️ — refineries and workshops.",
-    does: "Each level makes expeditions ~6% faster and cheaper to fund (cuts Cost).",
+    does: "Each level makes explorations ~6% faster and cheaper to fund (cuts Cost).",
     how: "Advance by Deploying recovered AI in the Lab.",
   },
   logistics: {
     what: "Logistics 🚚 — routes, depots, signals.",
-    does: "Each level adds a field slot (+1 concurrent expedition team); every 2 levels raises scientist capacity by 1.",
+    does: "Each level adds a field slot (+1 concurrent exploration team); every 2 levels raises scientist capacity by 1.",
     how: "Advance by Deploying recovered AI in the Lab.",
   },
 };
@@ -147,13 +147,13 @@ export const DOMAIN_TIPS: Record<string, TooltipBlock> = {
 export const METER_TIPS: Record<string, TooltipBlock> = {
   corruption: {
     what: "Corruption (☣️ taint) — the stain left by salvaging AI.",
-    does: "Heavy taint dulls salvage: at high corruption, expedition ember yields are sharply reduced. Asart colonies and Weaponry resist it.",
-    how: "Raised by risky expeditions. Lower it by Purify-ing (burn supplies in the Colony tab) or slowly over time. Weaponry levels reduce how much expeditions add.",
+    does: "Heavy taint dulls salvage: at high corruption, exploration ember yields are sharply reduced. Asart colonies and Weaponry resist it.",
+    how: "Raised by risky explorations. Lower it by Purify-ing (burn supplies in the Colony tab) or slowly over time. Weaponry levels reduce how much explorations add.",
   },
   chorus: {
     what: "Chorus attention (🔺) — how close the hostile AI hives are circling.",
     does: "High attention means the Chorus stirs at your disturbances — the risk you take for deep, rich salvage. Asart colonies build it slower.",
-    how: "Raised by deep/risky expeditions (special scientific sites draw the hive hardest). Falls slowly over time. Weaponry levels reduce how much expeditions add.",
+    how: "Raised by deep/risky explorations (special scientific sites draw the hive hardest). Falls slowly over time. Weaponry levels reduce how much explorations add.",
   },
 };
 
@@ -171,10 +171,10 @@ export const EXPEDITION_TIPS: Record<string, TooltipBlock> = {
   chipset: {
     what: "Chipset chance — the odds this run returns a rare Chipset.",
     does: "Only deep scientific sites carry a meaningful chipset chance (up to ~45% at the Dark-Matter Observatory).",
-    how: "Rolled on expedition return. Draconians & Grays have a higher chance.",
+    how: "Rolled on exploration return. Draconians & Grays have a higher chance.",
   },
   cost: {
-    what: "Cost (📦) — supplies needed to fund this expedition.",
+    what: "Cost (📦) — supplies needed to fund this exploration.",
     does: "Deducted from your Supplies when you Commit. Based on destination risk; cheaper with Industry.",
     how: "Spend Supplies. Industry levels make it cheaper.",
   },
@@ -206,12 +206,12 @@ export const ARMORY_TIPS: Record<string, TooltipBlock> = {
 export const LAB_TIPS: Record<string, TooltipBlock> = {
   scientists: {
     what: "Scientists — your colony's researchers and field specialists.",
-    does: "Study fragments in the Lab, and are assigned to expeditions to raise yields. You can study as many fragments at once as you have scientists.",
-    how: "Start with 2. Deploy Logistics AI to raise capacity (+1 per 2 levels). Assign to studies (Lab) and expeditions (Expeditions tab).",
+    does: "Study fragments in the Lab, and are assigned to explorations to raise yields. You can study as many fragments at once as you have scientists.",
+    how: "Start with 2. Deploy Logistics AI to raise capacity (+1 per 2 levels). Assign to studies (Lab) and explorations (Exploration tab).",
   },
   fieldSlots: {
-    what: "Field slots — how many expedition teams you can keep in the Shatterlands at once.",
-    does: "You can only have this many expeditions running concurrently.",
+    what: "Field slots — how many exploration teams you can keep in the Shatterlands at once.",
+    does: "You can only have this many explorations running concurrently.",
     how: "Start with 1. Deploy Logistics AI to add +1 slot per level.",
   },
   studyEmbers: {
@@ -227,12 +227,12 @@ export const LAB_TIPS: Record<string, TooltipBlock> = {
   deploy: {
     what: "Deploy recovered AI — install studied intelligence into the colony.",
     does: "Advances that domain's level (Weaponry / Agriculture / Economy / Industry / Logistics), unlocking its passive bonuses.",
-    how: "Spend Embers + insight (all earned from expeditions and the Lab). Higher levels cost more.",
+    how: "Spend Embers + insight (all earned from explorations and the Lab). Higher levels cost more.",
   },
   deployButton: {
     what: "Deploy — spend Embers + insight to level up this domain.",
     does: "Raises the chosen domain by one level, applying its passive bonus to your colony.",
-    how: "Requires the listed Embers and insight. Earn both via Expeditions and the Lab.",
+    how: "Requires the listed Embers and insight. Earn both via Explorations and the Lab.",
   },
   purify: {
     what: "Purify the Cradle — a cleansing rite.",
@@ -286,5 +286,5 @@ export const OWNER_TIPS: Record<string, TooltipBlock> = {
 
 export const HELP_COPY = {
   coreLoop:
-    "Expeditions into the Shatterlands bring back Embers & rare Chipsets. Scientists study them in the Lab to distill Insight, and you Deploy the recovered AI to advance five domains — Weaponry, Agriculture, Economy, Industry, Logistics. Growth funds riskier, deeper expeditions. The world persists in real time, even while logged out.",
+    "Explorations into the Shatterlands bring back Embers & rare Chipsets. Scientists study them in the Lab to distill Insight, and you Deploy the recovered AI to advance five domains — Weaponry, Agriculture, Economy, Industry, Logistics. Growth funds riskier, deeper explorations. The world persists in real time, even while logged out.",
 };

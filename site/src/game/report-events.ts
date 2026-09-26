@@ -43,7 +43,7 @@ export function diffResolvedEvents(prev: GameState, next: GameState): ReportEven
     const nxt = next.expeditions.find((x) => x.id === e.id);
     if (!nxt || nxt.status !== "out") {
       const zone = getZone(e.zoneId);
-      out.push({ text: `Expedition to ${zone ? zone.name : e.label || e.zoneId} returned — the salvage is in the Cradle's stores.` });
+      out.push({ text: `Exploration of ${zone ? zone.name : e.label || e.zoneId} returned — the salvage is in the Cradle's stores.` });
     }
   }
 
