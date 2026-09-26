@@ -475,3 +475,18 @@ export const DOMAINS: {
 
 export const DOMAIN_BY_ID: Record<DomainId, { id: DomainId; name: string; description: string; icon: string }> =
   Object.fromEntries(DOMAINS.map((d) => [d.id, d])) as never;
+
+/**
+ * THE DOMAIN LADDER'S TOP RUNG — the ONE authoritative ceiling for a deployed
+ * domain, and the only literal of it anywhere in the codebase.
+ *
+ * Why here: this module owns the domain table (DOMAINS), so the ladder's top
+ * rung belongs beside it. Why 10: it is the rung the game's own maxed-colony
+ * content already uses — the Fall prologue's "height" (PROLOGUE_CONFIG imports
+ * this constant rather than repeating 10) and the L10 milestone the economy
+ * report measures against. Every effect a domain grants reads its LEVEL, so the
+ * ceiling has exactly two enforcement points and they share this constant:
+ * `engine.deployProgram` (refuses past it, server-side — the authority) and
+ * `engineHelpers.domainAffordable` (stops offering it in the UI).
+ */
+export const MAX_DOMAIN_LEVEL = 10;

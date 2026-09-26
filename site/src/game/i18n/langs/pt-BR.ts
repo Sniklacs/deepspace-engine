@@ -115,6 +115,8 @@ export const ptBR: Catalogue = {
   "cradle.levelN": "Nível {n}",
   "cradle.slotDeploy": "Implantar — avançar para Nv {n}",
   "cradle.slotDeployLocked": "Ainda não — precisa de {embers} Brasas e {insight} conhecimento.",
+  "cradle.domainMax": "Nv {cap} — a linha está completa",
+  "cradle.domainMaxReason": "Cada IA recuperada nesta linha já foi implantada — ela está no nível mais alto.",
   "domain.weaponry.name": "Armamento",
   "domain.weaponry.desc": "Armas e obras de cerco. Reduz o ganho de Coro/Corrupção.",
   "domain.agriculture.name": "Agricultura",

@@ -27,7 +27,7 @@ import { JournalButton } from "../JournalButton";
 import { engineHelpers } from "../../game/client-utils";
 import { CRADLE_SLOTS, CRADLE_SLOT_BY_ID, kitsHeld } from "../../game/cradle-slots";
 import { CRAFT, CRAFT_RESOURCE_KEY, canForgeAlloy, alloyRecipeRaces } from "../../game/engine";
-import { DOMAIN_BY_ID } from "../../game/zones";
+import { DOMAIN_BY_ID, MAX_DOMAIN_LEVEL } from "../../game/zones";
 import { RACES, getRace } from "../../game/races";
 import { domainDescription, slotLabel } from "../../game/i18n";
 import { ForgeDoor, ForgeRoom } from "../ForgeViews";
@@ -751,6 +751,7 @@ function SlotSheet({
             const domain = slot as DomainId;
             const info = DOMAIN_BY_ID[domain];
             const level = state.deployedDomains[domain];
+            const atMax = engineHelpers.domainAtMax(state, domain);
             const cost = engineHelpers.deployCost(state, domain);
             const affordable = engineHelpers.domainAffordable(state, domain);
             const domainTip = DOMAIN_TIPS[domain];
@@ -760,9 +761,20 @@ function SlotSheet({
                 <ul className="space-y-1.5">
                   <RecordRow label={t("cradle.level")} value={`${level}`} />
                   <RecordRow label="Effect now" value={engineHelpers.domainEffect(state, domain)} />
-                  <RecordRow label="Next advance costs" value={`${cost.embers.toLocaleString()} Embers · ${cost.insight.toLocaleString()} insight`} />
+                  {!atMax && <RecordRow label="Next advance costs" value={`${cost.embers.toLocaleString()} Embers · ${cost.insight.toLocaleString()} insight`} />}
                 </ul>
                 <p className="text-[11px] leading-tight text-text-3">{domainTip.what}</p>
+                {atMax ? (
+                  <ActionButton
+                    full
+                    size="md"
+                    icon="gear"
+                    label={t("cradle.domainMax", { cap: MAX_DOMAIN_LEVEL })}
+                    locked
+                    reason={t("cradle.domainMaxReason")}
+                    onClick={() => onDeploy(domain)}
+                  />
+                ) : (
                 <ActionButton
                   full
                   size="md"
@@ -779,6 +791,7 @@ function SlotSheet({
                   })}
                   onClick={() => onDeploy(domain)}
                 />
+                )}
               </>
             );
           })()

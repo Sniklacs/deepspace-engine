@@ -1,6 +1,6 @@
 import type { DomainId, GameState, Leader, RaceId, ResearchJob, Zone } from "./types";
 import { getRace } from "./races";
-import { getZone } from "./zones";
+import { getZone, MAX_DOMAIN_LEVEL } from "./zones";
 import {
   TECH_TREE,
   getTech,
@@ -698,11 +698,24 @@ export function marshalCombatMult(state: GameState): number {
   return 1 + Math.min(0.3, marshals.length * 0.1);
 }
 
-/** Colony-wide Marshal survival buff (−20% surprise/survival damage severity). */
+/**
+ * Colony-wide Marshal survival buff (+20% protection per specialized Marshal).
+ *
+ * DIRECTION (fixed 2026-09-26). Protection is "how much of a surprise the guards
+ * absorb" — every severity term at the use site is written `(1 - protection)`, so
+ * a HIGHER protection is always safer. This multiplier therefore has to be ≥ 1 to
+ * mean "−20% surprise/survival severity"; the shipped formula was
+ * `1 − 0.2 × marshals`, which multiplied protection DOWN and made specializing a
+ * Marshal RAISE catastrophe odds (measured at full gear: severity 0.13 → 0.364,
+ * clean recoveries 96.75% → 90.90%). One stat, one direction: more protection,
+ * never less. The clamps at the use site keep a buffed colony at the same 1.0
+ * ceiling it already had, so this can never exceed the protection a colony
+ * without Marshals can reach.
+ */
 export function marshalProtectionMult(state: GameState): number {
   const marshals = state.leaders.filter((l) => l.specialization === "marshal" && l.status === "active");
   if (marshals.length === 0) return 1;
-  return Math.max(0.5, 1 - marshals.length * 0.2); // −20% per specialized marshal, floor 50%
+  return 1 + marshals.length * 0.2; // +20% protection per specialized marshal, additive
 }
 
 /** Colony-wide Quartermaster economy effectiveness (+10% ember yield & supplies). */
@@ -1086,6 +1099,16 @@ export function deployCost(state: GameState, domain: DomainId): { embers: number
     embers: Math.round(baseEmbers * (1 + level) * 1.1 * ordnance),
     insight: Math.round(baseInsight * (1 + level) * ordnance),
   };
+}
+
+/**
+ * Is this domain already at the ladder's top rung (MAX_DOMAIN_LEVEL)?
+ * The ONE rule both the server (`deployProgram`) and the client
+ * (`engineHelpers.domainAffordable`) read, so the button can never offer an
+ * advance the server would refuse — and the server can never grant one silently.
+ */
+export function domainAtMaxLevel(state: GameState, domain: DomainId): boolean {
+  return (state.deployedDomains[domain] ?? 0) >= MAX_DOMAIN_LEVEL;
 }
 
 // ------- time advancement -------
@@ -1568,14 +1591,17 @@ export function resolveExpedition(state: GameState, e: (typeof state.expeditions
   // worse than the map said. The player cannot read this off any percentage.
   // Protection (guards & gear snapshotted at launch) makes a surprise less
   // deadly; an under-protected team faces a real catastrophe chance.
-  // A specialized Marshal's mandate softens survival damage colony-wide (−20%
-  // per marshal on surprise/survival severity) and sharpens combat effectiveness.
+  // A specialized Marshal's mandate RAISES protection colony-wide (+20% per
+  // marshal, see marshalProtectionMult) and sharpens combat effectiveness.
+  // Direction matters here: protection is the SAFER number, so a mandate can
+  // never lower it (fixed 2026-09-26 — it used to).
   const prot = typeof e.protection === "number" ? clamp(e.protection, 0, 1) : 0.5;
   let wc: "lost" | "mauled" | "bumped" | null = null;
   if (coin(wildcardChance(state))) {
     const roll = Math.random();
-    // catastrophe odds scale with protection — and with how many Wardens walk
-    // the colony: marshal savers apply to the surprise itself.
+    // Catastrophe odds scale INVERSELY with protection — and with how many
+    // Wardens walk the colony: the Marshal mandate multiplies protection UP, so
+    // more Marshals can only ever mean fewer spoiled runs.
     const protEffective = clamp(prot * marshalProtectionMult(state), 0, 1);
     const catCh = 0.03 + (1 - protEffective) * 0.42;
     const maulCh = 0.10 + (1 - protEffective) * 0.35;
@@ -1926,9 +1952,23 @@ export function beginStudy(state: GameState, kind: "ember" | "chipset", now = Da
   return { ok: true, state };
 }
 
-export function deployProgram(state: GameState, domain: DomainId, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+export function deployProgram(
+  state: GameState,
+  domain: DomainId,
+  now = Date.now(),
+): { ok: boolean; error?: string; errorKey?: string; state: GameState } {
   advance(state, now);
   if (!state.race) return fail("Choose a race first.");
+  // THE CEILING, enforced where the state is changed: a domain at the ladder's
+  // top rung is REFUSED here, never silently granted a level the client cannot
+  // show and no content is priced for. (The UI gates on the same constant; this
+  // is the authority, not a second opinion.)
+  if (domainAtMaxLevel(state, domain)) {
+    return failKey(
+      "cradle.domainMaxReason",
+      `${domainFor(domain)} is at L${MAX_DOMAIN_LEVEL} — the highest a domain can be driven.`,
+    );
+  }
   const cost = deployCost(state, domain);
   if (state.resources.embers < cost.embers) return fail(`Need ${cost.embers} Embers.`);
   if (state.insight < cost.insight) return fail(`Need ${cost.insight} insight from the lab. Study fragments to generate it.`);
@@ -2520,6 +2560,15 @@ export function forgeFieldItems(state: GameState): ForgeItem[] {
 
 function fail(error: string) {
   return { ok: false, error, state: null as unknown as GameState };
+}
+/**
+ * A refusal the player READS, carrying the catalogue key the client renders it
+ * with — so the reason an action is unavailable is translated like every other
+ * player-facing string instead of arriving as raw English. `error` stays the
+ * English fallback for callers that have no catalogue.
+ */
+function failKey(errorKey: string, error: string) {
+  return { ok: false, error, errorKey, state: null as unknown as GameState };
 }
 
 // Keep history tidy (drop complete records older than 40).

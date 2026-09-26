@@ -285,6 +285,8 @@ export const fa: Catalogue = {
   "cradle.levelN": "سطح {n}",
   "cradle.slotDeploy": "به‌کارگیری — پیشرفت به سطح {n}",
   "cradle.slotDeployLocked": "هنوز نه — {embers} اخگر و {insight} بینش لازم است.",
+  "cradle.domainMax": "سطح {cap} — این خط کامل است",
+  "cradle.domainMaxReason": "همه هوش مصنوعی بازیافته در این خط به کار گرفته شده است — این خط در بالاترین سطح خود است.",
   "ribbon.ledgerAria": "دفتر گهواره — {scrip} اسکریپ، {votives} نذور",
   "ribbon.ledgerWord": "دفتر",
 

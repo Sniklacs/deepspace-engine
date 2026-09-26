@@ -28,7 +28,7 @@
 //   • resetToCradle is guarded (only from "fallen") so the echo can never be
 //     double-applied — idempotent by construction.
 import type { GameState, Leader, RaceId } from "../types";
-import { newGame, contributionScore } from "../engine";
+import { newGame, contributionScore, scientistCapacity } from "../engine";
 import { freshWarReserve } from "../war/battle-engine";
 import {
   PROLOGUE_CONFIG,
@@ -159,8 +159,6 @@ export function prologueState(now = Date.now(), race: RaceId = "watchers"): Game
   r.plasma = HEIGHT_RESOURCES.plasma;
   r.mats = { ...HEIGHT_MATS };
 
-  st.scientists = 60;
-  st.totalScientists = 60;
   st.insight = 5000;
   for (const d of ["weaponry", "agriculture", "economy", "industry", "logistics"] as const) {
     st.deployedDomains[d] = PROLOGUE_CONFIG.maxDomainLevel;
@@ -169,6 +167,15 @@ export function prologueState(now = Date.now(), race: RaceId = "watchers"): Game
   st.codices = 0;
   st.totalCodicesEarned = 520;
   st.techsResearched = HEIGHT_TECHS.slice();
+  // The height's scientists are a LEGAL colony's scientists: the live capacity
+  // formula (2 + logistics/2 + the relay tech) applied to this colony's own
+  // maxed state. The seed used to assert 60, which no live colony can hold (the
+  // live cap at the height is 8) — the prologue was showing the player a colony
+  // that cannot exist. Seeded AFTER domains and techs, because the cap is a
+  // function of them; derived, so a change to the capacity formula can never
+  // leave the Fall displaying an impossible state again.
+  st.scientists = scientistCapacity(st);
+  st.totalScientists = st.scientists;
   st.deedsCompleted = HEIGHT_DEEDS.slice();
   st.completedExpeditions = 350;
   st.totalEmbersLooted = 12_000;

@@ -7,6 +7,7 @@ import {
   studyDurationMs,
   insightFor,
   deployCost,
+  domainAtMaxLevel,
   scientistCapacity,
   isDeepZone,
   requiredGear,
@@ -71,8 +72,16 @@ export const engineHelpers = {
   // Lab's Deploy button, the Cradle plate's ready dot, the advance bar and the
   // nav's Lab badge all read this. No new state, no second rule.
   domainAffordable(state: GameState, domain: DomainId): boolean {
+    // A topped-out line is not "affordable" — it is FINISHED. Reading the cap
+    // here means the Lab button, the Cradle plate's ready dot, the advance bar
+    // and the nav's Lab badge all stop offering an advance the server refuses.
+    if (domainAtMaxLevel(state, domain)) return false;
     const cost = deployCost(state, domain);
     return state.resources.embers >= cost.embers && state.insight >= cost.insight;
+  },
+  // The cap itself, for the surfaces that must SAY so rather than show a price.
+  domainAtMax(state: GameState, domain: DomainId): boolean {
+    return domainAtMaxLevel(state, domain);
   },
   // ONE source for "can this family be built/upgraded?" (§11.1, same reason):
   // the Armory's Build/Upgrade button and the nav's Armory badge share it.

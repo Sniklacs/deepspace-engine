@@ -273,6 +273,11 @@ export const en: Catalogue = {
   "cradle.levelN": "Level {n}",
   "cradle.slotDeploy": "Deploy — advance to Lv {n}",
   "cradle.slotDeployLocked": "Not yet — needs {embers} Embers and {insight} insight.",
+  // Added with the DOMAIN-CAP fix (2026-09-26): the Ladder's top rung is enforced
+  // server-side, so the sheet has to SAY a line is finished instead of quoting a
+  // price for an advance the server now refuses.
+  "cradle.domainMax": "Lv {cap} — the line is complete",
+  "cradle.domainMaxReason": "Every recovered AI in this line is deployed — it is at its highest.",
   "ribbon.ledgerAria": "Cradle Ledger — {scrip} Scrip, {votives} Votives",
   "ribbon.ledgerWord": "Ledger",
 

@@ -82,6 +82,12 @@ export interface GameResult {
   ok: boolean;
   signedOut?: boolean;
   error?: string;
+  /**
+   * Catalogue key for `error` when the refusal has player-facing wording — the
+   * client renders it in the player's own language (`t(errorKey)`), and falls
+   * back to the plain `error` text when there is none. Set by the engine.
+   */
+  errorKey?: string;
   state?: GameState;
   games?: GameSummary[];
   activeGameId?: string | null;
@@ -478,7 +484,7 @@ const deployFn = createServerFn({ method: "POST" }).validator(
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.deployProgram(st, data.domain as DomainId, Date.now());
   if (res.ok && res.state) await saveActiveState(accountId, res.state);
-  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+  return { ok: res.ok, error: res.error, errorKey: res.errorKey, state: res.state ? publicState(res.state) : undefined };
 });
 
 const purifyFn = createServerFn({ method: "POST" }).validator(

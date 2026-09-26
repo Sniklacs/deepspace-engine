@@ -120,6 +120,8 @@ export const es: Catalogue = {
   "cradle.levelN": "Nivel {n}",
   "cradle.slotDeploy": "Desplegar — avanzar a Nv {n}",
   "cradle.slotDeployLocked": "Todavía no — necesita {embers} Brasas y {insight} conocimiento.",
+  "cradle.domainMax": "Nv {cap} — la línea está completa",
+  "cradle.domainMaxReason": "Cada IA recuperada de esta línea ya está desplegada: está en su nivel más alto.",
   "domain.weaponry.name": "Armamento",
   "domain.weaponry.desc": "Armas y obras de asedio. Reduce la ganancia de Coro/Corrupción.",
   "domain.agriculture.name": "Agricultura",

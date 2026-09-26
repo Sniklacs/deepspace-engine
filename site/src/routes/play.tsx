@@ -74,6 +74,7 @@ function storeToken(t: string | null) {
 }
 
 function PlayPage() {
+  const t = useT();
   const [token, setToken] = useState<string | null>(readToken);
   // null = still checking a persisted session; false = signed out; true = signed in
   const [signedIn, setSignedIn] = useState<boolean | null>(token ? null : false);
@@ -299,7 +300,9 @@ function PlayPage() {
         setNow(Date.now());
       }
       if (res && res.ok === false) {
-        flash(res.error);
+        // A refusal that carries a catalogue key is shown in the player's own
+        // language; one without a key keeps the server's own English.
+        flash(res.errorKey ? t(res.errorKey) : res.error);
         sound.error();
       } else if (res && res.ok) {
         sound.success();
@@ -1951,7 +1954,8 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {DOMAINS.map((d) => {
             const cost = engineHelpers.deployCost(state, d.id);
-            const can = r.embers >= cost.embers && state.insight >= cost.insight;
+            const atMax = engineHelpers.domainAtMax(state, d.id);
+            const can = !atMax && r.embers >= cost.embers && state.insight >= cost.insight;
             return (
               <div key={d.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
                 <Tooltip content={tip(DOMAIN_TIPS[d.id])}>
@@ -1961,11 +1965,15 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
                 <Tooltip content={tip(LAB_TIPS.deployButton)}>
                   <p className="mt-2 text-xs text-text-3">Cost: {cost.embers} 🧯 · {cost.insight} insight</p>
                 </Tooltip>
-                <Tooltip content={tip(LAB_TIPS.deployButton)}>
-                  <button onClick={() => onDeploy(d.id)} disabled={!can} className="mt-2 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-                    Deploy
-                  </button>
-                </Tooltip>
+                {atMax ? (
+                  <p className="mt-2 text-xs text-text-3">{t("cradle.domainMaxReason")}</p>
+                ) : (
+                  <Tooltip content={tip(LAB_TIPS.deployButton)}>
+                    <button onClick={() => onDeploy(d.id)} disabled={!can} className="mt-2 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
+                      Deploy
+                    </button>
+                  </Tooltip>
+                )}
               </div>
             );
           })}
