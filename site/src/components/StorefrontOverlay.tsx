@@ -3,14 +3,21 @@
 //
 // The storefront is a SEAM, not a store: MONETIZATION_CONFIG.storefrontEnabled
 // is false today (owner flips it later). The overlay renders fully — packs,
-// pass rail, deed commemoratives, honesty copy — and every purchase control is
+// pass rail, deed commemoratives, wallet — and every purchase control is
 // disabled at 75% + lock glyph with the honest "the ledger opens when the
 // world is ready" line (no fabricated ETA). No badge dots, no countdowns, no
 // urgency theater — permanent spec locks.
 //
-// Design locks enforced here (asserted by wcag-tests):
-//   · copy from visual-pass-1-storefront.md §3 VERBATIM (trust footer, pass
-//     footer, never-sale lines — do not editorialize)
+// COPY — OWNER RULING 2026-09-13: the player-facing store PRESENTS the packs and
+// lets people buy. It carries NO pay-to-win and NO limitation language — no G1–G4
+// footer, no "no solo win", no "earnable in play / a head start within the earned
+// cap" framing, no "no tier skips", no what-you-can't-do framing. Those guardrails
+// are INTERNAL and stay internal: assertCatalogFair() in game/monetization.ts, the
+// fairness checks in monetization-verify.ts, and design/*.md. This surface renders
+// the copy the PLAYER reads, in the player's own language (the catalogue keys
+// below), and nothing else.
+//
+// Design locks still enforced here (asserted by wcag-tests):
 //   · EARNED badge = black #11161d on bg-purity (✓ EARNED, server ownership)
 //   · gold CTA = the ONLY gold CTA in the app: bg-purity text-[#11161d]
 //     (white-on-gold is banned, 1.44:1)
@@ -38,14 +45,27 @@ import { checkoutUrl, isSellable } from "../game/payments/payment-links";
 import { savePurchaseIntent, walletSignature } from "../game/payments/purchase-intent";
 import type { GameState, CosmeticSlot } from "../game/types";
 
-// ---- VERBATIM copy (visual-pass-1-storefront.md §3 — locked) ----
-const G1_G4_FOOTER =
-  "Purchases may strengthen a colony — they can never win a battle alone. Hero power is never for sale. No timers skipped · no research · no Oracle trust.";
-const PASS_FOOTER = "Passes never expire. Unclaimed items return next season. No tier skips are sold.";
-const NEVER_SALE_ORACLE =
-  "Oracle trust is earned by purity — clean recoveries, carried Codices, shielded allies. Feeding recovered AI turns them cold. No offering ever buys a moment of it.";
-const NEVER_SALE_CONTRIBUTION = "Contribution is measured by the server's watch — never by spend or votes.";
+// ---- the store's own copy -------------------------------------------------
+// The ledger's tagline for a store that is not open yet. It is a truthful
+// AVAILABILITY state (the control is disabled, and a disabled control says why),
+// not a claim about what a purchase does — the distinction the owner ruling draws.
 const LEDGER_WAIT = "The Cradle Market isn't open yet — the ledger opens when the world is ready.";
+
+/**
+ * The catalogue key for one grant bullet — `store.pack.<pack>.g.<kind>.<what>`.
+ * The pack's blurb / play-equivalent lines are written as inline templates at the
+ * call site (`store.pack.${pack.id}.blurb`) on purpose: that is the shape the i18n
+ * suite recognises as a dynamic key family, so a store line cannot quietly go
+ * missing from the catalogue.
+ */
+function grantNoteKey(packId: string, g: PackGrant): string {
+  const what =
+    g.kind === "resource" ? g.key
+    : g.kind === "currency" ? g.currency
+    : g.kind === "cosmetic" ? g.itemId
+    : g.vehicleId;
+  return `store.pack.${packId}.g.${g.kind}.${what}`;
+}
 
 const SLOT_ICON: Record<CosmeticSlot, IconName> = {
   cradleFacade: "building",
@@ -108,14 +128,18 @@ function DeedLockedChip() {
   );
 }
 
-function GrantLine({ g }: { g: PackGrant }) {
+function GrantLine({ g, packId }: { g: PackGrant; packId: string }) {
+  const t = useT();
   const icon: IconName =
     (g.kind === "resource" && PACK_GRANT_ICON[g.key]) ||
     (g.kind === "currency" ? "coin" : g.kind === "cosmetic" ? "emblem" : "cart");
   return (
     <li className="flex items-start gap-2 text-xs text-text-2">
       <Icon name={icon} size={14} className="mt-px shrink-0 text-text-3" />
-      <span>{g.note}</span>
+      {/* The English source stays the catalog literal in game/monetization.ts (so
+          assertCatalogFair keeps policing the wording); the catalogue carries it in
+          all five languages. */}
+      <span>{t(grantNoteKey(packId, g), g.note)}</span>
     </li>
   );
 }
@@ -142,7 +166,9 @@ function PackCard({
         <Icon name="crate" size={24} className="shrink-0 text-ember-soft" />
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-text-1">{pack.name}</div>
-          <div className="mt-0.5 text-[11px] leading-snug text-text-3">{pack.blurb}</div>
+          <div className="mt-0.5 text-[11px] leading-snug text-text-3">
+            {t(`store.pack.${pack.id}.blurb`, pack.blurb)}
+          </div>
         </div>
         <span className="chip shrink-0 bg-surf-4 text-xs font-bold text-text-1">
           ${pack.priceUsd.toFixed(2)}
@@ -150,12 +176,12 @@ function PackCard({
       </div>
       <ul className="mt-2 space-y-1">
         {pack.grants.map((g, i) => (
-          <GrantLine key={i} g={g} />
+          <GrantLine key={i} g={g} packId={pack.id} />
         ))}
       </ul>
-      {/* Play-equivalent tag — verbatim from the catalog def (§3.1 framing). */}
+      {/* Play-equivalent tag — a plain comparison to play, in the player's language. */}
       <div className="mt-2 rounded bg-surf-0 px-2 py-1.5 text-[11px] leading-snug text-ember-soft">
-        {pack.playEquivalent}
+        {t(`store.pack.${pack.id}.play`, pack.playEquivalent)}
       </div>
       {buyable ? (
         <button
@@ -439,19 +465,16 @@ export function StorefrontOverlay({
         <div className="pt-5">
           <SectionHeading>Head-Start Packs</SectionHeading>
           <p className="mt-1 text-xs text-text-2">
-            Everything a pack grants is craftable or earnable in play — a head start on the earned
-            curve, never above it. Packs are purchased with real money; none are purchasable yet.
+            {t(
+              "store.packsSub",
+              "Supplies, fuel, gear and Votives to open a colony. Each pack lists everything it carries.",
+            )}
           </p>
           <div className="mt-2 space-y-2">
             {HEAD_START_PACKS.map((p) => (
               <PackCard key={p.id} pack={p} storeOpen={enabled} signedIn={signedIn} onBuy={buy} />
             ))}
           </div>
-          {/* G1–G4 trust footer — verbatim (spec §3.2) */}
-          <p className="mt-2 flex items-start gap-2 rounded-md bg-surf-2/60 px-2.5 py-2 text-xs leading-snug text-text-2">
-            <Icon name="shield" size={14} className="mt-px shrink-0 text-ember-soft" />
-            <span>{G1_G4_FOOTER}</span>
-          </p>
         </div>
 
         {/* ---- Season Pass (two-lane rail) ---- */}
@@ -482,10 +505,12 @@ export function StorefrontOverlay({
           <div className="mt-3">
             <PassRail state={state} />
           </div>
-          {/* Pass footer — verbatim (spec §4 footer) */}
+          {/* Pass footer */}
           <p className="mt-2 flex items-start gap-2 text-[11px] leading-snug text-text-3">
             <Icon name="card" size={13} className="mt-px shrink-0 text-text-3" />
-            <span>{PASS_FOOTER}</span>
+            <span>
+              {t("store.passFooter", "Passes never expire. Unclaimed items return next season.")}
+            </span>
           </p>
         </div>
 
@@ -493,8 +518,10 @@ export function StorefrontOverlay({
         <div className="pt-5">
           <SectionHeading>Cradle Cosmetics</SectionHeading>
           <p className="mt-1 text-xs text-text-2">
-            Pure appearance — no stat, no speed, no edge. Owned items show their server-recorded
-            check; deed items live below in the commemorative section.
+            {t(
+              "store.cosmeticsSub",
+              "Cradle facades, banners, vehicle trim, shrine motifs and Leader garb. Owned items show their server-recorded check; deed items live below in the commemorative section.",
+            )}
           </p>
           <div className="mt-2 space-y-1.5">
             {PURCHASABLE_COSMETICS.map((c) => {
@@ -507,7 +534,9 @@ export function StorefrontOverlay({
                   <Icon name={SLOT_ICON[c.slot]} size={20} className="shrink-0 text-text-3" />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-semibold text-text-1">{c.name}</div>
-                    <div className="truncate text-[11px] text-text-3">{c.blurb}</div>
+                    <div className="truncate text-[11px] text-text-3">
+                      {t(`store.cosmetic.${c.id}.blurb`, c.blurb)}
+                    </div>
                   </div>
                   {owned ? (
                     <span className="chip shrink-0 bg-surf-4 text-text-3">
@@ -529,8 +558,10 @@ export function StorefrontOverlay({
         <div className="pt-5">
           <SectionHeading>Earned by Deed — commemorative</SectionHeading>
           <p className="mt-1 text-xs text-text-2">
-            Deed cosmetics are won by what you do in the world, not by what you spend. They appear
-            here so their deeds stay visible — they are viewable, never buyable.
+            {t(
+              "store.deedSub",
+              "Commemorative pieces earned in the world. They appear here so their deeds stay visible.",
+            )}
           </p>
           <div className="mt-2 space-y-1.5">
             {DEED_COSMETICS.map((c) => {
@@ -543,21 +574,30 @@ export function StorefrontOverlay({
                   <Icon name={SLOT_ICON[c.slot]} size={20} className="shrink-0 text-text-3" />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-semibold text-text-1">{c.name}</div>
-                    <div className="truncate text-[11px] text-text-3">{c.blurb}</div>
+                    <div className="truncate text-[11px] text-text-3">
+                      {t(`store.cosmetic.${c.id}.blurb`, c.blurb)}
+                    </div>
                   </div>
                   {owned ? <EarnedBadge /> : <DeedLockedChip />}
                 </div>
               );
             })}
           </div>
-          {/* Callings/Oracle block — verbatim never-sale copy */}
+          {/* Callings/Oracle block — commemorative (no for-sale framing) */}
           <div className="mt-2 rounded-md bg-surf-0 px-2.5 py-2.5">
-            <span className="chip border border-corrupt-text/50 text-corrupt-text">
-              <Icon name="lock" size={12} className="mr-1" />
-              NEVER FOR SALE
+            <span className="chip bg-surf-4 text-text-2">
+              <Icon name="star" size={12} className="mr-1" />
+              {t("store.commemorative", "Commemorative")}
             </span>
-            <p className="mt-2 text-xs leading-snug text-text-2">{NEVER_SALE_ORACLE}</p>
-            <p className="mt-1.5 text-xs leading-snug text-text-2">{NEVER_SALE_CONTRIBUTION}</p>
+            <p className="mt-2 text-xs leading-snug text-text-2">
+              {t(
+                "store.oracleNote",
+                "Oracle trust grows from purity — clean recoveries, carried Codices, shielded allies. Feeding recovered AI turns them cold.",
+              )}
+            </p>
+            <p className="mt-1.5 text-xs leading-snug text-text-2">
+              {t("store.contributionNote", "Contribution is measured by the server's watch.")}
+            </p>
           </div>
         </div>
       </div>

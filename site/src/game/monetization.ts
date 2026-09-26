@@ -104,7 +104,7 @@ export const COSMETICS: CosmeticDef[] = [
   { id: "basalt-citadel", name: "Basalt Citadel", slot: "cradleFacade", source: "purchasable", priceVotives: 750, providerSkuId: "", blurb: "Dark volcanic stone with fissure glow; pairs with site lighting." },
   { id: "the-long-vigil", name: "The Long Vigil", slot: "banner", source: "purchasable", priceVotives: 450, providerSkuId: "", blurb: "Banner flown on your exploration column — the most-seen cosmetic slot." },
   { id: "emberline", name: "Emberline", slot: "vehicleTrim", source: "purchasable", priceVotives: 350, providerSkuId: "", blurb: "Ember-orange racing trim + lamp pattern; per-vehicle cosmetic slot." },
-  { id: "votive-bell", name: "Votive Bell", slot: "shrineMotif", source: "purchasable", priceVotives: 400, providerSkuId: "", blurb: "Shrine hanging-bell lighting; rings subtly on shrine daily resets — sight and sound only, no effect." },
+  { id: "votive-bell", name: "Votive Bell", slot: "shrineMotif", source: "purchasable", priceVotives: 400, providerSkuId: "", blurb: "Shrine hanging-bell lighting; rings subtly on shrine daily resets." },
   { id: "the-archivists-duster", name: "The Archivist's Duster", slot: "leaderGarb", source: "purchasable", priceVotives: 800, providerSkuId: "", blurb: "Worn-leather-and-glass duster for your appointed Leader." },
   { id: "the-sundered-ring", name: "The Sundered Ring", slot: "sigilFrame", source: "purchasable", priceVotives: 300, providerSkuId: "", blurb: "Fragmented-ring frame around the colony emblem." },
   { id: "star-atlas-cloth", name: "Star Atlas Cloth", slot: "banner", source: "purchasable", priceVotives: 450, providerSkuId: "", blurb: "Star-chart appliqué banner; Nav-themed." },
@@ -114,9 +114,9 @@ export const COSMETICS: CosmeticDef[] = [
   { id: "frontier-banner", name: "Frontier Banner", slot: "banner", source: "deed", deedId: "deed_frontier", blurb: "Pushed frontier — first colony on the server to reach the deepest scientific site zone." },
   { id: "cleansed-hull", name: "Cleansed Hull", slot: "cradleFacade", source: "deed", deedId: "deed_purify", blurb: "Purified a site/zone — first corrupted ruin cleared (tees up the Oracle purity layer)." },
   { id: "the-visionarys-robes", name: "The Visionary's Robes", slot: "leaderGarb", source: "deed", deedId: "deed_tier3_research", blurb: "Milestone — Cradle reaches Tier III (pre-Cradle-tiers: research completions ≥ N)." },
-  { id: "wardens-livery", name: "Warden's Livery", slot: "vehicleTrim", source: "deed", deedId: "deed_l5_specialized", blurb: "A Leader reaches L5 with a specialization chosen (leader XP is play-earned-only)." },
+  { id: "wardens-livery", name: "Warden's Livery", slot: "vehicleTrim", source: "deed", deedId: "deed_l5_specialized", blurb: "A Leader reaches L5 with a specialization chosen." },
   { id: "wheel-of-years", name: "Wheel of Years", slot: "shrineMotif", source: "deed", deedId: "deed_30day_devotion", blurb: "30-day daily devotion streak — the retention loop's crown." },
-  { id: "the-contribution-ring", name: "The Contribution Ring", slot: "sigilFrame", source: "deed", deedId: "deed_contribution_award", blurb: "Server Contribution Award — one per server per cycle; measured-not-voted." },
+  { id: "the-contribution-ring", name: "The Contribution Ring", slot: "sigilFrame", source: "deed", deedId: "deed_contribution_award", blurb: "Server Contribution Award — one per server per cycle." },
 ];
 
 export const COSMETIC_BY_ID = Object.fromEntries(COSMETICS.map((c) => [c.id, c])) as Record<string, CosmeticDef>;
@@ -161,7 +161,7 @@ export interface HeadStartPackDef {
   priceUsd: number;
   providerSkuId: string; // "" until payments are wired
   blurb: string;
-  playEquivalent: string; // "≈ what a veteran gets faster by playing anyway"
+  playEquivalent: string; // a plain comparison to play, e.g. "≈ one week of steady explorations"
   scrip: number; // Scrip-in-pack supply grant (§3.3) — hard-capped; 0 for Wave-1
   grants: PackGrant[];
 }
@@ -178,10 +178,10 @@ export const HEAD_START_PACKS: HeadStartPackDef[] = [
     grants: [
       { kind: "resource", key: "supplies", amount: 150, note: "base supplies bundle (materials for ~10 crafts)" },
       { kind: "resource", key: "gas", amount: 24, note: "fuel for ~6 explorations" },
-      { kind: "resource", key: "medkit", amount: 1, note: "basic gear set (tier-1 schematics included — craftable kinds)" },
+      { kind: "resource", key: "medkit", amount: 1, note: "basic gear set (tier-1 schematics included)" },
       { kind: "resource", key: "mechkit", amount: 1, note: "basic gear set — mechanics kit" },
       { kind: "resource", key: "armorkit", amount: 1, note: "basic gear set — armor kit" },
-      { kind: "currency", currency: "votives", amount: 150, note: "cosmetic currency only — never advancement" },
+      { kind: "currency", currency: "votives", amount: 150, note: "Votives" },
     ],
   },
   {
@@ -190,7 +190,7 @@ export const HEAD_START_PACKS: HeadStartPackDef[] = [
     priceUsd: 9.99,
     providerSkuId: "",
     blurb: "A crafted gear set, double fuel and supplies, and a deeper offering of Votives.",
-    playEquivalent: "≈ two weeks of a deliberate player, or reaching Cradle Tier 2 — same gear, yours sooner",
+    playEquivalent: "≈ two weeks of a deliberate player, or Cradle Tier 2",
     scrip: 0,
     grants: [
       // Spec §3.1: "crafted tier-2 gear set (armor + tool, no stat beyond craftable
@@ -200,7 +200,7 @@ export const HEAD_START_PACKS: HeadStartPackDef[] = [
       { kind: "resource", key: "mechkit", amount: 2, note: "crafted tier-2 gear set — tool" },
       { kind: "resource", key: "gas", amount: 48, note: "2× fuel (vs Scavenger's Kit base)" },
       { kind: "resource", key: "supplies", amount: 300, note: "2× supplies (vs Scavenger's Kit base)" },
-      { kind: "currency", currency: "votives", amount: 300, note: "cosmetic currency only" },
+      { kind: "currency", currency: "votives", amount: 300, note: "Votives" },
     ],
   },
   {
@@ -208,13 +208,13 @@ export const HEAD_START_PACKS: HeadStartPackDef[] = [
     name: "Long-Haul Cart",
     priceUsd: 12.99,
     providerSkuId: "",
-    blurb: "A base vehicle (the same model craftable in the workshop at Tier 2) with the Emberline trim, plus Votives.",
-    playEquivalent: "the vehicle is buildable; the trim is purchasable. A veteran who didn't buy it has a cart by week two and the trim by choice",
+    blurb: "A base vehicle with the Emberline trim, plus Votives.",
+    playEquivalent: "≈ what a colony reaches in its second week",
     scrip: 0,
     grants: [
-      { kind: "vehicle", vehicleId: "base_cart", note: "the same model craftable in the workshop at Tier 2 (vehicle model arrives with the vehicle module)" },
-      { kind: "cosmetic", itemId: "emberline", note: "its cosmetic trim — Emberline (P4), granted via the entitlement service" },
-      { kind: "currency", currency: "votives", amount: 450, note: "cosmetic currency only" },
+      { kind: "vehicle", vehicleId: "base_cart", note: "base cart (the vehicle model arrives with the vehicle module)" },
+      { kind: "cosmetic", itemId: "emberline", note: "Emberline trim — appearance" },
+      { kind: "currency", currency: "votives", amount: 450, note: "Votives" },
     ],
   },
 ];

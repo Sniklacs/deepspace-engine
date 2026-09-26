@@ -90,7 +90,7 @@ EXISTS + token restyle: Tooltip (keep 350/480ms + slop as-is — battle-tested),
 
 ## D. STOREFRONT SURFACES (premium, honest, G1–G4-bound)
 - **Entry: header Ledger button** (Scrip + Votives `.num` chips) → full-screen sheet overlay. NOT a 6th tab. No badge dots, no countdowns, ever.
-- Featured strip → catalog rows (cosmetic category glyphs, Votive price gold chip, `OWNED ✓`; **deed cosmetics in "Earned by deed · not for sale" commemorative section**) → 3 head-start packs (contents + verbatim play-equivalent "≈ one week of steady expeditions at a casual pace" + G1–G4 trust footer: "Everything here is earnable in play — a head start within the earned cap, never above it.") → pass strip: 28-node rail, two lanes per tier, gold premium CTA (the only gold CTA in the app), footer "Passes never expire. Unclaimed items return next season. No tier skips are sold."
+- Featured strip → catalog rows (cosmetic category glyphs, Votive price gold chip, `OWNED ✓`; **deed cosmetics in the commemorative section (`COMMEMORATIVE` chip)**) → 3 head-start packs (contents + play-equivalent "≈ one week of steady explorations at a casual pace"; NO trust footer — owner ruling 2026-09-13, the G1–G4 guardrails are internal) → pass strip: 28-node rail, two lanes per tier, gold premium CTA (the only gold CTA in the app), footer "Passes never expire. Unclaimed items return next season."
 - Confirmation sheet restates item + price + quiet "You are about to spend N Votives". Wallet renders server state only. Honest levers: pass strip is the entry purchase; previews gorgeous-by-tokens; deed cosmetics advertise the pass by sitting un-buyable in the store.
 
 ## E. NAV CONSOLIDATION — 7 → 5

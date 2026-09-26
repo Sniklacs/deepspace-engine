@@ -431,10 +431,12 @@ console.log("— 5 · the factory, the price list, the wiring —");
   check("…and a SKU is buyable only when the store is open, the player is signed in, and its link exists", overlay.includes("storeOpen && signedIn && isSellable("));
   check("…and the client never grants anything (no entitlement write on the buy path)", !overlay.includes("saveActiveState") && !overlay.includes("applyExternalPurchase"));
 
-  // i18n: the new strings are keyed and translated in all five languages.
+  // ---- i18n: the store's strings are keyed and translated in all five languages --
   const cat = (await import(`${SITE}/src/game/i18n/index.ts`)) as { CATALOGUES: Record<string, Record<string, string>>; SOURCE_LANG: string };
   const storeKeys = Object.keys(cat.CATALOGUES[cat.SOURCE_LANG]).filter((k) => k.startsWith("store."));
-  check("the payments slice added 13 keyed strings", storeKeys.length === 13, storeKeys.join(","));
+  // 13 keys from the payments slice (the buy control, the honest reasons it can be
+  // locked, the post-purchase panel) + 30 from the store-copy slice.
+  check("every store string the player reads is keyed (13 payments + 30 store-copy)", storeKeys.length === 43, storeKeys.join(","));
   for (const code of ["es", "pt-BR", "ru", "fa"]) {
     check(`${code} translates every one of them`, storeKeys.every((k) => (cat.CATALOGUES[code][k] ?? "").length > 0));
     check(`${code} keeps every {placeholder}`, storeKeys.every((k) => {
@@ -442,7 +444,98 @@ console.log("— 5 · the factory, the price list, the wiring —");
       return params(cat.CATALOGUES[code][k] ?? "") === params(cat.CATALOGUES.en[k]);
     }));
   }
-  check("no new store string carries limitation or anti-P2W language", storeKeys.every((k) => !/earnable|never (buy|sale)|pay-to-win|no solo win|tier skip/i.test(cat.CATALOGUES.en[k])));
+
+  /** The key one grant bullet renders under — mirrors grantNoteKey() in the overlay. */
+  const noteKey = (packId: string, g: any): string =>
+    `store.pack.${packId}.g.${g.kind}.${g.kind === "resource" ? g.key : g.kind === "currency" ? g.currency : g.kind === "cosmetic" ? g.itemId : g.vehicleId}`;
+  // Pack lines are rendered through TEMPLATE keys, so the i18n suite's dead-lookup
+  // scan treats them as a dynamic family and cannot see the individual keys. This
+  // suite checks them one by one: the key exists, its English value IS the catalog
+  // literal, and all four other files carry a translation.
+  const packLines: [string, string][] = [];
+  for (const p of monetization.HEAD_START_PACKS) {
+    packLines.push([`store.pack.${p.id}.blurb`, p.blurb]);
+    packLines.push([`store.pack.${p.id}.play`, p.playEquivalent]);
+    for (const g of p.grants) packLines.push([noteKey(p.id, g), g.note]);
+  }
+  check(`every pack line the store renders is keyed in English, verbatim (${packLines.length} lines)`,
+    packLines.every(([k, v]) => cat.CATALOGUES.en[k] === v),
+    packLines.filter(([k, v]) => cat.CATALOGUES.en[k] !== v).map(([k]) => k).join(","));
+  check("…and every one of them is translated in the other four files",
+    packLines.every(([k]) => ["es", "pt-BR", "ru", "fa"].every((c) => (cat.CATALOGUES[c][k] ?? "").length > 0)));
+  const KEYED_COSMETICS = ["votive-bell", "wardens-livery", "the-contribution-ring"];
+  check("the three rewritten cosmetic blurbs are keyed in English, verbatim",
+    KEYED_COSMETICS.every((id) => cat.CATALOGUES.en[`store.cosmetic.${id}.blurb`] === monetization.COSMETIC_BY_ID[id].blurb));
+  check("…and translated in the other four files",
+    KEYED_COSMETICS.every((id) => ["es", "pt-BR", "ru", "fa"].every((c) => (cat.CATALOGUES[c][`store.cosmetic.${id}.blurb`] ?? "").length > 0)));
+
+  /**
+   * THE STORE SURFACE — gated on INTENT, not on wording.
+   *
+   * OWNER RULING (2026-09-13): store copy carries NO pay-to-win and NO limitation
+   * language. G1–G4 verbatim, "no solo win", the "earnable in play / a head start
+   * within the earned cap" footer, "no tier skips", and any what-you-can't-do framing
+   * are OUT of the player's view — the store presents the packs and lets people buy.
+   *
+   * This REPLACES the earlier check, which asserted a regex over the 13 catalogue keys
+   * of one slice. It asserts the same intent over everything the player can actually
+   * read — every store.* value, every pack line, every cosmetic name and blurb, and
+   * the overlay's own markup with comments stripped — so a string that is rendered but
+   * never keyed cannot hide from it either.
+   *
+   * The guardrails themselves are INTERNAL and stay internal: the vocabulary below is
+   * still the law inside src/game/monetization.ts, inside monetization-verify.ts and in
+   * design/*.md — and the checks at the end of this block prove it still bites.
+   */
+  const LIMITATION = /earnable|earned cap|head[-\s]start|never (?:buy|buyable|for sale|sale)|pay-to-win|p2w|solo win|no solo|tier[-\s]?skip|timers? skipped|no research|no oracle trust|hero power|no stat|no speed|no edge|craftable/i;
+  // ONE documented allowance: "Head-Start Packs" is the pack CATEGORY's name — the
+  // words the catalog itself uses for the group. It asserts nothing about a purchase,
+  // and "a head start on the earned curve" still fails the scan (proved below).
+  const CATEGORY_NAME = /head[-\s]?start packs?/gi;
+  const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(CATEGORY_NAME, "");
+  const scan = (where: string, text: string) => (strip(text).match(LIMITATION) ?? []).map((h) => `${where}: "${h}"`);
+  const storeCopy: [string, string][] = [
+    ...storeKeys.map((k) => [k, cat.CATALOGUES.en[k]] as [string, string]),
+    ...packLines,
+    ...monetization.COSMETICS.map((c) => [`cosmetic:${c.id}`, c.name] as [string, string]),
+    ...monetization.COSMETICS.map((c) => [`cosmetic:${c.id}`, c.blurb] as [string, string]),
+  ];
+  const leaks = storeCopy.flatMap(([k, v]) => scan(k, v));
+  // …plus the overlay's own markup, comments stripped: its JSX text and any literal
+  // that renders without going through the catalogue.
+  leaks.push(...scan("StorefrontOverlay.tsx", read("src/components/StorefrontOverlay.tsx")));
+  check(`NO limitation or anti-P2W language anywhere in the store surface (${storeKeys.length} keys + ${packLines.length} pack lines + ${monetization.COSMETICS.length * 2} cosmetic lines + the overlay)`,
+    leaks.length === 0, leaks.slice(0, 6).join(" | "));
+  check("the scan is not vacuous — every line we removed is caught by it",
+    LIMITATION.test("Purchases may strengthen a colony — they can never win a battle alone. Hero power is never for sale. No timers skipped · no research · no Oracle trust.") &&
+    LIMITATION.test("Everything a pack grants is craftable or earnable in play — a head start on the earned curve, never above it. Packs are purchased with real money; none are purchasable yet.") &&
+    LIMITATION.test("Passes never expire. Unclaimed items return next season. No tier skips are sold.") &&
+    LIMITATION.test("Pure appearance — no stat, no speed, no edge. Owned items show their server-recorded check; deed items live below in the commemorative section.") &&
+    LIMITATION.test("Deed cosmetics are won by what you do in the world, not by what you spend. They appear here so their deeds stay visible — they are viewable, never buyable."));
+  check("…and the single allowance is narrow: the category name passes, the claim does not",
+    !LIMITATION.test(strip("Head-Start Packs")) && LIMITATION.test(strip("a head start on the earned curve")));
+  check("…and an identifier that merely starts with those letters is not copy (no false positive)",
+    !LIMITATION.test("HeadStartPackDef") && !LIMITATION.test("HEAD_START_PACKS"));
+
+  // THE GUARDRAIL IS INTERNAL — and still armed. G1–G4 live in the code, not on the
+  // store surface, and assertCatalogFair() still refuses a catalog that carries power
+  // vocabulary.
+  const monSrc = read("src/game/monetization.ts");
+  check("the fairness guardrail still exists in code (FORBIDDEN_POWER_TERMS + assertCatalogFair)",
+    /FORBIDDEN_POWER_TERMS/.test(monSrc) && /export function assertCatalogFair/.test(monSrc));
+  check("…and it still bites: a planted power term in pack copy makes the guard throw", (() => {
+    const p = monetization.HEAD_START_PACKS[0];
+    const before = p.blurb;
+    try {
+      p.blurb = `${before} includes a tier skip`;
+      monetization.assertCatalogFair();
+      return false;
+    } catch {
+      return true;
+    } finally {
+      p.blurb = before;
+    }
+  })());
 
   // The post-purchase note.
   const memory = new Map<string, string>();
