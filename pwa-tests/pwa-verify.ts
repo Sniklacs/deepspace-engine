@@ -229,6 +229,39 @@ section("3d · A NEW BUILD CLEARS THE OLD SHELL");
     SHELL_FILES.every(() => cachesStore.has(shellCacheName)));
 }
 
+const modelCacheKey = "/models/weights-v1.bin?chunk=0";
+// ============================= §3e the translator's weights survive a publish
+// THE most important property of this slice (owner, 2026-09-26): a player
+// downloads the app once; every change we fold in is an update. "activate" in
+// the worker deletes every cache that is not on KEEP, and a new deploy ALWAYS
+// activates — so with the translator's 603 MB bucket off that list, every
+// publish evicts the weights and every player re-downloads them. Proved here by
+// running the worker source against a stub caches, not by matching a comment.
+section("3e · THE TRANSLATOR'S WEIGHTS SURVIVE A PUBLISH (the owner's incremental rule)");
+{
+  const storageMod = await import(`${SITE}/src/game/pwa/storage.ts`);
+  const swSrc = read("public/sw.js");
+  check("the worker's keep-list names the storage module's own model bucket (the two cannot drift apart)",
+    swSrc.includes(`const MODEL_CACHE = "${storageMod.MODEL_CACHE}";`) &&
+      /const KEEP = \[SHELL_CACHE, ASSET_CACHE, MODEL_CACHE\]/.test(swSrc));
+  check("activate still sweeps exactly what is NOT on that list",
+    /names\.filter\(\(n\) => !KEEP\.includes\(n\)\)/.test(swSrc));
+  const serveMod = await import(`${SITE}/serve.ts`);
+  const A: any = runWorker(serveMod.stampBuildToken(swSrc, "aaaaaaaaaaaaaaaa"));
+  check("the harness exposes the store the worker acts on (the survival proof needs the same store)",
+    typeof A.cachesStore?.set === "function");
+  const store = (A.cachesStore ?? new Map()) as Map<string, Map<string, unknown>>;
+  store.set(storageMod.MODEL_CACHE, new Map([[modelCacheKey, mkRes("real bytes")]]));
+  store.set("dse-shell-ancient", new Map([["/", mkRes("stale")]]));
+  await A.lifecycle("activate");
+  check("a publish does NOT evict the model cache — the 603 MB weights stay on the device",
+    store.has(storageMod.MODEL_CACHE) && (store.get(storageMod.MODEL_CACHE)?.size ?? 0) === 1);
+  check("while the previous build's SHELL cache is still swept away, as it must be",
+    !store.has("dse-shell-ancient"));
+  const w = await A.fire("GET", "/models/weights-v1.bin");
+  check("the worker does not intercept the weights route (the loader owns that cache: a 206 cannot be cache.put)",
+    w.responded === false);
+}
 // ================================================== §4 serve.ts, the seam
 section("4 · THE BUILD ID AND THE HEADERS (serve.ts, no port bound)");
 const serve = await import(`${SITE}/serve.ts`);

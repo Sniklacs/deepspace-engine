@@ -11,6 +11,7 @@ import { SegmentedControl } from "../SegmentedControl";
 import { LanguageRows } from "../i18n/LanguagePicker";
 import InstallAffordance from "./InstallAffordance";
 import StorageNote from "./StorageNote";
+import TranslatorNote from "./TranslatorNote";
 import {
   langMeta,
   setDeviceLang,
@@ -100,6 +101,11 @@ export default function SettingsSheet({ open, onClose }: { open: boolean; onClos
           <InstallAffordance variant="row" />
           <h4 className="eyebrow pt-1">{t("storage.title")}</h4>
           <StorageNote />
+          {/* 5 · The bundled translator — downloaded unprompted, never a pack to
+                 choose, never a prompt; its progress is real bytes. */}
+          <h4 className="eyebrow pt-1">{t("translator.title")}</h4>
+          <p className="text-[11px] leading-snug text-text-3">{t("translator.sub")}</p>
+          <TranslatorNote />
         </section>
       </div>
     </Sheet>

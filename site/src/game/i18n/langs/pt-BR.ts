@@ -316,6 +316,16 @@ export const ptBR: Catalogue = {
   "forge.depth.1": "Chapa de guerra: escassa",
   "forge.depth.2": "Chapa de guerra: moderada",
   "forge.depth.3": "Chapa de guerra: abundante",
+  // ---- o tradutor incluído (os pesos, neste aparelho) ----------------------
+  "translator.title": "Tradução",
+  "translator.sub": "Incluída no jogo e guardada neste aparelho. Sem serviço na nuvem, sem conta e nada para ativar.",
+  "translator.preparing": "A tradução está sendo preparada — {done} de {size} ({percent}%)",
+  "translator.ready": "Pronta neste aparelho — {size}, mantida depois das atualizações",
+  "translator.failed": "O download parou. {done} de {size} foram mantidos — tente de novo.",
+  "translator.retry": "Tentar de novo",
+  "translator.freeSpace": "Liberar o espaço",
+  "translator.notReady": "A tradução está sendo preparada",
+  "translator.translate": "Traduzir",
+  "translator.original": "Ver o original",
 };
-
 export default ptBR;

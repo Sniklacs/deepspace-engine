@@ -62,7 +62,9 @@ cd /home/team/shared/prologue-tests && env -u DATABASE_URL bun run voice-verify.
 Suites: `prologue-tests` (voice 274 · tutorial 141 · act1-entry 109 · prologue 47 · decision-panel 116),
 `shell-tests` 113 · `wcag-tests` 127 · `atlas-tests` 727 · `battle-tests` 153 · `armory-tests` 72 ·
 `heroes-tests` 103 · `daily-tests` 113 · `leader-xp-tests` 44 · `monetization-tests` 161 ·
-`race-lock-tests` 32 · `revelation-tests` 107 · `contribution-tests` 31. Build gate: `bun run build` in
+`race-lock-tests` 32 · `revelation-tests` 107 · `contribution-tests` 31 ·
+`translate-tests` 71 (the bundled translator: the download over a real socket, resume, the
+no-Range server, honest failures, the engine seam, and §9 no-ready-while-unavailable). Build gate: `bun run build` in
 the served tree, exit 0.
 
 ## Notes

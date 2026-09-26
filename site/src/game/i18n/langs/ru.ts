@@ -316,6 +316,16 @@ export const ru: Catalogue = {
   "forge.depth.1": "Бронеплита: мало",
   "forge.depth.2": "Бронеплита: умеренно",
   "forge.depth.3": "Бронеплита: много",
+  // ---- встроенный переводчик (веса на этом устройстве) --------------------
+  "translator.title": "Перевод",
+  "translator.sub": "Входит в игру и хранится на этом устройстве. Без облачного сервиса, без учётной записи и без ничего, что нужно включать.",
+  "translator.preparing": "Перевод готовится — {done} из {size} ({percent}%)",
+  "translator.ready": "Готов на этом устройстве — {size}, сохраняется после обновлений",
+  "translator.failed": "Загрузка прервалась. Сохранено {done} из {size} — попробуйте снова.",
+  "translator.retry": "Попробовать снова",
+  "translator.freeSpace": "Освободить место",
+  "translator.notReady": "Перевод готовится",
+  "translator.translate": "Перевести",
+  "translator.original": "Показать оригинал",
 };
-
 export default ru;

@@ -321,6 +321,16 @@ export const es: Catalogue = {
   "forge.depth.1": "Placa de guerra: escasa",
   "forge.depth.2": "Placa de guerra: moderada",
   "forge.depth.3": "Placa de guerra: abundante",
+  // ---- el traductor incluido (los pesos, en este dispositivo) --------------
+  "translator.title": "Traducción",
+  "translator.sub": "Incluida en el juego y guardada en este dispositivo. Sin servicio en la nube, sin cuenta y sin nada que activar.",
+  "translator.preparing": "La traducción se está preparando — {done} de {size} ({percent}%)",
+  "translator.ready": "Lista en este dispositivo — {size}, se conserva tras las actualizaciones",
+  "translator.failed": "La descarga se detuvo. Se conservan {done} de {size} — inténtalo de nuevo.",
+  "translator.retry": "Intentar de nuevo",
+  "translator.freeSpace": "Liberar el espacio",
+  "translator.notReady": "La traducción se está preparando",
+  "translator.translate": "Traducir",
+  "translator.original": "Ver el original",
 };
-
 export default es;

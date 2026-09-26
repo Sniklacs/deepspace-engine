@@ -344,6 +344,16 @@ export const fa: Catalogue = {
   "forge.depth.1": "ورق جنگی: کم",
   "forge.depth.2": "ورق جنگی: متوسط",
   "forge.depth.3": "ورق جنگی: سرشار",
+  // ---- مترجم همراه برنامه (وزنها روی همین دستگاه) -------------------------
+  "translator.title": "ترجمه",
+  "translator.sub": "همراه بازی میآید و روی همین دستگاه میماند. بدون سرویس ابری، بدون حساب و بدون هیچ چیزی که باید روشن شود.",
+  "translator.preparing": "ترجمه در حال آمادهسازی است — {done} از {size} ({percent}%)",
+  "translator.ready": "روی این دستگاه آماده است — {size}، پس از بهروزرسانیها میماند",
+  "translator.failed": "بارگیری متوقف شد. {done} از {size} نگه داشته شد — دوباره تلاش کن.",
+  "translator.retry": "دوباره تلاش کن",
+  "translator.freeSpace": "آزاد کردن فضا",
+  "translator.notReady": "ترجمه در حال آمادهسازی است",
+  "translator.translate": "ترجمه کن",
+  "translator.original": "نمایش متن اصلی",
 };
-
 export default fa;

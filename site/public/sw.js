@@ -32,7 +32,27 @@
 const BUILD = "@@BUILD@@";
 const SHELL_CACHE = `dse-shell-${BUILD}`;
 const ASSET_CACHE = `dse-assets-${BUILD}`;
-const KEEP = [SHELL_CACHE, ASSET_CACHE];
+
+/* THE BUNDLED TRANSLATOR'S WEIGHTS — 603 MB that must survive every publish.
+ *
+ * The name is the one in `src/game/pwa/storage.ts` (`MODEL_CACHE`); pwa-verify
+ * asserts the two strings are equal, so the worker's keep-list cannot drift away
+ * from the bucket the page writes the weights into.
+ *
+ * WHY IT IS HERE, AND WHAT BREAKS WITHOUT IT: `activate` deletes EVERY cache that
+ * is not on this list, and a new deploy always activates (the build token makes a
+ * new worker, `skipWaiting` + `clients.claim` move the next launch onto it). With
+ * the model bucket off this list, every single publish would evict hundreds of
+ * megabytes and every player would re-download the translator on the next update.
+ * The owner's rule is that updates stay incremental — this line is that rule.
+ *
+ * NOTE: the worker deliberately does NOT intercept `/models/*`. That download is
+ * owned by `src/game/translate/weights.ts`, which caches its own byte-range
+ * chunks (a 206 response cannot be `cache.put`, so a cache-first rule here would
+ * either break the download or mislabel partial bytes as the whole model). The
+ * weights are an asset the page fetches once, not part of the shell. */
+const MODEL_CACHE = "dse-model-v1";
+const KEEP = [SHELL_CACHE, ASSET_CACHE, MODEL_CACHE];
 
 /** The document every offline navigation falls back to. Only ever precached. */
 const SHELL_DOCUMENT = "/";
@@ -84,7 +104,9 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
       // The clean update: every cache from an older build goes, so a new deploy
-      // can never be served out of the old shell.
+      // can never be served out of the old shell — and everything on KEEP stays,
+      // including the translator's weights (see MODEL_CACHE above: evicting them
+      // would re-download 603 MB on every deploy).
       const names = await caches.keys();
       await Promise.all(names.filter((n) => !KEEP.includes(n)).map((n) => caches.delete(n)));
       await self.clients.claim();

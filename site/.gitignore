@@ -22,3 +22,13 @@ src/routeTree.gen.ts
 
 # Deepspace Engine runtime save data (gitignored)
 data/
+# THE BUNDLED TRANSLATOR'S WEIGHTS — served by serve.ts from site/models/, never
+# a build input: `public/` would copy them into dist/client and into the build id
+# (every deploy a 603 MB re-download) and would stage the blob in git. The
+# directory keeps its README (the drop-in instructions); everything heavy is local.
+/models/*
+!/models/README.md
+*.bin
+*.onnx
+*.gguf
+*.safetensors
