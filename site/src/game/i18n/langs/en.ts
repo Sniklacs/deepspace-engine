@@ -360,5 +360,42 @@ export const en: Catalogue = {
   "store.return.pending": "Not confirmed yet. If you were charged, it lands within a minute — this screen grants nothing by itself.",
   "store.return.checkAgain": "Check again",
   "store.return.dismiss": "Dismiss",
+
+  // ---- the store-copy slice (owner ruling 2026-09-13) -------------------------
+  // The player-facing store presents the packs; it argues nothing about what a
+  // purchase cannot do. G1–G4 and every other guardrail stay INTERNAL (code,
+  // tests, design docs). These are the lines the store renders, keyed so the
+  // whole surface reads in the player's language.
+  "store.packsSub": "Supplies, fuel, gear and Votives to open a colony. Each pack lists everything it carries.",
+  "store.cosmeticsSub": "Cradle facades, banners, vehicle trim, shrine motifs and Leader garb. Owned items show their server-recorded check; deed items live below in the commemorative section.",
+  "store.deedSub": "Commemorative pieces earned in the world. They appear here so their deeds stay visible.",
+  "store.commemorative": "Commemorative",
+  "store.oracleNote": "Oracle trust grows from purity — clean recoveries, carried Codices, shielded allies. Feeding recovered AI turns them cold.",
+  "store.contributionNote": "Contribution is measured by the server's watch.",
+  "store.passFooter": "Passes never expire. Unclaimed items return next season.",
+  "store.pack.scavengers-kit.blurb": "Base supplies bundle, fuel for the first convoys, a basic gear set, and a first offering of Votives.",
+  "store.pack.scavengers-kit.play": "≈ one week of steady explorations at a casual pace",
+  "store.pack.scavengers-kit.g.resource.supplies": "base supplies bundle (materials for ~10 crafts)",
+  "store.pack.scavengers-kit.g.resource.gas": "fuel for ~6 explorations",
+  "store.pack.scavengers-kit.g.resource.medkit": "basic gear set (tier-1 schematics included)",
+  "store.pack.scavengers-kit.g.resource.mechkit": "basic gear set — mechanics kit",
+  "store.pack.scavengers-kit.g.resource.armorkit": "basic gear set — armor kit",
+  "store.pack.scavengers-kit.g.currency.votives": "Votives",
+  "store.pack.expeditionary-kit.blurb": "A crafted gear set, double fuel and supplies, and a deeper offering of Votives.",
+  "store.pack.expeditionary-kit.play": "≈ two weeks of a deliberate player, or Cradle Tier 2",
+  "store.pack.expeditionary-kit.g.resource.armorkit": "crafted tier-2 gear set — armor",
+  "store.pack.expeditionary-kit.g.resource.mechkit": "crafted tier-2 gear set — tool",
+  "store.pack.expeditionary-kit.g.resource.gas": "2× fuel (vs Scavenger's Kit base)",
+  "store.pack.expeditionary-kit.g.resource.supplies": "2× supplies (vs Scavenger's Kit base)",
+  "store.pack.expeditionary-kit.g.currency.votives": "Votives",
+  "store.pack.long-haul-cart.blurb": "A base vehicle with the Emberline trim, plus Votives.",
+  "store.pack.long-haul-cart.play": "≈ what a colony reaches in its second week",
+  "store.pack.long-haul-cart.g.vehicle.base_cart": "base cart (the vehicle model arrives with the vehicle module)",
+  "store.pack.long-haul-cart.g.cosmetic.emberline": "Emberline trim — appearance",
+  "store.pack.long-haul-cart.g.currency.votives": "Votives",
+  "store.cosmetic.votive-bell.blurb": "Shrine hanging-bell lighting; rings subtly on shrine daily resets.",
+  "store.cosmetic.wardens-livery.blurb": "A Leader reaches L5 with a specialization chosen.",
+  "store.cosmetic.the-contribution-ring.blurb": "Server Contribution Award — one per server per cycle.",
+
 };
 export default en;

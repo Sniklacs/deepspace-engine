@@ -5,6 +5,7 @@
 import * as engine from "/home/team/shared/site/src/game/engine.ts";
 import * as m from "/home/team/shared/site/src/game/monetization.ts";
 import { publicState } from "/home/team/shared/site/src/game/api.ts";
+import { readFileSync } from "node:fs";
 import type { GameState } from "/home/team/shared/site/src/game/types.ts";
 
 let pass = 0, fail = 0;
@@ -282,6 +283,35 @@ check("D5 withheld below threshold", !m.owns(stD5b, "wardens-livery"));
 // ======================================================================
 console.log("— 9 · fairness guardrails (§5/§6, §3.2, §4.3) —");
 check("assertCatalogFair passes on the whole catalog", (() => { m.assertCatalogFair(); return true; })());
+// The guardrail must stay a real gate, not a decoration people stopped calling. The
+// store-copy slice (owner ruling 2026-09-13) moved G1–G4 and every other fairness
+// statement OFF the player-facing surface and OUT of store copy — so the tripwire in
+// game/monetization.ts is now the only thing holding that line, and it is proved here
+// to still throw. It is INTERNAL on purpose; the store says none of this.
+check("the fairness tripwire still throws on a planted power term in pack copy", (() => {
+  const p = m.HEAD_START_PACKS[0];
+  const before = p.blurb;
+  try { p.blurb = `${before} — includes a tier skip`; m.assertCatalogFair(); return false; }
+  catch { return true; }
+  finally { p.blurb = before; }
+})());
+check("…and on a planted power term in the premium pass track", (() => {
+  const r = m.SEASON_TIERS[2].premium;
+  const before = r.label;
+  try { r.label = "Skip the season"; m.assertCatalogFair(); return false; }
+  catch { return true; }
+  finally { r.label = before; }
+})());
+// And the guardrail still EXISTS in both places the owner put it: the code, and the
+// design doc. Asserting this here is the counterweight to removing it from the store.
+{
+  const src = readFileSync("/home/team/shared/site/src/game/monetization.ts", "utf8");
+  check("the forbidden-vocabulary guardrail is still in the code (the ruling moved it off the store, it did not delete it)",
+    /FORBIDDEN_POWER_TERMS/.test(src) && /"skip"/.test(src) && /"hero"/.test(src) && /"plasma"/.test(src));
+  const doc = (() => { try { return readFileSync("/home/team/shared/design/monetization.md", "utf8"); } catch { return ""; } })();
+  check("…and the design doc still carries the G1–G4 guardrails the store no longer states",
+    /G1/.test(doc) && /G3/.test(doc) && /pay-to-win/i.test(doc) && doc.length > 1000);
+}
 check("no conversion path in module exports", (() => { m.assertNoConversionPath(); const bad = Object.keys(m).filter((k) => /convert|exchange|swap|fx/i.test(k)); return bad.length === 0; })());
 check("cosmetics carry NO grant payload fields (schema guard)", m.COSMETICS.every((c) => Object.keys(c).every((k) => ["id", "name", "slot", "source", "blurb", "priceVotives", "deedId", "providerSkuId"].includes(k))));
 check("no energy/stamina/skip-timer purchasable", !m.HEAD_START_PACKS.some((p) => /energy|stamina|skip|rush|timer|instant/i.test(p.name + p.blurb)) && !m.PURCHASABLE_COSMETICS.some((c) => /energy|stamina|skip|rush|timer/i.test(c.name)));

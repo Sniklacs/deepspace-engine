@@ -371,3 +371,41 @@ Existing suites still green: revelation 102/102, leader-XP 40/40, both realsave 
 **Consequential edits (ADOPTED 2026-09-12 by team lead, under the owner's 2026-09-12 going-live direction — "it doesn't hurt to buy to strengthen, but that is not going to help you win the battle all by yourself" — and the owner's later delegated creative authority):** §0 principle and §5 item 1 reword to "no *un-capped* or *solo-decisive* purchased power; purchased strength bounded by G1–G4". G1–G4 are now the guardrail set for the live catalog. The §5 categorical line remains IN FORCE as the real-world rule while the storefront is off (`storefrontEnabled=false`, §7) — i.e., today nothing is purchasable at all; G1–G4 bind the moment payments are wired and the flag flips, and the catalog must be built so every item satisfies G1–G4 before it can sell.
 **Honest tension — RESOLVED AND OWNER-CONFIRMED 2026-09-12:** purchased strength + teammates tilts team-vs-team fights if *enough* players on one side buy (a whale alliance beats a free alliance). G1–G2 bound it (no one exceeds the earnable ceiling; nothing bought shifts scored buckets) but cannot erase it entirely. **The owner chose the pairing answer in clear terms: "whales can buy all day long — they will just be paired with other whales to fight against [them]; that keeps the pay-to-win fair and keeps our balance on gaming with servers."** Reverberation pairing (§17 of the war spec) is therefore the owner-ratified fairness control — whale worlds fight whale worlds, free worlds fight their class — combined with the shared earnable ceiling (G1: even a whale can never field more than a patient free player's cap). The categorical line (§5) remains in force while the storefront is off. Revisit if live data shows the tilt breaking fairness.
 ---
+
+---
+
+## 12. The store surface — OWNER RULING 2026-09-13: present, do not argue
+
+**The player-facing store carries NO pay-to-win and NO limitation language.** G1–G4,
+"no solo win", the "earnable in play / a head start within the earned cap" footer, "no
+tier skips", and any "what you can/can't do" framing are **guardrails, not copy**: they
+are asserted in the code, in the suites and in `design/` — never printed in the store.
+The store presents the packs and lets people buy. (Owner-ratified 2026-09-13; executed
+2026-09-26 on `feat/store-copy-plain`.)
+
+What left the player's view:
+
+| Where | What no longer appears |
+|---|---|
+| PackCard footer | the whole G1–G4 trust paragraph |
+| Head-Start Packs intro | "craftable or earnable in play — a head start on the earned curve, never above it" · "none are purchasable yet" |
+| Pass footer | "No tier skips are sold." |
+| Cosmetic rows | "Pure appearance — no stat, no speed, no edge." |
+| Deed rows | "…viewable, never buyable." |
+| Callings/Oracle block | the `NEVER FOR SALE` chip (now `COMMEMORATIVE`), "No offering ever buys a moment of it.", "never by spend or votes" |
+| Pack blurbs / grant notes | "the same model craftable in the workshop at Tier 2" · "cosmetic currency only — never advancement" · "the vehicle is buildable; the trim is purchasable. A veteran who didn't buy it…" |
+| The Forge-adjacent cosmetic blurbs | "sight and sound only, no effect" · "(leader XP is play-earned-only)" · "measured-not-voted" |
+
+**Where the guardrail lives now** — and must keep living:
+
+- `site/src/game/monetization.ts` → `FORBIDDEN_POWER_TERMS` + `assertCatalogFair()`,
+  which throws on power vocabulary in any pack, cosmetic or premium-tier label;
+- `monetization-tests/monetization-verify.ts` §9 → proves it still throws on a planted
+  term in pack copy **and** in the premium track;
+- `payments-tests/payments-verify.ts` §5 → the store-surface scan: no store string, pack
+  line, cosmetic blurb or overlay literal may carry limitation vocabulary;
+- this file (§5, §11) and `visual-pass-1-storefront.md` §3.
+
+A *disabled* control may still state the truthful **availability** reason (the ledger is
+not open yet). It may not editorialize about the game — and the store stays OFF
+(`storefrontEnabled === false`); this ruling is about copy, not about opening the store.

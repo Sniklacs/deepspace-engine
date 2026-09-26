@@ -126,7 +126,12 @@ for (const f of SWEPT) {
   check(`${f} has no un-keyed player-facing literal`, propBad.length === 0 && textBad.length === 0, [...propBad, ...textBad].slice(0, 4).join(" | "));
 }
 section("6 · NO DEAD LOOKUP — every key the UI asks for exists in English");
-const UI_FILES = [...SWEPT, "src/components/screens/CradleScreen.tsx", "src/routes/play.tsx", "src/components/ui/BuildingTile.tsx", "src/game/i18n/slot-label.ts"];
+// The storefront joined the lookup scan with the store-copy slice (owner ruling
+// 2026-09-13): the surface the player READS must ask for real keys. Its pack and
+// cosmetic lines render through template keys (`store.pack.<id>.blurb`,
+// `store.cosmetic.<id>.blurb`), which §6 treats as dynamic families — payments-tests
+// checks that every one of those lines exists and is translated in all five files.
+const UI_FILES = [...SWEPT, "src/components/screens/CradleScreen.tsx", "src/routes/play.tsx", "src/components/ui/BuildingTile.tsx", "src/game/i18n/slot-label.ts", "src/components/StorefrontOverlay.tsx"];
 const used = new Set<string>();
 for (const f of UI_FILES) {
   const src = read(f);
@@ -231,7 +236,15 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // commit (the storefront's buy control, the honest reasons it can be locked, and the
 // post-purchase panel). No existing value changed; the pin moved because the KEY SET
 // grew by design. Previous pin: 6230de97d9e54cb9c730c67c8eb3b3353ea0bcf6fb6e5836724c17d533407c82
-const ENGLISH_SHA = "f2cc6fc85917f29fd54a9f1d568c6cb30df3e3cc06d1d35743b0ef3feb4f8da7";
+// Re-baselined 2026-09-26 — THE STORE-COPY slice (owner ruling 2026-09-13): the
+// player-facing store copy was rewritten plainly and 30 keys were added to the
+// English catalogue (310 -> 340), every one translated in all five languages in the
+// same commit (the pack lines, the cosmetics and pass footers, the commemorative
+// block). No EXISTING value moved: the G1–G4 footer and the other limitation wording
+// never lived in the catalogue, so deleting them changed no key that was in here. The
+// pin moved because the KEY SET grew by design.
+// Previous pin: f2cc6fc85917f29fd54a9f1d568c6cb30df3e3cc06d1d35743b0ef3feb4f8da7
+const ENGLISH_SHA = "1dce08d59d5959a86b289b7122efd4440b906faabb28aebf762a4e8d6988bc22";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);
