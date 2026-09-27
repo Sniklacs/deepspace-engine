@@ -54,8 +54,22 @@ export interface WeaponFamily {
 // §7-flags — ONE config object (defaults set; owner confirmation pending).
 // ======================================================================
 export const ARMORY_CONFIG = {
-  // §4 base stats by type (T1).
-  tierMult: [1, 1.5, 2.2, 3.2] as const, // T2/T3/T4 multipliers over T1
+  // §4 base stats by type (T1), and the TIER LADDER — owner-ratified 2026-09-27.
+  // T2/T3/T4 multipliers over T1: the first upgrade is ~1.8× (the mid-ladder
+  // still reads as progress), the third is 3.2×, and T4 is 5 × T3 = 16× — the
+  // owner's words: "I would go five times stronger I would make that thing a
+  // brute." The ladder this replaced (1.5 / 2.2 / 3.2) made T4 only 1.45× T3,
+  // so the deepest and most expensive tier was the worst return per day of build
+  // in the whole ladder — that is the defect this fixes. The curve is pinned in
+  // `armory-tests/armory-value-curve-verify.ts` (and so is the Forge consequence,
+  // see `game/forge.ts` `forgeCeilingPower()`).
+  tierMult: [1, 1.8, 3.2, 16.0] as const, // T2/T3/T4 multipliers over T1
+  // §6 how many families may be under construction AT ONCE — owner-ratified
+  // 2026-09-27 with the four times. One family is 12h + 3d + 12d + 45d = 60.5 d;
+  // five families are 302.5 d serially and ~151 d at two slots, which is the
+  // ladder the pacing brief priced. Per-family exclusivity still holds (there is
+  // no queue on one family) — the slot is the colony's, not the family's.
+  buildSlots: 2,
   // §2 plasma: the lab refines 25 embers → 1 plasma (research-gated).
   plasmaRefineEmbers: 25,
   // §2 deep-raid salvage: chipset sites (deep zones) occasionally yield 2–5
@@ -74,13 +88,22 @@ export const WEAPON_BASE_STATS: Record<WeaponType, WeaponStats> = {
   engine: { power: 8, precision: 6, guard: 16, logistics: 18 },
 };
 
-/** §6 costs & build/upgrade times by tier (same for every family; defaults). */
+/** §6 costs & build/upgrade times by tier (same for every family). The TIMES
+ *  are owner-ratified 2026-09-27: T1 12h · T2 3d · T3 12d · T4 45d (the old
+ *  45m/3h/12h/2d table predated the re-time and made a T4 a weekend's work).
+ *  Day-scale on purpose: 12d and 45d are rendered by the ONE duration
+ *  formatter, `fmtDuration` in `game/i18n/format.ts` — never by a minutes-only
+ *  private copy. Costs are unchanged. */
 export const ARMORY_TIER_COSTS: Record<WeaponTier, WeaponCost & { timeMs: number }> = {
-  1: { supplies: 40, embers: 20, fuel: 6, plasma: 0, timeMs: 45 * 60_000 },
-  2: { supplies: 120, embers: 60, fuel: 18, plasma: 3, timeMs: 3 * 60 * 60_000 },
-  3: { supplies: 320, embers: 160, fuel: 45, plasma: 12, timeMs: 12 * 60 * 60_000 },
-  4: { supplies: 900, embers: 420, fuel: 120, plasma: 30, timeMs: 2 * 24 * 60 * 60_000 },
+  1: { supplies: 40, embers: 20, fuel: 6, plasma: 0, timeMs: 12 * 60 * 60_000 },
+  2: { supplies: 120, embers: 60, fuel: 18, plasma: 3, timeMs: 3 * 24 * 60 * 60_000 },
+  3: { supplies: 320, embers: 160, fuel: 45, plasma: 12, timeMs: 12 * 24 * 60 * 60_000 },
+  4: { supplies: 900, embers: 420, fuel: 120, plasma: 30, timeMs: 45 * 24 * 60 * 60_000 },
 };
+
+/** How many families a colony may have under construction at once (owner-
+ *  ratified 2026-09-27). Read from ARMORY_CONFIG so there is ONE number. */
+export const ARMORY_BUILD_SLOTS: number = ARMORY_CONFIG.buildSlots;
 
 /** §4 tier-line languages per race (T1→T4): model designation reads
  *  `FamilyName — <TierLanguage> Mk <I|II|III|IV>`. */
@@ -339,8 +362,8 @@ export function familyFor(raceId: RaceId, familyId: string): WeaponFamily | unde
 // ------- stats & cost math (pure; used by engine + UI + tests) -------
 
 /** A weapon family's stats at a tier — base × multiplier, rounded per stat.
- *  T1 is the base; T2/T3/T4 = ×1.5 / ×2.2 / ×3.2 (rounded, so every stat is
- *  STRICTLY increasing across tiers). */
+ *  T1 is the base; T2/T3/T4 = ×1.8 / ×3.2 / ×16 (owner-ratified 2026-09-27;
+ *  rounded, so every stat is STRICTLY increasing across tiers). */
 export function weaponStats(type: WeaponType, tier: WeaponTier): WeaponStats {
   const base = WEAPON_BASE_STATS[type];
   const mult = ARMORY_CONFIG.tierMult[tier - 1];

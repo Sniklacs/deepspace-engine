@@ -77,10 +77,35 @@ export const ACT1_CONFIG = {
   /** The Chorus's warform CELL strength — one cell per mirrored role, its
    *  statistics a fixed multiple of the champion it mirrors (a cell is many
    *  warforms fighting as one entity; the roster layer's analogue of a single
-   *  champion). 6.5 puts the opening just past the engine's rout-risk
-   *  threshold — the edge window exists — while staying close enough that one
-   *  full reinforcement closes it. */
-  chorusCellStrength: 6.5,
+   *  champion).
+   *
+   *  RE-SEEDED 2026-09-27, for the owner-ratified ladder (T4 = 16.0 = 5 × T3).
+   *  This is a re-seed, not a re-balance: nothing of the player's power moved.
+   *
+   *  WHY IT MOVED. Both sides of this front field the SAME five kits at the
+   *  height's tier 4, so the kit term is COMMON-MODE and it grows with the
+   *  armory ceiling: at the ratified ladder one side's kits price at 5,744 of
+   *  our 6,031 power (95%), and they inflate BOTH forces by the same absolute
+   *  amount — which presses the RELATIVE gap shut (the engine's rout-risk test
+   *  is |pa − pd| / max). The old 6.5 had been calibrated against T4 = 3.2: it
+   *  read a 0.422 gap, just past the 0.4 threshold. At T4 = 16.0 the same seed
+   *  reads 0.148 — no rout-risk, no edge window at +0:30, no pummeled beat, and
+   *  so no Act I front at all.
+   *
+   *  25 puts the opening back just past the engine's rout-risk threshold
+   *  (gap 0.406 vs the engine's 0.4) while staying close enough that one full
+   *  reinforcement — +120 power, ACT1_CONFIG.ourTroops more troops inside the
+   *  Citadel's field ceiling — chips it back to pressing (gap 0.395).
+   *
+   *  The cell multiplier is the ONLY lever that can carry that ratio now: the
+   *  kits are common to both sides, both sides' troops already sit at the FOB
+   *  ceiling (600), and the Chorus fields one cell per mirrored role (the
+   *  squad's shape is asserted). Re-derive it against the ladder rather than
+   *  reading this literal: the coupling is pinned in
+   *  prologue-tests/act1-entry-verify.ts §1 ("the Act I front's rout-risk
+   *  survives the shipped armory ceiling"), which fails on a silent drift of
+   *  either number. */
+  chorusCellStrength: 25,
   /** Chorus kits per family (the same five families at the same tier). */
   chorusKitsPerFamily: 1,
   /** The Chorus's own staging — it arrives with its mass and its ceiling. */
@@ -89,9 +114,14 @@ export const ACT1_CONFIG = {
   chorusName: "The Chorus",
   chorusColonyId: "chorus-front-the-ashline",
 } as const;
-/** One mirror of the colony's champion as a Chorus warform cell. */
-function chorusCell(hero: BattleHeroSnapshot): BattleHeroSnapshot {
-  const s = ACT1_CONFIG.chorusCellStrength;
+/** One mirror of the colony's champion as a Chorus warform cell, at an explicit
+ *  cell strength (undefined → the seeded one). Exported so the Act I front's
+ *  calibration harness can re-derive the front's rout-risk AGAINST the armory
+ *  ceiling instead of trusting the literal in §1 — the engine's power formula
+ *  reads the ladder, so a check that recomputes the cells at another strength
+ *  really does test the coupling. */
+export function chorusCell(hero: BattleHeroSnapshot, strength?: number): BattleHeroSnapshot {
+  const s = strength ?? ACT1_CONFIG.chorusCellStrength;
   const scale = (n: number) => Math.max(1, Math.round(n * s));
   return {
     ...hero,
@@ -190,7 +220,7 @@ export function act1Forces(state: GameState): { attacker: CommittedForce; defend
     side: "attacker",
     colonyId: ACT1_CONFIG.chorusColonyId,
     colonyName: ACT1_CONFIG.chorusName,
-    heroSquad: squad.map(chorusCell),
+    heroSquad: squad.map((h) => chorusCell(h)),
     weapons: squad.length > 0 ? act1Weapons(state).map((k) => ({ ...k, count: ACT1_CONFIG.chorusKitsPerFamily })) : [],
     troops: ACT1_CONFIG.chorusTroops,
     fobStage: ACT1_CONFIG.chorusFobStage,

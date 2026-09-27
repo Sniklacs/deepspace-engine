@@ -33,6 +33,7 @@ import {
 } from "./monetization";
 import {
   ARMORY_CONFIG,
+  ARMORY_BUILD_SLOTS,
   ARMORY_CATALOG,
   ARMORY_FAMILY_TECH,
   TIER_LANGUAGES,
@@ -2330,10 +2331,12 @@ function getTechSafe(techId: string): string {
 //
 // Weapons are hardware BUILT AT THE CRADLE from expedition-gathered resources
 // (supplies/embers/fuel) and, at T2+, refined/salvaged plasma. Five war-role
-// families per race; four tiers per family; stats rise per tier (×1.5/×2.2/×3.2
-// over T1). Builds and upgrades are real-time commitments — one active build
-// per family, no queuing — resolved lazily in advance() exactly like
-// expeditions, so the Cradle forges while the world is offline.
+// families per race; four tiers per family; stats rise per tier (×1.8/×3.2/×16
+// over T1 — owner-ratified 2026-09-27, T4 = 5 × T3 = "a brute"). Builds and
+// upgrades are real-time commitments: owner-ratified times 12h/3d/12d/45d,
+// ARMORY_BUILD_SLOTS (2) families under construction at once, no queue on one
+// family — resolved lazily in advance() exactly like expeditions, so the Cradle
+// forges while the world is offline.
 //
 // EARN-ONLY structural rule: no purchase path can grant plasma, weapons, or
 // build completion. This module imports nothing from monetization.ts, takes no
@@ -2349,6 +2352,17 @@ export function armoryFamilyState(state: GameState, familyId: string): { tier: n
 /** A family's in-flight build, or null. */
 export function armoryBuildFor(state: GameState, familyId: string): (typeof state.armoryBuilds)[string] | null {
   return state.armoryBuilds?.[familyId] ?? null;
+}
+
+/** How many families a colony has under construction right now — the number
+ *  the slot cap counts (owner-ratified 2026-09-27: ARMORY_BUILD_SLOTS = 2). */
+export function armoryBuildsInFlight(state: GameState): number {
+  return Object.keys(state.armoryBuilds ?? {}).length;
+}
+
+/** Free forge slots on the colony (0 = both committed; a new build is refused). */
+export function armorySlotsFree(state: GameState): number {
+  return Math.max(0, ARMORY_BUILD_SLOTS - armoryBuildsInFlight(state));
 }
 
 /** True for the Armory research-line ids (hub / 5 families / plasma refinement). */
@@ -2512,6 +2526,19 @@ export function startWeaponBuild(state: GameState, familyId: string, now = Date.
   if (armoryBuildFor(state, fam.id)) {
     return fail(`${fam.name} is already being built — the forges take one commitment at a time.`);
   }
+  // THE SLOT CAP (owner-ratified 2026-09-27, with the four times): two families
+  // under construction at once. Wall clock, stated plainly (lead, 2026-09-27):
+  // one family's four tiers are 0.5 + 3 + 12 + 45 = 60.5 d. Five families at
+  // five slots — the old behaviour, one build per family — all finished
+  // together in 60.5 d; five EQUAL-length families at two slots take
+  // ceil(5/2) = 3 waves, so 181.5 d. (Total work ÷ slots = 151.25 d is a
+  // throughput floor, not a schedule — five equal jobs on two slots cannot
+  // reach it. Three families sit in two waves: 121 d.)
+  const inFlight = armoryBuildsInFlight(state);
+  if (inFlight >= ARMORY_BUILD_SLOTS) {
+    const busy = Object.keys(state.armoryBuilds ?? {}).map((id) => familyLabel(state, id)).join(", ");
+    return fail(`Both forge slots are committed (${busy}) — the Armory builds ${ARMORY_BUILD_SLOTS} families at a time. One must finish before the forges take another.`);
+  }
   const targetTier = (cur.tier + 1) as 1 | 2 | 3 | 4;
   const cost = weaponCost(targetTier);
   const r = state.resources;
@@ -2552,7 +2579,11 @@ export function refinePlasma(state: GameState, now = Date.now()): { ok: boolean;
   return { ok: true, state };
 }
 
-/** Compact clock for build times ("45m" · "3h" · "12h" · "2d"). */
+/** Compact clock for server-side Chronicle prose (armory builds "12h" · "3d" ·
+ *  "12d" · "45d"). It is day-aware and it is NOT a second player-facing
+ *  formatter: no UI string is built here. The UI renders a duration through the
+ *  ONE formatter, `fmtDuration` in game/i18n/format.ts (which is keyed in all
+ *  five languages); a Chronicle line is English prose by construction. */
 function fmtClock(ms: number): string {
   const min = Math.round(ms / 60000);
   if (min < 60) return `${min}m`;
