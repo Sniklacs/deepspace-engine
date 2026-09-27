@@ -3,6 +3,7 @@
 import type { Battle, BattleReport, WarReserve } from "./war/war-types";
 import type { PrologueBlock } from "./prologue/prologue-state";
 import type { ForgeItem } from "./forge";
+import type { TimeTokenLedgerEntry } from "./time-tokens";
 
 export type RaceId =
   | "grays"
@@ -102,6 +103,10 @@ export interface ResearchJob {
   startedAt: number;
   durationMs: number;
   status: "researching" | "complete";
+  /** TIME TOKENS (owner 2026-09-27): milliseconds earned tokens have taken off
+   *  this run. `durationMs` stays the job's BASE duration, so the floor
+   *  (`MIN_TIMER_FRACTION` of base) is always readable and never drifts. */
+  timeTokenMs?: number;
 }
 
 /** Colony-side armory (weapons-system §6): one family's built tier.
@@ -120,6 +125,11 @@ export interface ArmoryBuild {
   targetTier: 1 | 2 | 3 | 4;
   startedAt: number;
   doneAt: number;
+  /** TIME TOKENS (owner 2026-09-27): milliseconds earned tokens have taken off
+   *  this build. `doneAt`/`startedAt` never move — the record keeps the finish it
+   *  was created for, and the EFFECTIVE finish is `doneAt - timeTokenMs`, so the
+   *  floor (`MIN_TIMER_FRACTION` of `doneAt - startedAt`) is always readable. */
+  timeTokenMs?: number;
 }
 
 // ------- Daily to-do + Oracle Devotion (V7, daily-devotion-spec) -------
@@ -183,7 +193,7 @@ export interface GameState {
    *  nothing deploying. Completion is derived from `startedAt + durationMs`;
    *  the level itself only moves in the resolver, so an offline world advances
    *  it exactly once. */
-  programDeploy?: { domain: DomainId; startedAt: number; durationMs: number } | null;
+  programDeploy?: { domain: DomainId; startedAt: number; durationMs: number; timeTokenMs?: number } | null;
   // Unique id of this game within its account's save (set at creation; the
   // account save maps gameId -> GameState). Legacy single-save files get "0".
   gameId?: string;
@@ -334,6 +344,20 @@ export interface GameState {
   daily: DailyState;
   devotion: number; // lifetime total, MONOTONIC (like totalCodicesEarned)
   devotionStreak: number; // consecutive UTC days with ≥1 completed item
+
+  // ---- TIME TOKENS — the EARNED path (owner direction, 2026-09-27) ----
+  // One 1-minute and one 5-minute token per Devotion reward claim, held here
+  // until a player spends one on a single running timer (armory build, Lab
+  // research, domain deploy — NEVER an exploration run: the ladder's timers ARE
+  // its price). `timeTokens` is the player's own holding and ships to the client
+  // (api.ts maps it through timeTokensPublicView); `timeTokenLedger` is the
+  // server's append-only idempotency record (the grantCurrency discipline) and is
+  // STRIPPED from every payload. Both are backfilled at zero by ensureTimeTokens.
+  // NOTHING SELLS A TOKEN in this build: `storefrontEnabled` is false and the
+  // sell-side ruling is unsigned. A token grants no resource, no strength, no
+  // scored currency and no season tier.
+  timeTokens?: Record<string, number>; // held counts, keyed by size id
+  timeTokenLedger?: TimeTokenLedgerEntry[]; // append-only; server-only
 
   // ---- Real-time battle engine (V9, battle-side §15 — The Fall's engine) ----
   // Persistent battle entities (offline-safe, lazily resolved in advance())

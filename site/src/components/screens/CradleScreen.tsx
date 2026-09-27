@@ -44,6 +44,7 @@ import type { CraftKind } from "../../game/engine";
 import type { CradleSlotId } from "../../game/cradle-slots";
 import type { GameState, DomainId } from "../../game/types";
 import type { IconName } from "../icons";
+import { Bdi } from "../ui/Bdi";
 
 /** The kit glyph map — the CRAFT catalog's emoji never reach the chrome (§1.7). */
 const KIT_ICON: Record<CraftKind, IconName> = {
@@ -91,6 +92,7 @@ export default function CradleScreen({
   onPurify,
   onCraft,
   onClaim,
+  tokenGrant,
   onDeploy,
   onOpenCodex,
   onForgeRoll,
@@ -104,6 +106,8 @@ export default function CradleScreen({
   onPurify: (n: number) => void;
   onCraft: (k: CraftKind) => void;
   onClaim: () => void;
+  /** TIME TOKENS received by the claim that just landed (owner 2026-09-27). */
+  tokenGrant?: Record<string, number> | null;
   onDeploy: (d: DomainId) => void;
   onOpenCodex: () => void;
   /** THE FORGE (owner 2026-09-26): the roll is a server operation — the room
@@ -271,7 +275,7 @@ export default function CradleScreen({
 
         <div className="space-y-3">
           {/* ---- B5 · Today's Devotion ------------------------------------- */}
-          <DevotionSection state={state} onClaim={onClaim} />
+          <DevotionSection state={state} onClaim={onClaim} tokenGrant={tokenGrant} />
 
           {/* ---- B6 · the roster strip ------------------------------------ */}
           <Panel testid="roster-strip" className="space-y-2">
@@ -545,7 +549,34 @@ function RecordRow({ label, value }: { label: string; value: string }) {
    Same list, same numbers, same single Claim button and the same copy; the
    chrome is the shell's Panel, and Claim is a full-width 48px action. */
 
-function DevotionSection({ state, onClaim }: { state: GameState; onClaim: () => void }) {
+/**
+ * A TIME-TOKEN REFUSAL, in the player's own language (owner direction 2026-09-27).
+ * A literal switch, exactly like the chat composer's `refusalText`: the engine
+ * returns a catalogue key on `errorKey` and every refusal string has a real call
+ * site here, so no key can go unused and nothing renders an English sentence at a
+ * Persian player. The strings are EARNED-path refusals — the ladder refusal is the
+ * one that matters: a time token may never shorten an exploration run.
+ */
+export function timeTokenRefusalText(t: ReturnType<typeof useT>, key: string): string {
+  switch (key) {
+    case "time.refusedExpedition":
+      return t("time.refusedExpedition");
+    case "time.refusedFloor":
+      return t("time.refusedFloor");
+    case "time.refusedNoTimer":
+      return t("time.refusedNoTimer");
+    case "time.refusedUnknownKind":
+      return t("time.refusedUnknownKind");
+    case "time.refusedNoTokens":
+      return t("time.refusedNoTokens");
+    case "time.refusedSize":
+      return t("time.refusedSize");
+    default:
+      return t(key);
+  }
+}
+
+function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onClaim: () => void; tokenGrant?: Record<string, number> | null }) {
   const t = useT();
   const daily = state.daily;
   const list = daily?.list ?? [];
@@ -623,6 +654,24 @@ function DevotionSection({ state, onClaim }: { state: GameState; onClaim: () => 
             reason={t("cradle.claimLocked")}
             onClick={onClaim}
           />
+          {/* What the claim just paid in TIME TOKENS (owner direction 2026-09-27):
+              one 1m + one 5m per reward claim. The count is the grant's own
+              figure, read from the server reply — never derived by subtraction.
+              The figures ride in their own <bdi dir="ltr"> runs so a right-to-left
+              line cannot reorder a numeral against the words around it. */}
+          {tokenGrant && (tokenGrant["1m"] > 0 || tokenGrant["5m"] > 0) ? (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-purity" data-testid="devotion-token-grant">
+              <span>{t("time.claimGranted")}</span>
+              {tokenGrant["1m"] > 0 ? (
+                <Bdi dir="ltr" className="num">{`${tokenGrant["1m"]} ×`}</Bdi>
+              ) : null}
+              {tokenGrant["1m"] > 0 ? <span>{t("time.token1m")}</span> : null}
+              {tokenGrant["5m"] > 0 ? (
+                <Bdi dir="ltr" className="num">{`${tokenGrant["5m"]} ×`}</Bdi>
+              ) : null}
+              {tokenGrant["5m"] > 0 ? <span>{t("time.token5m")}</span> : null}
+            </p>
+          ) : null}
           <p className="text-[11px] text-text-3">
             {t("cradle.devotionNote")}
           </p>

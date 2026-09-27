@@ -287,7 +287,7 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // on every "returns in…" surface. The pin moved because the KEY SET grew by
 // design.
 // Previous pin: f8fd7897f37276b66dae79fb2bd382b110ab87c7a9ceab9d6fd4d0a6e63606b0
-const ENGLISH_SHA = "cfd31810e51edf018625388b22f4491b9c8034334b933869cc62282e099a2249";
+const ENGLISH_SHA = "80e13ae557e45b582121062a422fa04db72a6711c3d98899bdc4ea8b3f37e56a";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);

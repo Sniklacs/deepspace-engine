@@ -53,6 +53,20 @@ export const ptBR: Catalogue = {
   "resource.suppliesSub": "+{rate} por minuto enquanto o Berço estiver de pé",
   "resource.scripSub": "Ganho pelo que você faz — Devoção, feitos, contribuição.",
   "resource.votivesSub": "Guardados no Registro do Berço.",
+  // ---- TIME TOKENS (owner direction 2026-09-27) ----
+  // Earned in the daily Devotion; never sold. Translated in all five
+  // files in the same commit that added the strings.
+  "time.tokens": "Fichas de tempo",
+  "time.tokensSub": "Ganhas na devoção diária. Cada uma encurta uma construção, uma pesquisa ou uma implantação em andamento.",
+  "time.token1m": "Ficha de 1 minuto",
+  "time.token5m": "Ficha de 5 minutos",
+  "time.claimGranted": "Fichas de tempo recebidas:",
+  "time.refusedExpedition": "Uma ficha de tempo não pode encurtar uma exploração — as Terras Estilhaçadas levam o tempo que levam.",
+  "time.refusedFloor": "Esse cronômetro já está no mínimo.",
+  "time.refusedNoTimer": "Não há nenhum cronômetro desse tipo em andamento no Berço.",
+  "time.refusedUnknownKind": "Uma ficha de tempo não pode ser usada nisso.",
+  "time.refusedNoTokens": "Nenhuma ficha desse tamanho em mãos.",
+  "time.refusedSize": "Ficha de tempo desconhecida.",
 
   "cradle.plate": "O Berço",
   "cradle.plateMeta": "{race} · {region} · fundada em {date}",

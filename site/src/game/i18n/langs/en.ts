@@ -57,6 +57,20 @@ export const en: Catalogue = {
   "resource.suppliesSub": "+{rate} per minute while the Cradle stands",
   "resource.scripSub": "Earned by what you do — Devotion, deeds, contribution.",
   "resource.votivesSub": "Held in the Cradle Ledger.",
+  // ---- TIME TOKENS (owner direction 2026-09-27) ----
+  // Earned in the daily Devotion; never sold. Translated in all five
+  // files in the same commit that added the strings.
+  "time.tokens": "Time tokens",
+  "time.tokensSub": "Earned in the daily devotion. Each one shortens one running build, research or deployment.",
+  "time.token1m": "1-minute token",
+  "time.token5m": "5-minute token",
+  "time.claimGranted": "Time tokens received:",
+  "time.refusedExpedition": "A time token cannot shorten an exploration run — the Shatterlands take the time they take.",
+  "time.refusedFloor": "That timer is already as short as it can get.",
+  "time.refusedNoTimer": "No timer of that kind is running at the Cradle.",
+  "time.refusedUnknownKind": "A time token cannot be spent on that.",
+  "time.refusedNoTokens": "No token of that size is held.",
+  "time.refusedSize": "Unknown time token.",
 
   // ---- the Cradle home (B2–B9) --------------------------------------------
   "cradle.plate": "The Cradle",

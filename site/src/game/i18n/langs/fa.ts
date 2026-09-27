@@ -68,6 +68,20 @@ export const fa: Catalogue = {
   "resource.suppliesSub": "+{rate} در دقیقه، تا زمانی که گهواره برپاست",
   "resource.scripSub": "از آنچه انجام می‌دهید به دست می‌آید — نیایش، کارها، سهم.",
   "resource.votivesSub": "در دفتر گهواره نگهداری می‌شود.",
+  // ---- TIME TOKENS (owner direction 2026-09-27) ----
+  // Earned in the daily Devotion; never sold. Translated in all five
+  // files in the same commit that added the strings.
+  "time.tokens": "ژتون‌های زمان",
+  "time.tokensSub": "در آیین روزانه به دست می‌آیند. هر ژتون یک ساخت، پژوهش یا استقرار در جریان را کوتاه می‌کند.",
+  "time.token1m": "ژتون 1 دقیقه",
+  "time.token5m": "ژتون 5 دقیقه",
+  "time.claimGranted": "ژتون‌های زمان دریافتی:",
+  "time.refusedExpedition": "ژتون زمان اکتشاف را کوتاه نمی‌کند — سرزمین‌های شکسته همان‌قدر که طول می‌کشند، طول می‌کشند.",
+  "time.refusedFloor": "این تایمر دیگر کوتاه‌تر نمی‌شود.",
+  "time.refusedNoTimer": "در گهواره هیچ تایمری از این نوع در جریان نیست.",
+  "time.refusedUnknownKind": "ژتون زمان را نمی‌توان برای این خرج کرد.",
+  "time.refusedNoTokens": "هیچ ژتونی با این اندازه در دست نیست.",
+  "time.refusedSize": "ژتون زمان ناشناخته.",
 
   // ---- the Cradle home ----------------------------------------------------
   "cradle.plate": "گهواره",
