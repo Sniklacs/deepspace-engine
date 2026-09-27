@@ -165,15 +165,26 @@ section("4 · presentation only — the new shell reads no state we did not have
   const ALLOW = new Set(["resources", "codices", "currency", "deployedDomains", "expeditions", "scientists", "leaders", "daily", "devotion", "devotionStreak", "corruption", "chorusAttention", "prologue", "log", "createdAt", "playerName", "race", "gameId", "armory", "armoryBuilds", "battles", "insight", "studies",
     // pre-existing, DISPLAY-ONLY counters the old Cradle tab already printed (the
     // stores band + the ledger headline); nothing new is invented by adding them.
-    "totalEmbersLooted", "totalChipsetsLooted", "completedExpeditions"]);
+    "totalEmbersLooted", "totalChipsetsLooted", "completedExpeditions",
+    // time-tokens: presentation of held currency, no play-time accumulator, no battle ledger.
+    "timeTokens"]);
+  // The offender scan, factored out so the negative control below runs the IDENTICAL
+  // regex + ALLOW test rather than a paraphrase of it.
+  const scanOffenders = (file: string, src: string): string[] =>
+    [...src.matchAll(/\bstate\.([a-zA-Z_]+)/g)]
+      .filter((m) => !ALLOW.has(m[1]))
+      .map((m) => `${file}: state.${m[1]}`);
   const offenders: string[] = [];
-  for (const f of newFiles) {
-    const src = readFileSync(`${SITE}/${f}`, "utf8");
-    for (const m of src.matchAll(/\bstate\.([a-zA-Z_]+)/g)) {
-      if (!ALLOW.has(m[1])) offenders.push(`${f}: state.${m[1]}`);
-    }
-  }
+  for (const f of newFiles) offenders.push(...scanOffenders(f, readFileSync(`${SITE}/${f}`, "utf8")));
   check(`no new component reads an unlisted state path (${newFiles.length} files scanned)`, offenders.length === 0, offenders.join(" | "));
+  // NEGATIVE CONTROL (widening a checker requires one in the same commit): the same
+  // test must STILL refuse `state.timeTokenLedger` — the server-only, append-only
+  // ledger no shell component may read. Adding it to ALLOW turns these red.
+  const ledgerProbe = scanOffenders("synthetic/TimeTokenLedgerProbe.tsx", "const held = state.timeTokenLedger;");
+  check("negative control: the same scan refuses state.timeTokenLedger (exactly one offender)",
+    ledgerProbe.length === 1 && ledgerProbe[0] === "synthetic/TimeTokenLedgerProbe.tsx: state.timeTokenLedger", ledgerProbe.join(" | "));
+  check("negative control: ALLOW does not list timeTokenLedger (the probe is not vacuous — it would read 0 offenders)",
+    !ALLOW.has("timeTokenLedger"));
   const badgeReads = [...read("game/nav-badges.ts").matchAll(/\bstate\.([a-zA-Z_]+)/g)].map((m) => m[1]);
   check("nav-badges.ts reads only allow-listed paths", badgeReads.every((r) => ALLOW.has(r)), badgeReads.join(","));
   const cradleSrc = readFileSync(`${SITE}/src/components/screens/CradleScreen.tsx`, "utf8");
