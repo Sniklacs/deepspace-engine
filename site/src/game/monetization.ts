@@ -99,7 +99,6 @@ export const WEEKLY_OBJECTIVES: SeasonObjectiveDef[] = [
 export const TIMED_BUILD_OBJECTIVE_IDS: readonly string[] = [
   "complete_research",
   "complete_build",
-  "complete_armory_build",
   "complete_deploy",
   "complete_expedition",
 ];
