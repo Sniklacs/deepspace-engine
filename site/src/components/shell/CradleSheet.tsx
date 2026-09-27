@@ -20,6 +20,7 @@ import { RESOURCE_TIPS, ARMORY_TIPS } from "../../game/tooltips";
 import type { GameState } from "../../game/types";
 import type { IconName } from "../icons";
 import { useT } from "../i18n/I18n";
+import { Bdi } from "../ui/Bdi";
 
 function StoreRow({
   icon,
@@ -104,7 +105,7 @@ export default function CradleSheet({
         {/* 1 · Stores — every figure, with the prose that used to be hover-only */}
         <section aria-labelledby="cradle-stores">
           <h3 id="cradle-stores" className="eyebrow">
-            {t("cradleSheet.stores", "Stores")}
+            {t("cradleSheet.stores", "Stores")} \u00b7 <Bdi dir="ltr" className="num">{t("time.tokens")}</Bdi>
           </h3>
           <ul className="mt-2 space-y-1.5">
             <StoreRow icon="flame" label={t("resource.embers", "Embers")} value={Math.floor(r.embers)} sub={RESOURCE_TIPS.embers.what} />
@@ -128,6 +129,22 @@ export default function CradleSheet({
               label={t("resource.votives", "Votives")}
               value={Math.floor(state.currency.votives)}
               sub={t("resource.votivesSub", "Held in the Cradle Ledger.")}
+            />
+            {/* TIME TOKENS (owner direction 2026-09-27) — EARNED in the daily
+                Devotion, never sold, shown beside Votives as the player's own
+                holdings. The figures are their own isolated runs: a numeral must
+                never be reordered by the sentence around it in Persian. */}
+            <StoreRow
+              icon="ledger"
+              label={t("time.token1m")}
+              value={Math.floor(state.timeTokens?.["1m"] ?? 0)}
+              sub={t("time.tokensSub")}
+            />
+            <StoreRow
+              icon="ledger"
+              label={t("time.token5m")}
+              value={Math.floor(state.timeTokens?.["5m"] ?? 0)}
+              sub={t("time.tokensSub")}
             />
           </ul>
         </section>

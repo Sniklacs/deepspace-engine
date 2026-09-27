@@ -44,14 +44,22 @@
 //     reward strings name Scrip exclusively.
 //   • NO purchasable completion / skip / accelerate / donate path — the export
 //     surface never accepts a purchase; the API claim validates {token} only.
-//   • NOT advancement — the list does not feed contributionScore(), timers,
-//     Leader XP, or favor directly; it accelerates nothing.
+//     The TIME TOKENS added 2026-09-27 (owner direction) are EARNED here and
+//     bought nowhere: 1m/5m are never sold, no price exists, no product exists.
+//   • NOT advancement — the list does not feed contributionScore(), Leader XP or
+//     favor. IT DOES NOW ACCELERATE ONE THING, and honestly so: each reward claim
+//     pays one 1m + one 5m TIME TOKEN, and a token compresses one running armory
+//     build, Lab research or domain deployment by its own duration, floored at
+//     MIN_TIMER_FRACTION of that timer's base (time-tokens.ts). It grants no
+//     resource, no strength, no scored currency, no season tier, and it can NEVER
+//     touch an exploration run — the ladder's timers are its price.
 //   • Betrayal-free by construction — no item names an AI-feeding or
 //     corrupting act; the purity items are present but never mandatory.
 //   • discipline()/purify stays untouched — `cleanse_taint` merely NOTES the
 //     existing action; this file has no discipline implementation.
 import type { DailyState, GameState, Zone } from "./types";
 import { awardDeedCosmetic, grantCurrency, recordSeasonEvent, utcDayKey } from "./monetization";
+import { grantTimeToken } from "./time-tokens";
 
 // ======================================================================
 // §2/§3 CONFIG — ONE place for every tunable number (TD2 values ratified;
@@ -68,6 +76,16 @@ export const DAILY_CONFIG = {
   maxScripPerDay: 200,
   maxDevotionPerDay: 7,
   streakCosmeticDays: 30, // D6 — "Wheel of Years" at a 30-day devotion streak
+  // TIME TOKENS (owner direction 2026-09-27, verbatim): "Add 1 minute and 5
+  // minute speed UPS to each devotion reward claim as well so we can get those
+  // rolling in." ONE token of each EARNED size per reward claim — and there are
+  // five reward claims in a cleared day (four items + the completion bonus), so a
+  // full day's devotion pays 5 × 1m + 5 × 5m = 30 minutes of token time. The
+  // sizes and their durations live in time-tokens.ts (the single definition);
+  // this is only the schedule. Nothing here sells a token: the six SELLABLE
+  // sizes are not defined in the build at all while the sell-side ruling is
+  // unsigned, and 1m/5m are earned-only by the owner's own ruling.
+  timeTokensPerClaim: ["1m", "5m"] as const,
 } as const;
 
 /** §3.2 favor formula weights (TD6 placeholders — calibrate later, aligned to
@@ -437,11 +455,16 @@ export interface ClaimGrant {
   scrip: number;
   devotion: number;
   bonus: boolean;
+  /** TIME TOKENS received in THIS claim, keyed by size id (owner direction
+   *  2026-09-27): one of each earned size per reward claim. This is what the
+   *  Devotion panel lists back to the player — the figure is the count granted,
+   *  read from the grant itself, never derived by subtraction. */
+  timeTokens: Record<string, number>;
 }
 
 export function claimDaily(state: GameState, now: number): { ok: boolean; error?: string; granted?: ClaimGrant; state: GameState } {
   ensureDaily(state);
-  const granted: ClaimGrant = { scrip: 0, devotion: 0, bonus: false };
+  const granted: ClaimGrant = { scrip: 0, devotion: 0, bonus: false, timeTokens: {} };
   if (!state.race) return { ok: true, granted, state }; // blank colony: nothing to claim
   const d = state.daily;
   if (d.dayKey !== utcDayKey(now)) {
@@ -450,22 +473,48 @@ export function claimDaily(state: GameState, now: number): { ok: boolean; error?
     return { ok: false, error: "The day has turned. Refresh to see today's devotion.", state };
   }
 
+  // TIME TOKENS (owner direction 2026-09-27): EVERY devotion reward claim pays
+  // one token of each earned size. Idempotent the same way the Scrip is — by the
+  // eventId, which embeds the day AND the item, so re-claiming the same day's
+  // reward cannot re-grant, and a banked day's claim pays exactly once. `granted`
+  // counts only the grants that were fresh, so a second claim reports zero.
+  const claimTokens = (dayKey: string, itemId: string, reason: string) => {
+    for (const sizeId of DAILY_CONFIG.timeTokensPerClaim) {
+      const res = grantTimeToken(
+        state,
+        sizeId,
+        `daily:${dayKey}:${itemId}:token:${sizeId}`,
+        `${reason} (time token)`,
+        now,
+      );
+      if (res.ok && !res.idempotent) {
+        granted.timeTokens[sizeId] = (granted.timeTokens[sizeId] ?? 0) + 1;
+      }
+    }
+  };
+
   const claimItem = (dayKey: string, itemId: string) => {
-    const res = grantCurrency(state, "scrip", DAILY_CONFIG.scripPerItem, `daily:${dayKey}:${itemId}`, `Daily devotion — ${dailyItemLabel(itemId)}`, now, "earn");
+    const reason = `Daily devotion — ${dailyItemLabel(itemId)}`;
+    const res = grantCurrency(state, "scrip", DAILY_CONFIG.scripPerItem, `daily:${dayKey}:${itemId}`, reason, now, "earn");
     if (res.ok && !res.idempotent) {
       state.devotion += DAILY_CONFIG.devotionPerItem;
       granted.scrip += DAILY_CONFIG.scripPerItem;
       granted.devotion += DAILY_CONFIG.devotionPerItem;
     }
+    // Guarded by its OWN eventId, so this is safe to run even when the Scrip was
+    // already paid (a re-claim, a banked day, a retried request).
+    claimTokens(dayKey, itemId, reason);
   };
   const claimBonus = (dayKey: string) => {
-    const res = grantCurrency(state, "scrip", DAILY_CONFIG.bonusScrip, `daily:${dayKey}:bonus`, "Daily devotion — the day's practice complete", now, "earn");
+    const reason = "Daily devotion — the day's practice complete";
+    const res = grantCurrency(state, "scrip", DAILY_CONFIG.bonusScrip, `daily:${dayKey}:bonus`, reason, now, "earn");
     if (res.ok && !res.idempotent) {
       state.devotion += DAILY_CONFIG.bonusDevotion;
       granted.scrip += DAILY_CONFIG.bonusScrip;
       granted.devotion += DAILY_CONFIG.bonusDevotion;
       granted.bonus = true;
     }
+    claimTokens(dayKey, "bonus", reason);
   };
 
   // Today's completed-but-unclaimed items.

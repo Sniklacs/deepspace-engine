@@ -58,6 +58,20 @@ export const es: Catalogue = {
   "resource.suppliesSub": "+{rate} por minuto mientras la Cuna se mantenga en pie",
   "resource.scripSub": "Se gana por lo que haces — Devoción, hazañas, contribución.",
   "resource.votivesSub": "Guardados en el Registro de la Cuna.",
+  // ---- TIME TOKENS (owner direction 2026-09-27) ----
+  // Earned in the daily Devotion; never sold. Translated in all five
+  // files in the same commit that added the strings.
+  "time.tokens": "Fichas de tiempo",
+  "time.tokensSub": "Se ganan en la devoción diaria. Cada una acorta una construcción, una investigación o un despliegue en curso.",
+  "time.token1m": "Ficha de 1 minuto",
+  "time.token5m": "Ficha de 5 minutos",
+  "time.claimGranted": "Fichas de tiempo recibidas:",
+  "time.refusedExpedition": "Una ficha de tiempo no puede acortar una exploración: las Tierras Rotas toman el tiempo que toman.",
+  "time.refusedFloor": "Ese temporizador ya está en su mínimo.",
+  "time.refusedNoTimer": "No hay ningún temporizador de ese tipo en marcha en la Cuna.",
+  "time.refusedUnknownKind": "Una ficha de tiempo no puede usarse para eso.",
+  "time.refusedNoTokens": "No tienes ninguna ficha de ese tamaño.",
+  "time.refusedSize": "Ficha de tiempo desconocida.",
 
   "cradle.plate": "La Cuna",
   "cradle.plateMeta": "{race} · {region} · fundada el {date}",

@@ -65,6 +65,13 @@ import { ensurePrologue, freshPrologue } from "./prologue/prologue-state";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
+import { ensureTimeTokens } from "./time-tokens";
+// TIME TOKENS (owner direction 2026-09-27) — the EARNED path, re-exported so the
+// API surface speaks one engine namespace. `grantTimeToken` is the daily Devotion's
+// door; `applyTimeToken` compresses ONE running timer, floored at the SAME
+// MIN_TIMER_FRACTION the earned modifier stack uses. NOTHING here sells a token:
+// the six sellable sizes are not defined in the build at all (see time-tokens.ts).
+export { applyTimeToken, grantTimeToken, heldTimeTokens, TIME_TOKEN_SIZES } from "./time-tokens";
 
 // The Deepspace Engine core. Pure logic operating on a GameState object.
 // Time is advanced lazily: whenever state is loaded or mutated we "roll forward"
@@ -179,9 +186,16 @@ export const RUNG_ENTRY_R = 6;
  * 0.286. The SAME constant therefore bounds two different things:
  *   · the EARNED modifier stack (specialty, attributes, techs, domains), where
  *     `timerFloor()` asserts it at the point the stack is applied; and
- *   · every PURCHASED speed-up — still DORMANT: the owner has not ruled on
- *     speed-ups, so nothing purchasable touches time anywhere in this code.
- * One assertion, two callers, no purchase wired.
+ *   · TIME TOKENS — the owner's OWN ruling of 2026-09-27 ("Add 1 minute and 5
+ *     minute speed UPS to each devotion reward claim"), earned-only and spent
+ *     through `applyTimeToken` (time-tokens.ts), which asserts THIS constant
+ *     against the timer's own base at every application. A token can therefore
+ *     never compress a timer past the same 3.5x ceiling the purchased side was
+ *     sized to.
+ * STILL DORMANT, and honestly so: the PURCHASED side. The owner has ruled on the
+ * EARNED token only; the sell-side sentence ("Speed-ups are sold…") is UNSIGNED,
+ * so nothing purchasable touches time anywhere in this code.
+ * One assertion, three callers, nothing sold.
  */
 export const MIN_TIMER_FRACTION = 0.286;
 
@@ -306,7 +320,10 @@ function regenEnergy(state: GameState, now: number) {
 function resolveProgramDeploy(state: GameState, now: number) {
   const j = state.programDeploy;
   if (!j) return;
-  if (now < j.startedAt + j.durationMs) return;
+  // TIME TOKENS: an earned token takes its own duration off the remaining time.
+  // `durationMs` and `startedAt` are never moved, so the floor is always read
+  // against the deployment's own base duration.
+  if (now + (j.timeTokenMs ?? 0) < j.startedAt + j.durationMs) return;
   state.deployedDomains[j.domain] = (state.deployedDomains[j.domain] ?? 0) + 1;
   state.deployablePrograms.push(j.domain);
   // Silent track: the deepest the colony has ever driven any domain line.
@@ -1434,7 +1451,13 @@ function ensureArmory(state: GameState) {
       continue;
     }
     const target = Math.max(1, Math.min(4, Math.trunc(typeof rec.targetTier === "number" ? rec.targetTier : 1)));
-    state.armoryBuilds[fam] = { targetTier: target as 1 | 2 | 3 | 4, startedAt: rec.startedAt, doneAt: rec.doneAt };
+    // TIME TOKENS (owner 2026-09-27): the earned compression this build carries is
+    // part of the record — the shape check keeps it rather than dropping it, or a
+    // re-login would hand the player back the time they spent a token on.
+    const tokenMs = typeof rec.timeTokenMs === "number" && isFinite(rec.timeTokenMs) && rec.timeTokenMs > 0
+      ? Math.floor(rec.timeTokenMs)
+      : undefined;
+    state.armoryBuilds[fam] = { targetTier: target as 1 | 2 | 3 | 4, startedAt: rec.startedAt, doneAt: rec.doneAt, timeTokenMs: tokenMs };
   }
 }
 
@@ -1485,6 +1508,8 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureArmory(state);
   ensureForge(state);
   ensureDaily(state);
+  ensureTimeTokens(state); // EARNED time tokens: zero holdings + empty ledger on an
+  //                          old save (the owner's 2026-09-27 direction; earned only)
   ensureBattles(state); // V9: real-time battle entities + report ledger (no-op on new saves)
   ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
   ensureReTime(state, now); // RE-TIME: energy pool + deploy slot (no-op on a fresh save)
@@ -1550,7 +1575,9 @@ export function advance(state: GameState, now = Date.now()): GameState {
 
   // Resolve completed research projects (Leader-appointed).
   for (const j of state.researchJobs) {
-    if (j.status === "researching" && now - j.startedAt >= j.durationMs) {
+    // TIME TOKENS: `timeTokenMs` is the earned time taken off this run; the job's
+    // own `durationMs` stays its base, so the floor never drifts.
+    if (j.status === "researching" && now + (j.timeTokenMs ?? 0) - j.startedAt >= j.durationMs) {
       resolveResearch(state, j, now);
     }
   }
@@ -2456,7 +2483,9 @@ export function resolveArmoryBuilds(state: GameState, now: number) {
   if (typeof state.weaponsBuilt !== "number") state.weaponsBuilt = 0;
   for (const familyId of Object.keys(state.armoryBuilds ?? {})) {
     const build = state.armoryBuilds[familyId];
-    if (!build || now < build.doneAt) continue;
+    // TIME TOKENS: `timeTokenMs` brings the EFFECTIVE finish forward; `doneAt` and
+    // `startedAt` never move, so the floor is read against the build's own base.
+    if (!build || now + (build.timeTokenMs ?? 0) < build.doneAt) continue;
     const cur = armoryFamilyState(state, familyId);
     if (build.targetTier > cur.tier) {
       state.armory[familyId] = { tier: build.targetTier, everBuilt: true };

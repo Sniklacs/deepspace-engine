@@ -53,6 +53,20 @@ export const ru: Catalogue = {
   "resource.suppliesSub": "+{rate} в минуту, пока Колыбель стоит",
   "resource.scripSub": "Заработано тем, что вы делаете — служение, подвиги, вклад.",
   "resource.votivesSub": "Хранятся в Реестре Колыбели.",
+  // ---- TIME TOKENS (owner direction 2026-09-27) ----
+  // Earned in the daily Devotion; never sold. Translated in all five
+  // files in the same commit that added the strings.
+  "time.tokens": "Жетоны времени",
+  "time.tokensSub": "Их даёт ежедневное служение. Каждый сокращает одну идущую постройку, исследование или развёртывание.",
+  "time.token1m": "Жетон на 1 минуту",
+  "time.token5m": "Жетон на 5 минут",
+  "time.claimGranted": "Получены жетоны времени:",
+  "time.refusedExpedition": "Жетон времени не сокращает исследование — Расколотые земли занимают столько времени, сколько занимают.",
+  "time.refusedFloor": "Этот таймер уже на пределе.",
+  "time.refusedNoTimer": "В Колыбели нет таймера такого рода.",
+  "time.refusedUnknownKind": "Жетон времени нельзя потратить на это.",
+  "time.refusedNoTokens": "Жетона такого размера нет.",
+  "time.refusedSize": "Неизвестный жетон времени.",
 
   "cradle.plate": "Колыбель",
   "cradle.plateMeta": "{race} · {region} · основана {date}",

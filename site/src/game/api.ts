@@ -34,6 +34,7 @@ import {
   createPaymentProvider,
 } from "./monetization";
 import { dailyPublicView } from "./daily";
+import { timeTokensPublicView } from "./time-tokens";
 import {
   appendReportOnce,
   battleEndAt,
@@ -132,8 +133,8 @@ export function publicState(st: GameState): GameState {
   // V11 prologue spine: the player's OWN story (stage, sealed height records,
   // squad, final stand, History Book + ash echoes) ships whole — nothing here
   // is server-secret, so the block rides `rest` into the payload untouched.
-  const { revelationCounters: _rc, revelationChoice: _rch, revelationFirstOpenAt: _rfo, revelationCorruptionGainMult: _rcm, revelationDrainPerMin: _rdp, revelationChorusMult: _rm, revelationsResolved: _rr, acknowledgedOnce: _ao, currency: _cur, entitlements: _ent, battlePass: _bp, daily: _daily, warReserve: _wr, ...rest } = st;
-  void _rc; void _rch; void _rfo; void _rcm; void _rdp; void _rm; void _rr; void _ao; void _cur; void _ent; void _bp; void _daily; void _wr;
+  const { revelationCounters: _rc, revelationChoice: _rch, revelationFirstOpenAt: _rfo, revelationCorruptionGainMult: _rcm, revelationDrainPerMin: _rdp, revelationChorusMult: _rm, revelationsResolved: _rr, acknowledgedOnce: _ao, currency: _cur, entitlements: _ent, battlePass: _bp, daily: _daily, warReserve: _wr, timeTokenLedger: _ttl, ...rest } = st;
+  void _rc; void _rch; void _rfo; void _rcm; void _rdp; void _rm; void _rr; void _ao; void _cur; void _ent; void _bp; void _daily; void _wr; void _ttl;
   const vis = new Set(engine.visibleRevelations(st));
   const w = walletView(st);
   return {
@@ -153,6 +154,13 @@ export function publicState(st: GameState): GameState {
     // never exist on this surface at all. Devotion total + streak ride along
     // in `rest` (PUBLIC per TD5).
     daily: dailyPublicView(st.daily),
+    // TIME TOKENS (owner direction 2026-09-27): the player's own HOLDINGS ship
+    // (like a balance — they are the player's possessions and the Cradle Ledger
+    // renders them), mapped to the two earned sizes at a non-negative integer.
+    // The LEDGER does not: it is the server's append-only idempotency record
+    // (which request ids have been spent), exactly as `currency.ledger` is
+    // stripped above. Nothing here is purchasable and no price exists anywhere.
+    timeTokens: timeTokensPublicView(st.timeTokens),
     // V9 battle engine: every battle ships through the public-view mapper, so
     // server-only internals (war-types internal block; future reinforcement
     // queues etc.) never reach the client. The report LEDGER is public by
@@ -516,7 +524,7 @@ const purifyFn = createServerFn({ method: "POST" }).validator(
 // rolled list is current when claim resolves.
 const claimDailyRewardFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
-).handler(async ({ data }): Promise<GameResult & { granted?: { scrip: number; devotion: number; bonus: boolean } }> => {
+).handler(async ({ data }): Promise<GameResult & { granted?: { scrip: number; devotion: number; bonus: boolean; timeTokens: Record<string, number> } }> => {
   const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
   const st = await loadActiveState(accountId);
@@ -524,6 +532,37 @@ const claimDailyRewardFn = createServerFn({ method: "POST" }).validator(
   const res = engine.claimDaily(st, Date.now());
   if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined, granted: res.granted };
+});
+
+// TIME TOKENS — the EARNED path's spend door (owner direction 2026-09-27).
+// Earned only: a token comes from the daily Devotion (claimDailyRewardFn) and
+// from nowhere else — there is no purchase path, no price, no product, and
+// `storefrontEnabled` stays false. `requestId` is the caller's own idempotency
+// key: a retried POST returns `idempotent: true` and takes nothing more off the
+// timer. A refusal carries `errorKey`, rendered in the player's own language.
+// (The timers this may touch: an armory build, Lab research, a domain deploy.
+// An EXPLORATION RUN is refused by name — the ladder's timers are its price.)
+const applyTimeTokenFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    sizeId: z.enum(["1m", "5m"]),
+    requestId: z.string(),
+    kind: z.enum(["armory_build", "research", "domain_deploy", "expedition"]),
+    id: z.string().optional(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.applyTimeToken(st, data.sizeId, data.requestId, { kind: data.kind, id: data.id }, Date.now());
+  if (res.ok && !res.idempotent) await saveActiveState(accountId, st);
+  return {
+    ok: res.ok,
+    error: res.error,
+    errorKey: res.errorKey,
+    state: publicState(st),
+  };
 });
 
 // Workshop: craft gear — everyday (Tier 0), fuel/logistics (Tier 1), radiation
@@ -1054,6 +1093,7 @@ export {
   getWalletFn,
   getContributionFn,
   claimDailyRewardFn,
+  applyTimeTokenFn,
   purchaseWithVotivesFn,
   confirmExternalPurchaseFn,
   submitFeedbackFn,

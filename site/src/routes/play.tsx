@@ -58,6 +58,7 @@ import BattlesTab from "../components/BattlesTab";
 import { diffResolvedEvents } from "../game/report-events";
 import { tip, RESOURCE_TIPS, DOMAIN_TIPS, METER_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
 import type { GameState, RaceId, DomainId, Zone, FeedbackRecord, FeedbackCategory, FeedbackSeverity } from "../game/types";
+import { timeTokenRefusalText } from "../components/screens/CradleScreen";
 import { ResearchTreeView, LeadersView } from "../components/ResearchViews";
 
 export const Route = createFileRoute("/play")({
@@ -305,6 +306,10 @@ function PlayPage() {
     purify: () => sound.purify(),
   };
 
+  // TIME TOKENS (owner direction 2026-09-27): what the last Devotion claim
+  // granted, straight off the server reply's own figures — the panel lists them
+  // back to the player rather than deriving a count.
+  const [claimTokens, setClaimTokens] = useState<Record<string, number> | null>(null);
   const act = async (fn: () => Promise<any>, okSfx = "success") => {
     if (busy) return;
     setBusy(true);
@@ -319,12 +324,13 @@ function PlayPage() {
       if (res && res.ok === false) {
         // A refusal that carries a catalogue key is shown in the player's own
         // language; one without a key keeps the server's own English.
-        flash(res.errorKey ? t(res.errorKey) : res.error);
+        flash(res.errorKey ? timeTokenRefusalText(t, res.errorKey) : res.error);
         sound.error();
       } else if (res && res.ok) {
         sound.success();
         (OK_SOUNDS[okSfx] || OK_SOUNDS.success)();
       }
+      return res;
     } catch (e: any) {
       flash(e?.message || "Something broke in the Cradle.");
       sound.error();
@@ -573,7 +579,11 @@ function PlayPage() {
           state={state}
           onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")}
           onCraft={(k) => act(() => craftFn({ data: { token: token!, kind: k } }), "success")}
-          onClaim={() => act(() => claimDailyRewardFn({ data: { token: token! } }), "success")}
+          tokenGrant={claimTokens}
+          onClaim={async () => {
+            const r = await act(() => claimDailyRewardFn({ data: { token: token! } }), "success");
+            setClaimTokens(r && r.ok && r.granted ? (r.granted.timeTokens ?? null) : null);
+          }}
           onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")}
           onOpenCodex={() => { setCodexOpen(true); sound.tab(); }}
           onForgeRoll={(recipeId, requestId) => act(() => forgeRollFn({ data: { token: token!, recipeId, requestId } }), "build")}
