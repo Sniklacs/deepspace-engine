@@ -142,7 +142,14 @@ section("6 · NO DEAD LOOKUP — every key the UI asks for exists in English");
 // cosmetic lines render through template keys (`store.pack.<id>.blurb`,
 // `store.cosmetic.<id>.blurb`), which §6 treats as dynamic families — payments-tests
 // checks that every one of those lines exists and is translated in all five files.
-const UI_FILES = [...SWEPT, "src/components/screens/CradleScreen.tsx", "src/routes/play.tsx", "src/components/ui/BuildingTile.tsx", "src/game/i18n/slot-label.ts", "src/components/StorefrontOverlay.tsx"];
+const UI_FILES = [...SWEPT, "src/components/screens/CradleScreen.tsx", "src/routes/play.tsx", "src/components/ui/BuildingTile.tsx", "src/game/i18n/slot-label.ts", "src/components/StorefrontOverlay.tsx",
+  // THE ONE DURATION FORMATTER joined the scan on 2026-09-27. It is the file that
+  // now holds the ONLY call sites of `dur.day|hour|minute|second`: when the three
+  // private duration formatters (play.tsx, ResearchViews.tsx) were unified into
+  // `game/i18n/format.ts`, those four keys moved house with them, and a scanner
+  // that did not know the new address reported four USED keys as unused. One more
+  // file scanned, no check relaxed — the call-site count goes up.
+  "src/game/i18n/format.ts"];
 const used = new Set<string>();
 for (const f of UI_FILES) {
   const src = read(f);

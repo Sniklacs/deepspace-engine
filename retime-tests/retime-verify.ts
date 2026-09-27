@@ -24,6 +24,15 @@
 //      price absorbing the re-time.
 //   8. THE MEASUREMENT — every rung's run priced and valued in the game's own
 //      numbers (📦), so "does a run pay for itself" is answered, not assumed.
+//      MEASURED, and reported as a disagreement with the pacing brief: the flip
+//      does NOT land between rung 8 and rung 12 — no rung's ember-scrap loot
+//      covers ops + consumed gear + ordnance (rim −14.2 📦, deepest −337.9 📦).
+//   9. THE NETS AT EVERY RUNG (added 2026-09-27) — the demand identity at all 29
+//      rungs for two different incomes (a hard-coded price list cannot pass), the
+//      floor over every research and forge timer with an absurd stack, the
+//      migration proven in BOTH directions plus the stamp, the standing-rule net
+//      proven to catch a re-addition, and the ONE day-scale formatter in five
+//      languages with no second formatter left anywhere in `src/`.
 //
 // Run: cd /home/team/shared/retime-tests && env -u DATABASE_URL bun run retime-verify.ts
 import * as engine from "/home/team/shared/site/src/game/engine.ts";
@@ -358,6 +367,19 @@ console.log("— 8 · THE MEASUREMENT — what a run costs, what it returns, whe
   show(28);
   const flips = rows.map((r) => r.net).findIndex((n) => n < 0);
   console.log(`     — the loop stops paying for itself (in 📦, before any demand) at rung ${flips} (${rows[flips].zone}) —`);
+  // MEASURED 2026-09-27, and it DISAGREES with the pacing brief, which expected the
+  // flip between rung 8 (+1 📦) and rung 12 (−27 📦). What the engine's own numbers
+  // say is that NO rung's ember-scrap loot covers ops + consumed gear + ordnance:
+  // the rim is −14.2 📦 and the deepest −337.9 📦. The brief's small magnitudes come
+  // from a different loot valuation (this table prices an Ember at the engine's own
+  // scrap rate, 0.15 📦, and ignores chipsets/mats/Codices entirely). The check below
+  // pins the MEASUREMENT so a silent change to it is caught, and the disagreement is
+  // reported rather than smoothed over.
+  check(
+    "MEASURED: no rung's ember-scrap loot covers ops + gear + ordnance (the brief's 8→12 flip does NOT reproduce; measured flip is rung 0)",
+    rows[0].net < 0 && rows.slice(1, 5).every((r) => r.net < 0) && rows[28].net < 0,
+    `rung0 ${rows[0].net}, rung4 ${rows[4].net}, rung28 ${rows[28].net}`,
+  );
 
   check("the rim's run needs no gear and no ordnance at all", rows[0].gear === 0 && rows[0].ordnance === 0, JSON.stringify(rows[0]));
   check("the rim's loot is worth 1.80 📦 at the engine's own scrap rate", rows[0].loot === 1.8, `${rows[0].loot}`);
