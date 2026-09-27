@@ -337,24 +337,28 @@ export default function CradleScreen({
               {(Object.keys(CRAFT) as CraftKind[]).map((k) => {
                 const def = CRAFT[k];
                 const held = r[CRAFT_RESOURCE_KEY[k]] ?? 0;
-                const can = r.supplies >= def.supplies && (k !== "alloy" || canForgeAlloy(state));
+                // THE PRICE SHOWN IS THE PRICE CHARGED: `craftCost` is the engine's
+                // own figure (0.85x with Auto-Forge, 0.9x under a Quartermaster),
+                // never the raw catalogue price the engine would not take.
+                const cost = engineHelpers.craftCost(state, k);
+                const can = r.supplies >= cost && (k !== "alloy" || canForgeAlloy(state));
                 return (
                   <button
                     key={k}
                     type="button"
                     data-testid={`kit-${k}`}
                     aria-haspopup="dialog"
-                    aria-label={t("cradle.kitAria", { label: def.label, held, supplies: def.supplies })}
+                    aria-label={t("cradle.kitAria", { label: def.label, held, supplies: cost })}
                     onClick={() => setSheet({ kind: "slot", id: "workshop" })}
                     className="relative flex min-h-[84px] w-[92px] flex-none flex-col items-center justify-center gap-1 rounded-tile border border-line bg-surf-3/85 px-1 py-2 text-center"
                   >
                     <Icon name={KIT_ICON[k]} size={20} className="text-text-2" aria-hidden="true" />
                     <span className="text-[11px] font-medium leading-tight text-text-1">{def.label}</span>
-                    <span className="num text-[11px] text-ember-soft">
-                      {t("cradle.held", { n: held })}
+                    <span className="text-[11px] text-ember-soft">
+                      <Bdi dir="ltr" className="num">{held}</Bdi> {t("cradle.heldUnit")}
                     </span>
-                    <span className="num text-[11px] text-text-3">
-                      {t("cradle.sup", { n: def.supplies })}
+                    <span className="text-[11px] text-text-3">
+                      <Bdi dir="ltr" className="num">{cost}</Bdi> {t("cradle.supUnit")}
                     </span>
                     {can ? (
                       <span
@@ -367,6 +371,28 @@ export default function CradleScreen({
                   </button>
                 );
               })}
+            </div>
+            {/* THE HOLDINGS (owner 2026-09-27: "we're missing an embers inventory I
+                don't see how many embers I have"): the colony's OWN stock, in the same
+                Panel and the same shape as the alloy row, so the shelf reads as one
+                inventory. Every figure is the engine's — `state.resources.embers` is the
+                holding, `totalEmbersLooted` in the stores band below is the lifetime
+                statistic, and the two must never be read as the same number. */}
+            <Tooltip className="w-full" content={tip(RESOURCE_TIPS.embers)}>
+              <div className="flex min-h-tap w-full items-center gap-2 rounded-xl border border-line bg-surf-3/60 px-3 py-2">
+                <Icon name="flame" size={16} className="shrink-0 text-ember-soft" aria-hidden="true" />
+                <span className="min-w-0 flex-1 text-[12px] text-text-2">{t("resource.embers")}</span>
+                <b className="shrink-0 text-[12px] text-text-1">
+                  <Bdi dir="ltr" className="num">{Math.floor(r.embers).toLocaleString()}</Bdi>
+                </b>
+              </div>
+            </Tooltip>
+            <div className="flex min-h-tap items-center gap-2 rounded-xl border border-line bg-surf-3/60 px-3 py-2">
+              <Icon name="gear" size={16} className="shrink-0 text-ember-soft" aria-hidden="true" />
+              <span className="min-w-0 flex-1 text-[12px] text-text-2">{t("cradle.kitsHeld")}</span>
+              <b className="shrink-0 text-[12px] text-text-1">
+                <Bdi dir="ltr" className="num">{kitsHeld(state)}</Bdi>
+              </b>
             </div>
             {/* the alloy row — the cross-race recipe at a glance */}
             <div className="flex min-h-tap items-center gap-2 rounded-xl border border-line bg-surf-3/60 px-3 py-2">
@@ -382,13 +408,30 @@ export default function CradleScreen({
           </Panel>
 
           {/* ---- B8 · the stores band ------------------------------------- */}
+          {/* LIFETIME STATISTICS, never a holding: these four are what the colony has
+              EVER looted/distilled/sown, so every label says so out loud and the
+              holding itself lives in the shelf above (`resource.embers`). Two numbers
+              that both read "Embers" is exactly how the owner lost track of which one
+              he owns. Every figure is its own isolated run. */}
           <div data-testid="stores-band" className="grid grid-cols-2 gap-2">
-            <StatTile label={t("cradle.totalEmbers")} value={state.totalEmbersLooted.toLocaleString()} icon="flame" />
-            <StatTile label={t("cradle.totalChipsets")} value={state.totalChipsetsLooted.toLocaleString()} icon="chip" />
-            <StatTile label={t("cradle.insight")} value={Math.round(state.insight).toLocaleString()} icon="spark" />
+            <StatTile
+              label={t("cradle.totalEmbers")}
+              value={<Bdi dir="ltr" className="num">{state.totalEmbersLooted.toLocaleString()}</Bdi>}
+              icon="flame"
+            />
+            <StatTile
+              label={t("cradle.totalChipsets")}
+              value={<Bdi dir="ltr" className="num">{state.totalChipsetsLooted.toLocaleString()}</Bdi>}
+              icon="chip"
+            />
+            <StatTile
+              label={t("cradle.insight")}
+              value={<Bdi dir="ltr" className="num">{Math.round(state.insight).toLocaleString()}</Bdi>}
+              icon="spark"
+            />
             <StatTile
               label={t("cradle.founded")}
-              value={new Date(state.createdAt).toLocaleDateString()}
+              value={<Bdi dir="ltr" className="num">{new Date(state.createdAt).toLocaleDateString()}</Bdi>}
               sub={t("cradle.expeditionsDone", { n: state.completedExpeditions })}
               icon="building"
             />
@@ -729,14 +772,19 @@ function SlotSheet({
         {isWorkshop ? (
           <>
             <p className="text-[12px] text-text-3">
-              Kits held: <b className="num text-text-1">{kitsHeld(state)}</b> of {Object.keys(CRAFT).length}.
+              {t("cradle.kitsHeld")}: <b className="text-text-1"><Bdi dir="ltr" className="num">{kitsHeld(state)}</Bdi></b>{" "}
+              {t("cradle.kitsHeldOf", { total: Object.keys(CRAFT).length })}
             </p>
             {KIT_TIERS.map((tier, ti) => (
               <section key={ti} className="space-y-2">
                 <h3 className="eyebrow">{tier.note}</h3>
                 {tier.kinds.map((k) => {
                   const kit = CRAFT[k];
-                  const can = state.resources.supplies >= kit.supplies && (k !== "alloy" || canForgeAlloy(state));
+                  // The sheet quotes `craftCost` (the engine's charge), not the raw
+                  // catalogue price: under Auto-Forge or a Quartermaster the two differ.
+                  const cost = engineHelpers.craftCost(state, k);
+                  const held = state.resources[CRAFT_RESOURCE_KEY[k]] ?? 0;
+                  const can = state.resources.supplies >= cost && (k !== "alloy" || canForgeAlloy(state));
                   const desc =
                     k === "alloy" && !canForgeAlloy(state)
                       ? `Missing the recipe — need ${ownMat >= 1 ? "your own material ✓" : "your own material"} plus ${4 - (recipe.length ? recipe.filter((rid) => rid !== state.race).length : 0)} more race material${4 - (recipe.length ? recipe.filter((rid) => rid !== state.race).length : 0) === 1 ? "" : "s"}.`
@@ -748,8 +796,8 @@ function SlotSheet({
                           <Icon name={KIT_ICON[k]} size={16} className="shrink-0 text-ember-soft" aria-hidden="true" />
                           <span className="truncate text-[13px] font-semibold text-text-1">{kit.label}</span>
                         </span>
-                        <span className="num shrink-0 text-[11px] text-text-3">
-                          {state.resources[CRAFT_RESOURCE_KEY[k]] ?? 0} held
+                        <span className="shrink-0 text-[11px] text-text-3">
+                          <Bdi dir="ltr" className="num">{held}</Bdi> {t("cradle.heldUnit")}
                         </span>
                       </div>
                       <p className="mt-1 text-[11px] leading-tight text-text-3">{desc}</p>
@@ -757,13 +805,13 @@ function SlotSheet({
                         className="mt-2"
                         full
                         size="md"
-                        label={`Forge ${kit.label}`}
-                        sub={`${kit.supplies} Supplies`}
+                        label={t("cradle.forgeKit", { label: kit.label })}
+                        sub={<><Bdi dir="ltr" className="num">{cost}</Bdi> {t("resource.supplies")}</>}
                         locked={!can}
                         reason={
                           k === "alloy" && !canForgeAlloy(state)
-                            ? "Recipe incomplete — forge nothing until five races' materials are held."
-                            : `Need ${kit.supplies} Supplies — the stores hold ${Math.floor(state.resources.supplies)}.`
+                            ? t("cradle.alloyLockedReason")
+                            : t("cradle.needSupplies", { cost, held: Math.floor(state.resources.supplies) })
                         }
                         onClick={() => onCraft(k)}
                       />

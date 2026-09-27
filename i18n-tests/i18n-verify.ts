@@ -245,6 +245,19 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // Twelve catalogue values reworded across en/es/pt-BR/ru; fa untouched; the key count is
 // unchanged at 242. This pin was the ONLY check the rename moved, and it moved by design.
 // Previous pin: 51166bd2971cf45d72eb467514edd2c17639785d1e65a573cf6d6f1ac37d9293
+// Re-baselined 2026-09-27 — THE CRADLE EMBERS STRIP (owner: "we're missing an
+// embers inventory I don't see how many embers I have"): SEVEN new keys added to
+// the English catalogue (387 -> 392), every one translated in all five languages
+// in the same commit — the holdings row's label (`cradle.kitsHeld`) and its "of
+// {total}." tail, the two unit words a numeral now carries OUTSIDE the translated
+// sentence (`cradle.heldUnit`, `cradle.supUnit`), the sheet's truthful shortfall
+// (`cradle.needSupplies`), the sheet's Forge label (`cradle.forgeKit`) and the
+// alloy refusal (`cradle.alloyLockedReason`). TWO keys were REMOVED in the same
+// commit — `cradle.held` and `cradle.sup`, "{n} held" / "{n} sup" — because their
+// numeral rode INSIDE a translated sentence; the same words now live in the unit
+// keys and the numeral is its own isolated `<Bdi dir="ltr">` run. No shipped
+// Persian wording changed: "در انبار" and "تدارکات" are the same words, moved out
+// of the sentence that interpolated them. Previous pin: 0a6400ad6070ec7c815ecaae036e90bf6da0b214c3f5f14b084e86f5f9b02e31
 // Re-baselined 2026-09-26 — THE FORGE slice: 45 new keys added to the English
 // catalogue (242 -> 287), every one translated in all five languages in the same
 // commit. No existing value changed; the pin moved because the KEY SET grew by
@@ -295,7 +308,7 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // additive and it is registered at its only call site (`timeTokenRefusalText`).
 // The pin moved because the KEY SET grew by design.
 // Previous pin: 80e13ae557e45b582121062a422fa04db72a6711c3d98899bdc4ea8b3f37e56a
-const ENGLISH_SHA = "0a6400ad6070ec7c815ecaae036e90bf6da0b214c3f5f14b084e86f5f9b02e31";
+const ENGLISH_SHA = "01a19725c7648c2dba4096a579133f7f78a18dcaa51e7adb2091640b8a35e83d";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);
