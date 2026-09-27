@@ -2527,8 +2527,13 @@ export function startWeaponBuild(state: GameState, familyId: string, now = Date.
     return fail(`${fam.name} is already being built — the forges take one commitment at a time.`);
   }
   // THE SLOT CAP (owner-ratified 2026-09-27, with the four times): two families
-  // under construction at once. Serialising five families' four tiers is 302.5 d
-  // — this is what makes the ratified ladder ~151 d of wall clock instead.
+  // under construction at once. Wall clock, stated plainly (lead, 2026-09-27):
+  // one family's four tiers are 0.5 + 3 + 12 + 45 = 60.5 d. Five families at
+  // five slots — the old behaviour, one build per family — all finished
+  // together in 60.5 d; five EQUAL-length families at two slots take
+  // ceil(5/2) = 3 waves, so 181.5 d. (Total work ÷ slots = 151.25 d is a
+  // throughput floor, not a schedule — five equal jobs on two slots cannot
+  // reach it. Three families sit in two waves: 121 d.)
   const inFlight = armoryBuildsInFlight(state);
   if (inFlight >= ARMORY_BUILD_SLOTS) {
     const busy = Object.keys(state.armoryBuilds ?? {}).map((id) => familyLabel(state, id)).join(", ");
