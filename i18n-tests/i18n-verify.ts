@@ -142,7 +142,14 @@ section("6 · NO DEAD LOOKUP — every key the UI asks for exists in English");
 // cosmetic lines render through template keys (`store.pack.<id>.blurb`,
 // `store.cosmetic.<id>.blurb`), which §6 treats as dynamic families — payments-tests
 // checks that every one of those lines exists and is translated in all five files.
-const UI_FILES = [...SWEPT, "src/components/screens/CradleScreen.tsx", "src/routes/play.tsx", "src/components/ui/BuildingTile.tsx", "src/game/i18n/slot-label.ts", "src/components/StorefrontOverlay.tsx"];
+const UI_FILES = [...SWEPT, "src/components/screens/CradleScreen.tsx", "src/routes/play.tsx", "src/components/ui/BuildingTile.tsx", "src/game/i18n/slot-label.ts", "src/components/StorefrontOverlay.tsx",
+  // THE ONE DURATION FORMATTER joined the scan on 2026-09-27. It is the file that
+  // now holds the ONLY call sites of `dur.day|hour|minute|second`: when the three
+  // private duration formatters (play.tsx, ResearchViews.tsx) were unified into
+  // `game/i18n/format.ts`, those four keys moved house with them, and a scanner
+  // that did not know the new address reported four USED keys as unused. One more
+  // file scanned, no check relaxed — the call-site count goes up.
+  "src/game/i18n/format.ts"];
 const used = new Set<string>();
 for (const f of UI_FILES) {
   const src = read(f);
@@ -271,7 +278,16 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // `translator.retry`) were already in the catalogue and were NOT duplicated. The
 // pin moved because the KEY SET grew by design.
 // Previous pin: 9b184bfc6e650e9083c2a7d5a7c15a7988316f19a3b13306e2a8c6b2dba21fdf
-const ENGLISH_SHA = "f8fd7897f37276b66dae79fb2bd382b110ab87c7a9ceab9d6fd4d0a6e63606b0";
+// Re-baselined 2026-09-26 — THE RE-TIME slice (owner-ratified: R = 6, the
+// 4h-to-168h ladder, gear consumed per run): FOUR new keys added to the English
+// catalogue (371 -> 375), all four translated in all five languages in the same
+// commit — `dur.day`, `dur.hour`, `dur.minute`, `dur.second`, the units the
+// day-scale duration formatter interpolates. No EXISTING value moved: the keys
+// are additive, and they exist because a 168 h run used to render `10080m 0s`
+// on every "returns in…" surface. The pin moved because the KEY SET grew by
+// design.
+// Previous pin: f8fd7897f37276b66dae79fb2bd382b110ab87c7a9ceab9d6fd4d0a6e63606b0
+const ENGLISH_SHA = "cfd31810e51edf018625388b22f4491b9c8034334b933869cc62282e099a2249";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);

@@ -160,18 +160,32 @@ check("the sweep is not vacuous — it found the call sites at all", callSites.l
 // are not call sites. Scan the same comment-stripped text the sweep above uses.
 const strippedSrc = (rel: string) => stripComments(readFileSync(`${SITE}/src/${rel}`, "utf8"));
 const lookups = appFiles.filter((rel) => /\bt\(\s*"/.test(strippedSrc(rel)));
-const undeclared = lookups.filter((rel) => {
-  const t = strippedSrc(rel);
-  // `t` must come from somewhere. game/battle-decisions.ts calls a LOCAL helper
-  // (`const t = (text: string) => ({ text })` — it builds order-line parts, it is not a
-  // translation lookup), so a plain `const t = …` / `const t: …` satisfies this too.
-  return (
-    !/const t\s*[=:]/.test(t) &&
-    rel !== "components/i18n/I18n.tsx" &&
-    !/useT|makeT/.test(t) &&
-    !/\bt\b[^;\n]*from\s+["'][^"']*i18n/.test(t)
-  );
-});
+/** Does this source get its `t` from somewhere? Every accepted source, in order:
+ *   · a local declaration — `const t = …` / `const t: …`
+ *     (game/battle-decisions.ts truly calls a LOCAL helper,
+ *      `const t = (text: string) => ({ text })` — order-line parts, not a lookup)
+ *   · the definition site of the hook itself
+ *   · a hook (`useT`, `makeT`) or a direct i18n import
+ *   · a PARAMETER named `t` — added 2026-09-27. The one-formatter refactor moved the
+ *     `dur.*` lookups into the pure function `fmtDuration(t: T, ms: number)` in
+ *     game/i18n/format.ts, which RECEIVES `t` rather than reaching for it. A file
+ *     handed `t` is not a call site with a missing import, and flagging it taught
+ *     nothing. The rule widened; the bar did not — see the control below. */
+const holdsT = (t: string, rel: string): boolean =>
+  /const t\s*[=:]/.test(t) ||
+  rel === "components/i18n/I18n.tsx" ||
+  /useT|makeT/.test(t) ||
+  /\bt\b[^;\n]*from\s+["'][^"']*i18n/.test(t) ||
+  /[(,]\s*t\s*:\s*[A-Za-z_$]/.test(t);
+const undeclared = lookups.filter((rel) => !holdsT(strippedSrc(rel), rel));
+// NEGATIVE CONTROL — the whole point of it: the rule above was WIDENED, not weakened.
+// A source that calls t("…") with no import, no local and no parameter must STILL be
+// refused, or the widening swallowed the very bug this sweep exists to catch.
+check(
+  "…and the widened rule still refuses a bare t() with no source (the control)",
+  holdsT('export const x = () => t("dur.day");', "synthetic.ts") === false,
+  "the sweep accepted a call with no source of t — the widened rule would be vacuous",
+);
 check(`every file with a key lookup holds a lookup (${lookups.length} files with t("a.key") style calls)`, undeclared.length === 0, undeclared.join(" | "));
 console.log("      i18n call sites checked:");
 for (const c of callSites) console.log(`        ${c.imported ? "✅" : "❌"} src/${c.file} — ${c.uses.join(", ")}`);

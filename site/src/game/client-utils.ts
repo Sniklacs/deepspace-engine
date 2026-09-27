@@ -4,6 +4,12 @@ import type { DomainId, GameState, Leader, Zone } from "./types";
 import {
   suppliesPerMinute,
   suppliesCostForZone,
+  rungEntryDemand,
+  rungEntryDemandInIncomeDays,
+  energyCapacity,
+  energyDrawForZone,
+  ordnanceUnitsForZone,
+  ORDNANCE_SUPPLIES_PER_UNIT,
   studyDurationMs,
   insightFor,
   deployCost,
@@ -103,6 +109,27 @@ export const engineHelpers = {
   },
   suppliesCost(state: GameState, zone: Zone) {
     return suppliesCostForZone(state, zone);
+  },
+  /** RE-TIME: the rung's own demand and the run's total supplies price — the
+   *  client must never quote the operations cost alone, or the launch button
+   *  reads affordable on a run the server will refuse. */
+  rungDemand(state: GameState, zone: Zone) {
+    return rungEntryDemand(state, zone);
+  },
+  runPrice(state: GameState, zone: Zone) {
+    return suppliesCostForZone(state, zone) + rungEntryDemand(state, zone) + ordnanceUnitsForZone(zone.id) * ORDNANCE_SUPPLIES_PER_UNIT;
+  },
+  /** RE-TIME: the energy pool, charges held vs capacity per day. */
+  energy(state: GameState) {
+    const cap = energyCapacity(state);
+    return { charges: Math.min(cap, state.energy ?? cap), capacity: cap };
+  },
+  energyDraw(_state: GameState, zone: Zone) {
+    return energyDrawForZone(zone.id);
+  },
+  /** RE-TIME: the rung's own timer and its demand as a multiple of daily income. */
+  rung(_state: GameState, zone: Zone) {
+    return { timerMs: zone.baseDurationMs, demandIncomeDays: rungEntryDemandInIncomeDays(zone) };
   },
   stepOut(state: GameState) {
     return hasStepOutGear(state);

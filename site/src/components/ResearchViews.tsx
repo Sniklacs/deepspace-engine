@@ -9,21 +9,24 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { DOMAINS } from "../game/zones";
 import { engineHelpers } from "../game/client-utils";
+import { useT } from "./i18n/I18n";
+import { fmtDuration } from "../game/i18n/format";
+import { Bdi } from "./ui/Bdi";
 import { sound } from "../game/sound";
 import { Tooltip } from "./Tooltip";
 import { tip, LAB_TIPS } from "../game/tooltips";
 import type { GameState, Leader } from "../game/types";
 import { TECH_TREE, SPECIALTY_LABEL, SPECIALTY_DOMAIN, DOMAIN_SPECIALTY, REVELATION_TREE } from "../game/research";
 
-function fmtDur(ms: number): string {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  if (m > 0) return `${m}m ${sec}s`;
-  return `${sec}s`;
-}
+// NO local duration formatter here (2026-09-27). This file used to carry a
+// SECOND one — minutes-only, unkeyed — while `play.tsx` carried another, and
+// under the re-time a research or deployment timer runs for hours to days: the
+// old one rendered a week as `10080m 0s`. Both are now the ONE shared
+// day-scale keyed formatter, `fmtDuration(t, ms)` in `game/i18n/format.ts`,
+// rendered inside `<Bdi dir="ltr">` at every call site.
 
 export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameState; now: number; onBeginResearch: (techId: string, leaderId: string) => void }) {
+  const t = useT();
   const freeLeaders = state.leaders.filter((l) => l.status === "active" && !l.assignment);
   return (
     <>
@@ -85,7 +88,7 @@ export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameS
                       <>
                         <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
                           <span>🫂 {leaderOnIt.name}</span>
-                          <span>{fmtDur(Math.max(0, job.startedAt + job.durationMs - now))} left</span>
+                          <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> left</span>
                         </div>
                         <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-purple-400" style={{ width: `${Math.min(100, ((now - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
                       </>
@@ -141,6 +144,7 @@ function TechNode({ tech, done, inProg, available, now, job, leader, codices, fr
   job: GameState["researchJobs"][number] | null; leader: Leader | null; codices: number;
   freeLeaders: Leader[]; onBeginResearch: (techId: string, leaderId: string) => void;
 }) {
+  const t = useT();
   const canAfford = codices >= tech.codicesCost;
   const hasLeader = freeLeaders.length > 0;
   const prv = TECH_TREE.filter((t) => t.domain === tech.domain).find((n) => n.index === tech.index - 1);
@@ -158,7 +162,7 @@ function TechNode({ tech, done, inProg, available, now, job, leader, codices, fr
         <>
           <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
             <span>🫂 {leader.name} <span className="text-purple-300">({engineHelpers.specialtyLabel(leader)})</span></span>
-            <span>{fmtDur(Math.max(0, job.startedAt + job.durationMs - now))} left</span>
+            <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> left</span>
           </div>
           <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-purple-400" style={{ width: `${pct}%` }} /></div>
         </>
@@ -195,6 +199,7 @@ function RevelationNode({ node, done, inProg, available, now, job, leader, codic
   job: GameState["researchJobs"][number] | null; leader: Leader | null; codices: number;
   freeLeaders: Leader[]; onBeginResearch: (techId: string, leaderId: string) => void;
 }) {
+  const t = useT();
   const canAfford = codices >= node.codicesCost;
   const hasLeader = freeLeaders.length > 0;
   const pct = inProg && job && now ? Math.min(100, ((now - job.startedAt) / job.durationMs) * 100) : 0;
@@ -209,7 +214,7 @@ function RevelationNode({ node, done, inProg, available, now, job, leader, codic
         <>
           <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
             <span>🫂 {leader.name}</span>
-            <span>{fmtDur(Math.max(0, job.startedAt + job.durationMs - now))} left</span>
+            <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> left</span>
           </div>
           <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-white/40" style={{ width: `${pct}%` }} /></div>
         </>
@@ -324,6 +329,7 @@ function LeaderCard({ leader, job, now, onAllocate, onOpenSpec }: {
   leader: Leader; job: GameState["researchJobs"][number] | null; now: number;
   onAllocate: () => void; onOpenSpec: () => void;
 }) {
+  const t = useT();
   const level = engineHelpers.leaderLevel(leader);
   const xpToNext = engineHelpers.xpToNext(leader);
   const progress = engineHelpers.xpProgress(leader);
@@ -386,7 +392,7 @@ function LeaderCard({ leader, job, now, onAllocate, onOpenSpec }: {
 
       <div className="mt-2 text-[11px]">
         {job && leader.assignment ? (
-          <span className="text-purple-200">📚 Researching: {engineHelpers.techName(leader.assignment)} · {fmtDur(Math.max(0, job.startedAt + job.durationMs - now))} left</span>
+          <span className="text-purple-200">📚 Researching: {engineHelpers.techName(leader.assignment)} · <Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> left</span>
         ) : (
           <span className="text-text-3">Free to appoint</span>
         )}

@@ -1,4 +1,4 @@
-// format.ts — the ONE place chat formats a number, a time or a date.
+// format.ts — the ONE place the app formats a number, a time, a date or a DURATION.
 //
 // WHY A MODULE AND NOT `toLocaleString()` AT THE CALL SITE (chat-mail-spec §3.6
 // rule 5): the shipped catalogue forbids Persian-Indic digits, and `Intl` will
@@ -12,6 +12,7 @@
 //
 // Everything is guarded: an unknown language tag or a hostile `Intl` falls back to
 // English rather than throwing inside a render.
+import type { T } from "./types";
 
 /** The tag suffix that pins ASCII digits as the numbering system. */
 const NU_LATN = "-u-nu-latn";
@@ -65,4 +66,41 @@ export function daysAgo(now: number, at: number): number {
   const a = new Date(dayKey(at)).getTime();
   const b = new Date(dayKey(now)).getTime();
   return Math.round((b - a) / 86_400_000);
+}
+
+/**
+ * A DURATION, in the player's language, at DAY SCALE — the ONE duration
+ * formatter. Every "returns in…", "…left" and "Forging —" reads this function.
+ *
+ * WHY IT LIVES HERE (2026-09-26/27, THE RE-TIME): under the ratified ladder a
+ * single exploration run runs for 4 h at the rim and 168 h at the deepest rung,
+ * so a minutes-only formatter printed a week as `10080m 0s`. Research and
+ * deployment timers are rung-scaled too. A duration therefore needs DAYS, and
+ * it needs them in five languages — the units are catalogue keys
+ * (`dur.day|hour|minute|second`, translated in all five files in the same
+ * commit), never an English suffix glued on at a call site.
+ *
+ * WHAT IT IS NOT: it never reads a clock. `ms` is always a remaining-time
+ * arithmetic on `startedAt + durationMs` from the server's own state — there is
+ * no `now − <something we remembered>` anywhere in this file, and a wrong
+ * device clock cannot move a timer.
+ *
+ * SHAPE: hours-and-minutes, then minutes-and-seconds, then seconds; and once a
+ * day is on the clock the seconds are dropped (nobody needs a 168 h timer to the
+ * second). The digits go through `formatNumber`, so they are western ones even
+ * in Persian. Direction is the CALLER's business, not this module's: render the
+ * result inside `<Bdi dir="ltr">` — the first thing a right-to-left line does to
+ * "3d 4h" is reorder it.
+ */
+export function fmtDuration(t: T, ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const d = Math.floor(total / 86_400);
+  const h = Math.floor((total % 86_400) / 3_600);
+  const m = Math.floor((total % 3_600) / 60);
+  const s = total % 60;
+  const n = (v: number) => formatNumber(t.lang ?? "en", v);
+  if (d > 0) return t("dur.day", { d: n(d), h: n(h) });
+  if (h > 0) return t("dur.hour", { h: n(h), m: n(m) });
+  if (m > 0) return t("dur.minute", { m: n(m), s: n(s) });
+  return t("dur.second", { s: n(s) });
 }

@@ -80,7 +80,20 @@ const stDep = engine.newGame("deploy", "watchers", now);
 stDep.resources.embers = 10_000;
 stDep.resources.supplies = 10_000;
 stDep.insight = 10_000;
-for (let i = 0; i < 5; i++) engine.deployProgram(stDep, "weaponry", now + 1000 + i * 1000);
+// RE-POINTED 2026-09-27 (THE RE-TIME): `deployProgram` now runs on a TIMER —
+// the ratified ladder read at the level being entered (4 h for L1) — and the
+// level moves in the RESOLVER, never in the action. Five launches at the same
+// instant therefore left the colony with ONE deployment in flight and a depth of
+// 0 (the behaviour is asserted directly in retime-tests §7). The fixture's intent
+// is unchanged — drive five deployments and watch the hidden counter — it just
+// has to let each one resolve before ordering the next, exactly as a player does.
+let depT = now + 1000;
+for (let i = 0; i < 5; i++) {
+  const r = engine.deployProgram(stDep, "weaponry", depT);
+  if (!r.ok) break;
+  depT += (stDep.programDeploy?.durationMs ?? 0) + 1000;
+  engine.advance(stDep, depT);
+}
 check("maxDomainDepth=5 after five deploys", stDep.revelationCounters.maxDomainDepth === 5, `=${stDep.revelationCounters.maxDomainDepth}`);
 const stNodep = engine.newGame("nodeploy", "watchers", now);
 engine.advance(stNodep, now + 5_000_000);
@@ -331,8 +344,17 @@ engine.advance(stR, now + 1000 + (stR.researchJobs.find((j) => j.techId === "w1"
 check("w1 researched (tech path intact)", stR.techsResearched.includes("w1"));
 check("leader gained XP", (stR.leaders.find((l) => l.id === ldr.id)?.xp || 0) > 0);
 stR.resources.embers = 2000;
-for (let i = 0; i < 3; i++) engine.deployProgram(stR, "economy", now + 3000 + i * 1000);
-check("deployProgram ok, depth 3", stR.deployedDomains.economy === 3);
+// RE-POINTED 2026-09-26 (THE RE-TIME): a deployment runs on a TIMER and the level moves
+// in the resolver, so each of the three has to finish before the next can be started.
+// Same three levels, same assertion, nothing dropped.
+let deployed = 0;
+for (let i = 0; i < 3; i++) {
+  const at = now + 3000 + i * 1000;
+  stR.insight = 500;
+  if (engine.deployProgram(stR, "economy", at).ok) deployed++;
+  engine.advance(stR, at + (stR.programDeploy?.durationMs ?? 0) + 1);
+}
+check("deployProgram ok, depth 3", deployed === 3 && stR.deployedDomains.economy === 3);
 check("expedition loop exercised fine (§1 ran 5 resolves)", st.completedExpeditions === 5);
 check("untouched-day streak grows on a clean day", (() => {
   const s = engine.newGame("streak", "watchers", now);

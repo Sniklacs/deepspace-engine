@@ -1,6 +1,6 @@
 import type { DomainId, GameState, Leader, RaceId, ResearchJob, Zone } from "./types";
 import { getRace } from "./races";
-import { getZone, MAX_DOMAIN_LEVEL } from "./zones";
+import { getZone, MAX_DOMAIN_LEVEL, RUNG_TIMER_MS, rungOfZone, rungTimerMs, legacyZoneBaseMs } from "./zones";
 import {
   TECH_TREE,
   getTech,
@@ -146,6 +146,191 @@ export const VERSION = 11;
 
 // Inputs are already in milliseconds; TIME_SCALE just allows demo-speed tuning.
 export const TIME_SCALE = 1;
+
+// ======================================================================
+// THE RE-TIME — owner-ratified 2026-09-26, verbatim: "Go ahead with R = 6
+// and the 4h-to-168h ladder, and yes — gear gets consumed per run. Start
+// the re-time."  Brief: /home/team/shared/re-time-spec-2026-09-26.md
+// ======================================================================
+
+/**
+ * R = 6 — entering a rung demands SIX times that rung's own run timer, priced
+ * in the player's own income: `D(k) = R x d(k) x I(k) / 24`.
+ *
+ * Income-denominated ON PURPOSE. Income accrues 24/7 while the world is offline
+ * and is unbounded (see the passive-supplies line in `advance()`), so any price
+ * LIST re-creates the defect this re-time exists to fix the moment income grows:
+ * a fixed bill against a growing income is exhausted in days. A price expressed
+ * as a multiple of the timer, in the income the player actually has, keeps the
+ * ratio constant forever. There is deliberately NO price table anywhere.
+ *
+ * The identity retime-tests asserts: funding the whole ladder =
+ * R x Σd / 24 = 6 x 1,316.2 h / 24 = **329.1 days** = 10.8 months.
+ */
+export const RUNG_ENTRY_R = 6;
+
+/**
+ * THE FLOOR — no timer may fall below this fraction of its own base.
+ *
+ * Derivation, written once for both sides of the product: the owner's own
+ * monetization ceiling is "free 7 years / paid 2 years even spending thousands
+ * a week" — a heavy buyer compresses at most 3.5x. 1 / 3.5 = 0.2857, kept as
+ * 0.286. The SAME constant therefore bounds two different things:
+ *   · the EARNED modifier stack (specialty, attributes, techs, domains), where
+ *     `timerFloor()` asserts it at the point the stack is applied; and
+ *   · every PURCHASED speed-up — still DORMANT: the owner has not ruled on
+ *     speed-ups, so nothing purchasable touches time anywhere in this code.
+ * One assertion, two callers, no purchase wired.
+ */
+export const MIN_TIMER_FRACTION = 0.286;
+
+/**
+ * Apply the floor to a base duration and a stack-modified result. Every earned
+ * modifier is multiplicative `< 1`, so the product can in principle collapse a
+ * week-long timer into minutes; this makes that impossible.
+ */
+export function timerFloor(baseMs: number, modifiedMs: number): number {
+  return Math.max(Math.round(baseMs * MIN_TIMER_FRACTION), Math.round(modifiedMs));
+}
+
+/** Ordnance: `max(0, floor((k - 5) / 3))` units per run on rung k. */
+export const ORDNANCE_SUPPLIES_PER_UNIT = 24;
+export const ORDNANCE_EMBERS_PER_UNIT = 8;
+
+/** Ordnance units a run on this rung burns (zero through the first five rungs). */
+export function ordnanceUnitsForRung(rung: number): number {
+  return Math.max(0, Math.floor((rung - 5) / 3));
+}
+export function ordnanceUnitsForZone(zoneId: string): number {
+  return ordnanceUnitsForRung(rungOfZone(zoneId));
+}
+
+/** The energy pool: `20 + 2 x logistics` charges per day. */
+export const ENERGY_BASE_CHARGES_PER_DAY = 20;
+export const ENERGY_PER_LOGISTICS_LEVEL = 2;
+
+export function energyCapacity(state: GameState): number {
+  return ENERGY_BASE_CHARGES_PER_DAY + ENERGY_PER_LOGISTICS_LEVEL * (state.deployedDomains.logistics ?? 0);
+}
+
+/** What a run draws from the pool: `2 + floor(k / 6)` charges. */
+export function energyDrawForRung(rung: number): number {
+  return 2 + Math.floor(Math.max(0, rung) / 6);
+}
+export function energyDrawForZone(zoneId: string): number {
+  return energyDrawForRung(rungOfZone(zoneId));
+}
+
+/** The colony's own income in 📦 per day — the denominator of the identity. */
+export function suppliesIncomePerDay(state: GameState): number {
+  return suppliesPerMinute(state) * 1440;
+}
+
+/**
+ * THE DEMAND — `D(k) = R x d(k) x I(k) / 24`, the supplies it takes to enter
+ * rung k. Read the formula, never a number: `d(k)` is the rung's own timer from
+ * the ratified table and `I(k)` is this colony's income RIGHT NOW, so the price
+ * follows both the ladder and the colony without a constant to go stale.
+ */
+export function rungEntryDemand(state: GameState, zone: Zone): number {
+  const hours = rungTimerMs(rungOfZone(zone.id)) / 3_600_000;
+  return Math.max(0, Math.round((RUNG_ENTRY_R * hours * suppliesIncomePerDay(state)) / 24));
+}
+
+/**
+ * The same demand expressed as a multiple of one day's income — the identity
+ * itself, scale-free, which is what "income-denominated" means. Rung 0 = 1.00
+ * income-days, rung 28 = 42.0; the 29 rungs sum to 329.1 days.
+ */
+export function rungEntryDemandInIncomeDays(zone: Zone): number {
+  return (RUNG_ENTRY_R * (rungTimerMs(rungOfZone(zone.id)) / 3_600_000)) / 24;
+}
+
+/** The floor of the arc: one serial pass over every rung, in days of timers. */
+export function serialPassDays(): number {
+  return RUNG_TIMER_MS.reduce((a, b) => a + b, 0) / 3_600_000 / 24;
+}
+
+/**
+ * THE MIGRATION (spec §7) — ONE idempotent pass, both directions proven.
+ *
+ * Called from `advance()` AFTER every resolver, which is what makes step 1
+ * true: a run that was already complete in the OLD scale has already resolved
+ * (in the old scale) and is gone from `state.expeditions`, so it can never be
+ * extended by the re-base. Whatever is still running is then re-based
+ * proportionally to the BASE — `newBase / oldBase` keeps whatever modifiers the
+ * run was launched with — and its elapsed clock is discarded (`startedAt = now`),
+ * because the elapsed part was measured against a scale that no longer exists.
+ *
+ * The stamp makes it once-only: a second deploy cannot double-rebase, and a
+ * save that was already re-based is untouched.
+ */
+export function TIMER_REBASE_STAMP(): number {
+  return 1;
+}
+
+export function migrateTimersToReTime(state: GameState, now: number): void {
+  if (state.timerRebase === TIMER_REBASE_STAMP()) return;
+  for (const e of state.expeditions ?? []) {
+    if (e.status !== "out") continue;
+    const oldBase = legacyZoneBaseMs(e.zoneId);
+    const newBase = rungTimerMs(rungOfZone(e.zoneId));
+    if (!(oldBase > 0)) continue;
+    e.durationMs = Math.max(1, Math.round(e.durationMs * (newBase / oldBase)));
+    e.startedAt = now; // elapsed clock discarded (spec §7 step 2)
+  }
+  state.timerRebase = TIMER_REBASE_STAMP();
+}
+
+/** Backfill the re-time's own state on a legacy save (idempotent, silent). */
+function ensureReTime(state: GameState, now: number) {
+  const cap = energyCapacity(state);
+  if (typeof state.energy !== "number" || !isFinite(state.energy) || state.energy < 0) {
+    state.energy = cap; // a legacy colony comes back with a full pool
+  }
+  if (typeof state.energyAt !== "number" || !isFinite(state.energyAt)) state.energyAt = now;
+  if (state.programDeploy === undefined) state.programDeploy = null;
+}
+
+/** The energy pool's lazy regen — no timer of its own, like every other clock. */
+function regenEnergy(state: GameState, now: number) {
+  const cap = energyCapacity(state);
+  const perMs = cap / 86_400_000;
+  const since = Math.max(0, now - (state.energyAt ?? now));
+  state.energy = Math.min(cap, (state.energy ?? cap) + perMs * since);
+  state.energyAt = now;
+}
+
+/** Resolve a finished domain deployment (the re-time gives it a timer). */
+function resolveProgramDeploy(state: GameState, now: number) {
+  const j = state.programDeploy;
+  if (!j) return;
+  if (now < j.startedAt + j.durationMs) return;
+  state.deployedDomains[j.domain] = (state.deployedDomains[j.domain] ?? 0) + 1;
+  state.deployablePrograms.push(j.domain);
+  // Silent track: the deepest the colony has ever driven any domain line.
+  const c = state.revelationCounters;
+  if (c && typeof c === "object") {
+    c.maxDomainDepth = Math.max(c.maxDomainDepth ?? 0, ...Object.values(state.deployedDomains));
+  }
+  state.programDeploy = null;
+  log(state, `Recovered AI deployed: ${domainFor(j.domain)} advanced to level ${state.deployedDomains[j.domain]}.`);
+  awardDeed(state, "first_deploy", 1, "recovery AI deployed for the first time");
+}
+
+/**
+ * How long a domain deployment takes: the ratified ladder read at the level
+ * being entered (L1 = the rim rung's 4 h … L10 ≈ 13.3 h). No new constant is
+ * invented here — the same table, the same geometry, indexed by the level the
+ * program is climbing to. `deployProgram` had NO timer before this, which is
+ * what left the R = 6 arithmetic open.
+ */
+export function deployDurationMs(state: GameState, domain: DomainId): number {
+  const level = state.deployedDomains[domain] ?? 0;
+  return rungTimerMs(level);
+}
+
+
 
 // ------- radiation model -------
 
@@ -575,7 +760,11 @@ export function researchDurationMs(state: GameState, techId: string, leader: Lea
   const aligned = specialtyAligns(leader, techId) ? 0.6 : 1.0; // matching specialty = faster
   const skill = 1 - leader.attributes.research * 0.04; // stronger researcher = faster
   const scholar = scholarResearchMult(leader); // −15% for a Scholar's projects
-  return Math.max(10_000, Math.round(base * aligned * skill * scholar * studySpeedMult(state)));
+  // RE-TIME: the earned stack (specialty x attributes x Scholar x study speed) is
+  // floored at MIN_TIMER_FRACTION of the base — no pile of earned bonuses can
+  // collapse a timer. (Today's worst case is ~0.31 x base, so the floor is a
+  // backstop, not a live clamp: retime-tests measures that headroom.)
+  return timerFloor(base, base * aligned * skill * scholar * studySpeedMult(state));
 }
 
 /** 0-1 chance of a SURPRISE BREAKTHROUGH at completion (positive wildcard). */
@@ -1297,6 +1486,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureDaily(state);
   ensureBattles(state); // V9: real-time battle entities + report ledger (no-op on new saves)
   ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
+  ensureReTime(state, now); // RE-TIME: energy pool + deploy slot (no-op on a fresh save)
   // V7 daily rollover: when the UTC day turned since the last advance, finalize
   // yesterday (streak exactly-once + TD3 banked-forever claims), roll the fresh
   // list, and mark visit_cradle's free tick. Runs BEFORE the resolve loops so
@@ -1318,6 +1508,9 @@ export function advance(state: GameState, now = Date.now()): GameState {
   }
   if (state.lastTick >= now) {
     state.lastTick = now;
+    // RE-TIME migration still has to run on a same-tick advance: it is once-only
+    // and reads only what the resolvers above have already left behind.
+    migrateTimersToReTime(state, now);
     return state;
   }
   const elapsedMs = now - state.lastTick;
@@ -1328,6 +1521,10 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // after the first tick; caught by the V7 daily suite's blank-safety tests).
   const supplyGain = state.race ? (suppliesPerMinute(state) / 60000) * elapsedMs : 0;
   state.resources.supplies += supplyGain;
+
+  // RE-TIME: the expedition energy pool tops up continuously (charges/day),
+  // lazy and idempotent like every other clock in the engine.
+  regenEnergy(state, now);
 
   // Slow natural clearing of taint & attention (a healthy colony purges slowly).
   // rv1's soul-path drain (+0.5/min) is additive to the passive clearRate.
@@ -1364,6 +1561,10 @@ export function advance(state: GameState, now = Date.now()): GameState {
     }
   }
 
+  // Resolve a finished domain deployment (RE-TIME: `deployProgram` runs on a
+  // timer — the level moves HERE, never in the action).
+  resolveProgramDeploy(state, now);
+
   // Resolve completed weapon builds (V6) — same lazy, idempotent reconcile as
   // expeditions: built AT THE CRADLE while the world was offline. The deed
   // dents fire here exactly once (build records are consumed on completion).
@@ -1393,6 +1594,10 @@ export function advance(state: GameState, now = Date.now()): GameState {
   sweepDaily(state, now);
 
   // Advance corruption / chorus only slowly over time in idle? No — keep them event-driven.
+  // THE RE-TIME MIGRATION runs LAST, after every resolver: a run that was
+  // already complete in the OLD scale has resolved above and is gone, so the
+  // re-base can only ever touch a run that was still running (spec §7 step 1).
+  migrateTimersToReTime(state, now);
   state.lastTick = now;
   return state;
 }
@@ -1460,9 +1665,15 @@ function resolveResearch(state: GameState, j: ResearchJob, now: number) {
     log(state, `✨ BREAKTHROUGH — ${leader ? leader.name : "A leader"}'s ${SPECIALTY_LABEL[leader!.specialty]} insight turned ${tech.name} around: 📜 +${codexBack} Codices, ${extra.msg}.`);
   }
   if (leader) researchXp(state, leader, broke, now);
-  // Season 0 pass: completing a research project is a daily objective (§4.1).
-  // The hidden revelation chain deliberately stays OUT of the pass loop.
-  recordSeasonEvent(state, "complete_research", now);
+  // Season 0 pass: `complete_research` is RETIRED here by the re-time (owner
+  // 2026-09-26). Under the ratified ladder a project runs for hours to days, so
+  // an objective that requires COMPLETING one is unachievable inside a season
+  // and silently re-prices the whole pass. The standing rule (monetization.ts,
+  // asserted by retime-tests): **no season objective may require completing a
+  // timed build.** The pass earns from ACTIVITIES instead (`deploy_program`
+  // carries the same 15 XP). The hidden revelation chain stays OUT of the pass
+  // loop as before; the daily to-do hook below is a separate list and is
+  // untouched by this rule.
   // V7 daily to-do: a completed research project ticks research_complete
   // (spec §4.4 — "both job kinds": tech, revelation AND armory research all
   // resolve through completed projects; each path fires its own hook).
@@ -1829,7 +2040,31 @@ export function launchExpedition(state: GameState, zoneId: string, assignedScien
   }
   const zone = getZone(zoneId);
   const cost = suppliesCostForZone(state, zone);
-  if (state.resources.supplies < cost) return fail(`Not enough supplies. Need ${cost}, have ${Math.floor(state.resources.supplies)}.`);
+  // ---- THE RE-TIME: the rung's own demand, ordnance, and the energy draw ----
+  const rung = rungOfZone(zone.id);
+  const demand = rungEntryDemand(state, zone);
+  const ordUnits = ordnanceUnitsForRung(rung);
+  const ordSupplies = ordUnits * ORDNANCE_SUPPLIES_PER_UNIT;
+  const ordEmbers = ordUnits * ORDNANCE_EMBERS_PER_UNIT;
+  const entry = cost + demand + ordSupplies;
+  if (state.resources.supplies < entry) {
+    return fail(
+      `Not enough supplies to enter this rung. The run needs ${entry} 📦 — ${cost} 📦 operations, ` +
+        `${demand} 📦 rung demand (${RUNG_ENTRY_R} × this rung's own timer, priced in your income` +
+        `, ${rungEntryDemandInIncomeDays(zone).toFixed(2)} days of it), ${ordSupplies} 📦 ordnance. Have ${Math.floor(state.resources.supplies)}.`,
+    );
+  }
+  if (ordEmbers > 0 && state.resources.embers < ordEmbers) {
+    return fail(`The ordnance this rung needs costs ${ordEmbers} 🧯 Embers. Have ${Math.floor(state.resources.embers)}.`);
+  }
+  const energyDraw = energyDrawForRung(rung);
+  const energyHeld = state.energy ?? energyCapacity(state);
+  if (energyHeld < energyDraw) {
+    return fail(
+      `The colony has no energy left for another run — ${energyHeld.toFixed(1)} of ${energyDraw} charges. ` +
+        `The pool refills at ${energyCapacity(state)} charges a day.`,
+    );
+  }
 
   // ---- Tier 0 stepping-out gear gates fielding ANY expedition ----
   if (!hasStepOutGear(state)) {
@@ -1858,13 +2093,35 @@ export function launchExpedition(state: GameState, zoneId: string, assignedScien
   }
 
   const sci = Math.max(1, Math.min(assignedScientists, state.scientists));
-  state.resources.supplies -= cost;
+  state.resources.supplies -= entry;
+  state.resources.embers -= ordEmbers;
+  state.energy = energyHeld - energyDraw;
+  // RE-TIME (spec §3) — FIELD GEAR IS CONSUMED PER RUN. Before this, radiation
+  // gear was a one-time capital purchase and `launchExpedition` deducted only
+  // supplies/gas/battery: the single largest pacing bug found. A run now burns
+  // hazmat/shots (per scientist) and one alloy (per zone) as well as the fuel
+  // and mechanics it already burned. An under-geared run is still allowed — it
+  // burns what it has and pays for the shortfall in radiation loss, exactly as
+  // the pre-launch risk pop-up promises.
+  const gearNeed = requiredGear(zone, sci);
+  const gearHazmat = Math.min(state.resources.hazmat, gearNeed.hazmat);
+  const gearShots = Math.min(state.resources.shots, gearNeed.shots);
+  const gearAlloys = Math.min(state.resources.alloys, gearNeed.alloys);
+  state.resources.hazmat -= gearHazmat;
+  state.resources.shots -= gearShots;
+  state.resources.alloys -= gearAlloys;
   // Consume fuel (the refuel / recharge cost of the run).
   state.resources.gas -= gNeed;
   state.resources.battery -= bNeed;
+  state.resources.skmech -= sNeed;
   const id = "exp-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
   const industrySpeed = Math.pow(0.94, state.deployedDomains.industry) * (hasTech(state, "i4") ? 0.9 : 1); // i4 Foundry Lines −10% time
-  const durationMs = Math.round(zone.baseDurationMs * industrySpeed * (0.9 + Math.random() * 0.2));
+  // RE-TIME: the earned stack (industry domains + Foundry Lines, plus the run's
+  // ±10% landing) is floored at MIN_TIMER_FRACTION of the rung's own timer.
+  const durationMs = timerFloor(
+    zone.baseDurationMs,
+    Math.round(zone.baseDurationMs * industrySpeed * (0.9 + Math.random() * 0.2)),
+  );
   // Snapshot the radiation loss % into the expedition at launch so the resolve
   // rolls the risk the player explicitly accepted in the pre-launch pop-up.
   const radLoss = lossPct(state, zone, sci);
@@ -1887,7 +2144,13 @@ export function launchExpedition(state: GameState, zoneId: string, assignedScien
     pureAtLaunch: state.corruption <= 0,
   } as (typeof state.expeditions)[number]);
   const warn = radLoss > 0 ? ` ☢️ ${radLoss}% clean-return risk — the colony went without full gear.` : "";
-  log(state, `Exploration launched into ${zone.name} (${sci} scientist${sci > 1 ? "s" : ""}). Returns in ~${(durationMs / 60000).toFixed(1)} min. Risk ${zone.risk}.${warn}`);
+  // RE-TIME: `fmtClock` (day-aware) replaces "N.N min", which rendered a 168 h
+  // run as "10080.0 min" in the Chronicle.
+  log(
+    state,
+    `Exploration launched into ${zone.name} (${sci} scientist${sci > 1 ? "s" : ""}). Returns in ${fmtClock(durationMs)}. ` +
+      `Risk ${zone.risk} · rung ${rung + 1}/29 · demand ${demand} 📦 · ${energyDraw} energy.${warn}`,
+  );
   recordSeasonEvent(state, "launch_expedition", now); // Season 0 daily objective
   // V7 daily to-do: launch_any always; launch_mid (risk >= 40, rad < DEEP) and
   // launch_deep (rad >= 60) are zone-gated by the funnel.
@@ -1969,20 +2232,24 @@ export function deployProgram(
       `${domainFor(domain)} is at L${MAX_DOMAIN_LEVEL} — the highest a domain can be driven.`,
     );
   }
+  // RE-TIME: one program at a time, ON A TIMER. The level moves in
+  // `resolveProgramDeploy` (called from advance), never here — a deployment now
+  // costs real time, which is what the R = 6 arithmetic needs from this action.
+  if (state.programDeploy) {
+    const left = Math.max(0, state.programDeploy.startedAt + state.programDeploy.durationMs - now);
+    return fail(`The lab is already driving ${domainFor(state.programDeploy.domain)} — ${fmtClock(left)} to go.`);
+  }
   const cost = deployCost(state, domain);
   if (state.resources.embers < cost.embers) return fail(`Need ${cost.embers} Embers.`);
   if (state.insight < cost.insight) return fail(`Need ${cost.insight} insight from the lab. Study fragments to generate it.`);
   state.resources.embers -= cost.embers;
   state.insight -= cost.insight;
-  state.deployedDomains[domain] += 1;
-  state.deployablePrograms.push(domain);
-  // Silent track: the deepest the colony has ever driven any domain line.
-  const c = state.revelationCounters;
-  if (c && typeof c === "object") {
-    c.maxDomainDepth = Math.max(c.maxDomainDepth ?? 0, ...Object.values(state.deployedDomains));
-  }
-  log(state, `Recovered AI deployed: ${domainFor(domain)} advanced to level ${state.deployedDomains[domain]}.`);
-  awardDeed(state, "first_deploy", 1, "recovery AI deployed for the first time");
+  const durationMs = deployDurationMs(state, domain);
+  state.programDeploy = { domain, startedAt: now, durationMs };
+  // Season 0 objective hook (replaces `complete_research`, which under this
+  // ladder would require a TIMED BUILD to finish — see monetization.ts).
+  recordSeasonEvent(state, "deploy_program", now);
+  log(state, `The lab begins driving ${domainFor(domain)} to level ${(state.deployedDomains[domain] ?? 0) + 1} — ready in ${fmtClock(durationMs)}.`);
   pruneCompleted(state);
   return { ok: true, state };
 }
@@ -2110,7 +2377,8 @@ export function armoryTechAvailable(state: GameState, techId: string): boolean {
 export function armoryResearchDurationMs(state: GameState, techId: string, leader: Leader): number {
   const base = getArmoryTech(techId).durationMs;
   const skill = 1 - leader.attributes.research * 0.04;
-  return Math.max(10_000, Math.round(base * skill * studySpeedMult(state)));
+  // RE-TIME: same earned stack, same floor (armory research is a timed build).
+  return timerFloor(base, base * skill * studySpeedMult(state));
 }
 
 /** Appoint a Leader to research an Armory node (hub / family forge / plasma
@@ -2157,7 +2425,8 @@ function resolveArmoryTech(state: GameState, j: ResearchJob, now: number) {
   }
   log(state, `🔬 ${leader ? leader.name : "A leader"} researched ${node.icon} ${node.name}. ${node.effect}.`);
   if (leader) researchXp(state, leader, false, now);
-  recordSeasonEvent(state, "complete_research", now);
+  // RE-TIME: same retirement as `resolveResearch` above — a completed armory
+  // node is a TIMED BUILD, and no season objective may depend on one.
   // V7 daily to-do: an Armory node is a completed research project.
   noteDailyEvent(state, "research_complete", now);
 }

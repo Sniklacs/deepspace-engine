@@ -17,6 +17,8 @@ import { RACES, UNBOUND_LEGEND, getRace, raceModLines } from "../game/races";
 import { WORLD_CONFIG_PUBLIC, worldAllowedRaces, worldLockPlain } from "../game/world-config";
 import { ZONES, DOMAINS, getZone } from "../game/zones";
 import { engineHelpers } from "../game/client-utils";
+import { Bdi } from "../components/ui/Bdi";
+import { fmtDuration } from "../game/i18n/format";
 import {
   DEEP, isDeepZone, hazmatPerScientist,
   requiredGear, canForgeAlloy, alloyRecipeRaces, CRAFT,
@@ -1666,7 +1668,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
                   <Tooltip content={tip({ what: "Active exploration — a team out in the Shatterlands.", does: "Runs in real time and resolves while you're away, returning Embers (and maybe a Chipset) to the Cradle.", how: "Returns automatically once the timer hits zero. Runs launched under-geared carry their accepted radiation loss." })}><span className="font-semibold text-amber-100">🚚 {e.label}</span></Tooltip>
                   <span className="text-xs text-gray-400">{e.assignedScientists} scientist(s){e.lossPct ? ` · ☢️ ${e.lossPct}%` : ""}</span>
                 </div>
-                <p className="mt-1 text-xs text-gray-400">{t("exp.returnsIn")} <b className="text-amber-200">{fmtDur(msLeft)}</b></p>
+                <p className="mt-1 text-xs text-gray-400">{t("exp.returnsIn")} <b className="text-amber-200"><Bdi dir="ltr">{fmtDuration(t, msLeft)}</Bdi></b></p>
                 <div className="mt-2 h-2 rounded bg-white/10"><div className="h-2 rounded bg-ember" style={{ width: `${pct}%` }} /></div>
               </div>
             );
@@ -1952,7 +1954,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
                 <div key={s.id} className="rounded-lg bg-white/5 p-3">
                   <div className="flex justify-between text-xs text-gray-300">
                     <span>🔬 Studying {s.kind === "ember" ? "Embers" : "a Chipset"}</span>
-                    <span>{fmtDur(Math.max(0, s.startedAt + s.durationMs - now))} left</span>
+                    <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, s.startedAt + s.durationMs - now))}</Bdi> left</span>
                   </div>
                   <div className="mt-1 h-1.5 rounded bg-white/10"><div className="h-1.5 rounded bg-ember" style={{ width: `${pct}%` }} /></div>
                 </div>
@@ -2090,7 +2092,7 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
                     {[1, 2, 3, 4].map((t) => (
                       <span key={t} className={`flex h-5 w-5 items-center justify-center rounded text-[11px] font-bold ${tier >= t ? "bg-ember text-black" : "bg-white/10 text-text-3"}`}>{t}</span>
                     ))}
-                    {build && <span className="ms-auto text-[11px] text-purple-300">{fmtDur(leftMs)} left</span>}
+                    {build && <span className="ms-auto text-[11px] text-purple-300">{fmtDuration(t, leftMs)} left</span>}
                   </div>
                   {!unlocked ? (
                     <div className="mt-3 rounded-lg border border-purple-400/20 bg-purple-400/5 p-2.5 text-[11px] text-purple-200">
@@ -2103,7 +2105,7 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
                       {cost && <CostRow cost={cost} r={r} />}
                       <button onClick={() => { sound.click(); onBuild(f.id); }} disabled={!canAfford || !!build}
                         className="mt-1 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-                        {build ? `Forging — ${fmtDur(leftMs)}` : canAfford ? `Build (${weaponTimeFor(1)})` : "Can't afford yet"}
+                        {build ? `Forging — ${fmtDuration(t, leftMs)}` : canAfford ? `Build (${weaponTimeFor(1)})` : "Can't afford yet"}
                       </button>
                     </div>
                   ) : (
@@ -2115,7 +2117,7 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
                           {cost && <CostRow cost={cost} r={r} />}
                           <button onClick={() => { sound.click(); onBuild(f.id); }} disabled={!canAfford || !!build}
                             className="mt-1 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-                            {build ? `Upgrading — ${fmtDur(leftMs)}` : canAfford ? `Upgrade (${weaponTimeFor(nextTier)})` : "Can't afford yet"}
+                            {build ? `Upgrading — ${fmtDuration(t, leftMs)}` : canAfford ? `Upgrade (${weaponTimeFor(nextTier)})` : "Can't afford yet"}
                           </button>
                         </div>
                       )}
@@ -2266,11 +2268,11 @@ function RevelationChoiceModal({ onPick }: { onPick: (choice: "sealed" | "open")
 }
 
 /* ---------------- formatting ---------------- */
-
-function fmtDur(ms: number): string {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  if (m > 0) return `${m}m ${sec}s`;
-  return `${sec}s`;
-}
+// The duration formatter is NOT here (2026-09-27). It moved to
+// `game/i18n/format.ts` as `fmtDuration(t, ms)` — the ONE duration formatter —
+// because this screen's private copy was the SECOND one in the build and
+// `ResearchViews.tsx` carried a third that was still minutes-only. One
+// formatter, day-scale and keyed, so no two surfaces can disagree about what a
+// week is. The rules are unchanged: never a client-clock derivation (the
+// argument is always `startedAt + durationMs` or a duration itself), and the
+// result is rendered inside `<Bdi dir="ltr">` at the call site.

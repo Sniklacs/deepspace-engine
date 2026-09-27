@@ -172,9 +172,13 @@ check("...and the refusal carries a translated catalogue key",
 const oneBelow = engine.newGame("Cap2", "watchers", NOW);
 oneBelow.resources.embers = 1_000_000; oneBelow.insight = 1_000_000;
 oneBelow.deployedDomains.industry = MAX_DOMAIN_LEVEL - 1;
+// RE-POINTED 2026-09-26 (THE RE-TIME): `deployProgram` runs on a TIMER and the
+// level moves in the resolver, so the same claim — accepted one rung below the cap,
+// landing ON the cap — is read after its timer. No assertion was dropped.
+const belowAccepted = engine.deployProgram(oneBelow, "industry", NOW).ok === true;
+engine.advance(oneBelow, NOW + (oneBelow.programDeploy?.durationMs ?? 0) + 1);
 check("one rung below the cap the same call still succeeds",
-  engine.deployProgram(oneBelow, "industry", NOW).ok === true &&
-  oneBelow.deployedDomains.industry === MAX_DOMAIN_LEVEL);
+  belowAccepted && oneBelow.deployedDomains.industry === MAX_DOMAIN_LEVEL);
 check("the client seam agrees with the server: at the cap it is not \"affordable\"",
   engineHelpers.domainAtMax(capped, "industry") === true &&
   engineHelpers.domainAffordable(capped, "industry") === false);

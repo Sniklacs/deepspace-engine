@@ -166,6 +166,24 @@ export interface DailyState {
 
 export interface GameState {
   version: number;
+  // ---- THE RE-TIME (owner-ratified 2026-09-26) --------------------------
+  /** Expedition energy, in charges. Regenerated continuously at
+   *  `engine.energyCapacity(state)` charges/day and spent per run, so a shallow
+   *  rung cannot be farmed without limit. Lazy like every other clock: the
+   *  engine has no timer of its own, `energyAt` is the stamp the pool was last
+   *  topped up at (a queued `advance()` tops it up again). */
+  energy?: number;
+  energyAt?: number;
+  /** One-shot migration stamp: absent = the save predates the ladder and its
+   *  running timers must be re-based once (spec §7). Set by the pass itself so
+   *  a second deploy can never double-rebase. */
+  timerRebase?: number;
+  /** The in-flight domain deployment — `deployProgram` runs on a timer now
+   *  (the L10 cap without one leaves the R = 6 arithmetic open). Null/absent =
+   *  nothing deploying. Completion is derived from `startedAt + durationMs`;
+   *  the level itself only moves in the resolver, so an offline world advances
+   *  it exactly once. */
+  programDeploy?: { domain: DomainId; startedAt: number; durationMs: number } | null;
   // Unique id of this game within its account's save (set at creation; the
   // account save maps gameId -> GameState). Legacy single-save files get "0".
   gameId?: string;

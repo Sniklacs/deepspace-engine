@@ -417,5 +417,16 @@ export const ru: Catalogue = {
   "chat.locked": "Откроется позже",
   "chat.loggedOut": "Войдите, чтобы говорить со своим миром.",
 
+
+  // ---- THE RE-TIME (owner-ratified 2026-09-26) -------------------------
+  // Durations are DAY-SCALE now: the ratified ladder runs 4 h at the rim to
+  // 168 h at the deepest rung, so every "returns in…" string needs units above
+  // minutes. Four keys, one per scale, interpolated with nu-latn digits and
+  // rendered inside `<Bdi dir="ltr">` — the number is a run of its own, or a
+  // right-to-left sentence reorders it.
+  "dur.day": "{d} д {h} ч",
+  "dur.hour": "{h} ч {m} мин",
+  "dur.minute": "{m} мин {s} с",
+  "dur.second": "{s} с",
 };
 export default ru;
