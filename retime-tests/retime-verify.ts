@@ -25,8 +25,17 @@
 //   8. THE MEASUREMENT — every rung's run priced and valued in the game's own
 //      numbers (📦), so "does a run pay for itself" is answered, not assumed.
 //      MEASURED, and reported as a disagreement with the pacing brief: the flip
-//      does NOT land between rung 8 and rung 12 — no rung's ember-scrap loot
-//      covers ops + consumed gear + ordnance (rim −14.2 📦, deepest −337.9 📦).
+//      does NOT land between rung 8 and rung 12 — no rung's loot covers ops +
+//      consumed gear + ordnance (rim −13.9 📦, deepest −342.3 📦). THE PRICES NOW
+//      COME FROM `game/valuation.ts` (V1–V12): this section used to carry its own
+//      copies of them and had two omissions (the ordnance EMBERS half of the cost,
+//      and the engine's own loot multipliers) — both fixed here.
+//  10. THE VALUATION MODULE IS THE SOURCE (added 2026-09-27) — V1–V12 named,
+//      every [E] item tied to the engine, every [P] proposal labelled, the
+//      published figures pinned (shortfall, income-days, the 852,898 📦 bill, the
+//      10,680 📦 build-out, ≈335 days worst case) with FOUR in-memory controls that
+//      prove the pin can fail, plus one real stubbed resolve tying the loot column
+//      to what the engine actually pays.
 //   9. THE NETS AT EVERY RUNG (added 2026-09-27) — the demand identity at all 29
 //      rungs for two different incomes (a hard-coded price list cannot pass), the
 //      floor over every research and forge timer with an absurd stack, the
@@ -56,6 +65,8 @@ import {
   timedBuildObjectiveViolationsIn,
 } from "/home/team/shared/site/src/game/season-guard.ts";
 import { TECH_TREE, ARMORY_TREE } from "/home/team/shared/site/src/game/research.ts";
+// THE VALUATION (V1–V12) — one module, the only place a price is written down.
+import * as valuation from "/home/team/shared/site/src/game/valuation.ts";
 import type { GameState, Leader } from "/home/team/shared/site/src/game/types.ts";
 
 let pass = 0;
@@ -318,74 +329,70 @@ console.log("— 7 · THE COMPANIONS — deploy timer, the objective swap, the t
 console.log("— 8 · THE MEASUREMENT — what a run costs, what it returns, where it flips —");
 // ======================================================================
 {
-  // Priced in the game's OWN numbers, nothing invented:
-  //   · the CRAFT table is the 📦 price of every piece of gear a run burns;
-  //   · suppliesCostForZone is the operations cost;
-  //   · ordnance is 24 📦 + 8 🧯 a unit;
-  //   · the loot is valued at the engine's own Ember -> supplies scrap rate.
-  // The DEMAND is deliberately NOT in this column: it is denominated in the
-  // colony's income (income-days), so it is a calendar gate, not a resource cost.
-  // An Ember's 📦 value is a valuation choice — this table says which one.
-  const scrap = engine.suppliesScrapRate(colony("Scrap"));
-  const rows: {
-    rung: number; zone: string; hours: number; incomeDays: number; ops: number;
-    gear: number; ordnance: number; cost: number; loot: number; net: number;
-  }[] = [];
-  const pricer = colony("Pricer");
-  for (let k = 0; k < ZONES.length; k++) {
-    const z = ZONES[k];
-    const need = engine.requiredGear(z, 1);
-    const gear =
-      need.hazmat * engine.CRAFT.hazmat.supplies +
-      need.shots * engine.CRAFT.shots.supplies +
-      need.alloys * engine.CRAFT.alloy.supplies +
-      engine.gasNeed(z) * engine.CRAFT.gas.supplies +
-      engine.batteryNeed(z) * engine.CRAFT.battery.supplies +
-      engine.skmechNeed(z) * engine.CRAFT.skmech.supplies;
-    const ordUnits = engine.ordnanceUnitsForRung(k);
-    const ops = engine.suppliesCostForZone(pricer, z);
-    const cost = ops + gear + ordUnits * 24;
-    const loot = Math.round(z.emberYield * engine.emberYieldMult(pricer) * scrap * 100) / 100;
-    rows.push({
-      rung: k, zone: z.id, hours: z.baseDurationMs / 3_600_000,
-      incomeDays: engine.rungEntryDemandInIncomeDays(z), ops, gear, ordnance: ordUnits * 24,
-      cost, loot, net: Math.round((loot - cost) * 100) / 100,
-    });
-  }
-  const show = (k: number) => {
-    const r = rows[k];
+  // THE PRICES LIVE IN ONE MODULE: `site/src/game/valuation.ts` (V1–V12). This
+  // table used to carry its own copies of them, and it had TWO documented
+  // omissions — the ordnance EMBERS half of the cost, and the engine's OWN loot
+  // multipliers (crew factor, race `emberGain`, `e2`, economy boost). Both are
+  // fixed: the module reads the engine (the engine's own literals were NAMED
+  // there first), and this measurement reads the module. No price is a bare
+  // literal below. The DEMAND is still deliberately NOT in this column: it is
+  // denominated in the colony's own income (income-days) — a calendar gate, not a
+  // resource cost. §10 pins the totals and proves the pin can fail.
+  const st = colony("Measurement");
+  const pass = valuation.valuePass(st, { scientists: 1 });
+  const rows = pass.rows;
+  const show = (r: (typeof rows)[number]) => {
     console.log(
-      `     rung ${String(k).padStart(2)}  ${r.zone.padEnd(20)} ${r.hours.toFixed(2).padStart(7)} h  ` +
+      `     rung ${String(r.rung).padStart(2)}  ${r.zone.padEnd(20)} ${r.hours.toFixed(2).padStart(7)} h  ` +
         `demand ${r.incomeDays.toFixed(2).padStart(6)} inc-days  ops ${String(r.ops).padStart(3)}  ` +
-        `gear ${String(r.gear).padStart(3)}  ordnance ${String(r.ordnance).padStart(3)}  cost ${String(r.cost).padStart(4)}  ` +
-        `loot ${String(r.loot).padStart(6)}  net ${String(r.net).padStart(8)}`,
+        `gear ${String(r.gear).padStart(3)}  ordnance ${r.ordnance.toFixed(1).padStart(6)}  cost ${r.cost.toFixed(1).padStart(6)}  ` +
+        `loot ${r.loot.toFixed(2).padStart(6)}  net ${r.net.toFixed(2).padStart(8)}`,
     );
   };
   console.log("     — the first five rungs (the shallow ring must teach the loop) —");
-  for (let k = 0; k < 5; k++) show(k);
+  for (let k = 0; k < 5; k++) show(rows[k]);
   console.log("     — the deepest rung —");
-  show(28);
-  const flips = rows.map((r) => r.net).findIndex((n) => n < 0);
-  console.log(`     — the loop stops paying for itself (in 📦, before any demand) at rung ${flips} (${rows[flips].zone}) —`);
+  show(rows[28]);
+  console.log(
+    `     — the full pass: cost ${pass.cost} 📦, loot ${pass.loot} 📦, un-costed shortfall ${pass.shortfall} 📦 ` +
+      `= ${pass.shortfallIncomeDays.toFixed(3)} income-days at ${pass.incomePerDay} 📦/day —`,
+  );
+  console.log(`     — the loop stops paying for itself (in 📦, before any demand) at rung ${pass.firstRungThatDoesNotPay} (${rows[pass.firstRungThatDoesNotPay].zone}) —`);
   // MEASURED 2026-09-27, and it DISAGREES with the pacing brief, which expected the
   // flip between rung 8 (+1 📦) and rung 12 (−27 📦). What the engine's own numbers
-  // say is that NO rung's ember-scrap loot covers ops + consumed gear + ordnance:
-  // the rim is −14.2 📦 and the deepest −337.9 📦. The brief's small magnitudes come
-  // from a different loot valuation (this table prices an Ember at the engine's own
-  // scrap rate, 0.15 📦, and ignores chipsets/mats/Codices entirely). The check below
-  // pins the MEASUREMENT so a silent change to it is caught, and the disagreement is
-  // reported rather than smoothed over.
+  // say is that NO rung's loot covers ops + consumed gear + ordnance: the rim is
+  // −13.9 📦 and the deepest −342.3 📦. The brief's small magnitudes come from a
+  // different loot valuation. The checks below pin the MEASUREMENT so a silent
+  // change to it is caught, and the disagreement is reported rather than smoothed
+  // over.
   check(
-    "MEASURED: no rung's ember-scrap loot covers ops + gear + ordnance (the brief's 8→12 flip does NOT reproduce; measured flip is rung 0)",
-    rows[0].net < 0 && rows.slice(1, 5).every((r) => r.net < 0) && rows[28].net < 0,
+    "MEASURED: no rung's loot covers ops + gear + ordnance (the brief's 8→12 flip does NOT reproduce; measured flip is rung 0)",
+    rows.every((r) => r.net < 0),
     `rung0 ${rows[0].net}, rung4 ${rows[4].net}, rung28 ${rows[28].net}`,
   );
 
   check("the rim's run needs no gear and no ordnance at all", rows[0].gear === 0 && rows[0].ordnance === 0, JSON.stringify(rows[0]));
-  check("the rim's loot is worth 1.80 📦 at the engine's own scrap rate", rows[0].loot === 1.8, `${rows[0].loot}`);
+  check(
+    "the rim's loot is worth 2.10 📦 — the ENGINE's own crew + race multipliers (12 yield → 14 Embers), not the raw yield",
+    Math.abs(rows[0].lootEmbers - 2.1) < 1e-9 && Math.abs(rows[0].loot - 2.1) < 1e-9,
+    `${rows[0].lootEmbers}/${rows[0].loot}`,
+  );
   check("rung 0's demand is 1.00 income-days and rung 28's is 42.0", Math.abs(rows[0].incomeDays - 1) < 1e-9 && Math.abs(rows[28].incomeDays - 41.99) < 0.01);
-  check("the deepest rung's gear + ordnance alone is 296 📦 (128 gear + 168 ordnance)", rows[28].gear === 128 && rows[28].ordnance === 168, `${rows[28].gear}/${rows[28].ordnance}`);
-  check("the deepest run's loot is worth ~11 📦 at scrap — it does NOT pay for itself", rows[28].net < 0 && rows[28].net > -400, `${rows[28].net}`);
+  check(
+    "the deepest rung's gear + ordnance SUPPLIES alone is 296 📦 (128 gear + 168 ordnance)",
+    rows[28].gear === 128 && rows[28].ordnanceSupplies === 168,
+    `${rows[28].gear}/${rows[28].ordnanceSupplies}`,
+  );
+  check(
+    "…and the ordnance EMBER half the old column omitted is 8.4 📦 (56 🧯 × V1), taking the rung's cost to 357.4 📦",
+    rows[28].ordnanceEmbers === 56 && Math.abs(rows[28].ordnanceEmbersValue - 8.4) < 1e-9 && Math.abs(rows[28].ordnance - 176.4) < 1e-9 && Math.abs(rows[28].cost - 357.4) < 0.05,
+    `${rows[28].ordnanceEmbers}/${rows[28].ordnanceEmbersValue}/${rows[28].ordnance}/${rows[28].cost}`,
+  );
+  check(
+    "the deepest run's loot is worth 15.13 📦 (12.75 embers + 0.54 chipset + 1.84 plasma) — it still does NOT pay for itself",
+    Math.abs(rows[28].loot - 15.13) < 0.02 && rows[28].net < 0 && rows[28].net > -400,
+    `${rows[28].loot}/${rows[28].net}`,
+  );
   check("the shallow ring (rungs 0–4) costs no ordnance at all", rows.slice(0, 5).every((r) => r.ordnance === 0));
   check("every rung's demand is BELOW its own run timer in days (a run is not priced at a week to save a week)", rows.every((r) => r.incomeDays === (R * r.hours) / 24));
 }
@@ -533,5 +540,238 @@ console.log("— 9 · THE NETS THAT HAVE TO HOLD AT EVERY RUNG (added 2026-09-27
   check("no minutes-only duration renderer survives in src/", minutesOnly.length === 0, minutesOnly.join(","));
 }
 
+// ======================================================================
+console.log("— 10 · THE VALUATION MODULE IS THE SOURCE, AND THE PIN CANNOT PASS VACUOUSLY —");
+// ======================================================================
+// `/home/team/shared/loot-valuation-2026-09-27.md` priced this pass ON PAPER. This
+// section makes the code own those numbers: V1–V12 live in `game/valuation.ts`,
+// every [E] item must tie to the engine, every [P] item must be labelled, and the
+// published figures are pinned BESIDE controls that prove the pin can fail.
+{
+  const st = colony("Valuation");
+  const pass = valuation.valuePass(st, { scientists: 1 });
+  const near = (a: number, b: number, eps = 0.005) => Math.abs(a - b) < eps;
+  const moduleSrc = (await import("node:fs")).readFileSync("/home/team/shared/site/src/game/valuation.ts", "utf8");
+
+  // ---- 10a · the module names every item, and labels the proposals ----
+  check(
+    "the module names all twelve items, V1…V12, in order",
+    JSON.stringify(valuation.VALUATION_ITEMS.map((i) => i.id)) === JSON.stringify(["V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12"]),
+    valuation.VALUATION_ITEMS.map((i) => i.id).join(","),
+  );
+  check(
+    "exactly four items are OUR PROPOSALS ([P]) and they are named: V8, V9, V10, V11",
+    JSON.stringify(valuation.VALUATION_PROPOSAL_IDS) === JSON.stringify(["V8", "V9", "V10", "V11"]),
+    valuation.VALUATION_PROPOSAL_IDS.join(","),
+  );
+  check(
+    "every [P] carries PROPOSAL in its own name (the label cannot be lost in a refactor)",
+    ["V8_chipsetValueProposal", "V9_CODEX_VALUE_PROPOSAL", "V10_RACE_MATERIAL_VALUE_PROPOSAL", "V11_warplateCeilingProposal"].every((n) => moduleSrc.includes(n)),
+  );
+  check(
+    "the two fixed omissions are still switchable BY NAME in the module (which is how §10e proves the pin can fail)",
+    moduleSrc.includes("includeOrdnanceEmbers") && moduleSrc.includes("includeLootMultipliers"),
+  );
+
+  // ---- 10b · every [E] item is READ from the engine, not retyped ----
+  check("V1 IS the engine's own scrap rate (0.15 base)", valuation.V1_emberScrapRate(st) === engine.suppliesScrapRate(st) && valuation.V1_EMBER_SCRAP_RATE_BASE === 0.15);
+  check(
+    "V2 IS the engine's own ordnance unit (BOTH halves) and its per-rung unit count",
+    valuation.V2_ORDNANCE_SUPPLIES_PER_UNIT === engine.ORDNANCE_SUPPLIES_PER_UNIT &&
+      valuation.V2_ORDNANCE_EMBERS_PER_UNIT === engine.ORDNANCE_EMBERS_PER_UNIT &&
+      valuation.V2_ordnanceUnitsForRung(28) === engine.ordnanceUnitsForRung(28) &&
+      valuation.V2_ordnanceUnitsForRung(28) === 7,
+  );
+  check("V3 IS the engine's own pricer", pass.rows[28].ops === engine.suppliesCostForZone(st, ZONES[28]));
+  check(
+    "V4 IS the engine's own CRAFT table",
+    valuation.V4_GEAR_UNIT_PRICES.hazmat === engine.CRAFT.hazmat.supplies &&
+      valuation.V4_GEAR_UNIT_PRICES.shots === engine.CRAFT.shots.supplies &&
+      valuation.V4_GEAR_UNIT_PRICES.alloy === engine.CRAFT.alloy.supplies &&
+      valuation.V4_GEAR_UNIT_PRICES.gas === engine.CRAFT.gas.supplies,
+  );
+  check(
+    "V5 IS the engine's own gear-need model (rung 28 burns 3 hazmat + 3 shots + 2 alloys at one scientist)",
+    valuation.V5_gearSupplies(st, ZONES[28], 1).value === pass.rows[28].gear &&
+      engine.requiredGear(ZONES[28], 1).alloys === 2 &&
+      pass.rows[28].gear === 128,
+  );
+  check(
+    "V6 IS the engine's own plasma rate and deep-salvage table (25 🧯 → 1, 2–5 at 30%)",
+    valuation.V6_PLASMA_REFINE_EMBERS === 25 && valuation.V6_PLASMA_MEAN_SALVAGE_UNITS === 3.5 && valuation.V6_PLASMA_SALVAGE_CHANCE === 0.3,
+  );
+  check(
+    "V7 prices insight through the engine's OWN study grants (2 Embers → 33 insight)",
+    engine.studyInsightGranted(st, "ember") === 33 && near(valuation.V7_insightValue(st, 0.15) * 33, engine.STUDY_EMBER_COST * 0.15, 1e-9),
+  );
+  check(
+    "V8 prices a Chipset from the engine's OWN chipset study (127 insight) — and it is a FLOOR, since no Chipset is consumed",
+    engine.studyInsightGranted(st, "chipset") === 127 && near(valuation.V8_chipsetValueProposal(st, 0.15), 127 * valuation.V7_insightValue(st, 0.15), 1e-9) && near(valuation.V8_chipsetValueProposal(st, 0.15), 1.1545, 0.001),
+  );
+  check(
+    "V12 IS the engine's mild-salvage odds × the engine's CRAFT prices (13% × 1.5 × (60% hazmat + 40% shots) = 1.404 📦)",
+    near(valuation.V12_mildRingSalvageValue(st), 1.404, 0.001) &&
+      near(
+        engine.MILD_SALVAGE_CHANCE *
+          (1 + engine.MILD_SALVAGE_SECOND_UNIT_CHANCE) *
+          (engine.MILD_SALVAGE_HAZMAT_SHARE * engine.CRAFT.hazmat.supplies + (1 - engine.MILD_SALVAGE_HAZMAT_SHARE) * engine.CRAFT.shots.supplies),
+        valuation.V12_mildRingSalvageValue(st),
+        1e-9,
+      ),
+  );
+
+  // ---- 10c · THE PIN — the published figures, asserted ----
+  check("PINNED: the un-costed shortfall of a full pass is 3,802.44 📦", near(pass.shortfall, 3802.44, 5), `${pass.shortfall}`);
+  check("PINNED: …which is 1.467 income-days at the rim colony's own income", near(pass.shortfallIncomeDays, 1.467, 0.005), `${pass.shortfallIncomeDays.toFixed(4)}`);
+  check("PINNED: the pass costs 4,124.80 📦 and returns 322.36 📦", near(pass.cost, 4124.8, 1) && near(pass.loot, 322.36, 2), `${pass.cost}/${pass.loot}`);
+  check("PINNED: the income basis is the bare Watchers floor — 2,592 📦/day", pass.incomePerDay === 2592);
+  check(
+    "PINNED: the ladder is 329.05 income-days and an 852,898 📦 bill (the engine's own rounded Σ demand)",
+    near(pass.ladderIncomeDays, 329.05, 0.01) && pass.ladderSupplies === 852898,
+    `${pass.ladderIncomeDays.toFixed(3)}/${pass.ladderSupplies}`,
+  );
+  check(
+    "PINNED: the armory build-out is 10,680 📦 (6,900 supplies + 945 ⛽ = 3,780) = 4.12 income-days",
+    pass.armoryBuildOut.total === 10680 && pass.armoryBuildOut.fuelSupplies === 3780 && near(pass.armoryBuildOutIncomeDays, 4.12, 0.01),
+    JSON.stringify(pass.armoryBuildOut),
+  );
+  check(
+    "PINNED: the worst case is 334.6 days — still the published ≈335 (329.05 + 1.467 + 4.12)",
+    near(pass.worstCaseDays, 334.6, 0.2) && Math.round(pass.worstCaseDays) === 335,
+    `${pass.worstCaseDays.toFixed(2)}`,
+  );
+
+  // ---- 10d · the flip, and the deep ring's gap ----
+  check(
+    "the flip at the measurement's defaults is rung 0: NO rung pays for itself",
+    pass.payingRungs.length === 0 && pass.firstRungThatDoesNotPay === 0,
+    JSON.stringify(pass.payingRungs),
+  );
+
+  // the game's BEST endowments: 8 scientists + e1 + a2 ⇒ 0.44 📦/ember
+  const best = colony("ValuationBest");
+  best.techsResearched = ["e1", "a2"];
+  engine.advance(best, now);
+  const bestPass = valuation.valuePass(best, { scientists: 8 });
+  check("the best-endowment rate is the engine's own 0.44 📦/ember (0.30 e1 + 0.14 a2)", bestPass.emberScrapRate === 0.44, `${bestPass.emberScrapRate}`);
+  check(
+    "at the game's best endowments rungs 0–5 pay and rung 6 (the FIRST ALLOY rung) is the first that never does",
+    JSON.stringify(bestPass.payingRungs) === JSON.stringify([0, 1, 2, 3, 4, 5]) && bestPass.firstRungThatDoesNotPay === 6,
+    `${JSON.stringify(bestPass.payingRungs)} first ${bestPass.firstRungThatDoesNotPay}`,
+  );
+  check(
+    "…and the flip is NEVER at rungs 8–12 in either regime (the brief's 8→12 expectation does not reproduce)",
+    [8, 9, 10, 11, 12].every((k) => bestPass.rows[k].net < 0 && pass.rows[k].net < 0),
+  );
+  check(
+    "the seven alloy rungs (rad ≥ 35: 6,7,8,9,26,27,28) are negative in EVERY regime tested",
+    [6, 7, 8, 9, 26, 27, 28].every((k) => bestPass.rows[k].net < 0 && pass.rows[k].net < 0),
+  );
+
+  const gap = valuation.deepRingGap(pass);
+  check("the deepest run is short by ~23×: its 15.13 📦 of loot would have to become 357.4 📦", gap.ratio > 20 && gap.ratio < 26, `${gap.ratio.toFixed(2)}`);
+  check("…and NO constant closes it: with the whole ordnance charge removed it is STILL 12× short", gap.withoutOrdnanceLootRatio >= 11, `${gap.withoutOrdnanceLootRatio.toFixed(2)}`);
+  check(
+    "ordnance is the single largest lever (~48–49% of the deepest bill) and moving it does not make the ring pay",
+    gap.ordnanceShare > 0.45 && gap.ordnanceShare < 0.5,
+    `${gap.ordnanceShare.toFixed(3)}`,
+  );
+
+  // ---- 10e · THE NEGATIVE CONTROL — the pin must be able to fail ----
+  // Four perturbations, all IN MEMORY (no engine constant is edited, nothing is
+  // written to disk), plus the pre-fix column itself. Each must move the shortfall
+  // outside the pin's own tolerance — otherwise §10c would pass on a reverted
+  // column, which is exactly the vacuous green this section exists to prevent.
+  const TOL = 5;
+  const shortfallWith = (o: valuation.PassOptions) => valuation.valuePass(st, { scientists: 1, ...o }).shortfall;
+
+  // (1) the PRE-FIX column: both omissions restored AND the four loot items that
+  // column never priced. It must reproduce the old published figures exactly.
+  const legacyPass = valuation.valuePass(st, {
+    scientists: 1,
+    includeOrdnanceEmbers: false,
+    includeLootMultipliers: false,
+    includeChipset: false,
+    includePlasma: false,
+    includeSalvage: false,
+    includeRaceMaterial: false,
+  });
+  check(
+    "CONTROL 1 (the pre-fix column) reproduces the OLD published rungs exactly: rim −14.2 📦, deepest −337.9 📦",
+    near(legacyPass.rows[0].net, -14.2, 0.01) && near(legacyPass.rows[28].net, -337.9, 0.01),
+    `${legacyPass.rows[0].net}/${legacyPass.rows[28].net}`,
+  );
+  check(
+    "CONTROL 1 …and its shortfall is 3,836.65 📦 = 1.480 income-days (the figure the two fixes replaced)",
+    near(legacyPass.shortfall, 3836.65, 5) && near(legacyPass.shortfall / pass.incomePerDay, 1.4802, 0.005),
+    `${legacyPass.shortfall}/${(legacyPass.shortfall / pass.incomePerDay).toFixed(4)}`,
+  );
+  // (2) each omission on its own, so the report can name what each fix was worth
+  const noOrdEmbers = shortfallWith({ includeOrdnanceEmbers: false });
+  check(
+    "CONTROL 2 (the cost omission alone) moves the pin by the whole ordnance-ember charge — exactly 100.80 📦",
+    near(noOrdEmbers, 3701.64, 5) && near(pass.shortfall - noOrdEmbers, 100.8, 0.01),
+    `${noOrdEmbers} (Δ ${(pass.shortfall - noOrdEmbers).toFixed(2)})`,
+  );
+  const noMultipliers = shortfallWith({ includeLootMultipliers: false });
+  check(
+    "CONTROL 3 (the loot omission alone) moves the pin UP by 29.10 📦 — the raw zone yield understates the haul",
+    near(noMultipliers, 3831.54, 5) && near(noMultipliers - pass.shortfall, 29.1, 0.01),
+    `${noMultipliers} (Δ ${(noMultipliers - pass.shortfall).toFixed(2)})`,
+  );
+  // (3) a CONSTANT nudged in memory — V1 0.15 → 0.30 — and (4) a bigger crew
+  const nudged = shortfallWith({ emberScrapRate: 0.3 });
+  check(
+    "CONTROL 4 (V1 nudged 0.15 → 0.30 in memory) moves the pin to 3,668.59 📦",
+    near(nudged, 3668.59, 5) && Math.abs(nudged - pass.shortfall) > 100,
+    `${nudged}`,
+  );
+  const crew = shortfallWith({ scientists: 8 });
+  check("CONTROL 5 (crew 1 → 8 scientists) moves the pin to 4,917.64 📦", near(crew, 4917.64, 5) && Math.abs(crew - pass.shortfall) > 100, `${crew}`);
+  check(
+    "…and EVERY control is outside the pin's ±5 📦 tolerance, so the pin cannot pass vacuously",
+    [legacyPass.shortfall, noOrdEmbers, noMultipliers, nudged, crew].every((v) => Math.abs(v - pass.shortfall) > TOL),
+    [legacyPass.shortfall, noOrdEmbers, noMultipliers, nudged, crew].map((v) => v.toFixed(0)).join("/"),
+  );
+
+  // ---- 10f · THE ENGINE TIE — the loot column is what the engine actually PAYS ----
+  // The strongest tie available, and the one that makes retyping impossible: with
+  // `Math.random` pinned to 0.5 the loot variance is exactly 1.0, no wildcard
+  // fires, no chipset rolls and the radiation loss is zero — so a REAL resolve
+  // must grant exactly the module's nominal ember yield.
+  {
+    const realRandom = Math.random;
+    Math.random = () => 0.5;
+    try {
+      const probe = colony("EngineTie");
+      const zone = ZONES[28];
+      const expected = Math.max(1, Math.round(engine.emberYieldNominal(probe, zone, 1)));
+      const launched = engine.launchExpedition(probe, zone.id, 1, now);
+      engine.advance(probe, now + (probe.expeditions[0]?.durationMs ?? 0) + 1_000);
+      check(
+        "the engine's OWN resolve grants exactly the module's nominal yield (rung 28, variance neutralised): 85 Embers",
+        launched.ok === true && probe.totalEmbersLooted === expected && expected === 85,
+        `granted ${probe.totalEmbersLooted}, nominal ${expected}, launch ${launched.error ?? "ok"}`,
+      );
+      check(
+        "…which is the measured column's lootEmbers ÷ V1 to the Ember (12.75 📦 ÷ 0.15)",
+        near(pass.rows[28].lootEmbers / pass.emberScrapRate, expected, 0.5),
+        `${pass.rows[28].lootEmbers / pass.emberScrapRate} vs ${expected}`,
+      );
+    } finally {
+      Math.random = realRandom;
+    }
+  }
+
+  // ---- 10g · the two things this slice deliberately did NOT fix ----
+  check(
+    "the Chipset defect is still OPEN and the module says so (a Chipset is a FLOOR, not a value)",
+    /a chipset is never consumed/i.test(moduleSrc) && /beginStudy/.test(moduleSrc),
+  );
+  check(
+    "no engine balance constant moved for this slice — the cost column is still an unteched upper bound",
+    /upper bound/i.test(moduleSrc) && pass.rows[0].ops === 16 && pass.rows[28].ops === 53,
+  );
+}
 console.log(`\nretime-tests: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

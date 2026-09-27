@@ -350,6 +350,16 @@ export function deployDurationMs(state: GameState, domain: DomainId): number {
 
 
 
+// ------- the mild-ring incidental salvage (the valuation's V12) -------
+//
+// Named for the same reason the yield model is: a run's incidental haul is a
+// priceable quantity, and a measurement must read the odds from the engine
+// rather than retype them. `resolveExpedition` below uses THESE.
+export const MILD_SALVAGE_RAD_MIN = 20;
+export const MILD_SALVAGE_CHANCE = 0.13;
+export const MILD_SALVAGE_SECOND_UNIT_CHANCE = 0.5;
+export const MILD_SALVAGE_HAZMAT_SHARE = 0.6;
+
 // ------- radiation model -------
 
 // Deep zones need radiation gear (hazmat/shots/alloys) + the pre-launch risk
@@ -1247,16 +1257,89 @@ export function chorusMult(state: GameState): number {
 export function attritionMult(state: GameState): number {
   return hasTech(state, "a3") ? 0.6 : 1;
 }
+/**
+ * THE Ember→supplies scrap rate (named for the valuation's V1). This is the rate
+ * the engine ITSELF applies at the drop — `resolveExpedition` credits
+ * `round(embers x suppliesScrapRate(state))` supplies — so a measurement that
+ * prices an Ember in 📦 reads these three constants rather than retyping them.
+ */
+export const EMBER_SCRAP_RATE_BASE = 0.15;
+export const EMBER_SCRAP_RATE_E1 = 0.3; // Trade Ledgers
+export const EMBER_SCRAP_RATE_A2_BONUS = 0.14; // Seed Vaults: +60% on top of base scrap
 /** Ember→supplies scrap rate (e1 Trade Ledgers + a2 Seed Vaults). */
 export function suppliesScrapRate(state: GameState): number {
-  let r = 0.15;
-  if (hasTech(state, "e1")) r = 0.3;
-  if (hasTech(state, "a2")) r += 0.14; // Seed Vaults: +60% on top of base scrap
+  let r = EMBER_SCRAP_RATE_BASE;
+  if (hasTech(state, "e1")) r = EMBER_SCRAP_RATE_E1;
+  if (hasTech(state, "a2")) r += EMBER_SCRAP_RATE_A2_BONUS;
   return r;
 }
 /** Ember yield multiplier (e2 Salvage Contracts). */
 export function emberYieldMult(state: GameState): number {
   return hasTech(state, "e2") ? 1.08 : 1;
+}
+
+// ------- THE EMBER-YIELD MODEL, NAMED (the loot valuation's source) -------
+//
+// These factors are the whole of what `resolveExpedition` multiplies into a
+// zone's `emberYield` (the random `variance` is the last one, and is the only
+// term a measurement must neutralise to speak of a nominal run). They used to be
+// bare literals inside the resolver, which meant "what the engine pays for a run"
+// could only be quoted, never read: `game/valuation.ts` (V1–V12) imports THESE,
+// and `resolveExpedition` below calls the same functions, so the module and the
+// engine cannot drift apart. No value changed — only names were added.
+
+/** Crew size is the biggest lever on a run's loot: 0.7 + 0.4 per scientist. */
+export const SCIENTIST_YIELD_BASE = 0.7;
+export const SCIENTIST_YIELD_PER = 0.4;
+export function scientistYieldFactor(scientists: number): number {
+  return SCIENTIST_YIELD_BASE + scientists * SCIENTIST_YIELD_PER;
+}
+/** Deployed economy domains (+6% each) with a Quartermaster mandate on top. */
+export const ECONOMY_EMBER_BOOST_PER_LEVEL = 0.06;
+export function economyEmberBoost(state: GameState): number {
+  return (1 + (state.deployedDomains.economy ?? 0) * ECONOMY_EMBER_BOOST_PER_LEVEL) * quartermasterEconomyMult(state);
+}
+/** The +/-20% loot roll: 0.8 at roll 0, 1.2 at roll 1 (nominal = roll 0.5). */
+export const LOOT_VARIANCE_MIN = 0.8;
+export const LOOT_VARIANCE_MAX = 1.2;
+export function lootVariance(roll: number = Math.random()): number {
+  return LOOT_VARIANCE_MIN + roll * (LOOT_VARIANCE_MAX - LOOT_VARIANCE_MIN);
+}
+/** Corruption taints what a run brings home — a penalty, never a loss. */
+export const CORRUPTION_YIELD_PENALTY_DIVISOR = 200;
+export function corruptionYieldPenalty(state: GameState): number {
+  return 1 - state.corruption / CORRUPTION_YIELD_PENALTY_DIVISOR;
+}
+/**
+ * The engine's own NOMINAL ember yield for one run: every multiplier applied and
+ * the variance EXCLUDED (it is the random term; its expectation is 1.0). Read by
+ * `game/valuation.ts` and asserted against a real stubbed resolve in
+ * `retime-tests`, so the valuation's loot column is engine-true, not a guess.
+ */
+export function emberYieldNominal(state: GameState, zone: Zone, scientists: number): number {
+  const race = getRace(state.race!);
+  return (
+    zone.emberYield *
+    scientistYieldFactor(scientists) *
+    race.mods.emberGain *
+    emberYieldMult(state) *
+    economyEmberBoost(state) *
+    corruptionYieldPenalty(state)
+  );
+}
+
+/**
+ * The two constants of a STUDY — the cheapest engine path to insight, which is
+ * how the valuation prices a Chipset (V8). Named here so the lab's prices are
+ * read, not retyped: an Ember study burns `STUDY_EMBER_COST` Embers, and the
+ * Watchers' Academy grants `WATCHERS_STUDY_BOOST` on top of `insightFor`.
+ */
+export const STUDY_EMBER_COST = 2;
+export const WATCHERS_STUDY_BOOST = 1.3;
+/** The insight a completed study actually grants (boost applied, rounded) — the
+ *  SAME number `advance()` credits and its Chronicle line prints. */
+export function studyInsightGranted(state: GameState, kind: "ember" | "chipset"): number {
+  return Math.round(insightFor(state, kind) * (state.race === "watchers" ? WATCHERS_STUDY_BOOST : 1));
 }
 
 
@@ -1566,10 +1649,10 @@ export function advance(state: GameState, now = Date.now()): GameState {
   for (const s of state.studies) {
     if (s.status === "studying" && now - s.startedAt >= s.durationMs) {
       s.status = "complete";
-      const boost = state.race === "watchers" ? 1.3 : 1;
-      state.insight += Math.round(insightFor(state, s.kind) * boost);
+      const gained = studyInsightGranted(state, s.kind);
+      state.insight += gained;
       const prog = state.race === "watchers" ? "A taint lingers in the Academy's lesson. " : "";
-      log(state, `${prog}A scientist finished studying ${s.kind === "ember" ? "an Ember" : "a Chipset"}. Knowledge distilled — insight +${Math.round(insightFor(state, s.kind) * boost)}.`);
+      log(state, `${prog}A scientist finished studying ${s.kind === "ember" ? "an Ember" : "a Chipset"}. Knowledge distilled — insight +${gained}.`);
     }
   }
 
@@ -1868,11 +1951,11 @@ export function resolveExpedition(state: GameState, e: (typeof state.expeditions
   if (sciLost > 0) state.scientists = Math.max(1, state.scientists - sciLost);
 
   // ---- yield (Quartermaster economy effectiveness applies to embers) ----
-  const scientistFactor = 0.7 + sci * 0.4;
+  const scientistFactor = scientistYieldFactor(sci);
   const base = zone.emberYield * scientistFactor * r.mods.emberGain * emberYieldMult(state); // e2 Salvage Contracts
-  const econBoost = (1 + state.deployedDomains.economy * 0.06) * quartermasterEconomyMult(state); // Quartermaster mandate
-  const corruptionPenalty = 1 - state.corruption / 200;
-  const variance = 0.8 + Math.random() * 0.4;
+  const econBoost = economyEmberBoost(state); // economy domains + Quartermaster mandate
+  const corruptionPenalty = corruptionYieldPenalty(state);
+  const variance = lootVariance();
   let embers = Math.max(1, Math.round(base * econBoost * variance * corruptionPenalty));
   if (radiationHit) embers = Math.max(1, Math.round(embers * (1 - lossFraction)));
   if (wc === "bumped") embers = Math.max(1, Math.round(embers * 0.7));
@@ -1890,9 +1973,14 @@ export function resolveExpedition(state: GameState, e: (typeof state.expeditions
 
   // Mild-zone incidental salvage: rad 20-40 sometimes recovers 1-2 hazmat/shots.
   // (Never alloys — those are forged only.) A lost team brings none of it home.
-  if (wc !== "lost" && zone.radiationLevel >= 20 && zone.radiationLevel < DEEP && coin(0.13)) {
-    const qty = 1 + (coin(0.5) ? 1 : 0);
-    if (coin(0.6)) state.resources.hazmat += qty;
+  if (
+    wc !== "lost" &&
+    zone.radiationLevel >= MILD_SALVAGE_RAD_MIN &&
+    zone.radiationLevel < DEEP &&
+    coin(MILD_SALVAGE_CHANCE)
+  ) {
+    const qty = 1 + (coin(MILD_SALVAGE_SECOND_UNIT_CHANCE) ? 1 : 0);
+    if (coin(MILD_SALVAGE_HAZMAT_SHARE)) state.resources.hazmat += qty;
     else state.resources.shots += qty;
   }
 
@@ -2227,11 +2315,16 @@ export function beginStudy(state: GameState, kind: "ember" | "chipset", now = Da
   if (state.studies.filter((s) => s.status === "studying").length >= state.scientists) {
     return fail(`All ${state.scientists} scientist(s) are already busy. Deploy Logistics AI to raise capacity.`);
   }
-  if (kind === "ember" && state.resources.embers < 2) return fail("Need at least 2 Embers to study.");
+  if (kind === "ember" && state.resources.embers < STUDY_EMBER_COST) {
+    return fail(`Need at least ${STUDY_EMBER_COST} Embers to study.`);
+  }
+  // DEFECT (filed, NOT fixed here): the chipset branch checks a Chipset and
+  // deducts NOTHING, so one Chipset is infinite insight. Do not "fix" it in a
+  // valuation slice — the valuation prices a Chipset as a FLOOR because of it.
   if (kind === "chipset") {
     if (state.resources.chipsets < 1) return fail("You have no Chipsets. Only deep scientific sites yield them.");
   } else {
-    state.resources.embers -= 2;
+    state.resources.embers -= STUDY_EMBER_COST;
   }
   const id = "std-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
   state.studies.push({ id, kind, startedAt: now, durationMs: studyDurationMs(state, kind), status: "studying" });
