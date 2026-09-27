@@ -30,13 +30,24 @@ import * as engine from "/home/team/shared/site/src/game/engine.ts";
 import { ZONES, RUNG_TIMER_MS, rungOfZone, rungTimerMs, legacyZoneBaseMs } from "/home/team/shared/site/src/game/zones.ts";
 import {
   DAILY_OBJECTIVES,
+  WEEKLY_OBJECTIVES,
   SEASON_XP_PER_TIER,
   SEASON_EARNABLE_XP_PER_DAY,
   SEASON_FULL_LADDER_XP,
   SEASON_TIER_COUNT,
-  timedBuildObjectiveViolations,
 } from "/home/team/shared/site/src/game/monetization.ts";
-import type { GameState } from "/home/team/shared/site/src/game/types.ts";
+// The standing-rule watchlist moved to its own module on 2026-09-27 (it has to
+// name the armory's build objective, and monetization.ts is scanned word by word
+// by the earn-only tripwire). The rule, the list and the `complete_` prefix net
+// are all still here, and this suite still asserts them.
+import {
+  TIMED_BUILD_OBJECTIVE_IDS,
+  isTimedBuildObjectiveId,
+  timedBuildObjectiveViolations,
+  timedBuildObjectiveViolationsIn,
+} from "/home/team/shared/site/src/game/season-guard.ts";
+import { TECH_TREE, ARMORY_TREE } from "/home/team/shared/site/src/game/research.ts";
+import type { GameState, Leader } from "/home/team/shared/site/src/game/types.ts";
 
 let pass = 0;
 let fail = 0;
@@ -355,6 +366,149 @@ console.log("— 8 · THE MEASUREMENT — what a run costs, what it returns, whe
   check("the deepest run's loot is worth ~11 📦 at scrap — it does NOT pay for itself", rows[28].net < 0 && rows[28].net > -400, `${rows[28].net}`);
   check("the shallow ring (rungs 0–4) costs no ordnance at all", rows.slice(0, 5).every((r) => r.ordnance === 0));
   check("every rung's demand is BELOW its own run timer in days (a run is not priced at a week to save a week)", rows.every((r) => r.incomeDays === (R * r.hours) / 24));
+}
+
+// ======================================================================
+console.log("— 9 · THE NETS THAT HAVE TO HOLD AT EVERY RUNG (added 2026-09-27) —");
+// ======================================================================
+
+// 9a · THE DEMAND IS INCOME-DENOMINATED AT EVERY RUNG — not sampled at 0/4/28.
+// The whole point of the design is that NO price list exists. A sampled check
+// passes for a literal that happens to agree at the sampled rungs; this one
+// scales the COLONY's income and requires all 29 rungs to move with it.
+{
+  const lean = colony("NetLean");
+  const fat = colony("NetFat");
+  fat.deployedDomains.agriculture = 10;
+  fat.deployedDomains.economy = 10;
+  const iLean = engine.suppliesIncomePerDay(lean);
+  const iFat = engine.suppliesIncomePerDay(fat);
+  check("the two probe colonies really have different incomes (a real scale test)", iFat > iLean * 1.05, `${iLean.toFixed(1)} vs ${iFat.toFixed(1)} 📦/day`);
+  let formulaOk = 0;
+  let everyRungScales = true;
+  let dev = 0;
+  for (let k = 0; k < ZONES.length; k++) {
+    const z = ZONES[k];
+    const hours = z.baseDurationMs / 3_600_000;
+    if (engine.rungEntryDemand(lean, z) === Math.round((R * hours * iLean) / 24)) formulaOk++;
+    if (engine.rungEntryDemand(fat, z) === Math.round((R * hours * iFat) / 24)) formulaOk++;
+    const dLean = engine.rungEntryDemand(lean, z);
+    const dFat = engine.rungEntryDemand(fat, z);
+    if (!(dFat > dLean)) everyRungScales = false; // a literal price would pin these equal
+    dev = Math.max(dev, Math.abs(dFat / dLean - iFat / iLean));
+  }
+  check("D(k) = R × d(k) × I / 24 at ALL 29 rungs, for both incomes (58 identities)", formulaOk === 58, `${formulaOk}/58`);
+  check("every rung's demand MOVES with income — a hard-coded price list cannot pass", everyRungScales);
+  check("…and each rung moves by exactly the income ratio (no per-rung fudge factor)", dev < 0.02, `worst deviation ${dev.toFixed(5)}`);
+  // the same colony, same income, asked twice: the demand is a function, not a roll
+  check("the demand is deterministic for a given colony, rung after rung", ZONES.every((z) => engine.rungEntryDemand(lean, z) === engine.rungEntryDemand(lean, z)));
+}
+
+// 9b · THE FLOOR HOLDS OVER EVERY TIMED BUILD, including a stack no player can
+// reach. §5 measured today's worst EARNED research stack (~0.31×, above the
+// floor); this asks the structural question — can ANY earned stack collapse a
+// timer? — with an absurd one, over all 30 techs and all 7 forge nodes.
+{
+  const st = colony("FloorNet");
+  st.deployedDomains.industry = 10;
+  const seed = st.leaders[0];
+  const absurd: Leader = { ...seed, specialization: "scholar", attributes: { ...seed.attributes, research: 100 } };
+  const floorOf = (base: number) => Math.round(base * engine.MIN_TIMER_FRACTION);
+  const belowTech = TECH_TREE.filter((t) => engine.researchDurationMs(st, t.id, absurd) < floorOf(t.durationMs));
+  const clampedTech = TECH_TREE.filter((t) => engine.researchDurationMs(st, t.id, absurd) === floorOf(t.durationMs));
+  check(`no earned stack can push ANY of the ${TECH_TREE.length} research timers under the floor`, belowTech.length === 0, belowTech.map((t) => t.id).join(","));
+  check("…and the floor is a LIVE clamp, not decoration (a 100-point Scholar sits on it)", clampedTech.length > 0, `${clampedTech.length}/${TECH_TREE.length}`);
+  const belowArm = ARMORY_TREE.filter((n) => engine.armoryResearchDurationMs(st, n.id, absurd) < floorOf(n.durationMs));
+  check(`the same floor holds over all ${ARMORY_TREE.length} forge research nodes`, belowArm.length === 0, belowArm.map((n) => n.id).join(","));
+  // the launch stack, at the rung where the timer is longest
+  const launcher = colony("FloorLaunch");
+  launcher.deployedDomains.industry = 10;
+  const lr = engine.launchExpedition(launcher, ZONES[28].id, 1, now);
+  check("a run's landing band is floored too (169 h can never become minutes)", lr.ok === true && launcher.expeditions[0].durationMs >= floorOf(ZONES[28].baseDurationMs), `${launcher.expeditions[0]?.durationMs}`);
+}
+
+// 9c · THE MIGRATION'S MULTIPLIER IS DIRECTION-AGNOSTIC. A real save only ever
+// moves UP this ladder (every rung is longer than its legacy base — asserted),
+// but the re-base itself must not care which way the base moved, so both a
+// stored run BELOW its old base and one ABOVE it (an extended run) are proven.
+{
+  let allLonger = true;
+  for (let k = 0; k < ZONES.length; k++) if (!(RUNG_TIMER_MS[k] > legacyZoneBaseMs(ZONES[k].id))) allLonger = false;
+  check("every rung's new base is LONGER than its legacy base (the real migration direction)", allLonger);
+
+  const rebased = (name: string, storedMs: number, startedAt: number) => {
+    const s = engine.newGame(name, "watchers", now - 10_000);
+    s.expeditions.push({
+      id: "exp-" + name, zoneId: "outer-ruins", label: "Outer Ruins", assignedScientists: 1,
+      suppliesCost: 16, startedAt, durationMs: storedMs, status: "out",
+      lossPct: 0, protection: 0.5, pureAtLaunch: true,
+    } as (typeof s.expeditions)[number]);
+    s.timerRebase = undefined;
+    engine.advance(s, now);
+    return s;
+  };
+  const oldBase = legacyZoneBaseMs("outer-ruins");
+  const newBase = RUNG_TIMER_MS[0];
+  const downState = rebased("DownUnder", Math.round(oldBase * 0.5), now - 10_000);
+  const under = downState.expeditions[0];
+  const upState = rebased("DownOver", Math.round(oldBase * 1.5), now - 10_000);
+  const over = upState.expeditions[0];
+  check("(direction 1) a run BELOW its old base re-bases to the same fraction of the new base", under.durationMs === Math.round(oldBase * 0.5 * (newBase / oldBase)), `${under.durationMs}`);
+  check("(direction 2) a run ABOVE its old base (an extended one) re-bases by the SAME factor", over.durationMs === Math.round(oldBase * 1.5 * (newBase / oldBase)), `${over.durationMs}`);
+  check("both directions keep the run RUNNING (neither resolved, neither vanished)", under.status === "out" && over.status === "out");
+  check("both directions discard the elapsed clock (the re-base is a fresh start)", under.startedAt === now && over.startedAt === now);
+  check("both directions carry the stamp, so a second deploy cannot re-base them again", downState.timerRebase === 1 && upState.timerRebase === 1);
+  // and the second advance really is a no-op (the stamp, not the arithmetic, is the guard)
+  const beforeSecond = over.durationMs;
+  engine.advance(upState, now + 5_000);
+  check("a second advance leaves a re-based run exactly where the re-base put it", upState.expeditions[0].durationMs === beforeSecond && upState.expeditions[0].startedAt === now);
+}
+
+// 9d · THE STANDING-RULE NET — proven to catch a re-addition, not just quiet today.
+{
+  const live = [...DAILY_OBJECTIVES, ...WEEKLY_OBJECTIVES].map((o) => o.id);
+  check("the watchlist names the ARMORY build objective (it was NOT narrowed to fit)", TIMED_BUILD_OBJECTIVE_IDS.includes("complete_armory_build"), TIMED_BUILD_OBJECTIVE_IDS.join(","));
+  check("…and still names every id it carried before", ["complete_research", "complete_build", "complete_deploy", "complete_expedition"].every((id) => TIMED_BUILD_OBJECTIVE_IDS.includes(id)));
+  check("the net is wider than the list: ANY `complete_*` id is refused", isTimedBuildObjectiveId("complete_anything_at_all") === true);
+  check("…and a real ACTIVITY is not refused", ["launch_expedition", "study", "craft_item", "deploy_program", "daily_list", "expedition_complete", "deep_site", "codex_recovered"].every((id) => !isTimedBuildObjectiveId(id)));
+  check("a re-added timed-build objective FAILS LOUDLY (this suite would go red)", JSON.stringify(timedBuildObjectiveViolationsIn([...live, "complete_armory_build"])) === JSON.stringify(["complete_armory_build"]));
+  check("a re-added objective named `complete_<new>` fails just as loudly", timedBuildObjectiveViolationsIn(["complete_season_trial"]).length === 1);
+  check("the live objective set is empty of violations", timedBuildObjectiveViolations().length === 0, timedBuildObjectiveViolations().join(","));
+  check("…and carries no `complete_` id at all (the rule, read from the data)", live.every((id) => !id.startsWith("complete_")));
+}
+
+// 9e · THE ONE FORMATTER — a week is a week in every language, and there is no
+// second formatter left in the shipped source to disagree with it.
+{
+  const { fmtDuration } = await import("/home/team/shared/site/src/game/i18n/format.ts");
+  const { makeT } = await import("/home/team/shared/site/src/game/i18n/index.ts");
+  const deep = RUNG_TIMER_MS[28];
+  const en = fmtDuration(makeT("en"), deep);
+  check("the deepest run reads DAYS, not `10080m 0s`", en === "6d 23h", en);
+  check("a rim run still reads hours-and-minutes", fmtDuration(makeT("en"), RUNG_TIMER_MS[0]) === "4h 0m", fmtDuration(makeT("en"), RUNG_TIMER_MS[0]));
+  check("a sub-hour timer still reads minutes-and-seconds", fmtDuration(makeT("en"), 90_000) === "1m 30s", fmtDuration(makeT("en"), 90_000));
+  check("a negative remainder floors at zero (never a negative timer)", fmtDuration(makeT("en"), -5_000) === "0s", fmtDuration(makeT("en"), -5_000));
+  const langs = ["en", "es", "pt-BR", "ru", "fa"];
+  const rendered = langs.map((l) => fmtDuration(makeT(l), deep));
+  check("all five languages render the week, none falls back to a raw key", rendered.every((r) => r.length > 2 && !r.includes("{d}") && !r.includes("10080")));
+  check("…and each prints the numbers as western digits", rendered.every((r) => r.includes("6") && r.includes("23")));
+  check("the Persian week reads Persian units", (rendered[4] ?? "").includes("روز"), rendered[4]);
+
+  const fs = await import("node:fs");
+  const { readdirSync, readFileSync, statSync } = fs;
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir)) {
+      const p = `${dir}/${e}`;
+      if (statSync(p).isDirectory()) { walk(p); continue; }
+      if (/\.tsx?$/.test(p)) files.push(p);
+    }
+  };
+  walk("/home/team/shared/site/src");
+  const defs = files.filter((f) => /function fmtDur(ation)?\s*\(/.test(readFileSync(f, "utf-8")));
+  check("exactly ONE duration formatter is defined anywhere in src/", defs.length === 1 && defs[0].endsWith("game/i18n/format.ts"), defs.join(","));
+  const minutesOnly = files.filter((f) => /\$\{m\}m \$\{sec\}s/.test(readFileSync(f, "utf-8")));
+  check("no minutes-only duration renderer survives in src/", minutesOnly.length === 0, minutesOnly.join(","));
 }
 
 console.log(`\nretime-tests: ${pass} passed, ${fail} failed`);

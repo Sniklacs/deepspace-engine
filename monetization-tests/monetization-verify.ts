@@ -256,7 +256,22 @@ const br = engine.beginResearch(st9b, "w1", st9b.leaders[0].id, now + 500);
 check("beginResearch ok", br.ok === true, br.error || "");
 const dur = st9b.researchJobs[0].durationMs;
 engine.advance(st9b, now + 500 + dur + 1);
-check("research hook fired (+15)", st9b.battlePass.dayObjectives.includes("complete_research") && st9b.battlePass.xp >= 15);
+// RE-POINTED 2026-09-26 (THE RE-TIME): a completed research project is a TIMED BUILD
+// and no season objective may require one, so the hook this check asserted is retired by
+// design (the watchlist moved to game/season-guard.ts on 2026-09-27; it was
+// monetization.ts TIMED_BUILD_OBJECTIVE_IDS). The 15 XP objective moved to an
+// ACTIVITY — the split below keeps BOTH halves gated instead of dropping one.
+check("no season XP is granted for finishing a timed build",
+  !st9b.battlePass.dayObjectives.includes("complete_research"));
+// FIXED 2026-09-27: this block's colony was also called `st9c`, which the block
+// below already owns — a duplicate `const`, so the whole suite died with
+// `"st9c" has already been declared` and NOTHING in this file ran. Renamed; both
+// halves of the swap are gated again.
+const st9p = engine.newGame("Mon9p", "watchers", now);
+st9p.resources.embers = 500; st9p.insight = 500;
+engine.deployProgram(st9p, "agriculture", now + 700);
+check("the activity hook fires instead (deploy_program, +15)",
+  st9p.battlePass.dayObjectives.includes("deploy_program") && st9p.battlePass.xp >= 15);
 const st9c = engine.newGame("Mon9c", "watchers", now);
 runExpedition(st9c, "outer-ruins", 0, true, now, now + 61_000);
 check("expedition resolve hooks fire", st9c.battlePass.weekCounts["expedition_complete"] === 1 && st9c.battlePass.weekCounts["deep_site"] === undefined);

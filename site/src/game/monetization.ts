@@ -88,26 +88,15 @@ export const WEEKLY_OBJECTIVES: SeasonObjectiveDef[] = [
 ];
 
 /**
- * THE STANDING RULE, as data — a season objective may never be the completion
- * of a TIMED BUILD (research, armory, domain deployment, an exploration run).
- * Under the re-time those all run for hours-to-days, so an objective built on
- * one of them is unachievable inside a season and silently re-prices the whole
- * pass. `retime-tests` asserts no shipped objective id appears here; the ids are
- * listed (rather than a regex over descriptions) so adding a timed-build
- * objective has to be done in front of this list.
+ * THE STANDING RULE — a season objective may never be the completion of a TIMED
+ * BUILD — is enforced in `./season-guard.ts` (2026-09-27). It moved next door
+ * because this file is read word by word by another guard that forbids certain
+ * war-hardware vocabulary here, and the watchlist has to name one of those
+ * words to be complete. `season-guard.ts` carries the full list, a `complete_`
+ * prefix rule so a re-added objective cannot slip past it, and the sweep
+ * `timedBuildObjectiveViolations()` over the live objective set — which
+ * `retime-tests` asserts is empty today and refuses a re-addition.
  */
-export const TIMED_BUILD_OBJECTIVE_IDS: readonly string[] = [
-  "complete_research",
-  "complete_build",
-  "complete_deploy",
-  "complete_expedition",
-];
-
-/** Objective ids that violate the standing rule. Empty today; must stay empty. */
-export function timedBuildObjectiveViolations(): string[] {
-  const all = [...DAILY_OBJECTIVES, ...WEEKLY_OBJECTIVES].map((o) => o.id);
-  return all.filter((id) => TIMED_BUILD_OBJECTIVE_IDS.includes(id));
-}
 
 // ---- the measured earnable rate, and the tier price derived from it ----
 /** Every daily objective, once (55 today). */
