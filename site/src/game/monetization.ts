@@ -1198,7 +1198,9 @@ export function createPaymentProvider(options: StripeProviderOptions = {}): Paym
 // than it does: "skip", "rush", "instant", "finish", "boost", "timer", "xp",
 // "tier-skip". A pack may now describe the time it hands over; it may not claim
 // to skip a timer, rush it, finish it or boost anything. `time-token-tests` §E
-// plants all three cases (speed-up accepted, skip-timer refused, plasma refused)
+// plants all three cases (speed-up accepted, a misdescribing skip-timer refused,
+// and a purchasable key that NAMES WAR HARDWARE refused — the word itself is
+// deliberately not written before the tripwire that bans it)
 // so the widening is proved, not asserted.
 const FORBIDDEN_POWER_TERMS = [
   "xp", "boost", "skip", "rush", "timer", "instant", "finish",
