@@ -72,6 +72,7 @@ export const es: Catalogue = {
   "time.refusedUnknownKind": "Una ficha de tiempo no puede usarse para eso.",
   "time.refusedNoTokens": "No tienes ninguna ficha de ese tamaño.",
   "time.refusedSize": "Ficha de tiempo desconocida.",
+  "time.earnedOnly": "Las fichas de 1 minuto y de 5 minutos nunca se venden: las paga la devoción diaria.",
 
   "cradle.plate": "La Cuna",
   "cradle.plateMeta": "{race} · {region} · fundada el {date}",

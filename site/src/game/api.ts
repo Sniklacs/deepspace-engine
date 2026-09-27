@@ -579,8 +579,12 @@ const craftFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
-// V6 Armory: build/upgrade a weapon family at the Cradle (earn-only — the
-// engine deducts supplies/embers/fuel/plasma and opens a real-time build).
+// V6 Armory: build/upgrade a weapon family at the Cradle — EARN-ONLY, and that
+// claim OUTLIVED the owner's sell-side ruling of 2026-09-27: the engine deducts
+// supplies/embers/fuel/plasma and opens a real-time build, and no purchase path
+// grants war hardware. What the store sells now is TIME and nothing else
+// (`TIME_TOKEN_PACKS`, monetization.ts) — and the storefront is still switched off,
+// which is why every handler below is gated on `storefrontEnabled`.
 const weaponBuildFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), familyId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> => {

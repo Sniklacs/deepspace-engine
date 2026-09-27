@@ -1,23 +1,33 @@
-// TIME TOKENS — the EARNED path (owner direction 2026-09-27) verification.
+// TIME TOKENS — the EARNED path AND the SELL half (owner ruling 2026-09-27).
 // Runner:  cd /home/team/shared/time-token-tests && env -u DATABASE_URL bun run ./time-token-verify.ts
 //
 // Covers, in the order the brief set them:
-//   A · the type      — exactly TWO earned sizes (1m/5m) with their durations; the
-//                       six sellable sizes are NOT defined anywhere in the build.
+//   A · the type      — TWO earned sizes (1m/5m) and SIX sellable sizes
+//                       (30m/1h/8h/12h/24h/48h) with their exact durations.
+//   A2· the catalogue — one row per sellable size at the owner's price, a product
+//                       id that is UNSET today, no row for an earned size, prices
+//                       monotonic in value per hour, and NO grant payload. Every
+//                       one of those is a NEGATIVE CONTROL: a tampered catalogue
+//                       must throw.
 //   B · the floor     — TIME_TOKEN_FLOOR_FRACTION === engine.MIN_TIMER_FRACTION
 //                       (0.286), and every held-token pile is bounded by it.
-//   C · the ladder    — an EXPLORATION run is REFUSED by name, in a keyed refusal;
-//                       armory build / research / domain deploy are allowed.
-//   D · power invariance — unlimited tokens change NOTHING but the timer they are
-//                       spent on: no resource, no strength, no scored currency, no
-//                       season tier.
-//   E · nothing sells — the two earned sizes are the whole definition; the pack
-//                       tripwire still REFUSES a purchasable key named like a
-//                       speed-up; `storefrontEnabled` is false.
+//   C · the ladder    — an EXPLORATION run is REFUSED by name, in a keyed refusal,
+//                       for every size; armory build / research / domain deploy are
+//                       allowed.
+//   D · power invariance — PER SIZE: a token compresses exactly one running timer
+//                       and changes NOTHING else — no resource, no strength, no
+//                       scored currency, no season tier.
+//   E · the sell half — the six sizes exist and are offered, `1m`/`5m` are REFUSED
+//                       for sale by name, every sale is refused while the product id
+//                       is unset, the war-hardware tripwire still refuses, the
+//                       speed-up words are no longer banned, the storefront is still
+//                       OFF — and the earned grant door still refuses a sold size.
 //   F · idempotency   — a repeated apply request id does not double-compress; a
 //                       repeated Devotion claim does not re-grant.
 //   G · the Devotion  — EVERY reward claim pays one 1m + one 5m; a cleared day pays
 //                       5 + 5 (30 minutes of token time); the grant is surfaced.
+//   H · migration     — an old save gets the earned sizes at zero, once; a save that
+//                       holds a SOLD size keeps it.
 import * as engine from "/home/team/shared/site/src/game/engine.ts";
 import {
   applyTimeToken,
@@ -26,6 +36,8 @@ import {
   heldTimeTokens,
   heldTimeTokenMs,
   isEarnedTimeTokenSize,
+  isSellableTimeTokenSize,
+  isTimeTokenSize,
   maxTimeTokenCompressionMs,
   timeTokenMs,
   timeTokensPublicView,
@@ -33,14 +45,30 @@ import {
   TIME_TOKEN_SIZES,
   TIME_TOKEN_TIMER_KINDS,
   EARNED_TIME_TOKEN_SIZES,
+  SELLABLE_TIME_TOKEN_SIZES,
 } from "/home/team/shared/site/src/game/time-tokens.ts";
 import { DAILY_CONFIG, claimDaily, freshDaily, reconcileDaily } from "/home/team/shared/site/src/game/daily.ts";
 import {
   HEAD_START_PACKS,
+  MONETIZATION_CONFIG,
+  TIME_TOKEN_PACKS,
+  TIME_TOKEN_PRODUCT_ID_UNSET,
   assertCatalogFair,
   ensureMonetization,
+  sellableTimeTokenSizes,
+  timeTokenPack,
+  timeTokenPackId,
+  timeTokenPriceUsd,
+  timeTokenSaleRefusal,
   utcDayKey,
+  type TimeTokenPackDef,
 } from "/home/team/shared/site/src/game/monetization.ts";
+import {
+  PAYMENT_LINKS,
+  checkoutUrl,
+  isSellable,
+  sellableSkus,
+} from "/home/team/shared/site/src/game/payments/payment-links.ts";
 import type { GameState } from "/home/team/shared/site/src/game/types.ts";
 import fs from "node:fs";
 
@@ -50,6 +78,17 @@ function check(name: string, cond: boolean, extra = "") {
   else { fail++; console.log(`  \u274c ${name} ${extra}`); }
 }
 function section(t: string) { console.log(`\n== ${t}`); }
+/** A negative control: the guardrail MUST refuse this tampered catalogue, and the
+ *  catalogue must be put back exactly as it was afterwards. */
+function refuses(name: string, tamper: () => void, untamper: () => void) {
+  let threw = false;
+  tamper();
+  try { assertCatalogFair(); } catch { threw = true; }
+  untamper();
+  let restored = true;
+  try { assertCatalogFair(); } catch { restored = false; }
+  check(name, threw && restored, threw ? "the tampered catalogue was ACCEPTED" : "");
+}
 
 const NOW = Date.now();
 const HOUR = 3_600_000;
@@ -81,21 +120,110 @@ function stripTokenFields(o: unknown): string {
 }
 
 // =========================================================== §A the type
-section("A \u00b7 THE TYPE \u2014 two EARNED sizes, one explicit duration each");
+section("A \u00b7 THE TYPE \u2014 TWO EARNED + SIX SELLABLE sizes, one duration each");
 const ids = Object.keys(TIME_TOKEN_SIZES).sort();
-check("exactly two earned sizes are defined (1m, 5m)", ids.join(",") === "1m,5m", ids.join(","));
+check("exactly eight sizes are defined (2 earned + 6 sellable)",
+  ids.join(",") === "12h,1h,1m,24h,30m,48h,5m,8h", ids.join(","));
 check("1m is 60,000 ms", TIME_TOKEN_SIZES["1m"].ms === 60_000, String(TIME_TOKEN_SIZES["1m"]?.ms));
 check("5m is 300,000 ms", TIME_TOKEN_SIZES["5m"].ms === 300_000, String(TIME_TOKEN_SIZES["5m"]?.ms));
-check("every defined size is an EARNED size (none is a sellable future entry)",
-  ids.every((id) => isEarnedTimeTokenSize(id)) && EARNED_TIME_TOKEN_SIZES.length === 2);
-check("no SELLABLE size is defined in the build (30m/1h/8h/12h/24h/48h absent)",
-  ["30m", "1h", "8h", "12h", "24h", "48h"].every((s) => !isEarnedTimeTokenSize(s) && timeTokenMs(s) === 0));
+check("EARNED_TIME_TOKEN_SIZES is exactly [1m, 5m] \u2014 the Devotion's two, unchanged",
+  EARNED_TIME_TOKEN_SIZES.join(",") === "1m,5m");
+check("SELLABLE_TIME_TOKEN_SIZES is exactly the owner's six, smallest first",
+  SELLABLE_TIME_TOKEN_SIZES.join(",") === "30m,1h,8h,12h,24h,48h");
+check("30m is 1,800,000 ms (the owner's duration)", TIME_TOKEN_SIZES["30m"].ms === 1_800_000, String(TIME_TOKEN_SIZES["30m"]?.ms));
+check("1h is 3,600,000 ms", TIME_TOKEN_SIZES["1h"].ms === 3_600_000, String(TIME_TOKEN_SIZES["1h"]?.ms));
+check("8h is 28,800,000 ms", TIME_TOKEN_SIZES["8h"].ms === 28_800_000, String(TIME_TOKEN_SIZES["8h"]?.ms));
+check("12h is 43,200,000 ms", TIME_TOKEN_SIZES["12h"].ms === 43_200_000, String(TIME_TOKEN_SIZES["12h"]?.ms));
+check("24h is 86,400,000 ms", TIME_TOKEN_SIZES["24h"].ms === 86_400_000, String(TIME_TOKEN_SIZES["24h"]?.ms));
+check("48h is 172,800,000 ms", TIME_TOKEN_SIZES["48h"].ms === 172_800_000, String(TIME_TOKEN_SIZES["48h"]?.ms));
+check("every defined size is EARNED or SELLABLE, and the two lists do not overlap",
+  ids.every((id) => (isEarnedTimeTokenSize(id) ? 1 : 0) + (isSellableTimeTokenSize(id) ? 1 : 0) === 1));
+check("`isEarnedTimeTokenSize` means exactly what it meant before the sell half: 1m and 5m, nothing else",
+  isEarnedTimeTokenSize("1m") && isEarnedTimeTokenSize("5m") && EARNED_TIME_TOKEN_SIZES.length === 2
+  && SELLABLE_TIME_TOKEN_SIZES.every((s) => !isEarnedTimeTokenSize(s)));
+check("`isSellableTimeTokenSize` is true for the six and FALSE for 1m, 5m and junk",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => isSellableTimeTokenSize(s))
+  && !isSellableTimeTokenSize("1m") && !isSellableTimeTokenSize("5m") && !isSellableTimeTokenSize("2h"));
+check("`isTimeTokenSize` is true for every defined size and false for junk",
+  ids.every((id) => isTimeTokenSize(id)) && !isTimeTokenSize("3h") && !isTimeTokenSize(""));
 const tokenSrc = fs.readFileSync("/home/team/shared/site/src/game/time-tokens.ts", "utf8");
 const tokenCode = tokenSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 check("the module's CODE defines no price, product, checkout or purchase object",
-  !/priceCents|priceVotives|productId|checkout|stripe|storefrontEnabled/i.test(tokenCode));
-check("the six sellable sizes are documented as FUTURE entries only",
-  /FUTURE ENTRIES ONLY/.test(tokenSrc) && /1_800_000/.test(tokenSrc) && /172_800_000/.test(tokenSrc));
+  !/priceCents|priceVotives|priceUsd|productId|providerSkuId|checkout|stripe|storefrontEnabled|storefront/i.test(tokenCode));
+const exportedFns = [...tokenSrc.matchAll(/export (?:async )?function (\w+)/g)].map((m) => m[1]).sort();
+check("the module's export surface is exactly the MECHANIC \u2014 a whitelist, so no buy/sell/checkout "
+  + "function can ever appear here without this check failing",
+  exportedFns.join(",") === "applyTimeToken,ensureTimeTokens,freshTimeTokens,grantTimeToken,heldTimeTokenMs,"
+  + "heldTimeTokens,isEarnedTimeTokenSize,isSellableTimeTokenSize,isTimeTokenSize,maxTimeTokenCompressionMs,"
+  + "timeTokenMs,timeTokensPublicView",
+  exportedFns.join(","));
+check("no exported name at all mentions a price, a product, a checkout, a store or an entitlement",
+  ![...tokenSrc.matchAll(/export (?:async )?(?:function|const|let|class|interface|type) (\w+)/g)]
+    .map((m) => m[1])
+    .some((n) => /price|product|sku|checkout|stripe|storefront|purchase|charg|invoice|entitle/i.test(n)));
+check("the ruling this slice implements is quoted in the source",
+  /speed-ups are sold, they compress one timer by at most 3\.5/.test(tokenSrc) && /sign-off, go build it/.test(tokenSrc));
+check("and the owner's never-sell-these words are quoted too",
+  /don't sell the one minute or the 5 minutes speed UPS/.test(tokenSrc));
+
+// =========================================================== §A2 the catalogue
+section("A2 \u00b7 THE CATALOGUE \u2014 six rows, the owner's prices, one place for the product id");
+check("six catalogue rows, one per sellable size", TIME_TOKEN_PACKS.length === 6, String(TIME_TOKEN_PACKS.length));
+check("every sellable size has exactly one row, and no other size has one",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => TIME_TOKEN_PACKS.filter((p) => p.sizeId === s).length === 1)
+  && TIME_TOKEN_PACKS.every((p) => isSellableTimeTokenSize(p.sizeId)));
+check("the owner's prices, exactly: 30m $2.99 \u00b7 1h $3.99 \u00b7 8h $7.99 \u00b7 12h $9.99 \u00b7 24h $14.99 \u00b7 48h $24.99",
+  timeTokenPriceUsd("30m") === 2.99 && timeTokenPriceUsd("1h") === 3.99 && timeTokenPriceUsd("8h") === 7.99
+  && timeTokenPriceUsd("12h") === 9.99 && timeTokenPriceUsd("24h") === 14.99 && timeTokenPriceUsd("48h") === 24.99,
+  TIME_TOKEN_PACKS.map((p) => `${p.sizeId}:${p.priceUsd}`).join(" "));
+check("nothing prices 1m or 5m (timeTokenPriceUsd is 0 and there is no row)",
+  timeTokenPriceUsd("1m") === 0 && timeTokenPriceUsd("5m") === 0 && !timeTokenPack("1m") && !timeTokenPack("5m"));
+check("the catalogue id is one formula from the size, and every row uses it",
+  TIME_TOKEN_PACKS.every((p) => p.id === timeTokenPackId(p.sizeId))
+  && new Set(TIME_TOKEN_PACKS.map((p) => p.id)).size === 6);
+check("THE ONE PLACE THE PRODUCT ID LANDS: every row's providerSkuId is UNSET today \u2014 no Stripe id is invented",
+  TIME_TOKEN_PACKS.every((p) => p.providerSkuId === TIME_TOKEN_PRODUCT_ID_UNSET)
+  && TIME_TOKEN_PRODUCT_ID_UNSET === "",
+  TIME_TOKEN_PACKS.map((p) => p.providerSkuId).join(","));
+check("a speed-up row carries NO grant payload \u2014 it grants time and nothing else",
+  TIME_TOKEN_PACKS.every((p) => !Object.prototype.hasOwnProperty.call(p, "grants")));
+check("no catalogue row references a resource, a strength or a scored currency field at all",
+  TIME_TOKEN_PACKS.every((p) => {
+    const keys = Object.keys(p).sort().join(",");
+    return keys === "id,name,priceUsd,providerSkuId,sizeId";
+  }), TIME_TOKEN_PACKS.map((p) => Object.keys(p).sort().join(","))[0]);
+check("prices are monotonic in value per hour \u2014 a bigger token is better value",
+  (() => {
+    const rows = [...TIME_TOKEN_PACKS].sort((a, b) => timeTokenMs(a.sizeId) - timeTokenMs(b.sizeId));
+    return rows.every((r, i) => i === 0 || r.priceUsd / timeTokenMs(r.sizeId) < rows[i - 1].priceUsd / timeTokenMs(rows[i - 1].sizeId));
+  })());
+check("assertCatalogFair passes on the whole catalogue (packs, cosmetics, tiers, tokens)",
+  (() => { try { assertCatalogFair(); return true; } catch { return false; } })());
+// ---- and the widened guardrail is not vacuous: five tampered catalogues must throw
+refuses("NEGATIVE CONTROL \u00b7 a price on an EARNED size (1m) is refused by assertCatalogFair",
+  () => { TIME_TOKEN_PACKS.push({ id: "time-token-1m", sizeId: "1m" as never, name: "One-Minute Token", priceUsd: 1.99, providerSkuId: "" } as TimeTokenPackDef); },
+  () => { TIME_TOKEN_PACKS.pop(); });
+refuses("NEGATIVE CONTROL \u00b7 a zero price is refused (a speed-up is sold, not given away)",
+  () => { TIME_TOKEN_PACKS[0].priceUsd = 0; },
+  () => { TIME_TOKEN_PACKS[0].priceUsd = 2.99; });
+refuses("NEGATIVE CONTROL \u00b7 a grant payload on a speed-up row is refused",
+  () => { (TIME_TOKEN_PACKS[0] as unknown as Record<string, unknown>).grants = [{ kind: "resource", key: "supplies", amount: 5 }]; },
+  () => { delete (TIME_TOKEN_PACKS[0] as unknown as Record<string, unknown>).grants; });
+refuses("NEGATIVE CONTROL \u00b7 a price that breaks monotonicity is refused",
+  () => { TIME_TOKEN_PACKS[TIME_TOKEN_PACKS.length - 1].priceUsd = 44.99; },
+  () => { TIME_TOKEN_PACKS[TIME_TOKEN_PACKS.length - 1].priceUsd = 24.99; });
+refuses("NEGATIVE CONTROL \u00b7 a WAR-HARDWARE name on a speed-up row is refused",
+  () => { TIME_TOKEN_PACKS[0].name = "Plasma cache with a speed-up"; },
+  () => { TIME_TOKEN_PACKS[0].name = "Half-Hour Token"; });
+check("the catalogue is byte-identical to the shipped one after the controls",
+  JSON.stringify(TIME_TOKEN_PACKS) === JSON.stringify([
+    { id: "time-token-30m", sizeId: "30m", name: "Half-Hour Token", priceUsd: 2.99, providerSkuId: "" },
+    { id: "time-token-1h", sizeId: "1h", name: "One-Hour Token", priceUsd: 3.99, providerSkuId: "" },
+    { id: "time-token-8h", sizeId: "8h", name: "Eight-Hour Token", priceUsd: 7.99, providerSkuId: "" },
+    { id: "time-token-12h", sizeId: "12h", name: "Twelve-Hour Token", priceUsd: 9.99, providerSkuId: "" },
+    { id: "time-token-24h", sizeId: "24h", name: "Day Token", priceUsd: 14.99, providerSkuId: "" },
+    { id: "time-token-48h", sizeId: "48h", name: "Two-Day Token", priceUsd: 24.99, providerSkuId: "" },
+  ]));
 
 // =========================================================== §B the floor
 section("B \u00b7 THE FLOOR \u2014 0.286, one constant, every pile bounded");
@@ -106,6 +234,8 @@ const BASE = 12 * HOUR; // armory tier 1: the shortest real timer in the build
 check("max compression is base x (1 - 0.286)", maxTimeTokenCompressionMs(BASE) === Math.floor(BASE * 0.714));
 check("engine.timerFloor applies the SAME constant to the earned stack",
   engine.timerFloor(BASE, 0) === Math.round(BASE * engine.MIN_TIMER_FRACTION));
+check("the 3.5x ceiling is the owner's own arithmetic: 1 / 0.286 is 3.4965…",
+  Math.abs(1 / TIME_TOKEN_FLOOR_FRACTION - 3.5) < 0.01);
 
 const st = mk({ armoryBuilds: { lastBell: { targetTier: 1, startedAt: NOW, doneAt: NOW + BASE } } });
 st.timeTokens = { "1m": 100_000, "5m": 100_000 };
@@ -131,20 +261,26 @@ check("and hands the effective finish an hour forward at 12h scale",
   (one.remainingMs ?? 0) === BASE - 60_000, String(one.remainingMs));
 
 // =========================================================== §C the ladder
-section("C \u00b7 THE LADDER \u2014 an exploration run is refused BY NAME");
+section("C \u00b7 THE LADDER \u2014 an exploration run is refused BY NAME, for every size");
 const st3 = mk({ armoryBuilds: { a: { targetTier: 1, startedAt: NOW, doneAt: NOW + 4 * HOUR } } });
-st3.timeTokens = { "1m": 5, "5m": 5 };
+st3.timeTokens = { "1m": 5, "5m": 5, "48h": 5 };
 const exp = applyTimeToken(st3, "1m", "exp:1", { kind: "expedition", id: "z-rim" }, NOW);
 check("an expedition timer REFUSES a token", !exp.ok);
 check("the refusal is a catalogue key (player-facing, translated in five files)",
   exp.errorKey === "time.refusedExpedition", String(exp.errorKey));
 check("the refusal names the rule in English for the log too", /exploration run/.test(exp.error ?? ""));
+check("the SAME refusal covers a SELLABLE size \u2014 a bought speed-up cannot touch the ladder either",
+  (() => {
+    const r = applyTimeToken(st3, "48h", "exp:2", { kind: "expedition", id: "z-rim" }, NOW);
+    return !r.ok && r.errorKey === "time.refusedExpedition";
+  })());
 check("expedition is NOT on the allow-list", !TIME_TOKEN_TIMER_KINDS.includes("expedition" as never));
 check("the allow-list is exactly armory build / research / domain deploy",
   TIME_TOKEN_TIMER_KINDS.join(",") === "armory_build,research,domain_deploy");
 check("the refused run is untouched (no compression written anywhere)",
   !/[0-9]/.test(JSON.stringify(st3.armoryBuilds.a.timeTokenMs ?? "u")) && st3.armoryBuilds.a.timeTokenMs === undefined);
-check("no token was spent on the refusal", heldTimeTokens(st3, "1m") === 5);
+check("no token was spent on the refusal, earned or sold",
+  heldTimeTokens(st3, "1m") === 5 && heldTimeTokens(st3, "48h") === 5);
 const st4 = mk({
   researchJobs: [{ id: "r1", techId: "t1", leaderId: "L", startedAt: NOW, durationMs: 8 * HOUR, status: "researching" }],
   programDeploy: { domain: "logistics", startedAt: NOW, durationMs: 6 * HOUR },
@@ -165,17 +301,17 @@ check("an unknown target kind is refused with its own key",
 check("an unheld size is refused with its own key",
   applyTimeToken(mk({ armoryBuilds: { a: { targetTier: 1, startedAt: NOW, doneAt: NOW + BASE } } }), "1m", "none:2", { kind: "armory_build", id: "a" }, NOW).errorKey === "time.refusedNoTokens");
 check("an unknown size id is refused with its own key",
-  applyTimeToken(st4, "1h", "size:1", { kind: "armory_build", id: "a" }, NOW).errorKey === "time.refusedSize");
+  applyTimeToken(st4, "3h", "size:1", { kind: "armory_build", id: "a" }, NOW).errorKey === "time.refusedSize");
 
 // =========================================================== §D power invariance
-section("D \u00b7 POWER INVARIANCE \u2014 tokens grant nothing but time");
+section("D \u00b7 POWER INVARIANCE \u2014 per size: one timer compresses, nothing else moves");
 const rich = mk({ armoryBuilds: { a: { targetTier: 3, startedAt: NOW, doneAt: NOW + 12 * DAY } } });
 const poor = mk({ armoryBuilds: { a: { targetTier: 3, startedAt: NOW, doneAt: NOW + 12 * DAY } } });
 ensureTimeTokens(rich);
 rich.timeTokens = { "1m": 1_000_000, "5m": 1_000_000 };
 const beforeRich = stripTokenFields(rich);
 for (let i = 0; i < 50; i++) applyTimeToken(rich, "1m", `unlim:${i}`, { kind: "armory_build", id: "a" }, NOW);
-check("a colony holding unlimited tokens has an IDENTICAL state to one holding none "
+check("a colony holding unlimited EARNED tokens has an IDENTICAL state to one holding none "
   + "(every field except the tokens themselves and the timer's own compression)", stripTokenFields(rich) === beforeRich);
 check("no resource was granted by granting or spending tokens",
   JSON.stringify(rich.resources) === JSON.stringify(poor.resources));
@@ -183,29 +319,155 @@ check("no currency was granted", JSON.stringify(rich.currency) === JSON.stringif
 check("no season tier, pass XP or Leader XP moved", JSON.stringify(rich.battlePass) === JSON.stringify(poor.battlePass));
 check("the module exports no grant of strength, resource or scored currency",
   !/export function (grantResource|grantStrength|grantXp|grantSeason|addContribution|boostPower)\b/.test(tokenSrc));
-check("held tokens map to the two earned sizes and nothing else",
-  JSON.stringify(Object.keys(timeTokensPublicView({ "1m": 2, "5m": 3, junk: 99 })).sort()) === '["1m","5m"]');
+// ---- EVERY size, one at a time: exact compression, and no other field moves ----
+const SIZE_CASES: Array<{ size: string; label: string }> = [
+  ...EARNED_TIME_TOKEN_SIZES.map((s) => ({ size: s as string, label: "earned" })),
+  ...SELLABLE_TIME_TOKEN_SIZES.map((s) => ({ size: s as string, label: "sellable" })),
+];
+for (const { size, label } of SIZE_CASES) {
+  const base = 12 * DAY; // armory tier 3 — longer than any single token, so the token is the binding limit
+  const before = mk({ armoryBuilds: { a: { targetTier: 3, startedAt: NOW, doneAt: NOW + base } } });
+  const after = mk({ armoryBuilds: { a: { targetTier: 3, startedAt: NOW, doneAt: NOW + base } } });
+  after.timeTokens = { [size]: 3 };
+  const snapshot = stripTokenFields(after);
+  const r = applyTimeToken(after, size, `inv:${size}`, { kind: "armory_build", id: "a" }, NOW);
+  const ms = timeTokenMs(size);
+  const expected = Math.min(ms, base, maxTimeTokenCompressionMs(base));
+  check(`[${label} ${size}] applies exactly min(size, remaining, headroom) = ${expected.toLocaleString("en-US")} ms`,
+    r.ok && r.compressedMs === expected, JSON.stringify(r));
+  check(`[${label} ${size}] the timer moved by exactly that and is still running`,
+    after.armoryBuilds.a.timeTokenMs === expected && (r.remainingMs ?? 0) > 0 && (r.remainingMs ?? 0) === base - expected, String(r.remainingMs));
+  check(`[${label} ${size}] NO other field changed \u2014 no resource, no strength, no scored currency, no season tier`,
+    stripTokenFields(after) === snapshot);
+  check(`[${label} ${size}] exactly one token left the colony`,
+    heldTimeTokens(after, size) === 2 && heldTimeTokens(before, size) === 0);
+  check(`[${label} ${size}] compression stays inside the 3.5x ceiling`,
+    (after.armoryBuilds.a.timeTokenMs ?? 0) <= maxTimeTokenCompressionMs(base));
+}
+// ---- a pile of the BIGGEST sellable size is bounded the same way ----
+const pile = mk({ armoryBuilds: { a: { targetTier: 1, startedAt: NOW, doneAt: NOW + BASE } } });
+pile.timeTokens = { "48h": 100 };
+let pileSteps = 0, pileRefused = false, pileMax = 0;
+for (let i = 0; i < 500; i++) {
+  const r = applyTimeToken(pile, "48h", `pile48:${i}`, { kind: "armory_build", id: "a" }, NOW);
+  if (!r.ok) { pileRefused = true; check("a pile of 48h tokens is refused at the floor with the floor's own key",
+    r.errorKey === "time.refusedFloor", String(r.errorKey)); break; }
+  pileSteps++;
+  pileMax = Math.max(pileMax, r.compressedTotalMs ?? 0);
+}
+check(`a pile of 100 x 48h tokens compresses ONE timer by at most 71.4% (refused after ${pileSteps})`,
+  pileRefused && pileMax <= maxTimeTokenCompressionMs(BASE), `${pileMax}`);
+check("a 48h token cannot put a timer below the floor even though it is longer than the timer",
+  (pile.armoryBuilds.a.timeTokenMs ?? 0) === maxTimeTokenCompressionMs(BASE), String(pile.armoryBuilds.a.timeTokenMs));
+check("held tokens map to every size the build defines and nothing else",
+  JSON.stringify(Object.keys(timeTokensPublicView({ "1m": 2, "5m": 3, "8h": 1, junk: 99 })).sort())
+  === JSON.stringify([...EARNED_TIME_TOKEN_SIZES, ...SELLABLE_TIME_TOKEN_SIZES].sort()));
 check("the public view never reports a negative or fractional holding",
   timeTokensPublicView({ "1m": -5, "5m": 1.7 })["1m"] === 0 && timeTokensPublicView({ "1m": -5, "5m": 1.7 })["5m"] === 1);
+check("a size held zero times reads 0 in the public view, never undefined",
+  timeTokensPublicView({ "1m": 1 })["48h"] === 0);
 check("total held time is read from the sizes, never invented",
   heldTimeTokenMs({ timeTokens: { "1m": 2, "5m": 1 } } as unknown as GameState) === 2 * 60_000 + 300_000);
+check("total held time counts a SOLD size too (it is a held thing like any other)",
+  heldTimeTokenMs({ timeTokens: { "8h": 2 } } as unknown as GameState) === 2 * 28_800_000);
 
-// =========================================================== §E nothing sells
-section("E \u00b7 NOTHING SELLS A TOKEN \u2014 the sell path is still switched off");
+// =========================================================== §E the sell half
+section("E \u00b7 THE SELL HALF \u2014 six sizes offered, 1m/5m refused, every sale refused by name today");
 const monSrc = fs.readFileSync("/home/team/shared/site/src/game/monetization.ts", "utf8");
-check("storefrontEnabled is false in the catalogue", /storefrontEnabled:\s*false/.test(monSrc));
-check("the forbidden-vocabulary tripwire still names the speed-up words",
-  /FORBIDDEN_POWER_TERMS/.test(monSrc) && /"speed-up"/.test(monSrc) && /"timer"/.test(monSrc));
-let probeRefused = false;
-const probe = { id: "probe_speedup", name: "Speed-up 1 hour", blurb: "Compress a timer.", playEquivalent: "skip a timer",
-  scrip: 0, priceCents: 100, votives: 0, grants: [{ kind: "resource", key: "supplies", amount: 1, note: "" }] };
-HEAD_START_PACKS.push(probe as unknown as (typeof HEAD_START_PACKS)[number]);
-try { assertCatalogFair(); } catch { probeRefused = true; }
-HEAD_START_PACKS.pop();
-check("a purchasable pack named like a speed-up is REFUSED by assertCatalogFair()", probeRefused);
-check("the probe was removed again (the catalogue is unchanged)", !HEAD_START_PACKS.some((p) => p.id === "probe_speedup"));
-check("nothing in the catalogue grants a time token",
-  !/kind:\s*"time"/.test(monSrc) && !/timeToken/.test(monSrc.replace(/\/\/[^\n]*/g, "")));
+const monCode = monSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+// ---- the record, both halves ----
+check("the tripwire list NO LONGER bans the words for what we sell (\"speed-up\"/\"speedup\" are gone)",
+  !/"speed-up"/.test(monCode) && !/"speedup"/.test(monCode) && !/speedup/i.test(monCode));
+check("…while every term that would MISdescribe a speed-up is still banned",
+  /"skip"/.test(monCode) && /"rush"/.test(monCode) && /"instant"/.test(monCode) && /"finish"/.test(monCode)
+  && /"boost"/.test(monCode) && /"timer"/.test(monCode) && /"xp"/.test(monCode) && /"tier-skip"/.test(monCode));
+check("and the WAR-HARDWARE terms are untouched: plasma, armory, weapon, trebuchet",
+  /"plasma"/.test(monCode) && /"armory"/.test(monCode) && /"weapon"/.test(monCode) && /"trebuchet"/.test(monCode));
+check("the earn-only tripwire still exists as code (FORBIDDEN_POWER_TERMS + assertCatalogFair)",
+  /FORBIDDEN_POWER_TERMS/.test(monCode) && /export function assertCatalogFair/.test(monCode));
+check("the armory's earn-only claim is still stated in the engine and the api",
+  /EARN-ONLY/.test(fs.readFileSync("/home/team/shared/site/src/game/engine.ts", "utf8"))
+  && /EARN-ONLY/.test(fs.readFileSync("/home/team/shared/site/src/game/api.ts", "utf8")));
+// ---- the tripwire's own three controls: widened, not weakened ----
+function probePack(name: string, blurb: string, playEquivalent: string) {
+  return { id: "probe_pack", name, blurb, playEquivalent, priceUsd: 4.99, providerSkuId: "",
+    scrip: 0, grants: [{ kind: "resource", key: "supplies", amount: 1, note: "" }] };
+}
+function refusedPack(name: string, blurb: string, playEquivalent: string): boolean {
+  const probe = probePack(name, blurb, playEquivalent);
+  HEAD_START_PACKS.push(probe as unknown as (typeof HEAD_START_PACKS)[number]);
+  let thrown = false;
+  try { assertCatalogFair(); } catch { thrown = true; }
+  HEAD_START_PACKS.pop();
+  return thrown;
+}
+const speedUpAccepted = !refusedPack("One-Hour Token", "Takes one hour off a single build or deployment you have running.", "an hour of waiting removed");
+check("POSITIVE CONTROL \u00b7 a purchasable pack NAMED for the thing we now sell is ACCEPTED (the record changed)",
+  speedUpAccepted);
+check("NEGATIVE CONTROL \u00b7 a pack that claims to SKIP a timer is still REFUSED",
+  refusedPack("Skip-Timer Pack", "Compress a build.", "skip the wait"));
+check("NEGATIVE CONTROL \u00b7 a pack that claims to RUSH or INSTANTLY FINISH is still REFUSED",
+  refusedPack("Rush Pack", "Finish it instantly.", "rush a build"));
+check("NEGATIVE CONTROL \u00b7 a pack that names WAR HARDWARE is still REFUSED (earn-only holds)",
+  refusedPack("Pre-War Plasma Cache", "A cache of war material.", "armory supplies"));
+check("NEGATIVE CONTROL \u00b7 a pack that GRANTS plasma is still refused by the structural check",
+  (() => {
+    const probe = probePack("Deed Cache", "A plain cache.", "one week of steady explorations");
+    probe.grants = [{ kind: "resource", key: "plasma" as never, amount: 1, note: "" }];
+    HEAD_START_PACKS.push(probe as unknown as (typeof HEAD_START_PACKS)[number]);
+    let thrown = false;
+    try { assertCatalogFair(); } catch { thrown = true; }
+    HEAD_START_PACKS.pop();
+    return thrown;
+  })());
+check("the probe packs were removed again (the catalogue is unchanged)",
+  !HEAD_START_PACKS.some((p) => p.id === "probe_pack") && HEAD_START_PACKS.length === 3);
+check("no head-start pack grants a timer at all \u2014 time is sold as a token, never inside a pack",
+  !/\bkind:\s*"time"/.test(monCode));
+// ---- the sale referee ----
+check("an unknown size cannot be sold, and says so with the size key",
+  timeTokenSaleRefusal("3h")?.errorKey === "time.refusedSize", JSON.stringify(timeTokenSaleRefusal("3h")));
+check("1m is REFUSED FOR SALE by name (earned-only, keyed for five languages)",
+  timeTokenSaleRefusal("1m")?.errorKey === "time.earnedOnly", JSON.stringify(timeTokenSaleRefusal("1m")));
+check("5m is REFUSED FOR SALE by name too", timeTokenSaleRefusal("5m")?.errorKey === "time.earnedOnly");
+check("the 1m/5m refusal names the Devotion as where they come from",
+  /Devotion/.test(timeTokenSaleRefusal("1m")?.error ?? ""));
+check("every one of the SIX is REFUSED right now \u2014 because no Stripe product id exists yet",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => timeTokenSaleRefusal(s)?.errorKey === "store.notForSale"),
+  SELLABLE_TIME_TOKEN_SIZES.map((s) => `${s}:${timeTokenSaleRefusal(s)?.errorKey}`).join(" "));
+check("…and the refusal NAMES the size and the place its product id will land",
+  /8h/.test(timeTokenSaleRefusal("8h")?.error ?? "") && /providerSkuId/.test(timeTokenSaleRefusal("8h")?.error ?? ""),
+  timeTokenSaleRefusal("8h")?.error ?? "");
+check("the set of sizes actually sellable today is EMPTY (read from the rows, not assumed)",
+  sellableTimeTokenSizes().length === 0, sellableTimeTokenSizes().join(","));
+check("no Payment Link row exists for a speed-up (nothing to open, nothing to charge)",
+  PAYMENT_LINKS.every((r) => !SELLABLE_TIME_TOKEN_SIZES.some((s) => r.skuId === timeTokenPackId(s))),
+  PAYMENT_LINKS.map((r) => r.skuId).join(","));
+check("…so no SKU of any kind is sellable and checkout refuses for a speed-up",
+  sellableSkus().length === 0 && !isSellable("time-token-8h") && checkoutUrl("time-token-8h", "acct") === null);
+check("THE STOREFRONT IS STILL OFF \u2014 this slice did not flip the switch",
+  MONETIZATION_CONFIG.storefrontEnabled === false);
+check("…and BOTH purchase handlers are still gated on it (no way around the switch)",
+  (fs.readFileSync("/home/team/shared/site/src/game/api.ts", "utf8").match(/storefrontEnabled\)/g) ?? []).length >= 2);
+// ---- the earned door cannot conjure what is sold ----
+check("the EARNED grant door REFUSES a sellable size \u2014 no free 8h token",
+  (() => {
+    const s = mk();
+    const g = grantTimeToken(s, "8h", "evt-sell-1", "test", NOW);
+    return !g.ok && heldTimeTokens(s, "8h") === 0 && (s.timeTokenLedger ?? []).length === 0;
+  })());
+check("…the same door still pays the two earned sizes",
+  (() => {
+    const s = mk();
+    return grantTimeToken(s, "1m", "evt-earn-1", "test", NOW).ok && grantTimeToken(s, "5m", "evt-earn-2", "test", NOW).ok
+      && heldTimeTokens(s, "1m") === 1 && heldTimeTokens(s, "5m") === 1;
+  })());
+check("and it still refuses a size that does not exist",
+  (() => { const s = mk(); return !grantTimeToken(s, "3h", "evt-x", "test", NOW).ok; })());
+check("the catalogue module cannot GRANT a token at all \u2014 no grant door is reachable from it",
+  !/grantTimeToken/.test(monCode) && !/applyTimeToken/.test(monCode));
+check("and no pack grant kind is 'time' anywhere in the catalogue",
+  !/kind:\s*"time"/.test(monCode));
 
 // =========================================================== §F idempotency
 section("F \u00b7 IDEMPOTENCY \u2014 both ways");
@@ -217,6 +479,15 @@ check("the first apply compresses", a1.ok && a1.compressedMs === 60_000);
 check("the repeated request id is a no-op, flagged idempotent", a2.ok && a2.idempotent === true && a2.compressedMs === 0);
 check("the timer was not double-compressed", st5.armoryBuilds.a.timeTokenMs === 60_000, String(st5.armoryBuilds.a.timeTokenMs));
 check("only one token was spent", heldTimeTokens(st5, "1m") === 1);
+const a3 = (() => {
+  const s = mk({ armoryBuilds: { a: { targetTier: 2, startedAt: NOW, doneAt: NOW + 3 * DAY } } });
+  s.timeTokens = { "8h": 2 };
+  const f = applyTimeToken(s, "8h", "req-dup-8h", { kind: "armory_build", id: "a" }, NOW);
+  const g = applyTimeToken(s, "8h", "req-dup-8h", { kind: "armory_build", id: "a" }, NOW);
+  return { f, g, spent: heldTimeTokens(s, "8h"), compressed: s.armoryBuilds.a.timeTokenMs };
+})();
+check("idempotency holds for a SOLD size as well \u2014 a retried purchase-spend cannot double-compress",
+  a3.f.ok && a3.g.idempotent === true && a3.spent === 1 && a3.compressed === 8 * HOUR, JSON.stringify(a3.g));
 const g1 = grantTimeToken(st5, "5m", "evt-dup", "test", NOW);
 const g2 = grantTimeToken(st5, "5m", "evt-dup", "test", NOW);
 check("a repeated grant eventId is idempotent", g1.ok && !g1.idempotent && g2.ok && g2.idempotent === true);
@@ -236,9 +507,11 @@ check("a requestId used on a timer that has since RESOLVED is still a no-op",
   })());
 
 // =========================================================== §G the Devotion
-section("G \u00b7 THE DEVOTION PAYS THEM \u2014 every reward claim, one of each size");
-check("one 1m + one 5m per reward claim is the CONFIGURED schedule",
+section("G \u00b7 THE DEVOTION PAYS THEM \u2014 every reward claim, one of each earned size");
+check("one 1m + one 5m per reward claim is the CONFIGURED schedule \u2014 unchanged by this slice",
   DAILY_CONFIG.timeTokensPerClaim.join(",") === "1m,5m");
+check("no SELLABLE size is anywhere in the Devotion's schedule",
+  DAILY_CONFIG.timeTokensPerClaim.every((s: string) => isEarnedTimeTokenSize(s)));
 const dev = mk({ race: "watchers" });
 dev.daily!.dayKey = "1999-01-01"; // force a rollover onto today
 reconcileDaily(dev, NOW);
@@ -249,6 +522,8 @@ check("a full day's claim pays 5 one-minute tokens (4 items + the bonus)",
 check("and 5 five-minute tokens", c1.granted!.timeTokens["5m"] === 5, JSON.stringify(c1.granted!.timeTokens));
 check("held: 5 x 1m and 5 x 5m", heldTimeTokens(dev, "1m") === 5 && heldTimeTokens(dev, "5m") === 5);
 check("a full day is 30 minutes of token time (5x1 + 5x5)", heldTimeTokenMs(dev) === 30 * 60_000, String(heldTimeTokenMs(dev)));
+check("the Devotion pays NOTHING sellable \u2014 no sold size moved",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => heldTimeTokens(dev, s) === 0));
 const c2 = claimDaily(dev, NOW);
 check("re-claiming the same day grants ZERO tokens",
   (c2.granted!.timeTokens["1m"] ?? 0) === 0 && (c2.granted!.timeTokens["5m"] ?? 0) === 0, JSON.stringify(c2.granted!.timeTokens));
@@ -281,11 +556,13 @@ check("a token the Devotion paid can compress a real build", spend.ok && spend.c
 check("and cannot be spent on an exploration run", applyTimeToken(dev3, "5m", "dev-exp", { kind: "expedition" }, NOW).ok === false);
 
 // =========================================================== §H migration
-section("H \u00b7 MIGRATION \u2014 an old save gets zeros, once");
+section("H \u00b7 MIGRATION \u2014 an old save gets zeros, once; a sold holding survives");
 const legacy = { race: "watchers", resources: {} } as unknown as GameState;
 ensureTimeTokens(legacy);
-check("a save written before time tokens existed gets both sizes at zero",
+check("a save written before time tokens existed gets both earned sizes at zero",
   heldTimeTokens(legacy, "1m") === 0 && heldTimeTokens(legacy, "5m") === 0);
+check("…and the migration INVENTS no sellable size (no key for what was never held)",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => !Object.prototype.hasOwnProperty.call(legacy.timeTokens ?? {}, s)));
 check("and an empty ledger", Array.isArray(legacy.timeTokenLedger) && legacy.timeTokenLedger.length === 0);
 const snap = JSON.stringify(legacy.timeTokens);
 ensureTimeTokens(legacy);
@@ -294,6 +571,16 @@ const corrupt = { race: "watchers", resources: {}, timeTokens: { "1m": -4, "5m":
 ensureTimeTokens(corrupt);
 check("a corrupt holding is repaired to zero, never trusted",
   heldTimeTokens(corrupt, "1m") === 0 && heldTimeTokens(corrupt, "5m") === 0);
+const corruptSold = { race: "watchers", resources: {}, timeTokens: { "8h": -2, "12h": "x", "48h": 1.9 } } as unknown as GameState;
+ensureTimeTokens(corruptSold);
+check("a corrupt SOLD holding is repaired to zero, never trusted",
+  heldTimeTokens(corruptSold, "8h") === 0 && heldTimeTokens(corruptSold, "12h") === 0 && heldTimeTokens(corruptSold, "48h") === 1);
+check("a healthy SOLD holding is left exactly where it was",
+  (() => {
+    const s = { race: "watchers", resources: {}, timeTokens: { "24h": 3 } } as unknown as GameState;
+    ensureTimeTokens(s);
+    return heldTimeTokens(s, "24h") === 3;
+  })());
 check("utcDayKey still drives the day (the token eventIds embed it)",
   /^\d{4}-\d{1,2}-\d{1,2}$/.test(utcDayKey(NOW)));
 

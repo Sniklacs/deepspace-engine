@@ -571,6 +571,12 @@ export function timeTokenRefusalText(t: ReturnType<typeof useT>, key: string): s
       return t("time.refusedNoTokens");
     case "time.refusedSize":
       return t("time.refusedSize");
+    // THE SELL HALF'S ONE REFUSAL (owner ruling signed 2026-09-27): the two sizes
+    // the Devotion pays are never for sale. Registered here so the key has a real
+    // call site the moment a sale surface exists — the store rows land with the
+    // switch flip, and this is the sentence they will read.
+    case "time.earnedOnly":
+      return t("time.earnedOnly");
     default:
       return t(key);
   }

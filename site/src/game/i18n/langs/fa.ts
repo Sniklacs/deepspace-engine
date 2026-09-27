@@ -82,6 +82,7 @@ export const fa: Catalogue = {
   "time.refusedUnknownKind": "ژتون زمان را نمی‌توان برای این خرج کرد.",
   "time.refusedNoTokens": "هیچ ژتونی با این اندازه در دست نیست.",
   "time.refusedSize": "ژتون زمان ناشناخته.",
+  "time.earnedOnly": "ژتون‌های 1 دقیقه و 5 دقیقه هرگز فروخته نمی‌شوند — آیین روزانه آن‌ها را می‌دهد.",
 
   // ---- the Cradle home ----------------------------------------------------
   "cradle.plate": "گهواره",

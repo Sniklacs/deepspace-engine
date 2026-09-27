@@ -67,6 +67,7 @@ export const ru: Catalogue = {
   "time.refusedUnknownKind": "Жетон времени нельзя потратить на это.",
   "time.refusedNoTokens": "Жетона такого размера нет.",
   "time.refusedSize": "Неизвестный жетон времени.",
+  "time.earnedOnly": "Жетоны на 1 минуту и на 5 минут никогда не продаются — их даёт ежедневное служение.",
 
   "cradle.plate": "Колыбель",
   "cradle.plateMeta": "{race} · {region} · основана {date}",
