@@ -46,6 +46,7 @@ import {
   act1LiveBattle,
   act1Squad,
   act1Weapons,
+  chorusCell,
   isAct1Battle,
   msUntilFirstWindow,
   openAct1Front,
@@ -59,14 +60,19 @@ import {
 import {
   BATTLES_CONFIG,
   type Battle,
+  type BattleHeroSnapshot,
+  type CommittedForce,
 } from "/home/team/shared/site/src/game/war/war-types.ts";
 import {
   battleMoment,
   battleEndAt,
   computeForcePower,
   issueDecision,
+  powerGap,
+  stateChip,
   windowsForView,
 } from "/home/team/shared/site/src/game/war/battle-engine.ts";
+import { ARMORY_CONFIG, WEAPON_BASE_STATS } from "/home/team/shared/site/src/game/armory.ts";
 import { ourSide } from "/home/team/shared/site/src/game/battle-decisions.ts";
 import {
   activeCue,
@@ -131,6 +137,73 @@ check("the Chorus's power is engine-computed, not declared", live.forcePower.att
 const m0 = battleMoment(live, T0);
 check("the fight is a REAL fight: a real power gap", m0.gap > 0 && m0.gap < 1);
 check("the chip is engine-derived and reads rout-risk (the §12.3 pummeling)", m0.chip === "rout-risk" && m0.gap >= ACT1_ENGINE.edgeWindowGap);
+// ── THE COUPLING PIN (2026-09-27) ───────────────────────────────────────────
+// This front is a rout-risk ONLY while the seed and the armory ladder agree, and
+// the coupling runs through the NUMBERS, not through any literal: both sides
+// field the SAME five kits at the height's tier, so the kit term is COMMON-MODE
+// and grows with the ladder. At the ratified T4 = 16.0 (5 × T3) one side's kits
+// are ~95% of its power, and they lift BOTH forces by the same absolute amount —
+// which presses the RELATIVE gap shut (the engine's rout-risk test is
+// |pa − pd| / max). The slice that took T4 from 3.2 to 16.0 moved this front's
+// gap from 0.422 to 0.148 and took the edge window, the pummeled beat and the
+// whole Act I beat sequence with it — silently, because no file under
+// game/prologue/ mentions the armory. So re-derive both rails HERE, from the
+// shipped ladder and the shipped power formula.
+const shippedT4 = ARMORY_CONFIG.tierMult[PROLOGUE_CONFIG.armoryTierAtHeight - 1];
+/** One family's kit at an arbitrary top-rung multiple, priced exactly as the
+ *  engine prices it (kitPower = round(base stats · weights × tierMult)). */
+const kitTermAt = (f: CommittedForce, t4: number) => {
+  const w = BATTLES_CONFIG.weaponStatWeights;
+  return (f.weapons ?? []).reduce((sum, k) => {
+    const s = WEAPON_BASE_STATS[k.family];
+    const mult = k.tier === 4 ? t4 : ARMORY_CONFIG.tierMult[k.tier - 1] ?? 1;
+    const base = s.power * w.power + s.precision * w.precision + s.guard * w.guard + s.logistics * w.logistics;
+    return sum + Math.round(base * mult) * (k.count ?? 1);
+  }, 0);
+};
+/** A force's hero+troop term, read through the shipped formula. */
+const heroTroopsAt = (f: CommittedForce, heroes: BattleHeroSnapshot[]) =>
+  computeForcePower({ ...f, heroSquad: heroes, weapons: [] } as CommittedForce);
+const powerAt = (f: CommittedForce, heroes: BattleHeroSnapshot[], t4: number) => heroTroopsAt(f, heroes) + kitTermAt(f, t4);
+const kitShippedMine = kitTermAt(live.defender, shippedT4);
+const kitShippedTheirs = kitTermAt(live.attacker, shippedT4);
+check(
+  "the front's kit term IS the shipped armory ladder, priced in (re-derived, not declared)",
+  kitShippedMine === computeForcePower({ ...live.defender, heroSquad: [], troops: 0 } as CommittedForce) &&
+    kitShippedTheirs === computeForcePower({ ...live.attacker, heroSquad: [], troops: 0 } as CommittedForce) &&
+    shippedT4 === ARMORY_CONFIG.tierMult[3],
+  `T4 ×${shippedT4}, kit term ${kitShippedMine}`,
+);
+check(
+  "the kit term is COMMON-MODE and dominates this front (so the coupling is real, not incidental)",
+  kitShippedMine === kitShippedTheirs && kitShippedMine / live.forcePower.defender > 0.9,
+  `both sides ${kitShippedMine} · ${((kitShippedMine / live.forcePower.defender) * 100).toFixed(1)}% of our ${live.forcePower.defender}`,
+);
+const gapShipped = powerGap(
+  powerAt(live.attacker, live.attacker.heroSquad, shippedT4),
+  powerAt(live.defender, live.defender.heroSquad, shippedT4),
+);
+const ceilingTroops = BATTLES_CONFIG.fobTroopCapByStage[live.defender.fobStage];
+const fed = { ...live.defender, troops: Math.min(ceilingTroops, live.defender.troops + ACT1_CONFIG.ourTroops) } as CommittedForce;
+const gapFed = powerGap(powerAt(live.attacker, live.attacker.heroSquad, shippedT4), powerAt(fed, fed.heroSquad, shippedT4));
+check(
+  "the Act I front's rout-risk survives the SHIPPED armory ceiling — and one full reinforcement still chips it to pressing",
+  gapShipped >= BATTLES_CONFIG.edgeWindowGap && gapShipped < 1 && Math.abs(gapShipped - m0.gap) < 1e-3 &&
+    gapFed < BATTLES_CONFIG.edgeWindowGap && stateChip(gapFed) === "pressing",
+  `T4 ×${shippedT4}: gap ${gapShipped.toFixed(4)} (engine ${m0.gap.toFixed(4)}), fed to the ceiling ${gapFed.toFixed(4)}`,
+);
+// NEGATIVE CONTROL — the same rail fed the PRE-ladder calibration: a 6.5× cell
+// against the shipped 16.0× top rung. It must be REFUSED (it reads 0.148). Without
+// this control the rail above could pass on any seed and pin nothing.
+const preLadderGap = powerGap(
+  powerAt(live.attacker, live.defender.heroSquad.map((h) => chorusCell(h, 6.5)), shippedT4),
+  powerAt(live.defender, live.defender.heroSquad, shippedT4),
+);
+check(
+  "NEGATIVE CONTROL: the pre-ladder cell strength is REFUSED by that same rail (the pin really tests the ladder)",
+  preLadderGap < BATTLES_CONFIG.edgeWindowGap && stateChip(preLadderGap) !== "rout-risk",
+  `6.5× cells vs T4 ×${shippedT4} → gap ${preLadderGap.toFixed(4)} < ${BATTLES_CONFIG.edgeWindowGap}`,
+);
 check("the odds line is shown, not hidden (0..1, ours is the underdog)", m0.attackerWinProb > 0.5 && m0.attackerWinProb < 0.95);
 check("the odds line moves with the grind (deterministic, time-revealed)", battleMoment(live, T0 + live.durationMs / 2).attackerWinProb > m0.attackerWinProb);
 check("the duration is the engine's curve, inside its clamp", live.durationMs === battleMoment(live, T0).remainingMs && live.durationMs >= ACT1_ENGINE.minDurationMs && live.durationMs <= ACT1_ENGINE.maxDurationMs);
@@ -138,14 +211,19 @@ check("casualties are committed up front and bounded by the troops present", liv
 check("no window is open at the whistle (the engine opens them at milestones)", windowsForView(live, T0).filter((w) => w.open).length === 0);
 check("the first window is the engine's edge window, 30s after the whistle", msUntilFirstWindow(live, T0) === BATTLES_CONFIG.edgeWindowDelayMs);
 const wOpen = windowsForView(live, T0 + 31_000).filter((w) => w.open);
+// 2026-09-27 — HARDENED, not weakened: if the edge window is missing (the exact
+// regression the armory slice caused) this used to throw on `wOpen[0].opensAt`
+// and abort the suite ~60 checks early, hiding everything after it. The guard
+// only short-circuits the dereference; both checks still FAIL on an empty list.
+const w0 = wOpen[0];
 check("exactly ONE window is open a moment later — and it is OURS", wOpen.length === 1 && wOpen[0].side === "defender" && wOpen[0].kind === "edge");
-check("that window has a live clock (opens/closes inside the battle)", wOpen[0].opensAt === T0 + BATTLES_CONFIG.edgeWindowDelayMs && wOpen[0].closesAt - wOpen[0].opensAt >= ACT1_ENGINE.windowMinMs && wOpen[0].closesAt - wOpen[0].opensAt <= ACT1_ENGINE.windowMaxMs);
+check("that window has a live clock (opens/closes inside the battle)", !!w0 && w0.opensAt === T0 + BATTLES_CONFIG.edgeWindowDelayMs && w0.closesAt - w0.opensAt >= ACT1_ENGINE.windowMinMs && w0.closesAt - w0.opensAt <= ACT1_ENGINE.windowMaxMs);
 check("our side of the fight is resolved by the shipped helper (state identity)", ourSide(live, { colonyId: st.gameId ?? "", colonyName: st.playerName }) === "defender");
 check("the whole schedule is deterministic (both sides, 3 milestones each)", live.windows.length === 7 && live.windows.filter((w) => w.kind === "milestone").length === 6);
 check("the front is written into the Chronicle", st.log.some((l) => l.includes(ACT1_CONFIG.frontName)));
 // the first order lands, and it CHANGES the fight (no fake progress bars)
 const oursBefore = live.forcePower.defender;
-const res = issueDecision(live, "defender", wOpen[0].id, "reinforce", T0 + 31_000, { reserveHeroIds: [], reserveTroops: st.warReserve.troops, energy: st.warReserve.energy }, { heroes: [], troops: ACT1_CONFIG.ourTroops });
+const res = issueDecision(live, "defender", w0?.id ?? "no-window", "reinforce", T0 + 31_000, { reserveHeroIds: [], reserveTroops: st.warReserve.troops, energy: st.warReserve.energy }, { heroes: [], troops: ACT1_CONFIG.ourTroops });
 const m1 = battleMoment(live, T0 + 32_000);
 check("an order is accepted by the engine in that window", res.ok === true);
 check("the order's power is engine-stamped and visible", res.ok && (res as { decision: { effects: { kind: string; powerAdded?: number } } }).decision.effects.kind === "reinforce" && live.forcePower.defender === oursBefore + 120);
