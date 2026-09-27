@@ -66,11 +66,15 @@ import { ensurePrologue, freshPrologue } from "./prologue/prologue-state";
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
 import { ensureTimeTokens } from "./time-tokens";
-// TIME TOKENS (owner direction 2026-09-27) — the EARNED path, re-exported so the
+// TIME TOKENS — the EARNED path AND the SIX SELLABLE sizes, re-exported so the
 // API surface speaks one engine namespace. `grantTimeToken` is the daily Devotion's
-// door; `applyTimeToken` compresses ONE running timer, floored at the SAME
-// MIN_TIMER_FRACTION the earned modifier stack uses. NOTHING here sells a token:
-// the six sellable sizes are not defined in the build at all (see time-tokens.ts).
+// door and pays the two EARNED sizes only ("1m","5m"); `applyTimeToken` spends ANY
+// size the build defines and compresses ONE running timer, floored at the SAME
+// MIN_TIMER_FRACTION the earned modifier stack uses. Since the owner's signed
+// ruling of 2026-09-27 six sizes ARE sold — their prices and product ids live in
+// monetization.ts (`TIME_TOKEN_PACKS`) — and nothing in THIS module sells anything:
+// the sell-side entitlement lands with the Stripe products and the storefront
+// switch, both still absent (time-tokens.ts carries the whole record).
 export { applyTimeToken, grantTimeToken, heldTimeTokens, TIME_TOKEN_SIZES } from "./time-tokens";
 
 // The Deepspace Engine core. Pure logic operating on a GameState object.
@@ -187,15 +191,21 @@ export const RUNG_ENTRY_R = 6;
  *   · the EARNED modifier stack (specialty, attributes, techs, domains), where
  *     `timerFloor()` asserts it at the point the stack is applied; and
  *   · TIME TOKENS — the owner's OWN ruling of 2026-09-27 ("Add 1 minute and 5
- *     minute speed UPS to each devotion reward claim"), earned-only and spent
- *     through `applyTimeToken` (time-tokens.ts), which asserts THIS constant
+ *     minute speed UPS to each devotion reward claim") and the SELL side of the
+ *     2026-09-27 ruling, EARNED OR BOUGHT and spent through `applyTimeToken`
+ *     (time-tokens.ts), which asserts THIS constant
  *     against the timer's own base at every application. A token can therefore
  *     never compress a timer past the same 3.5x ceiling the purchased side was
  *     sized to.
- * STILL DORMANT, and honestly so: the PURCHASED side. The owner has ruled on the
- * EARNED token only; the sell-side sentence ("Speed-ups are sold…") is UNSIGNED,
- * so nothing purchasable touches time anywhere in this code.
- * One assertion, three callers, nothing sold.
+ * THE SELL-SIDE SENTENCE IS SIGNED (2026-09-27): "speed-ups are sold, they compress
+ * one timer by at most 3.5×, and grant no resource, no strength, no scored currency
+ * and no season tier." So the SIX sellable sizes exist (time-tokens.ts) at the
+ * owner's prices (monetization.ts `TIME_TOKEN_PACKS`), and this constant bounds them
+ * at the same 3.5×, asserted at every application. What is still absent is the
+ * ABILITY TO PAY: every product id is unset (a sale is refused by name), no Payment
+ * Link is configured, and `storefrontEnabled` is false. Nothing purchasable moves a
+ * timer in this build.
+ * One assertion, three callers, one signed ceiling.
  */
 export const MIN_TIMER_FRACTION = 0.286;
 
@@ -596,7 +606,10 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
     currency: freshCurrency(),
     entitlements: freshEntitlements(),
     battlePass: freshBattlePass(now),
-    // ---- Armory (V6): no war hardware yet — earn-only, built at the Cradle ----
+    // ---- Armory (V6): no war hardware yet — EARN-ONLY at the Cradle, and it
+    // stays earn-only now that the store sells something: what TIME_TOKEN_PACKS
+    // sells is TIME (time-tokens.ts), never a weapon, and a purchasable key that
+    // named war hardware would still be refused by name (monetization.ts). ----
     armory: {},
     armoryBuilds: {},
     weaponsBuilt: 0,

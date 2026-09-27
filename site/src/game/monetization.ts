@@ -4,7 +4,9 @@
 // seams only, exactly as the spec defines them, so a real payment provider and
 // storefront can plug in later without redesign:
 //   1. Catalog (Wave-1: 9 purchasable + 7 deed-earned cosmetics, 3 head-start
-//      packs, 4 Votive pack sizes, 28-tier Season 0 battle pass).
+//      packs, 4 Votive pack sizes, 28-tier Season 0 battle pass, and — since the
+//      owner's signed ruling of 2026-09-27 — the 6 speed-up sizes the store
+//      sells TIME with, `TIME_TOKEN_PACKS`).
 //   2. Currency ledger (Scrip earned / Votives premium; append-only, eventId-
 //      idempotent, no negative balances, NO conversion path — none exists).
 //   3. Entitlement hooks (grant/revoke/check; packs grant their listed contents;
@@ -27,6 +29,21 @@ import type {
   EntitlementsState,
   GameState,
 } from "./types";
+// THE SELL HALF'S OWN SIZES (owner ruling signed 2026-09-27). Type-only where it
+// can be, plus the three predicates the catalogue and the sale referee read: which
+// sizes EXIST, which two are EARNED (never sold) and which six are SELLABLE. The
+// durations themselves stay in time-tokens.ts — this module owns the price and the
+// product id, that one owns the mechanic. No cycle: time-tokens.ts imports nothing
+// from here.
+import {
+  EARNED_TIME_TOKEN_SIZES,
+  isEarnedTimeTokenSize,
+  isSellableTimeTokenSize,
+  isTimeTokenSize,
+  SELLABLE_TIME_TOKEN_SIZES,
+  timeTokenMs,
+  type SellableTimeTokenSizeId,
+} from "./time-tokens";
 // The real payment provider (payment-links + signature-verified webhook). Its
 // imports back into this file are TYPE-ONLY, so there is no runtime cycle and
 // this module stays pure for the client bundle.
@@ -326,6 +343,116 @@ export const HEAD_START_PACKS: HeadStartPackDef[] = [
 ];
 
 export const PACK_BY_ID = Object.fromEntries(HEAD_START_PACKS.map((p) => [p.id, p])) as Record<string, HeadStartPackDef>;
+// ======================================================================
+// SPEED-UP PACKS — THE SELL HALF OF TIME TOKENS (owner ruling SIGNED 2026-09-27).
+// ======================================================================
+// OWNER, VERBATIM (2026-09-27): "Yes — approve the speed-up sentence as written:
+// speed-ups are sold, they compress one timer by at most 3.5×, and grant no
+// resource, no strength, no scored currency and no season tier. That's my
+// sign-off, go build it." And on what is NOT for sale: "don't sell the one minute
+// or the 5 minutes speed UPS — we will let the player gain those through functions
+// like daily rewards like in the devotion thing."
+//
+// WHAT THESE SIX ROWS ARE. One per SELLABLE size, shaped exactly like VOTIVE_PACKS
+// and HEAD_START_PACKS above: an id, a name, a price and a product id. The
+// durations and the earned/sellable split live in time-tokens.ts (`TIME_TOKEN_SIZES`,
+// `SELLABLE_TIME_TOKEN_SIZES`); what a token does to a timer — one timer, at most
+// 3.5×, floored at MIN_TIMER_FRACTION, and nothing else — lives there too. A pack
+// row here can grant nothing at all, because it carries no `grants` payload: the
+// speed-up's ENTIRE effect is time, and `time-token-tests` §A/§D assert that.
+//
+// THE PRODUCT ID AND THE ONE PLACE IT LANDS: `TIME_TOKEN_PACKS[*].providerSkuId`
+// below, whose value today is `TIME_TOKEN_PRODUCT_ID_UNSET` — the empty string. The
+// real Stripe product ids DO NOT EXIST YET and are not invented here. While one is
+// missing, `timeTokenSaleRefusal(sizeId)` REFUSES that size BY NAME: no sale, no
+// default to a guess, no silent fall-through. The matching Payment Link row
+// (`url` / `paymentLinkId` / `priceId`, payments/payment-links.ts) lands in the same
+// commit as the id does, exactly as the four Votive packs and the three kits did.
+//
+// AND THE SHOP IS STILL SHUT: `MONETIZATION_CONFIG.storefrontEnabled` stays false
+// and every purchase route stays gated on it (api.ts gates both handlers). These
+// rows are a catalogue, not a checkout.
+export interface TimeTokenPackDef {
+  id: string; // catalogue id: "time-token-<sizeId>"
+  sizeId: SellableTimeTokenSizeId; // the SIZE this row sells
+  name: string; // English label; the store UI keys it when the rows land
+  priceUsd: number; // owner-decided, and monotonic in value per hour (asserted below)
+  providerSkuId: string; // THE Stripe product id — "" until it exists
+}
+/** The empty product id, named once so a refusal can point at it. */
+export const TIME_TOKEN_PRODUCT_ID_UNSET = "";
+export const TIME_TOKEN_PACKS: TimeTokenPackDef[] = [
+  { id: "time-token-30m", sizeId: "30m", name: "Half-Hour Token", priceUsd: 2.99, providerSkuId: TIME_TOKEN_PRODUCT_ID_UNSET },
+  { id: "time-token-1h", sizeId: "1h", name: "One-Hour Token", priceUsd: 3.99, providerSkuId: TIME_TOKEN_PRODUCT_ID_UNSET },
+  { id: "time-token-8h", sizeId: "8h", name: "Eight-Hour Token", priceUsd: 7.99, providerSkuId: TIME_TOKEN_PRODUCT_ID_UNSET },
+  { id: "time-token-12h", sizeId: "12h", name: "Twelve-Hour Token", priceUsd: 9.99, providerSkuId: TIME_TOKEN_PRODUCT_ID_UNSET },
+  { id: "time-token-24h", sizeId: "24h", name: "Day Token", priceUsd: 14.99, providerSkuId: TIME_TOKEN_PRODUCT_ID_UNSET },
+  { id: "time-token-48h", sizeId: "48h", name: "Two-Day Token", priceUsd: 24.99, providerSkuId: TIME_TOKEN_PRODUCT_ID_UNSET },
+];
+export const TIME_TOKEN_PACK_BY_ID = Object.fromEntries(TIME_TOKEN_PACKS.map((p) => [p.id, p])) as Record<string, TimeTokenPackDef>;
+/** The catalogue id of a size's row — one formula, so a lookup cannot miss. */
+export function timeTokenPackId(sizeId: string): string {
+  return `time-token-${sizeId}`;
+}
+/** The catalogue row for a size, or undefined when nothing sells it
+ *  (`1m`/`5m` — the earned sizes — never have a row). */
+export function timeTokenPack(sizeId: string): TimeTokenPackDef | undefined {
+  return TIME_TOKEN_PACK_BY_ID[timeTokenPackId(sizeId)];
+}
+/** The owner's price for a size in USD, or 0 when nothing sells it. */
+export function timeTokenPriceUsd(sizeId: string): number {
+  return timeTokenPack(sizeId)?.priceUsd ?? 0;
+}
+export interface TimeTokenSaleRefusal {
+  /** A catalogue key the UI renders in the player's own language. */
+  errorKey: string;
+  /** The same refusal, plainly, for the log and the operator. */
+  error: string;
+}
+/**
+ * WHY THIS SIZE CANNOT BE SOLD — `null` means the catalogue offers it.
+ *
+ * EVERY sell-side surface must consult this before it offers a size, and it is the
+ * reason the six sizes could land in the build with no product id invented:
+ *
+ *   1. an id this build does not define        -> time.refusedSize
+ *   2. the two EARNED sizes ("1m", "5m")       -> time.earnedOnly, never sold
+ *   3. a sellable size with no catalogue row   -> store.notForSale
+ *   4. a sellable size whose product id is
+ *      still `TIME_TOKEN_PRODUCT_ID_UNSET`     -> store.notForSale, BY NAME
+ *
+ * A refusal here is a REFUSAL TO SELL, not a message: this function grants nothing
+ * and has no purchase path behind it. Money still needs the Stripe products, the
+ * signing secret, the Payment Link rows and the `storefrontEnabled` flip — the
+ * owner's step, not this module's.
+ */
+export function timeTokenSaleRefusal(sizeId: string): TimeTokenSaleRefusal | null {
+  if (!isTimeTokenSize(sizeId)) {
+    return { errorKey: "time.refusedSize", error: `Unknown time-token size "${sizeId}" — nothing sells it.` };
+  }
+  if (isEarnedTimeTokenSize(sizeId)) {
+    return {
+      errorKey: "time.earnedOnly",
+      error: `The ${sizeId} token is never sold — the daily Devotion pays it (owner, 2026-09-27).`,
+    };
+  }
+  const row = timeTokenPack(sizeId);
+  if (!row) {
+    return { errorKey: "store.notForSale", error: `No catalogue row sells the ${sizeId} token.` };
+  }
+  if (!row.providerSkuId) {
+    return {
+      errorKey: "store.notForSale",
+      error: `The ${sizeId} token has no Stripe product id yet (${row.id}.providerSkuId is empty) — refused by name rather than sold without one.`,
+    };
+  }
+  return null;
+}
+/** Every size the catalogue offers with a price AND a product id. Empty today —
+ *  all six product ids are unset — and it is read from the rows, never assumed. */
+export function sellableTimeTokenSizes(): string[] {
+  return TIME_TOKEN_PACKS.filter((p) => !!p.providerSkuId).map((p) => p.sizeId);
+}
 
 // ======================================================================
 // BATTLE PASS — Season 0 "The Shattering" (spec §4). PvE-loop season: 28
@@ -1059,8 +1186,22 @@ export function createPaymentProvider(options: StripeProviderOptions = {}): Paym
 // "devotion", "power", "shield") — those appear legitimately in cosmetic names
 // and flavor; the STRUCTURAL checks (no grant payload on cosmetics, reward
 // `kind` enum, grant-key list) are the real guard, this list is the tripwire.
+//
+// THE RECORD CHANGED HERE, 2026-09-27, AND ONLY HERE. Until this slice the list
+// began `"xp", "boost", "speed-up", "speedup", "skip", "rush", "timer", …`, and
+// `assertCatalogFair()` therefore refused a purchasable key that so much as said
+// "speed-up" — true while nothing sold time. The owner signed the sell-side
+// sentence ("speed-ups are sold, they compress one timer by at most 3.5×, and
+// grant no resource, no strength, no scored currency and no season tier"), so the
+// TWO words for the thing we now sell were REMOVED from the list. Every other term
+// stays, including the ones that would MISdescribe a speed-up by promising more
+// than it does: "skip", "rush", "instant", "finish", "boost", "timer", "xp",
+// "tier-skip". A pack may now describe the time it hands over; it may not claim
+// to skip a timer, rush it, finish it or boost anything. `time-token-tests` §E
+// plants all three cases (speed-up accepted, skip-timer refused, plasma refused)
+// so the widening is proved, not asserted.
 const FORBIDDEN_POWER_TERMS = [
-  "xp", "boost", "speed-up", "speedup", "skip", "rush", "timer", "instant", "finish",
+  "xp", "boost", "skip", "rush", "timer", "instant", "finish",
   "repair", "heal", "stamina", "energy", "favor", "cleans", "riddle", "research",
   "codices", "tier-skip", "tierskip", "contribution", "unbound", "hero", "stat",
   "loot", "mystery", "random", "attack", "army", "troop", "refill", "diamond", "rebirth",
@@ -1068,6 +1209,9 @@ const FORBIDDEN_POWER_TERMS = [
   // catalog item — cosmetic, pack, or premium tier — may so much as NAME plasma,
   // the armory, a weapon, or the trebuchet. A purchase path that grants war
   // hardware would have to reference it; the tripwire keeps the catalog clean.
+  // THIS SENTENCE IS THE SURVIVING HALF of the record change of 2026-09-27: war
+  // hardware, plasma, the Forge and the armory stay EARN-ONLY, and this list still
+  // refuses a purchasable key that names any of them.
   "plasma", "armory", "weapon", "trebuchet",
 ];
 
@@ -1101,13 +1245,26 @@ export function assertCatalogFair(): void {
   }
 
   // §3.2 pack echo: no research/leaders/Oracle/advancement-currency/
-  // outpacing-consumables/exclusive gear/pass-tiers/timers/immunity/Unbound/
+  // outpacing-consumables/exclusive gear/pass-tiers/immunity/Unbound/
   // Contribution/one-per-server. Grants restricted to craftable resources,
   // Votives, cosmetics and vehicles.
+  //
+  // ONE ITEM LEFT THAT LIST ON 2026-09-27, AND ONLY ONE: "timers". The owner's
+  // signed ruling sells TIME — six speed-up sizes, each compressing one timer by at
+  // most 3.5× and granting nothing else — so a head-start PACK still grants no
+  // timer (nothing in HEAD_START_PACKS does, asserted below), while the store has a
+  // separate, grant-less catalogue of time (`TIME_TOKEN_PACKS`). The categorical
+  // claim that loses is "nothing purchasable may touch time". THE CLAIM THAT
+  // SURVIVES, unchanged and checkable, is the EARN-ONLY one below: plasma, the
+  // armory, weapons, the Forge and war hardware are never purchasable in any shape.
   const allowedResources: PackResourceKey[] = ["supplies", "gas", "medkit", "mechkit", "armorkit", "skmech", "battery", "hazmat", "shots", "alloys"];
   // V6 earn-only structural check: the pack grant-key whitelist is the ONLY
   // resource a pack may grant — plasma is a war material and can never enter
-  // it. Belt-and-braces with the forbidden-vocabulary tripwire above.
+  // it. Belt-and-braces with the forbidden-vocabulary tripwire above, and the
+  // sentence that OUTLIVED the 2026-09-27 sell-side ruling: war hardware stays
+  // earn-only however the store changes. The war-hardware tripwire is still
+  // asserted to REFUSE a purchasable key that names it (`time-token-tests` §E
+  // plants one), so "earn-only" cannot quietly become "sold" later.
   if (allowedResources.includes("plasma" as PackResourceKey)) {
     throw new Error("Plasma is a war material — a pack must never grant it (weapons-system §6).");
   }
@@ -1136,6 +1293,65 @@ export function assertCatalogFair(): void {
         throw new Error(`Pack ${p.id} has an unknown grant kind "${(g as { kind: string }).kind}".`);
       }
     }
+  }
+
+  // ---- THE SIX SPEED-UP ROWS (2026-09-27). The store sells TIME, so the guard
+  // around it is STRUCTURAL, and this is where a catalogue that crossed a line
+  // fails the build: exactly one row per sellable size, never a row for an earned
+  // size, a real price, a price that gets better per hour as the size grows, a
+  // product id that is either unset or non-blank, and NO grant payload of any kind
+  // (a speed-up grants time and nothing else — no resource, no strength, no scored
+  // currency, no season tier). The war-hardware tripwire above is UNTOUCHED by all
+  // of this and still applies to every name here.
+  const sellableRows = TIME_TOKEN_PACKS.map((p) => p.sizeId);
+  if (sellableRows.length !== SELLABLE_TIME_TOKEN_SIZES.length) {
+    throw new Error(`The time-token catalogue must carry exactly one row per sellable size (${sellableRows.length} rows for ${SELLABLE_TIME_TOKEN_SIZES.length} sizes).`);
+  }
+  for (const p of TIME_TOKEN_PACKS) {
+    if (!isSellableTimeTokenSize(p.sizeId)) {
+      throw new Error(`Time-token row ${p.id} sells "${p.sizeId}", which is not a sellable size — the earned sizes are never sold (2026-09-27).`);
+    }
+    if (p.id !== timeTokenPackId(p.sizeId)) {
+      throw new Error(`Time-token row ${p.id} must be named "${timeTokenPackId(p.sizeId)}" for its size.`);
+    }
+    if (sellableRows.filter((s) => s === p.sizeId).length !== 1) {
+      throw new Error(`Time-token size "${p.sizeId}" is sold twice — one price per size.`);
+    }
+    const hit = hitsForbidden(p.name);
+    if (hit) throw new Error(`Time-token row ${p.id} touches forbidden power vocabulary ("${hit}").`);
+    if (!(p.priceUsd > 0)) {
+      throw new Error(`Time-token row ${p.id} must carry a real price (> 0) — a speed-up is sold, not given away.`);
+    }
+    if (typeof p.providerSkuId !== "string" || p.providerSkuId !== p.providerSkuId.trim()) {
+      throw new Error(`Time-token row ${p.id} has a malformed product id — it is either the empty string (unset) or a real Stripe id.`);
+    }
+    if ((p as { grants?: unknown }).grants !== undefined) {
+      throw new Error(`Time-token row ${p.id} carries a grant payload — a speed-up grants TIME ONLY (owner ruling 2026-09-27).`);
+    }
+  }
+  for (const id of SELLABLE_TIME_TOKEN_SIZES) {
+    if (!TIME_TOKEN_PACKS.some((p) => (p.sizeId as string) === id)) {
+      throw new Error(`Sellable size "${id}" has no catalogue row — a size with no price is not sellable.`);
+    }
+  }
+  for (const id of EARNED_TIME_TOKEN_SIZES) {
+    if (TIME_TOKEN_PACKS.some((p) => (p.sizeId as string) === id)) {
+      throw new Error(`The earned size "${id}" has a price — 1m and 5m are never sold (owner, 2026-09-27).`);
+    }
+  }
+  // BETTER PER HOUR AS IT GETS BIGGER, strictly: the owner's "monotonic in value
+  // per hour". Smaller first, so the comparison is the one a player makes.
+  const bySize = [...TIME_TOKEN_PACKS].sort((a, b) => timeTokenMs(a.sizeId) - timeTokenMs(b.sizeId));
+  for (let i = 1; i < bySize.length; i++) {
+    const prev = bySize[i - 1].priceUsd / timeTokenMs(bySize[i - 1].sizeId);
+    const cur = bySize[i].priceUsd / timeTokenMs(bySize[i].sizeId);
+    if (!(cur < prev)) {
+      throw new Error(`Time-token prices are not monotonic in value per hour: ${bySize[i].sizeId} costs ${cur.toFixed(8)}/ms against ${bySize[i - 1].sizeId}'s ${prev.toFixed(8)}/ms.`);
+    }
+  }
+  // And no head-start pack may smuggle a timer in through the pack path.
+  if (HEAD_START_PACKS.some((p) => (p as { grants?: { kind?: string }[] }).grants?.some((g) => g?.kind === "time"))) {
+    throw new Error("A head-start pack grants a timer — time is sold as a token, never inside a pack (§3.2).");
   }
 
   // §4.3: premium track contains NO Scrip, NO Season Sigils, NO XP, no

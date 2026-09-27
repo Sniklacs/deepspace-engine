@@ -1,26 +1,40 @@
-// TIME TOKENS — the EARNED path (owner direction, 2026-09-27).
+// TIME TOKENS — the EARNED path AND the SELL half (owner ruling, SIGNED 2026-09-27).
 //
-// OWNER, VERBATIM (2026-09-27): "Add 1 minute and 5 minute speed UPS to each
-// devotion reward claim as well so we can get those rolling in." Standing ruling
-// it extends: "don't sell the one minute or the 5 minutes speed UPS — we will let
-// the player gain those through functions like daily rewards like in the devotion
+// OWNER, VERBATIM — THE RULING THIS SLICE IMPLEMENTS (2026-09-27): "Yes — approve
+// the speed-up sentence as written: speed-ups are sold, they compress one timer by
+// at most 3.5×, and grant no resource, no strength, no scored currency and no
+// season tier. That's my sign-off, go build it." And the same day, on what is NOT
+// for sale: "don't sell the one minute or the 5 minutes speed UPS — we will let the
+// player gain those through functions like daily rewards like in the devotion
 // thing… if everybody clears all the devotions in a day they get a nice pack."
 //
-// WHAT THIS FILE IS: the whole of the earned side. A time token is a held thing in
-// the colony state that, when applied to ONE running timer, takes its own duration
-// off that timer's remaining time. That is all it does — it grants no resource, no
+// WHAT THIS FILE IS: ONE token type, EIGHT sizes — TWO EARNED ("1m","5m": the
+// Devotion's, never sold) and SIX SELLABLE ("30m","1h","8h","12h","24h","48h", at
+// the owner's own durations and prices). A time token is a held thing in the
+// colony state that, when applied to ONE running timer, takes its own duration off
+// that timer's remaining time. That is all it does — it grants no resource, no
 // strength, no scored currency and no season tier, so a colony holding a million of
 // them is as strong, as rich and as highly scored as one holding none (asserted:
-// time-token-tests §D "power invariance").
+// time-token-tests §D "power invariance", per size).
 //
-// WHAT IS NOT HERE, AND CANNOT BE ADDED WITHOUT A SIGNED RULING: a price, a
-// product, a purchase path, an entitlement, a Stripe object, a bundle — anything
-// that would SELL a token. The sell-side sentence ("Speed-ups are sold; they
-// compress one timer by at most 3.5×; they grant no resource, no strength, no
-// scored currency, no season tier") is STILL UNSIGNED, so the only way a token can
-// enter a colony in this build is the daily Devotion. `storefrontEnabled` stays
-// false and the monetization catalogue's forbidden-vocabulary tripwire still
-// refuses any purchasable key named like a speed-up (asserted in §E).
+// WHERE THE MONEY DATA LIVES: NOT here. A price and a product id are CATALOGUE data
+// and they live in `monetization.ts` — `TIME_TOKEN_PACKS`, one row per sellable
+// size, shaped exactly like `VOTIVE_PACKS`/`HEAD_START_PACKS` (id / sizeId / name /
+// priceUsd / providerSkuId). `TimeTokenPackDef.providerSkuId` is THE ONE PLACE a
+// Stripe product id lands, and it is `""` today: no product exists yet, so
+// `timeTokenSaleRefusal()` refuses every one of the six BY NAME rather than
+// defaulting or silently selling. `time-token-tests` §A asserts this file's CODE
+// still defines no price, product, checkout or purchase object.
+//
+// NOTHING HERE SELLS ANYTHING, and nothing here conjures what is sold: the only
+// grant door in this file is `grantTimeToken`, and it REFUSES a sellable size by
+// name — the earned door pays the Devotion's two sizes (daily.ts). The purchased
+// token's entitlement lands with the Stripe products and the switch flip.
+// `MONETIZATION_CONFIG.storefrontEnabled` stays false, and every purchase route
+// stays gated on it (api.ts). The catalogue's vocabulary tripwire no longer bans
+// the word "speed-up" — we sell speed-ups now, and the owner's sentence is the one
+// that describes them — while it still bans every word that would MISdescribe them
+// and still refuses a purchasable key that names war hardware.
 //
 // THE FLOOR, ASSERTED AT APPLICATION (re-time spec; MIN_TIMER_FRACTION = 0.286):
 // `timerFloor()` in engine.ts applies the SAME constant to the earned modifier
@@ -45,48 +59,76 @@ import type { GameState } from "./types";
 // §1 THE TYPE — one explicit definition: size id -> duration ms.
 // ======================================================================
 //
-// The TWO EARNED SIZES. These, and only these, exist in this build: the daily
-// Devotion pays one of each per reward claim (§3), and nothing sells them.
-export type TimeTokenSizeId = "1m" | "5m";
+// THE TWO EARNED SIZES. The daily Devotion pays one of each per reward claim
+// (daily.ts §3), and these are NEVER for sale — the owner, verbatim: "don't sell
+// the one minute or the 5 minutes speed UPS". `isEarnedTimeTokenSize` means
+// exactly what it meant before this slice existed.
+export type EarnedTimeTokenSizeId = "1m" | "5m";
+// THE SIX SELLABLE SIZES — the durations the owner set, sold at the prices in
+// `monetization.ts` `TIME_TOKEN_PACKS`. (The two lists do not overlap: a size is
+// earned or sellable, never both.)
+export type SellableTimeTokenSizeId = "30m" | "1h" | "8h" | "12h" | "24h" | "48h";
+export type TimeTokenSizeId = EarnedTimeTokenSizeId | SellableTimeTokenSizeId;
 
 /** The earned sizes, in the order they are paid and displayed. */
-export const EARNED_TIME_TOKEN_SIZES: readonly TimeTokenSizeId[] = ["1m", "5m"] as const;
+export const EARNED_TIME_TOKEN_SIZES: readonly EarnedTimeTokenSizeId[] = ["1m", "5m"] as const;
+
+/** The sellable sizes, SMALLEST FIRST. Prices (monetization.ts) are monotonic in
+ *  value per hour — a bigger token is better value per hour of time — and
+ *  `assertCatalogFair()` refuses a catalogue where that stops being true. */
+export const SELLABLE_TIME_TOKEN_SIZES: readonly SellableTimeTokenSizeId[] =
+  ["30m", "1h", "8h", "12h", "24h", "48h"] as const;
 
 export interface TimeTokenSizeDef {
   id: TimeTokenSizeId;
   ms: number;
 }
 
+// ---- THE TYPED TABLE — all EIGHT sizes, one explicit duration each, ms ----
+//
+// The six sellable entries LANDED HERE on 2026-09-27 with the owner's signed
+// ruling ("speed-ups are sold, they compress one timer by at most 3.5×, and grant
+// no resource, no strength, no scored currency and no season tier"), together with
+// the power-invariance test per size (`time-token-tests` §D) and the negative
+// controls that every sale of an unpriced size is still refused (§E). No entry
+// here carries a price or a product id: those are catalogue data, in
+// monetization.ts.
 export const TIME_TOKEN_SIZES: Record<TimeTokenSizeId, TimeTokenSizeDef> = {
   "1m": { id: "1m", ms: 60_000 },
   "5m": { id: "5m", ms: 300_000 },
+  "30m": { id: "30m", ms: 1_800_000 },
+  "1h": { id: "1h", ms: 3_600_000 },
+  "8h": { id: "8h", ms: 28_800_000 },
+  "12h": { id: "12h", ms: 43_200_000 },
+  "24h": { id: "24h", ms: 86_400_000 },
+  "48h": { id: "48h", ms: 172_800_000 },
 };
-
-// ---- THE SIX SELLABLE SIZES — FUTURE ENTRIES ONLY, DELIBERATELY NOT DEFINED ----
-//
-// Owner-decided 2026-09-27, verbatim: "don't sell the one minute or the 5 minutes
-// speed UPS". What may one day be sold, and at the durations the owner set:
-//
-//     30m -> 1_800_000 ms      12h -> 43_200_000 ms
-//      1h -> 3_600_000 ms      24h -> 86_400_000 ms
-//      8h -> 28_800_000 ms     48h -> 172_800_000 ms
-//
-// They are NOT entries in the table above, on purpose. A live entry would be a
-// sell-side object, and the ruling that legalises one is unsigned; when it is
-// signed, the entries land here together with the price, the product id and the
-// power-invariance test, in that PR. Nothing in this module may reference them
-// before then — and `time-token-tests` §E asserts that this file defines exactly
-// two sizes and that the monetization tripwire still refuses a purchasable key
-// named like a speed-up.
 
 /** Milliseconds a size is worth. Unknown sizes resolve to 0 and are refused. */
 export function timeTokenMs(sizeId: string): number {
   return TIME_TOKEN_SIZES[sizeId as TimeTokenSizeId]?.ms ?? 0;
 }
 
-/** True when `sizeId` is one of the two EARNED sizes this build defines. */
-export function isEarnedTimeTokenSize(sizeId: string): boolean {
+/** True when `sizeId` is ANY size this build defines — earned or sellable. This is
+ *  the check the SPEND door uses: a bought token must be spendable. */
+export function isTimeTokenSize(sizeId: string): boolean {
   return Object.prototype.hasOwnProperty.call(TIME_TOKEN_SIZES, sizeId);
+}
+
+/** True when `sizeId` is one of the TWO EARNED sizes — the Devotion's, and never
+ *  sold. Read from `EARNED_TIME_TOKEN_SIZES` (not from the table above, which now
+ *  holds all eight), so this means exactly what it meant before the sell half
+ *  landed: "1m" and "5m", nothing else. The EARN door uses this. */
+export function isEarnedTimeTokenSize(sizeId: string): boolean {
+  return (EARNED_TIME_TOKEN_SIZES as readonly string[]).includes(sizeId);
+}
+
+/** True when `sizeId` is one of the SIX SELLABLE sizes. "1m" and "5m" are NOT
+ *  sellable — by the owner's word, twice over — and an unknown id is not sellable
+ *  either. The sell-side referee reads this (`monetization.ts`
+ *  `timeTokenSaleRefusal`), so no price can ever be attached to an earned size. */
+export function isSellableTimeTokenSize(sizeId: string): boolean {
+  return (SELLABLE_TIME_TOKEN_SIZES as readonly string[]).includes(sizeId);
 }
 
 // ======================================================================
@@ -108,7 +150,7 @@ export interface TimeTokenLedgerEntry {
   ts: number;
 }
 
-/** A colony that has never held a token: both earned sizes at zero. */
+/** A colony that has never held a token: the two earned sizes at zero. */
 export function freshTimeTokens(): TimeTokenHoldings {
   const held: TimeTokenHoldings = {};
   for (const id of EARNED_TIME_TOKEN_SIZES) held[id] = 0;
@@ -120,12 +162,24 @@ export function freshTimeTokens(): TimeTokenHoldings {
  * ensure* passes). A save written before time tokens existed gets both earned
  * sizes at zero and an empty ledger — never a guessed balance, never a negative
  * one. Idempotent: running it twice changes nothing.
+ *
+ * A SELLABLE size is never INVENTED here (a save that never held one gets no key
+ * for it); a save that DOES hold one — because it bought one, once the switch is
+ * on — has that holding repaired in place (fractional, negative or non-numeric
+ * values become a whole, non-negative count). Total completion is not a thing a
+ * migration may hand out.
  */
 export function ensureTimeTokens(state: GameState): void {
   if (!state.timeTokens || typeof state.timeTokens !== "object") {
     state.timeTokens = freshTimeTokens();
   } else {
     for (const id of EARNED_TIME_TOKEN_SIZES) {
+      const v = state.timeTokens[id];
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0) state.timeTokens[id] = 0;
+      else state.timeTokens[id] = Math.floor(v);
+    }
+    for (const id of Object.keys(state.timeTokens)) {
+      if (!isSellableTimeTokenSize(id)) continue;
       const v = state.timeTokens[id];
       if (typeof v !== "number" || !Number.isFinite(v) || v < 0) state.timeTokens[id] = 0;
       else state.timeTokens[id] = Math.floor(v);
@@ -140,11 +194,14 @@ export function heldTimeTokens(state: GameState, sizeId: string): number {
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
 }
 
-/** Total held value in ms, across the earned sizes (for readouts and reports —
- *  never a number the engine derives a price or a reward from). */
+/** Total held value in ms, across EVERY size the build defines — the earned ones
+ *  and the six that are sold (for readouts and reports; never a number the engine
+ *  derives a price or a reward from). */
 export function heldTimeTokenMs(state: GameState): number {
   let total = 0;
-  for (const id of EARNED_TIME_TOKEN_SIZES) total += heldTimeTokens(state, id) * timeTokenMs(id);
+  for (const id of Object.keys(TIME_TOKEN_SIZES) as TimeTokenSizeId[]) {
+    total += heldTimeTokens(state, id) * timeTokenMs(id);
+  }
   return total;
 }
 
@@ -163,12 +220,18 @@ export interface TimeTokenGrantResult {
 }
 
 /**
- * GRANT ONE TIME TOKEN — the earned path's only door.
+ * GRANT ONE TIME TOKEN — the EARNED path's only door.
  *
  * Idempotent by `eventId` exactly as `grantCurrency` is, against the same
  * discipline and the same rule that an eventId is spent once: a retried grant, a
  * replayed request or a re-run of the day's claim can never pay twice. `reason` is
  * for the log and the operator, never a player-facing surface.
+ *
+ * IT PAYS THE TWO EARNED SIZES AND NOTHING ELSE. That is deliberate and it is the
+ * sell half's security property: this door cannot conjure a token that is sold, so
+ * no earned path (a Devotion claim, a replay, a future daily reward) can hand out
+ * what the store charges for. A purchased token's entitlement is granted by the
+ * purchase path, which lands with the Stripe products and the switch flip.
  */
 export function grantTimeToken(
   state: GameState,
@@ -178,6 +241,9 @@ export function grantTimeToken(
   now = Date.now(),
 ): TimeTokenGrantResult {
   ensureTimeTokens(state);
+  if (isSellableTimeTokenSize(sizeId)) {
+    return { ok: false, error: `The ${sizeId} token is SOLD, not earned — this door pays the Devotion's two sizes only.` };
+  }
   if (!isEarnedTimeTokenSize(sizeId)) return { ok: false, error: `Unknown time-token size "${sizeId}".` };
   if (!eventId) return { ok: false, error: "A time-token grant requires an eventId (idempotency)." };
   if (eventIdUsed(state, eventId)) return { ok: true, idempotent: true };
@@ -329,8 +395,10 @@ export function applyTimeToken(
   now = Date.now(),
 ): TimeTokenApplyResult {
   ensureTimeTokens(state);
-  // 1 · the token itself.
-  if (!isEarnedTimeTokenSize(sizeId)) return refuse("time.refusedSize", `Unknown time-token size "${sizeId}".`);
+  // 1 · the token itself. ANY size the build defines may be SPENT — including the
+  //     six that are sold, because a token a player paid for has to be usable —
+  //     but an id this build does not define is refused.
+  if (!isTimeTokenSize(sizeId)) return refuse("time.refusedSize", `Unknown time-token size "${sizeId}".`);
   if (!requestId) return refuse("time.refusedSize", "An apply requires a requestId (idempotency).");
   // 2 · the ladder is out of reach, BY NAME. Checked before anything else so the
   //     refusal the player sees is the rule, not a generic "no such timer".
@@ -388,9 +456,12 @@ export function applyTimeToken(
 // possessions (like a balance), so they ship; the LEDGER is the server's
 // idempotency record, so it does not (api.ts strips it).
 // ======================================================================
+/** EVERY size the build defines — the two earned and the six sold — with a whole,
+ *  non-negative count each, unknown keys dropped. A size the colony holds none of
+ *  reads 0, exactly as it did when only the two earned sizes existed. */
 export function timeTokensPublicView(held: TimeTokenHoldings | undefined): TimeTokenHoldings {
   const out: TimeTokenHoldings = {};
-  for (const id of EARNED_TIME_TOKEN_SIZES) {
+  for (const id of Object.keys(TIME_TOKEN_SIZES) as TimeTokenSizeId[]) {
     const v = held?.[id];
     out[id] = typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
   }

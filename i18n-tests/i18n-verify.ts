@@ -287,7 +287,15 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // on every "returns in…" surface. The pin moved because the KEY SET grew by
 // design.
 // Previous pin: f8fd7897f37276b66dae79fb2bd382b110ab87c7a9ceab9d6fd4d0a6e63606b0
-const ENGLISH_SHA = "80e13ae557e45b582121062a422fa04db72a6711c3d98899bdc4ea8b3f37e56a";
+// Re-baselined 2026-09-27 — THE SELL HALF OF SPEED-UPS (owner ruling signed
+// 2026-09-27): ONE new key added to the English catalogue (386 -> 387),
+// `time.earnedOnly`, translated in all five languages in the same commit — the
+// sentence a player reads when the game declines to sell a 1-minute or 5-minute
+// token, which the Devotion pays instead. No EXISTING value moved: the key is
+// additive and it is registered at its only call site (`timeTokenRefusalText`).
+// The pin moved because the KEY SET grew by design.
+// Previous pin: 80e13ae557e45b582121062a422fa04db72a6711c3d98899bdc4ea8b3f37e56a
+const ENGLISH_SHA = "0a6400ad6070ec7c815ecaae036e90bf6da0b214c3f5f14b084e86f5f9b02e31";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);

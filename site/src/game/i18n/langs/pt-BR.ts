@@ -67,6 +67,7 @@ export const ptBR: Catalogue = {
   "time.refusedUnknownKind": "Uma ficha de tempo não pode ser usada nisso.",
   "time.refusedNoTokens": "Nenhuma ficha desse tamanho em mãos.",
   "time.refusedSize": "Ficha de tempo desconhecida.",
+  "time.earnedOnly": "As fichas de 1 minuto e de 5 minutos nunca são vendidas — a devoção diária paga essas.",
 
   "cradle.plate": "O Berço",
   "cradle.plateMeta": "{race} · {region} · fundada em {date}",
