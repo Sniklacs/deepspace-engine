@@ -25,7 +25,10 @@ import {
   hasStepOutGear,
 } from "../game/engine";
 import type { CraftKind } from "../game/engine";
-import { raceFamilies, ARMORY_FAMILY_TECH, weaponStats, weaponCost, modelName, STAT_LABELS } from "../game/armory";
+import {
+  raceFamilies, ARMORY_FAMILY_TECH, weaponStats, weaponCost, weaponTimeMs, modelName, STAT_LABELS,
+  ARMORY_CONFIG, ARMORY_BUILD_SLOTS,
+} from "../game/armory";
 import { DAILY_ITEM_BY_ID } from "../game/daily";
 import { ARMORY_TREE } from "../game/research";
 import { sound } from "../game/sound";
@@ -2105,7 +2108,7 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
                       {cost && <CostRow cost={cost} r={r} />}
                       <button onClick={() => { sound.click(); onBuild(f.id); }} disabled={!canAfford || !!build}
                         className="mt-1 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-                        {build ? `Forging — ${fmtDuration(t, leftMs)}` : canAfford ? `Build (${weaponTimeFor(1)})` : "Can't afford yet"}
+                        {build ? `Forging — ${fmtDuration(t, leftMs)}` : canAfford ? `Build (${fmtDuration(t, weaponTimeMs(1))})` : "Can't afford yet"}
                       </button>
                     </div>
                   ) : (
@@ -2117,7 +2120,7 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
                           {cost && <CostRow cost={cost} r={r} />}
                           <button onClick={() => { sound.click(); onBuild(f.id); }} disabled={!canAfford || !!build}
                             className="mt-1 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-                            {build ? `Upgrading — ${fmtDuration(t, leftMs)}` : canAfford ? `Upgrade (${weaponTimeFor(nextTier)})` : "Can't afford yet"}
+                            {build ? `Upgrading — ${fmtDuration(t, leftMs)}` : canAfford ? `Upgrade (${fmtDuration(t, weaponTimeMs(nextTier))})` : "Can't afford yet"}
                           </button>
                         </div>
                       )}
@@ -2132,7 +2135,7 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
             })}
           </div>
           <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4 text-xs text-gray-400">
-            <p><b className="text-gray-300">How the Armory works:</b> each family is built at <b className="text-amber-200">Tier 1</b> and upgraded T1→T2→T3→T4. Every tier raises <b className="text-white">all four stats</b> (×1.5 / ×2.2 / ×3.2), costs more, and takes real time — 45m · 3h · 12h · 2d. One build per family at a time; builds finish offline. Plasma enters at Tier 2. The battle side (later) reads these families into marches and sieges.</p>
+            <p><b className="text-gray-300">How the Armory works:</b> each family is built at <b className="text-amber-200">Tier 1</b> and upgraded T1→T2→T3→T4. Every tier raises <b className="text-white">all four stats</b> <Bdi dir="ltr">{ARMORY_CONFIG.tierMult.slice(1).map((m) => `×${m}`).join(" / ")}</Bdi>, costs more, and takes real time — <Bdi dir="ltr">{([1, 2, 3, 4] as const).map((k) => fmtDuration(t, weaponTimeMs(k))).join(" · ")}</Bdi>. The Cradle holds <b className="text-amber-200">{ARMORY_BUILD_SLOTS}</b> builds at once (and never two on the same family); builds finish offline. Plasma enters at Tier 2. The battle side (later) reads these families into marches and sieges.</p>
             <p className="mt-1 text-[11px] text-text-3">First weapon built and first Tier-4 weapon each earn a durable <b className="text-amber-300">deed</b> — the dent earns attention. Weapons never feed the contribution formula directly.</p>
           </div>
         </>
@@ -2180,9 +2183,12 @@ function CostRow({ cost, r }: { cost: { supplies: number; embers: number; fuel: 
   );
 }
 const PLASMA_REFINE_EMBERS = 25;
-function weaponTimeFor(tier: 1 | 2 | 3 | 4): string {
-  return tier === 1 ? "45m" : tier === 2 ? "3h" : tier === 3 ? "12h" : "2d";
-}
+// The tier table's build time is NOT copied here (2026-09-27, the armory-tiers
+// slice). `weaponTimeFor()` used to hold a second, minutes-only copy of the
+// ladder ("45m" · "3h" · "12h" · "2d") — hardcoded, English and wrong the
+// moment the ratified times moved to 12h/3d/12d/45d. The button now renders
+// `fmtDuration(t, weaponTimeMs(tier))`: the ONE duration formatter, day-scale
+// and keyed in all five languages, reading the ONE time table.
 /* ---------------- Codex / lore (Rung 1a §E — folds into the Cradle as a modal) ---------------- */
 function CodexContent() {
   return (
