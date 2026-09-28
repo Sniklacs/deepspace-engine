@@ -50,7 +50,7 @@ export const ru: Catalogue = {
   "resource.plasma": "Плазма",
   "resource.scrip": "Скрип",
   "resource.votives": "Воты",
-  "resource.suppliesSub": "+{rate} в минуту, пока Колыбель стоит",
+  "resource.suppliesSub": "{rate} в минуту, пока Колыбель стоит",
   "resource.scripSub": "Заработано тем, что вы делаете — служение, подвиги, вклад.",
   "resource.votivesSub": "Хранятся в Реестре Колыбели.",
   // ---- TIME TOKENS (owner direction 2026-09-27) ----

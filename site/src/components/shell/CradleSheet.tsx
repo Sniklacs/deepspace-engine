@@ -9,6 +9,7 @@
 // feedback, the colonies flow and log out all live here now, and the account
 // flow stays the ONE flow it already was (it is the GamesPanel's Account
 // section — this sheet closes first so two dialogs never stack).
+import type { ReactNode } from "react";
 import { Sheet, SheetHeader } from "../Sheet";
 import { Icon } from "../icons";
 import { RowButton } from "../ui/RowButton";
@@ -31,7 +32,8 @@ function StoreRow({
   icon: IconName;
   label: string;
   value: number;
-  sub: string;
+  /** a line, not a string: a rendered rate carries its own isolated `<Bdi>` */
+  sub: ReactNode;
 }) {
   return (
     <li className="flex min-h-tap items-center gap-3 rounded-xl border border-line bg-surf-3/60 px-3 py-2">
@@ -47,12 +49,12 @@ function StoreRow({
   );
 }
 
-function CountRow({ icon, label, value }: { icon: IconName; label: string; value: string }) {
+function CountRow({ icon, label, value }: { icon: IconName; label: string; value: ReactNode }) {
   return (
     <li className="flex min-h-tap items-center gap-3 rounded-xl border border-line bg-surf-3/40 px-3 py-2">
       <Icon name={icon} size={16} className="shrink-0 text-text-2" aria-hidden="true" />
       <span className="min-w-0 flex-1 text-[13px] text-text-1">{label}</span>
-      <b className="num shrink-0 text-[13px] text-text-1">{value}</b>
+      <b className="shrink-0 text-[13px] text-text-1">{value}</b>
     </li>
   );
 }
@@ -116,7 +118,7 @@ export default function CradleSheet({
               icon="crate"
               label={t("resource.supplies", "Supplies")}
               value={Math.floor(r.supplies)}
-              sub={t("resource.suppliesSub", "+{rate} per minute while the Cradle stands", { rate: spm.toFixed(1) })}
+              sub={<><Bdi dir="ltr" className="num">{`+${spm.toFixed(1)}`}</Bdi> {t("resource.suppliesSub", "{rate} per minute while the Cradle stands", { rate: spm.toFixed(1) })}</>}
             />
             <StoreRow icon="scroll" label={t("resource.codices", "Codices")} value={state.codices} sub={RESOURCE_TIPS.codices.what} />
             <StoreRow icon="spark" label={t("resource.plasma", "Plasma")} value={Math.floor(r.plasma ?? 0)} sub={ARMORY_TIPS.plasma.what} />
@@ -157,13 +159,13 @@ export default function CradleSheet({
             {t("cradleSheet.roster", "Roster")}
           </h3>
           <ul className="mt-2 space-y-1.5">
-            <CountRow icon="flask" label={t("cradleSheet.scientists", "Scientists in study")} value={`${scientists}/${scientistCap}`} />
-            <CountRow icon="march" label={t("cradleSheet.teams", "Teams in the field")} value={`${teamsAway}/${fieldSlots}`} />
-            <CountRow icon="person" label={t("cradleSheet.leaders", "Leaders sworn to the Cradle")} value={`${state.leaders.length}`} />
+            <CountRow icon="flask" label={t("cradleSheet.scientists", "Scientists in study")} value={<Bdi dir="ltr" className="num">{`${scientists}/${scientistCap}`}</Bdi>} />
+            <CountRow icon="march" label={t("cradleSheet.teams", "Teams in the field")} value={<Bdi dir="ltr" className="num">{`${teamsAway}/${fieldSlots}`}</Bdi>} />
+            <CountRow icon="person" label={t("cradleSheet.leaders", "Leaders sworn to the Cradle")} value={<Bdi dir="ltr" className="num">{state.leaders.length}</Bdi>} />
             <CountRow
               icon="star"
               label={streak > 0 ? `${t("cradleSheet.devotion", "Devotion")} · ${t("cradle.devotionStreak", "{n}-day streak", { n: streak })}` : t("cradleSheet.devotion", "Devotion")}
-              value={`${devotion}`}
+              value={<Bdi dir="ltr" className="num">{devotion}</Bdi>}
             />
           </ul>
         </section>

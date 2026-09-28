@@ -14,6 +14,7 @@
 // which is a RESERVED, EMPTY element until the engine exposes accumulated
 // active play time (§8.8).
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Panel } from "../ui/Panel";
 import { BuildingTile } from "../ui/BuildingTile";
 import { ActionButton } from "../ui/ActionButton";
@@ -30,6 +31,9 @@ import { CRAFT, CRAFT_RESOURCE_KEY, canForgeAlloy, alloyRecipeRaces } from "../.
 import { DOMAIN_BY_ID, MAX_DOMAIN_LEVEL } from "../../game/zones";
 import { RACES, getRace } from "../../game/races";
 import { domainDescription, slotLabel } from "../../game/i18n";
+// The ONE date formatter: it pins `nu-latn`, so a Persian device cannot turn a
+// dated row into  ۱۴۰۵/۰۷/۰۶  — §11.4's "western digits only" promise.
+import { formatDate } from "../../game/i18n/format";
 import { ForgeDoor, ForgeRoom } from "../ForgeViews";
 import { sound } from "../../game/sound";
 import { useT } from "../i18n/I18n";
@@ -194,13 +198,13 @@ export default function CradleScreen({
                   {t("cradle.plateMeta", {
                     race: race.name,
                     region: race.homeRegion,
-                    date: new Date(state.createdAt).toLocaleDateString(),
+                    date: formatDate(t.lang ?? "en", state.createdAt),
                   })}
                 </p>
               </div>
               <Tooltip className="flex-none" content={tip(LAB_TIPS.fieldSlots)}>
                 <span className="pill border border-line bg-surf-2 text-text-2">
-                  <b className="num text-ember-soft">+{spm.toFixed(1)}</b>
+                  <Bdi dir="ltr" className="num text-ember-soft">{`+${spm.toFixed(1)}`}</Bdi>
                   <span className="text-[11px]">{t("cradle.perMin")}</span>
                 </span>
               </Tooltip>
@@ -242,13 +246,13 @@ export default function CradleScreen({
               <StatTile
                 label={t("cradle.corruption")}
                 icon="beacon"
-                value={`${Math.round(state.corruption)}%`}
+                value={<Bdi dir="ltr" className="num">{`${Math.round(state.corruption)}%`}</Bdi>}
                 meter={{ value: state.corruption, danger: state.corruption > 50 }}
               />
               <StatTile
                 label={t("cradle.chorusAttention")}
                 icon="shield"
-                value={`${Math.round(state.chorusAttention)}%`}
+                value={<Bdi dir="ltr" className="num">{`${Math.round(state.chorusAttention)}%`}</Bdi>}
                 meter={{ value: state.chorusAttention, danger: state.chorusAttention > 50 }}
               />
             </div>
@@ -401,8 +405,13 @@ export default function CradleScreen({
                 {t("cradle.alloyLead")} <b className="text-text-1">{t("cradle.alloyBold")}</b>
                 {t("cradle.alloyTail")}
               </span>
-              <b className="num shrink-0 text-[12px] text-text-1">
-                {canForgeAlloy(state) ? t("cradle.alloyComplete") : `${1 + recipe.filter((id) => id !== state.race).length}/5`}
+              {/* `num` rides on the isolated run only: the other branch is a
+                  TRANSLATED WORD, and dir="ltr" around Persian prose is the
+                  mirror-image bug this sweep exists to avoid. */}
+              <b className="shrink-0 text-[12px] text-text-1">
+                {canForgeAlloy(state)
+                  ? t("cradle.alloyComplete")
+                  : <Bdi dir="ltr" className="num">{`${1 + recipe.filter((id) => id !== state.race).length}/5`}</Bdi>}
               </b>
             </div>
           </Panel>
@@ -431,7 +440,7 @@ export default function CradleScreen({
             />
             <StatTile
               label={t("cradle.founded")}
-              value={<Bdi dir="ltr" className="num">{new Date(state.createdAt).toLocaleDateString()}</Bdi>}
+              value={<Bdi dir="ltr" className="num">{formatDate(t.lang ?? "en", state.createdAt)}</Bdi>}
               sub={t("cradle.expeditionsDone", { n: state.completedExpeditions })}
               icon="building"
             />
@@ -504,19 +513,20 @@ export default function CradleScreen({
                   />
                   <div className="sheet-body space-y-3 px-4 py-3 md:px-5">
                     <ul className="space-y-1.5">
-                      <RecordRow label="Level" value={`${engineHelpers.leaderLevel(leader)}`} />
+                      <RecordRow label="Level" value={<Bdi dir="ltr" className="num">{engineHelpers.leaderLevel(leader)}</Bdi>} />
                       <RecordRow label="Specialization" value={leader.specialization ?? "no path yet"} />
-                      <RecordRow label="Breakthroughs" value={`${leader.breakthroughs}`} />
-                      <RecordRow label="Codices earned" value={`${leader.codicesEarned}`} />
+                      <RecordRow label="Breakthroughs" value={<Bdi dir="ltr" className="num">{leader.breakthroughs}</Bdi>} />
+                      <RecordRow label="Codices earned" value={<Bdi dir="ltr" className="num">{leader.codicesEarned}</Bdi>} />
+                      {/* a STATUS WORD, not a figure: it passes no Bdi on purpose */}
                       <RecordRow label="Status" value={leader.status} />
                     </ul>
                     <div>
                       <p className="eyebrow">Attributes</p>
                       <ul className="mt-1.5 grid grid-cols-2 gap-2">
-                        <RecordRow label="Research" value={`${leader.attributes.research}`} />
-                        <RecordRow label="Economy" value={`${leader.attributes.economy}`} />
-                        <RecordRow label="Combat" value={`${leader.attributes.combat}`} />
-                        <RecordRow label="Engineering" value={`${leader.attributes.engineering}`} />
+                        <RecordRow label="Research" value={<Bdi dir="ltr" className="num">{leader.attributes.research}</Bdi>} />
+                        <RecordRow label="Economy" value={<Bdi dir="ltr" className="num">{leader.attributes.economy}</Bdi>} />
+                        <RecordRow label="Combat" value={<Bdi dir="ltr" className="num">{leader.attributes.combat}</Bdi>} />
+                        <RecordRow label="Engineering" value={<Bdi dir="ltr" className="num">{leader.attributes.engineering}</Bdi>} />
                       </ul>
                     </div>
                     <div>
@@ -556,7 +566,7 @@ export default function CradleScreen({
                   />
                   <div className="sheet-body space-y-3 px-4 py-3 md:px-5">
                     <ul className="space-y-1.5">
-                      <RecordRow label="Level" value={`${heroLevel(hero)}`} />
+                      <RecordRow label="Level" value={<Bdi dir="ltr" className="num">{heroLevel(hero)}</Bdi>} />
                       <RecordRow label="Specialization" value={hero.specialization ?? "no path yet"} />
                       {/* provenance: a deed's NAME only — a raw id is never printed */}
                       {DEED_BY_ID[hero.earnedBy]?.name ? (
@@ -564,10 +574,10 @@ export default function CradleScreen({
                       ) : null}
                     </ul>
                     <ul className="grid grid-cols-2 gap-2">
-                      <RecordRow label="Power" value={`${hero.attributes.power}`} />
-                      <RecordRow label="Guard" value={`${hero.attributes.guard}`} />
-                      <RecordRow label="Craft" value={`${hero.attributes.craft}`} />
-                      <RecordRow label="Presence" value={`${hero.attributes.presence}`} />
+                      <RecordRow label="Power" value={<Bdi dir="ltr" className="num">{hero.attributes.power}</Bdi>} />
+                      <RecordRow label="Guard" value={<Bdi dir="ltr" className="num">{hero.attributes.guard}</Bdi>} />
+                      <RecordRow label="Craft" value={<Bdi dir="ltr" className="num">{hero.attributes.craft}</Bdi>} />
+                      <RecordRow label="Presence" value={<Bdi dir="ltr" className="num">{hero.attributes.presence}</Bdi>} />
                     </ul>
                   </div>
                 </>
@@ -579,11 +589,23 @@ export default function CradleScreen({
   );
 }
 
-function RecordRow({ label, value }: { label: string; value: string }) {
+/**
+ * A row's VALUE, whatever it is: a number, a status word, a deed's name or a
+ * sentence. That is why this `<b>` is a FORWARDER and not a numeral run — the
+ * audit put it plainly, "do not blanket-wrap RecordRow": `dir="ltr"` around
+ * Persian prose is a NEW bug. So the `num` class is NOT here: every NUMERIC
+ * caller passes `<Bdi dir="ltr" className="num">` (its own isolated run, keeping
+ * the numerals' mono/tabular styling), and the prose rows — `Effect now`, a
+ * leader's status, a hero's earned-by deed — pass none and render in the
+ * surrounding direction, which is right for a sentence and for a Persian word.
+ * This is also what makes §13's rule exemption-free: EVERY `.num` element in the
+ * swept surfaces is inside a `<Bdi>`, with nothing to name or excuse.
+ */
+function RecordRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <li className="flex min-h-tap items-center justify-between gap-3 rounded-xl border border-line bg-surf-3/50 px-3 py-2">
       <span className="text-[12px] text-text-3">{label}</span>
-      <b className="num text-[13px] text-text-1">{value}</b>
+      <b className="text-[13px] text-text-1">{value}</b>
     </li>
   );
 }
@@ -643,13 +665,13 @@ function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onC
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 id="cradle-devotion" className="text-[15px] font-semibold text-text-1">
           {t("cradle.devotion")}{" "}
-          <span className="num text-[11px] font-normal text-text-3">
-            ({completed.length}/{list.length})
-          </span>
+          <Bdi dir="ltr" className="num text-[11px] font-normal text-text-3">
+            {`(${completed.length}/${list.length})`}
+          </Bdi>
         </h3>
         <span className="flex items-center gap-3 text-[11px] text-text-2">
           <span>
-            {t("cradle.devotionShort")} <b className="num text-purity">{devotion}</b>
+            {t("cradle.devotionShort")} <Bdi dir="ltr" className="num text-purity">{devotion}</Bdi>
           </span>
           {streak > 0 ? (
             <span title={t("cradle.devotionTitle", { n: streak })}>
@@ -683,7 +705,7 @@ function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onC
                       </span>
                     ) : null}
                   </span>
-                  <span className="num ms-auto text-[11px] text-text-3">+30 · +1</span>
+                  <Bdi dir="ltr" className="num ms-auto text-[11px] text-text-3">+30 · +1</Bdi>
                 </li>
               );
             })}
@@ -841,7 +863,7 @@ function SlotSheet({
                       }`}
                     >
                       {race.name.replace("The ", "")}
-                      {isOwn ? " (own)" : ""} <b className="num">&times;{count}</b>
+                      {isOwn ? " (own)" : ""} <Bdi dir="ltr" className="num">&times;{count}</Bdi>
                     </span>
                   );
                 })}
@@ -862,9 +884,10 @@ function SlotSheet({
               <>
                 <p className="text-[13px] text-text-2">{domainDescription(t, domain, info.description)}</p>
                 <ul className="space-y-1.5">
-                  <RecordRow label={t("cradle.level")} value={`${level}`} />
+                  <RecordRow label={t("cradle.level")} value={<Bdi dir="ltr" className="num">{level}</Bdi>} />
+                  {/* a SENTENCE (the engine's own prose): no Bdi, on purpose */}
                   <RecordRow label="Effect now" value={engineHelpers.domainEffect(state, domain)} />
-                  {!atMax && <RecordRow label="Next advance costs" value={`${cost.embers.toLocaleString()} Embers · ${cost.insight.toLocaleString()} insight`} />}
+                  {!atMax && <RecordRow label="Next advance costs" value={t("cradle.advanceSub", "{embers} Embers · {insight} insight", { embers: cost.embers.toLocaleString(), insight: cost.insight.toLocaleString() })} />}
                 </ul>
                 <p className="text-[11px] leading-tight text-text-3">{domainTip.what}</p>
                 {atMax ? (

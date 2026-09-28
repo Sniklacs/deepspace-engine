@@ -18,6 +18,7 @@ import { ResourcePill } from "../ui/ResourcePill";
 import { Tooltip } from "../Tooltip";
 import type { GameState } from "../../game/types";
 import { useT } from "../i18n/I18n";
+import { Bdi } from "../ui/Bdi";
 
 export default function Ribbon({
   state,
@@ -115,7 +116,7 @@ export default function Ribbon({
             >
               <Icon name="beacon" size={12} aria-hidden="true" />
               <span>
-                {t("ribbon.chorus")} <b className="num">{Math.round(state.chorusAttention)}%</b>
+                {t("ribbon.chorus")} <Bdi dir="ltr" className="num">{`${Math.round(state.chorusAttention)}%`}</Bdi>
               </span>
             </button>
           ) : null}
@@ -137,9 +138,9 @@ export default function Ribbon({
           >
             <Icon name="bell" size={16} aria-hidden="true" />
             {unread > 0 ? (
-              <span className="num absolute -end-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-ember px-1 text-[11px] font-bold leading-none text-black">
+              <Bdi dir="ltr" className="num absolute -end-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-ember px-1 text-[11px] font-bold leading-none text-black">
                 {unread}
-              </span>
+              </Bdi>
             ) : null}
           </button>
         </div>

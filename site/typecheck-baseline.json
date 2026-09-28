@@ -3,7 +3,7 @@
   "snapshot": "2026-09-26",
   "generatedWith": "typescript 5.9.x · tsconfig.typecheck.json (src/**)",
   "counts": {
-    "6133": 4,
+    "6133": 3,
     "2614": 1,
     "2322": 4,
     "2769": 3,
@@ -13,7 +13,7 @@
     "2741": 1
   },
   "where": {
-    "6133": "unused locals — CircuitPage DISPLAY_NAMES/LABEL_DY, client-utils 'state', play.tsx ColonyTab (dead since the Cradle home moved to CradleScreen)",
+    "6133": "unused locals — CircuitPage DISPLAY_NAMES/LABEL_DY, client-utils 'state'. (play.tsx ColonyTab was the 4th; the Cradle-side slice stopped producing it, so this count went 4 → 3 and was tightened with it.)",
     "2614": "RailNarration: TutorialCueLayer has no exported member 'PlateLine' (beat-rail work)",
     "2322": "RailNarration ariaLabel, ResearchViews ResearchJob|undefined, battle-engine FobStage, play.tsx CircuitPage onSettings",
     "2769": "Tooltip: document listener overloads (passive)",

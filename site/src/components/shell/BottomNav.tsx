@@ -11,6 +11,7 @@ import type { NavBadge } from "../../game/nav-badges";
 import { Icon } from "../icons";
 import { ReadyDot } from "../ui/ReadyDot";
 import { useT } from "../i18n/I18n";
+import { Bdi } from "../ui/Bdi";
 
 export default function BottomNav({
   tab,
@@ -58,7 +59,7 @@ export default function BottomNav({
                   {t(`nav.${n.id}`, n.label)}
                 </span>
                 {b.count ? (
-                  <span className="num absolute end-1/4 top-1.5 text-nav text-ember-soft">{b.count}</span>
+                  <Bdi dir="ltr" className="num absolute end-1/4 top-1.5 text-nav text-ember-soft">{b.count}</Bdi>
                 ) : null}
                 {b.live ? (
                   <span aria-hidden="true" className="report-blink absolute end-1/4 top-2 h-2 w-2 rounded-full bg-ember" />
