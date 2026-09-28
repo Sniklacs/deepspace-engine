@@ -27,7 +27,9 @@
 //   · wallet renders server state only; .num on every balance/value
 import { Icon, type IconName } from "./icons";
 import { Sheet, SheetHeader } from "./Sheet";
-import { useT } from "./i18n/I18n";
+import { Bdi } from "./ui/Bdi";
+import { useLang, useT } from "./i18n/I18n";
+import { formatNumber, formatUsd } from "../game/i18n/format";
 import type { ReactNode } from "react";
 import {
   MONETIZATION_CONFIG,
@@ -94,10 +96,11 @@ const PACK_GRANT_ICON: Record<string, IconName> = {
 };
 
 function WalletNum({ value, tone }: { value: number; tone: string }) {
+  const lang = useLang();
   const v = Math.floor(value);
   return (
-    <b key={v} className={`num wallet-num ${tone}`}>
-      {v.toLocaleString()}
+    <b key={v} className={`wallet-num ${tone}`}>
+      <Bdi dir="ltr" className="num">{formatNumber(lang, v)}</Bdi>
     </b>
   );
 }
@@ -171,7 +174,7 @@ function PackCard({
           </div>
         </div>
         <span className="chip shrink-0 bg-surf-4 text-xs font-bold text-text-1">
-          ${pack.priceUsd.toFixed(2)}
+          <Bdi dir="ltr" className="num">{"$" + formatUsd(pack.priceUsd)}</Bdi>
         </span>
       </div>
       <ul className="mt-2 space-y-1">
@@ -190,7 +193,8 @@ function PackCard({
           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-semibold text-text-1"
         >
           <Icon name="card" size={14} className="shrink-0 text-ember-soft" />
-          {t("store.buy", "Buy")} · ${pack.priceUsd.toFixed(2)}
+          {t("store.buy", "Buy")} ·{" "}
+          <Bdi dir="ltr" className="num">{"$" + formatUsd(pack.priceUsd)}</Bdi>
         </button>
       ) : (
         <button
@@ -227,6 +231,7 @@ function VotiveCard({
   onBuy: (skuId: string) => void;
 }) {
   const t = useT();
+  const lang = useLang();
   const buyable = storeOpen && signedIn && isSellable(pack.id);
   return (
     <article className="flex items-center gap-2.5 rounded-lg border border-line bg-surf-2 p-3">
@@ -235,15 +240,17 @@ function VotiveCard({
         <div className="text-sm font-semibold text-text-1">{pack.name}</div>
         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-text-3">
           <span className="num">
-            {t("store.votivesAmount", { votives: pack.votives })}
+            {t("store.votivesAmount", { votives: formatNumber(lang, pack.votives) })}
           </span>
           {pack.bonus > 0 && (
-            <span className="text-ember-soft">{t("store.votivesBonus", { bonus: pack.bonus })}</span>
+            <span className="text-ember-soft">
+              {t("store.votivesBonus", { bonus: formatNumber(lang, pack.bonus) })}
+            </span>
           )}
         </div>
       </div>
       <span className="chip shrink-0 bg-surf-4 text-xs font-bold text-text-1">
-        ${pack.priceUsd.toFixed(2)}
+        <Bdi dir="ltr" className="num">{"$" + formatUsd(pack.priceUsd)}</Bdi>
       </span>
       {buyable ? (
         <button
@@ -314,6 +321,7 @@ function PurchaseReturnPanel({ view }: { view: PurchaseReturnView }) {
 
 
 function PassRail({ state }: { state: GameState }) {
+  const lang = useLang();
   const bp = state.battlePass;
   const tier = tierFromXp(bp.xp);
   const claimed = new Set(bp.claimed);
@@ -333,7 +341,9 @@ function PassRail({ state }: { state: GameState }) {
             }`}
           >
             <div className="flex items-center gap-2">
-              <span className="num w-6 shrink-0 text-right text-xs text-text-3">{t.tier}</span>
+              <span className="w-6 shrink-0 text-end text-xs text-text-3">
+                <Bdi dir="ltr" className="num">{formatNumber(lang, t.tier)}</Bdi>
+              </span>
               {/* FREE lane — ember family */}
               <div className="pass-lane-node min-w-0 flex-1 bg-ember/10 text-ember-soft">
                 {isCapstone ? (
@@ -383,6 +393,7 @@ export function StorefrontOverlay({
   purchaseReturn?: PurchaseReturnView | null;
 }) {
   const t = useT();
+  const lang = useLang();
   const enabled = MONETIZATION_CONFIG.storefrontEnabled;
   const signedIn = typeof accountId === "string" && accountId.trim().length >= 2;
   const ownedCosmetics = new Set(state.entitlements.cosmetics);
@@ -482,7 +493,10 @@ export function StorefrontOverlay({
           <div className="flex flex-wrap items-center gap-2">
             <SectionHeading>Season 0 · The Shattering — 28 tiers</SectionHeading>
             <span className="ml-auto text-xs text-text-3">
-              Tier <b className="num text-text-2">{tierFromXp(state.battlePass.xp)}</b>
+              Tier{" "}
+              <b className="text-text-2">
+                <Bdi dir="ltr" className="num">{formatNumber(lang, tierFromXp(state.battlePass.xp))}</Bdi>
+              </b>
               <span className="text-text-3"> / 28</span>
             </span>
           </div>
@@ -545,7 +559,11 @@ export function StorefrontOverlay({
                     </span>
                   ) : (
                     <span className="chip shrink-0 bg-surf-4 text-xs font-bold text-text-1">
-                      {c.priceVotives}
+                      {/* `priceVotives` is optional on the cosmetic type: a piece with
+                          no price renders nothing — never an invented 0. */}
+                      {c.priceVotives == null ? null : (
+                        <Bdi dir="ltr" className="num">{formatNumber(lang, c.priceVotives)}</Bdi>
+                      )}
                     </span>
                   )}
                 </div>

@@ -21,8 +21,10 @@
 //       English for a Persian speaker — Persian words in a left-to-right frame)
 //   §12 the typecheck guard — the i18n slice that shipped `useT is not defined`
 //       and took /play down for every language (P0, 2026-09-26)
-//   §13 the bidi numeral sweep — every `.num` run in the six swept surfaces
-//       inside its own `<Bdi dir="ltr">`, with a planted-leak control (2026-09-28)
+//   §13 the bidi numeral sweep — every `.num` run in the covered surfaces inside
+//       its own `<Bdi dir="ltr">`, with a planted-leak control; and §13c the
+//       device-locale bypass scan — no hand-rolled number in the five surfaces
+//       this slice moved onto `game/i18n/format.ts` (2026-09-28)
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -127,6 +129,13 @@ const SWEPT = [
   "src/components/chat/MessageRow.tsx",
   "src/components/chat/TranslatedText.tsx",
   "src/components/chat/Composer.tsx",
+  // THE SHARED PRIMITIVES (2026-09-28, the locale-pinned-numbers slice): MeterBar
+  // and RosterCard join the sweep. The word `high` and the `Lv ` prefix were
+  // literals INSIDE components every screen draws; the two keys that replace them
+  // (`meter.high`, `roster.xpAria`) must also be counted as USED by §6, or they
+  // would read as dead catalogue entries the moment they were added.
+  "src/components/ui/MeterBar.tsx",
+  "src/components/ui/RosterCard.tsx",
 ];
 const PROP = /\b(aria-label|title|placeholder|alt|label|sub|subtitle|text|reason|note)="([^"]{3,})"/;
 const ALLOW_PROP = /^(ltr|rtl|dialog|banner|list|none|button|tab|img|page|true|false)$/;
@@ -525,6 +534,11 @@ check("the fatal class is the whole undefined-identifier family, not one code nu
 // `{fmtDuration(t, ms)}` are not. Those are the un-split catalogue values the
 // audit calls the renderer decision. §13b gates the one shape of them that has an
 // exact rule.
+// EXTENDED 2026-09-28 (the locale-pinned-numbers slice) to the five components
+// that slice fixed, so the files it repaired are the files the gate now holds.
+// MeterBar's `50%` and StorefrontOverlay's pass-rail tier figure are the two
+// leaks this extension found in code that was already shipped, and each is fixed
+// in the same commit that added it here.
 section("13 · (A) NUMERALS ARE THEIR OWN ISOLATED RUN — the sweep's gate (NEW)");
 const NUM_SURFACES = [
   // the Cradle desk and its chrome — the first screen a player sits at
@@ -536,6 +550,18 @@ const NUM_SURFACES = [
   // the route file: the Lab's Deploy cards this slice de-English'd, its Armory
   // timers and its Cradle Reports clock
   "src/routes/play.tsx",
+  // THE PRIMITIVES AND THE LEDGER (2026-09-28): every one of these five carried a
+  // numeral that was not its own isolated run — ResourcePill's HUD figure (the
+  // highest-multiplicity numeral in the build), the ribbon's two money figures in
+  // LedgerButton, StorefrontOverlay's wallet balances / prices / pass-rail tier,
+  // MeterBar's `50%` (the `%` is a glyph a bidi algorithm moves) and RosterCard's
+  // level line. Naming them is the difference between "we looked at these five
+  // files" and a rule a later edit cannot quietly break.
+  "src/components/ui/ResourcePill.tsx",
+  "src/components/LedgerButton.tsx",
+  "src/components/StorefrontOverlay.tsx",
+  "src/components/ui/MeterBar.tsx",
+  "src/components/ui/RosterCard.tsx",
 ];
 /** operator glyphs a bidi algorithm moves relative to the numeral beside them */
 const NUM_OPERATORS = /[+\u2212\u00d7\u00b7%/\u2192]|&times;|&middot;|&rarr;|&divide;/;
@@ -631,7 +657,7 @@ for (const f of NUM_SURFACES) {
   for (const h of hits.slice(0, 3)) console.log(`     ${h}`);
 }
 check(
-  `every numeral run in the six swept surfaces is its own isolated <Bdi dir="ltr"> (${NUM_SURFACES.length} files, ${numLeaks} leaks)`,
+  `every numeral run in the covered surfaces is its own isolated <Bdi dir="ltr"> (${NUM_SURFACES.length} files, ${numLeaks} leaks)`,
   numLeaks === 0,
 );
 check(
@@ -662,6 +688,61 @@ check(
   CATALOGUES.fa["resource.suppliesSub"].includes("در دقیقه") &&
     CATALOGUES.fa["resource.suppliesSub"].includes("گهواره برپاست") &&
     !CATALOGUES.fa["resource.suppliesSub"].startsWith("+"),
+);
+
+// ---------------------------------- §13c the device-locale bypass (2026-09-28)
+// THE SECOND STRUCTURAL CAUSE, GATED. `toLocaleString()` reads the DEVICE's
+// locale: on a Persian phone it prints ۱۲۳۴ — the one thing this catalogue is
+// ASCII-pinned against — and it bypasses the module that pins it. The audit called
+// this cause out by name and nothing measured it; `game/i18n/format.ts` is the ONE
+// place a number becomes text, and these five files are the ones this slice moved
+// onto it, so the rule is asserted here instead of described in a review comment.
+//
+// WHY `toFixed` IS IN THE LIST: it is not a digit leak (the spec pins its output
+// to ASCII digits and "."), but it is the same bypass — a number formatted by hand
+// at a call site, outside every locale decision we make later. Same for reaching
+// for `Intl` directly instead of for the module.
+//
+// WHAT IT DOES NOT SEE, stated plainly: five more files still call
+// `toLocaleString()` — components/screens/CradleScreen.tsx (12) ·
+// components/shell/CradleSheet.tsx (1) · routes/play.tsx (2) ·
+// components/BattlesTab.tsx (1) · components/CircuitPage.tsx (2). They are the
+// named remainder for the next slice, they are NOT in this list, and this check
+// must never be read as "the app is pinned".
+const LOCALE_BYPASS_SURFACES = [
+  "src/components/ui/ResourcePill.tsx",
+  "src/components/LedgerButton.tsx",
+  "src/components/StorefrontOverlay.tsx",
+  "src/components/ui/MeterBar.tsx",
+  "src/components/ui/RosterCard.tsx",
+];
+/** a number formatted by hand where `game/i18n/format.ts` is the one formatter */
+const LOCALE_BYPASS =
+  /\b(?:toLocaleString|toFixed|toLocaleDateString|toLocaleTimeString)\s*\(|\bIntl\.(?:NumberFormat|DateTimeFormat|RelativeTimeFormat|PluralRules)\b/;
+/** every bypass in one file's text (exported shape for the self-test) */
+function localeBypasses(source: string): string[] {
+  return numStripComments(source)
+    .split("\n")
+    .flatMap((line, i) => (LOCALE_BYPASS.test(line) ? [`${i + 1}: ${line.trim().slice(0, 92)}`] : []));
+}
+let bypasses = 0;
+for (const f of LOCALE_BYPASS_SURFACES) {
+  const hits = localeBypasses(read(f));
+  bypasses += hits.length;
+  for (const h of hits.slice(0, 3)) console.log(`     ${f}:${h}`);
+}
+check(
+  `every number in this slice's five surfaces is formatted by game/i18n/format.ts (${LOCALE_BYPASS_SURFACES.length} files, ${bypasses} hand-rolled calls)`,
+  bypasses === 0,
+);
+check(
+  "the bypass scan is not vacuous — a planted device-locale call fails it, the formatter's own call does not",
+  localeBypasses('<b className="num">{value.toLocaleString()}</b>').length === 1 &&
+    localeBypasses("const price = `$${pack.priceUsd.toFixed(2)}`;").length === 1 &&
+    localeBypasses("const f = new Intl.NumberFormat(lang).format(n);").length === 1 &&
+    localeBypasses("const a = formatNumber(lang, value);").length === 0 &&
+    localeBypasses('const a = <Bdi dir="ltr" className="num">{formatUsd(price)}</Bdi>;').length === 0 &&
+    localeBypasses("// a comment about toLocaleString() is not a call").length === 0,
 );
 
 console.log(`\n${pass}/${pass + fail} checks passed${fail ? ` — ${fail} FAILED` : ""}`);

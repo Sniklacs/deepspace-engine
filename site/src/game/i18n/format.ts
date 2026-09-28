@@ -55,6 +55,37 @@ export function formatNumber(lang: string, n: number): string {
   }
 }
 
+/**
+ * A USD amount as the storefront prints it, e.g. `24.99` — digits and the
+ * decimal point, never a currency symbol (the caller owns the `$`).
+ *
+ * WHY IT TAKES NO LANGUAGE (2026-09-28): a price is the INSTRUMENT's own
+ * convention, not the reader's. All thirteen live Stripe objects are in US
+ * dollars, the price table in `game/monetization.ts` has to match Stripe to the
+ * cent, and a published price that re-grouped itself per UI language
+ * ("1.234,56" in Spanish, "1 234,56" in Russian) would be a different string on
+ * every screen for the same charge. So it pins the dollar's own presentation
+ * with the same `nu-latn` digit pinning as every other formatter here, and
+ * returns the identical `24.99` in all five languages.
+ *
+ * It exists so a price is not the ONE number still formatted by hand at a call
+ * site (`toFixed(2)`): one module, one place where a number becomes text. The
+ * guards cover a hostile `Intl` and a non-finite value, either of which must
+ * never throw inside a render.
+ */
+export function formatUsd(n: number): string {
+  if (!Number.isFinite(n)) return "\u2014";
+  try {
+    return new Intl.NumberFormat(`en-US${NU_LATN}`, {
+      numberingSystem: "latn",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n);
+  } catch {
+    return n.toFixed(2);
+  }
+}
+
 /** The calendar day a timestamp belongs to, as a sortable local key. */
 export function dayKey(at: number): string {
   const d = new Date(at);
