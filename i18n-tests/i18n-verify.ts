@@ -330,7 +330,17 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // re-orders to the end ("1.8+" for "+1.8"). Not one Persian word changed — the
 // sentence is the same words with the sign lifted out of it (§13b asserts both).
 // Previous pin: 01a19725c7648c2dba4096a579133f7f78a18dcaa51e7adb2091640b8a35e83d
-const ENGLISH_SHA = "b1e42fff74d7465c2bd9dde1203028111bbbb2d96a8812f160a2a6f0b9124b1f";
+// Re-baselined 2026-09-28 — THE LOCALE-PINNED NUMBERS (this slice): TWO new keys
+// added to the English catalogue (392 -> 394), `meter.high` and `roster.xpAria`,
+// translated in all five language files in the same commit. They are the last two
+// hard English literals inside the shared primitives this slice swept: the word
+// every MeterBar shows at >= 50%, and the accessible name of a roster card's xp
+// bar. No EXISTING value moved — the keys are additive. The pin moves because the
+// KEY SET grew by design, and it is re-baselined here rather than skipped: this
+// check is what caught the two keys landing in the catalogue untouched, and
+// skipping it would leave the catalogue unfrozen for the next slice.
+// Previous pin: b1e42fff74d7465c2bd9dde1203028111bbbb2d96a8812f160a2a6f0b9124b1f
+const ENGLISH_SHA = "7249c9f0f2c13d775b2e7e241e36aa7ac454ae07a91c7a454b1b40ff68e8dbd0";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);
