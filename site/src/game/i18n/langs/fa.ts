@@ -65,7 +65,7 @@ export const fa: Catalogue = {
   "resource.plasma": "پلاسما",
   "resource.scrip": "اسکریپ",
   "resource.votives": "نذورها",
-  "resource.suppliesSub": "+{rate} در دقیقه، تا زمانی که گهواره برپاست",
+  "resource.suppliesSub": "{rate} در دقیقه، تا زمانی که گهواره برپاست",
   "resource.scripSub": "از آنچه انجام می‌دهید به دست می‌آید — نیایش، کارها، سهم.",
   "resource.votivesSub": "در دفتر گهواره نگهداری می‌شود.",
   // ---- TIME TOKENS (owner direction 2026-09-27) ----

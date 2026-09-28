@@ -5,6 +5,7 @@
 // grid changes (slots carry x/y), never this component's contract.
 import type { CradleSlot } from "../../game/cradle-slots";
 import { Icon } from "../icons";
+import { Bdi } from "./Bdi";
 import { ReadyDot } from "./ReadyDot";
 import { useT } from "../i18n/I18n";
 import { slotLabel } from "../../game/i18n";
@@ -40,8 +41,8 @@ export function BuildingTile({
       <Icon name={slot.icon} size={22} className="text-text-2" aria-hidden="true" />
       <span className="text-[11px] font-medium leading-tight text-text-1">{label}</span>
       {slot.counter ? (
-        <span className="num text-[11px] text-ember-soft">
-          {level} {t(`tile.${slot.counter}`, slot.counter)}
+        <span className="text-[11px] text-ember-soft">
+          <Bdi dir="ltr" className="num">{level}</Bdi> {t(`tile.${slot.counter}`, slot.counter)}
         </span>
       ) : (
         <span className="num text-[11px] text-ember-soft">{t("tile.lv", { level })}</span>

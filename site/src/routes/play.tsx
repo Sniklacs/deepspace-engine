@@ -17,7 +17,12 @@ import { WORLD_CONFIG_PUBLIC, worldAllowedRaces, worldLockPlain } from "../game/
 import { ZONES, DOMAINS, getZone } from "../game/zones";
 import { engineHelpers } from "../game/client-utils";
 import { Bdi } from "../components/ui/Bdi";
-import { fmtDuration } from "../game/i18n/format";
+import { fmtDuration, formatTime } from "../game/i18n/format";
+// The domain-label convention the Cradle already uses (slot-label.ts): the
+// catalogue key wins, the data table's English is only the fallback. The
+// DOMAINS table itself is never edited — i18n §10 asserts it stays
+// catalogue-identical.
+import { domainDescription } from "../game/i18n";
 import {
   DEEP, isDeepZone, hazmatPerScientist,
   requiredGear,
@@ -1085,7 +1090,7 @@ function ReportsSheet({ open, onClose, reports }: { open: boolean; onClose: () =
             {reports.map((r) => (
               <li key={r.id} className="rounded-lg border border-line bg-surf-2/60 px-3 py-2 text-xs leading-relaxed text-text-2">
                 {r.text}
-                <span className="num mt-1 block text-[11px] text-text-3">{new Date(r.ts).toLocaleTimeString()}</span>
+                <Bdi dir="ltr" className="num mt-1 block text-[11px] text-text-3">{formatTime(t.lang ?? "en", r.ts)}</Bdi>
               </li>
             ))}
           </ul>
@@ -1738,18 +1743,30 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
             return (
               <div key={d.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
                 <Tooltip content={tip(DOMAIN_TIPS[d.id])}>
-                  <div className="flex items-center justify-between"><span className="font-semibold text-white">{d.icon} {d.name}</span><span className="text-xs text-amber-300">Lv {state.deployedDomains[d.id]}</span></div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white">{d.icon} {t(`domain.${d.id}.name`, d.name)}</span>
+                    {/* `tile.lv` keeps its own English byte-for-byte ("Lv 3") and its
+                        Persian ("سطح 3") is already the right way round — a dir="ltr"
+                        run around a translated label+numeral would MIRROR the phrase,
+                        so the isolated-node fix for that shape is the renderer
+                        decision this slice does not take. */}
+                    <span className="text-xs text-amber-300">{t("tile.lv", { level: state.deployedDomains[d.id] })}</span>
+                  </div>
                 </Tooltip>
-                <p className="mt-1 text-xs text-gray-400">{d.description}</p>
+                <p className="mt-1 text-xs text-gray-400">{domainDescription(t, d.id, d.description)}</p>
                 <Tooltip content={tip(LAB_TIPS.deployButton)}>
-                  <p className="mt-2 text-xs text-text-3">Cost: {cost.embers} 🧯 · {cost.insight} insight</p>
+                  {/* the Cradle's own cost line, same words, same key: "… Embers · … insight" */}
+                  <p className="mt-2 text-xs text-text-3">{t("cradle.advanceSub", "{embers} Embers · {insight} insight", { embers: cost.embers.toLocaleString(), insight: cost.insight.toLocaleString() })}</p>
                 </Tooltip>
                 {atMax ? (
                   <p className="mt-2 text-xs text-text-3">{t("cradle.domainMaxReason")}</p>
                 ) : (
                   <Tooltip content={tip(LAB_TIPS.deployButton)}>
                     <button onClick={() => onDeploy(d.id)} disabled={!can} className="mt-2 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-                      Deploy
+                      {/* the catalogue's ONE word for this action (the landing page spells it,
+                          the Cradle spells it به‌کارگیری): a new `lab.deployAction` key would
+                          be a new key, which this slice adds none of. */}
+                      {t("landing.step.deploy.title", "Deploy")}
                     </button>
                   </Tooltip>
                 )}

@@ -54,7 +54,7 @@ export const en: Catalogue = {
   "resource.plasma": "Plasma",
   "resource.scrip": "Scrip",
   "resource.votives": "Votives",
-  "resource.suppliesSub": "+{rate} per minute while the Cradle stands",
+  "resource.suppliesSub": "{rate} per minute while the Cradle stands",
   "resource.scripSub": "Earned by what you do — Devotion, deeds, contribution.",
   "resource.votivesSub": "Held in the Cradle Ledger.",
   // ---- TIME TOKENS (owner direction 2026-09-27; the SELL half 2026-09-27) ----

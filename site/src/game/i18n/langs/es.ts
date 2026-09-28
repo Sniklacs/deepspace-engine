@@ -55,7 +55,7 @@ export const es: Catalogue = {
   "resource.plasma": "Plasma",
   "resource.scrip": "Scrip",
   "resource.votives": "Votivos",
-  "resource.suppliesSub": "+{rate} por minuto mientras la Cuna se mantenga en pie",
+  "resource.suppliesSub": "{rate} por minuto mientras la Cuna se mantenga en pie",
   "resource.scripSub": "Se gana por lo que haces — Devoción, hazañas, contribución.",
   "resource.votivesSub": "Guardados en el Registro de la Cuna.",
   // ---- TIME TOKENS (owner direction 2026-09-27) ----

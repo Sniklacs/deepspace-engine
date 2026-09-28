@@ -21,6 +21,8 @@
 //       English for a Persian speaker — Persian words in a left-to-right frame)
 //   §12 the typecheck guard — the i18n slice that shipped `useT is not defined`
 //       and took /play down for every language (P0, 2026-09-26)
+//   §13 the bidi numeral sweep — every `.num` run in the six swept surfaces
+//       inside its own `<Bdi dir="ltr">`, with a planted-leak control (2026-09-28)
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -308,7 +310,18 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // additive and it is registered at its only call site (`timeTokenRefusalText`).
 // The pin moved because the KEY SET grew by design.
 // Previous pin: 80e13ae557e45b582121062a422fa04db72a6711c3d98899bdc4ea8b3f37e56a
-const ENGLISH_SHA = "01a19725c7648c2dba4096a579133f7f78a18dcaa51e7adb2091640b8a35e83d";
+// Re-baselined 2026-09-28 — THE BIDI NUMERAL SWEEP (this slice): the English
+// catalogue's KEY SET is unchanged at 392; ONE VALUE lost its leading sign —
+// `resource.suppliesSub` was `"+{rate} per minute while the Cradle stands"` and
+// is now `"{rate} per minute while the Cradle stands"`, in all five files in the
+// same commit. The `+` did not disappear for the player: it moved OUT of the
+// translated value and INTO the caller's isolated run
+// (`<Bdi dir="ltr" className="num">+{rate}</Bdi>` beside the sentence), because a
+// sign at the head of a right-to-left sentence is exactly what a bidi algorithm
+// re-orders to the end ("1.8+" for "+1.8"). Not one Persian word changed — the
+// sentence is the same words with the sign lifted out of it (§13b asserts both).
+// Previous pin: 01a19725c7648c2dba4096a579133f7f78a18dcaa51e7adb2091640b8a35e83d
+const ENGLISH_SHA = "b1e42fff74d7465c2bd9dde1203028111bbbb2d96a8812f160a2a6f0b9124b1f";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);
@@ -480,6 +493,176 @@ check("`bun run build` runs the typecheck before vite (the publish path is gated
   /typecheck/.test(JSON.parse(read("package.json")).scripts.build ?? ""));
 check("the fatal class is the whole undefined-identifier family, not one code number",
   /2304/.test(read("scripts/typecheck-guard.ts")) && /2552/.test(read("scripts/typecheck-guard.ts")));
+
+// ================================== §13 bidi numeral isolation (2026-09-28)
+// The audit counted 21 `file:line` sites where a numeral sat beside translated
+// text with no `<Bdi dir="ltr">` (the owner-visible one: an income rate that
+// reads "1.8+" instead of "+1.8"), and named the reason it survived: NOTHING in
+// this gate measured isolation. §11 covers direction, layout mirroring, fonts
+// and Western digits — never a numeral that simply lacks its own run. This is the
+// missing gate, on the six surfaces this slice swept.
+//
+// THE RULE, derived from the code rather than assumed. `.num` is the build's only
+// numeral utility (app.css: mono + tabular digits) and it carries NO direction and
+// NO unicode-bidi, so a bare `.num` element is NOT isolation; `<Bdi dir="ltr">`
+// is the only isolation here (Bdi.tsx), and a `<Bdi>` without `dir="ltr"` leaves a
+// numeral's own direction to its first strong letter. So: in the named surfaces
+// every element carrying the `num` class must sit inside a `<Bdi dir="ltr">`, and
+// the scanner reports each `.num` element that does not — naming what it renders
+// (a digit, an operator glyph a bidi algorithm moves: + − × · % / →, or a bare
+// `{value}`).
+//
+// NO EXEMPTIONS, ON PURPOSE. RecordRow (CradleScreen) and CountRow (CradleSheet)
+// forward a value that may be PROSE, so `dir="ltr"` around them would be a NEW
+// bug — they therefore carry no `num` class: every numeric caller passes its own
+// `<Bdi dir="ltr" className="num">` and the prose rows pass none. That is why this
+// check needs no allow-list to stay green, and why a re-added `.num` on either
+// shell fails it (see the planted control below).
+//
+// WHAT IT DOES NOT SEE, stated plainly: a numeral that arrives inside a TRANSLATED
+// VALUE or from a variable the source does not spell out. `{devotion}` and
+// `{count}` are visible to it; `{t("cradle.expeditionsDone", { n })}` and
+// `{fmtDuration(t, ms)}` are not. Those are the un-split catalogue values the
+// audit calls the renderer decision. §13b gates the one shape of them that has an
+// exact rule.
+section("13 · (A) NUMERALS ARE THEIR OWN ISOLATED RUN — the sweep's gate (NEW)");
+const NUM_SURFACES = [
+  // the Cradle desk and its chrome — the first screen a player sits at
+  "src/components/screens/CradleScreen.tsx",
+  "src/components/shell/CradleSheet.tsx",
+  "src/components/shell/Ribbon.tsx",
+  "src/components/shell/BottomNav.tsx",
+  "src/components/ui/BuildingTile.tsx",
+  // the route file: the Lab's Deploy cards this slice de-English'd, its Armory
+  // timers and its Cradle Reports clock
+  "src/routes/play.tsx",
+];
+/** operator glyphs a bidi algorithm moves relative to the numeral beside them */
+const NUM_OPERATORS = /[+\u2212\u00d7\u00b7%/\u2192]|&times;|&middot;|&rarr;|&divide;/;
+/** a `.num` element whose whole content is one forwarded value */
+const NUM_BARE = /^\{[A-Za-z_$][\w$]*(?:\.[\w$]+)*\}$/;
+/** Comments out — and BLANKS them, so line numbers in a report still match. */
+function numStripComments(s: string): string {
+  return s
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+}
+/** [start,end) of every `<Bdi …>…</Bdi>`, depth-aware (a nested Bdi cannot escape) */
+function bdiSpans(text: string): [number, number][] {
+  const spans: [number, number][] = [];
+  let depth = 0;
+  let start = 0;
+  for (const m of text.matchAll(/<(\/?)bdi\b/gi)) {
+    if (m[0][1] === "/") {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) spans.push([start, m.index! + m[0].length]);
+    } else {
+      if (depth === 0) start = m.index!;
+      depth++;
+    }
+  }
+  return spans;
+}
+/** the whole JSX element enclosing `offset`, as [start,end,tagName] */
+function numElementSpan(text: string, offset: number): [number, number, string] | null {
+  const open = text.lastIndexOf("<", offset);
+  if (open < 0) return null;
+  const name = /^<([A-Za-z][\w.]*)/.exec(text.slice(open, open + 60));
+  if (!name) return null;
+  const tag = name[1];
+  const tagEnd = text.indexOf(">", offset);
+  if (tagEnd < 0) return null;
+  if (text[tagEnd - 1] === "/") return [open, tagEnd + 1, tag];
+  const close = new RegExp(`</?${tag.replace(/\./g, "\\.")}\\b[^>]*>`, "g");
+  close.lastIndex = tagEnd + 1;
+  let depth = 0;
+  for (const m of text.matchAll(close)) {
+    if (m.index! < tagEnd + 1) continue;
+    if (text[m.index! + 1] === "/") {
+      if (depth === 0) return [open, m.index! + m[0].length, tag];
+      depth--;
+    } else depth++;
+  }
+  return [open, text.length, tag];
+}
+/** every `.num` run in one file's source that is not isolated (exported shape for the self-test) */
+function numeralLeaks(file: string, source: string): string[] {
+  const text = numStripComments(source);
+  const lines = text.split("\n");
+  const at = (i: number) => text.slice(0, i).split("\n").length;
+  const spans = bdiSpans(text);
+  const out: string[] = [];
+  for (const m of text.matchAll(/className=(?:"([^"\n]*)"|\{`([^`\n]*)`\})/g)) {
+    const classes = (m[1] ?? m[2] ?? "").trim();
+    if (!/(^|\s)num(\s|$)/.test(classes)) continue;
+    const el = numElementSpan(text, m.index!);
+    if (!el) continue;
+    const [start, end, tag] = el;
+    const where = `${file}:${at(start)}`;
+    const line = lines[at(start) - 1].trim().slice(0, 96);
+    const span = spans.find(([a, b]) => start >= a && start < b);
+    if (span) {
+      // inside a <Bdi> — but the idiom is `dir="ltr"` for a numeral run
+      const openTag = text.slice(span[0], text.indexOf(">", span[0]) + 1);
+      if (!/dir="ltr"/.test(openTag)) {
+        out.push(`${where} <${tag} class=num> sits in a <Bdi> that does not declare dir="ltr" :: ${line}`);
+      }
+      continue;
+    }
+    const content = text.slice(start, end);
+    const body = content
+      .replace(/"[^"\n]*"/g, '""')
+      .replace(/'[^'\n]*'/g, "''")
+      .replace(/<[^<>]*>/g, " ")
+      .replace(/\{[^{}]*\}/g, "");
+    const digit = /[0-9]/.test(body);
+    const operator = NUM_OPERATORS.test(body);
+    const bare = NUM_BARE.test(content.replace(/<[^<>]*>/g, "").trim());
+    if (!digit && !operator && !bare) continue;
+    const why = digit ? "a digit" : operator ? "an operator glyph" : "a bare value";
+    out.push(`${where} <${tag} class=num> renders ${why} with no <Bdi dir="ltr"> :: ${line}`);
+  }
+  return out;
+}
+let numLeaks = 0;
+for (const f of NUM_SURFACES) {
+  const hits = numeralLeaks(f, read(f));
+  numLeaks += hits.length;
+  for (const h of hits.slice(0, 3)) console.log(`     ${h}`);
+}
+check(
+  `every numeral run in the six swept surfaces is its own isolated <Bdi dir="ltr"> (${NUM_SURFACES.length} files, ${numLeaks} leaks)`,
+  numLeaks === 0,
+);
+check(
+  "the isolation scan is not vacuous — a PLANTED leak fails it in every shape (operator, pair, bare value, and a <Bdi> with no dir)",
+  numeralLeaks("planted.tsx", '<b className="num">+{x}%</b>').length === 1 &&
+    numeralLeaks("planted.tsx", '<b className="num">{a}/{b}</b>').length === 1 &&
+    numeralLeaks("planted.tsx", '<b className="num">&times;{n}</b>').length === 1 &&
+    numeralLeaks("planted.tsx", '<span className="num">{count}</span>').length === 1 &&
+    numeralLeaks("planted.tsx", '<Bdi className="num">{count}</Bdi>').length === 1 &&
+    // the two forwarders, if someone re-adds the class to either one
+    numeralLeaks("planted.tsx", '<b className="num text-[13px] text-text-1">{value}</b>').length === 1 &&
+    // and the correct idiom is silent
+    numeralLeaks("planted.tsx", '<Bdi dir="ltr" className="num">+{x}%</Bdi>').length === 0 &&
+    numeralLeaks("planted.tsx", '<span className="text-[11px]">{level} {t("x")}</span>').length === 0,
+);
+/** 13b · the catalogue half of the same defect: a SIGN glued to a placeholder */
+const NUM_SPLIT_KEYS = ["resource.suppliesSub"];
+const signGlued = LANG_CODES.filter((c) =>
+  NUM_SPLIT_KEYS.some((k) => /[+\u2212\u00d7]\s*\{/.test(CATALOGUES[c][k] ?? "")),
+);
+check(
+  "a value this slice split carries no sign glued to its placeholder — the sign rides in the caller's isolated run",
+  signGlued.length === 0,
+  signGlued.join(","),
+);
+check(
+  "the split moved the SIGN only: the ratified Persian sentence is the same words",
+  CATALOGUES.fa["resource.suppliesSub"].includes("در دقیقه") &&
+    CATALOGUES.fa["resource.suppliesSub"].includes("گهواره برپاست") &&
+    !CATALOGUES.fa["resource.suppliesSub"].startsWith("+"),
+);
 
 console.log(`\n${pass}/${pass + fail} checks passed${fail ? ` — ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

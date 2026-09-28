@@ -50,7 +50,7 @@ export const ptBR: Catalogue = {
   "resource.plasma": "Plasma",
   "resource.scrip": "Scrip",
   "resource.votives": "Votivos",
-  "resource.suppliesSub": "+{rate} por minuto enquanto o Berço estiver de pé",
+  "resource.suppliesSub": "{rate} por minuto enquanto o Berço estiver de pé",
   "resource.scripSub": "Ganho pelo que você faz — Devoção, feitos, contribuição.",
   "resource.votivesSub": "Guardados no Registro do Berço.",
   // ---- TIME TOKENS (owner direction 2026-09-27) ----
