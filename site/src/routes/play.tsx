@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getState, createGameFn, switchGameFn, resetGameFn, deleteGameFn, trashAccountFn,
@@ -21,15 +20,13 @@ import { Bdi } from "../components/ui/Bdi";
 import { fmtDuration } from "../game/i18n/format";
 import {
   DEEP, isDeepZone, hazmatPerScientist,
-  requiredGear, canForgeAlloy, alloyRecipeRaces, CRAFT,
+  requiredGear,
   hasStepOutGear,
 } from "../game/engine";
-import type { CraftKind } from "../game/engine";
 import {
   raceFamilies, ARMORY_FAMILY_TECH, weaponStats, weaponCost, weaponTimeMs, modelName, STAT_LABELS,
   ARMORY_CONFIG, ARMORY_BUILD_SLOTS,
 } from "../game/armory";
-import { DAILY_ITEM_BY_ID } from "../game/daily";
 import { ARMORY_TREE } from "../game/research";
 import { sound } from "../game/sound";
 import { voiceEngine } from "../game/voice/voice-engine";
@@ -56,7 +53,7 @@ import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
 import BattlesTab from "../components/BattlesTab";
 import { diffResolvedEvents } from "../game/report-events";
-import { tip, RESOURCE_TIPS, DOMAIN_TIPS, METER_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
+import { tip, RESOURCE_TIPS, DOMAIN_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
 import type { GameState, RaceId, DomainId, Zone, FeedbackRecord, FeedbackCategory, FeedbackSeverity } from "../game/types";
 import { timeTokenRefusalText } from "../components/screens/CradleScreen";
 import { ResearchTreeView, LeadersView } from "../components/ResearchViews";
@@ -1358,255 +1355,6 @@ function TrashConfirm({ username, onCancel, onConfirm, flash }: { username: stri
         <button onClick={onCancel} disabled={submitting} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">Cancel</button>
       </div>
     </div>
-  );
-}
-
-/* ---------------- Daily to-do + Oracle Devotion (V7) ----------------
-   Compact panel on the Colony tab (§5 sketch). Rows flip to done automatically
-   (completion is server-derived from real events); the only interaction is the
-   single Claim button. Quiet state = zero chrome. TD5: Devotion total + streak
-   are PUBLIC; favor internals/Oracle thresholds never appear in any copy here
-   (silence discipline — the tooltip mentions only the Oracle's watchfulness). */
-function DevotionPanel({ state, onClaim }: { state: GameState; onClaim: () => void }) {
-  const daily = state.daily;
-  const list = daily?.list ?? [];
-  const completed = daily?.completed ?? [];
-  const claimed = daily?.claimed ?? [];
-  const devotion = typeof state.devotion === "number" ? state.devotion : 0;
-  const streak = typeof state.devotionStreak === "number" ? state.devotionStreak : 0;
-  const quiet = !list || list.length === 0;
-  const pending = completed.filter((id) => !claimed.includes(id));
-  const allDone = list.length >= 1 && completed.length >= list.length;
-  const pendingScrip = pending.length * 30 + (allDone && !daily?.bonusClaimed ? 80 : 0);
-  const pendingDevotion = pending.length * 1 + (allDone && !daily?.bonusClaimed ? 3 : 0);
-  return (
-    <div className="mb-6 rounded-xl border border-purity/15 bg-black/30 p-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <Tooltip content={tip({
-          what: "Today's Devotion — a small daily practice, drawn from what the Cradle already does.",
-          does: "Four optional acts; each banks +30 Scrip and +1 Devotion when you Claim. Finish the list for a +80 Scrip / +3 Devotion bonus. Devotion is the path the Oracles watch.",
-          how: "Items complete themselves as you play — the only button is Claim. Work done but unclaimed banks forever; missed days punish nothing.",
-        })}>
-          <h3 className="font-semibold text-white">🕯️ Today's Devotion <span className="text-xs font-normal text-gray-400">({completed.length}/{list.length})</span></h3>
-        </Tooltip>
-        <div className="flex items-center gap-3 text-xs text-gray-300">
-          <span>Devotion <b className="text-purity">{devotion}</b></span>
-          {streak > 0 && <span title={`${streak} consecutive days of practice`}>🔥 <b className="text-purity">{streak}-day streak</b></span>}
-        </div>
-      </div>
-      {quiet ? (
-        <p className="mt-2 text-sm text-text-3">The Cradle asks nothing of you today.</p>
-      ) : (
-        <>
-          <div className="mt-3 space-y-1.5">
-            {list.map((id) => {
-              const def = DAILY_ITEM_BY_ID[id as keyof typeof DAILY_ITEM_BY_ID];
-              const done = completed.includes(id);
-              const banked = claimed.includes(id);
-              return (
-                <div key={id} className="flex items-center gap-3 rounded-lg bg-white/5 px-3 py-2 text-sm">
-                  <span className={"w-4 text-center " + (done ? "text-ember-soft" : "text-text-3")}>{done ? "✓" : "○"}</span>
-                  <span className={"text-[13px] " + (done ? "text-gray-100" : "text-gray-400")}>
-                    {def?.icon ?? ""} {def?.label ?? id}
-                    {done && banked && <span className="ms-1.5 text-[11px] uppercase tracking-wide text-ember-soft/80">claimed</span>}
-                  </span>
-                  <span className="ms-auto text-xs text-text-3">+30 · +1</span>
-                </div>
-              );
-            })}
-          </div>
-          {allDone && <p className="mt-2 text-xs text-purity">🕯️ The day's devotion is complete — +80 bonus.</p>}
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button
-              onClick={onClaim}
-              disabled={pendingScrip <= 0}
-              className="rounded-lg bg-purity px-4 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40"
-            >
-              {pendingScrip > 0 ? `Claim — ${pendingScrip} Scrip · ${pendingDevotion} Devotion` : "Claimed ✓"}
-            </button>
-            <p className="text-[11px] text-text-3">Daily devotion, long-term trust — the Oracle watches what you do, not what you buy.</p>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ---------------- Colony tab ---------------- */
-
-function ColonyTab({ state, onPurify, onCraft, onClaim }: { state: GameState; onPurify: (n: number) => void; onCraft: (k: CraftKind) => void; onClaim: () => void }) {
-  const r = state.resources;
-  const spm = engineHelpers.suppliesPerMinute(state);
-  const recipe = alloyRecipeRaces(state); // 5 race ids when forgeable, else []
-  const ownMat = state.race ? r.mats[state.race] : 0;
-  // Rung 1a §E — Codex folds into the Cradle as the Lore modal.
-  const [codexOpen, setCodexOpen] = useState(false);
-  return (
-    <main className="mx-auto max-w-6xl px-6 py-8">
-      {/* V7 — Daily to-do + Oracle Devotion (opt-in, never gated; TD5: total +
-          streak public; favor internals never leave the server) */}
-      <DevotionPanel state={state} onClaim={onClaim} />
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-white/10 bg-black/30 p-5">
-          <h3 className="font-semibold text-white">Colony Health</h3>
-          <div className="mt-3 space-y-2 text-sm">
-            <Meter label="Corruption (taint)" value={state.corruption} danger={state.corruption > 50} tip={tip(METER_TIPS.corruption)} />
-            <Meter label="Chorus Attention" value={state.chorusAttention} danger={state.chorusAttention > 50} tip={tip(METER_TIPS.chorus)} />
-          </div>
-          <Tooltip content={tip(LAB_TIPS.purify)}>
-            <button onClick={() => onPurify(1)} disabled={r.supplies < 10} className="mt-4 w-full rounded-lg border border-purple-400/40 bg-purple-400/10 px-3 py-2 text-sm text-purple-200 hover:bg-purple-400/20 disabled:opacity-40">
-              Purify the Cradle (10 📦)
-            </button>
-          </Tooltip>
-        </div>
-        <div className="rounded-xl border border-white/10 bg-black/30 p-5 md:col-span-2">
-          <h3 className="font-semibold text-white">The Cradle advances</h3>
-          <p className="mt-1 text-xs text-gray-400">Deploy recovered AI to strengthen the colony. Supplies grow here while you're away: <b className="text-lime-300">+{spm.toFixed(1)}/min</b>.</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {DOMAINS.map((d) => {
-              const lvl = state.deployedDomains[d.id];
-              const bonus = engineHelpers.domainEffect(state, d.id);
-              return (
-                <div key={d.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <Tooltip content={tip(DOMAIN_TIPS[d.id])}>
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-white">{d.icon} {d.name}</span>
-                      <span className="text-xs text-amber-300">Lv {lvl}</span>
-                    </div>
-                  </Tooltip>
-                  <p className="mt-1 text-xs text-gray-400">{d.description}</p>
-                  <p className="mt-1 text-xs text-ember-soft">{bonus}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Workshop — everyday gear & logistics + the forged alloy */}
-      <div className="mt-6 rounded-xl border border-amber-400/20 bg-black/30 p-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="font-semibold text-white">🏭 Workshop <span className="text-xs font-normal text-gray-400">— gear & logistics, forged with Supplies</span></h3>
-          <div className="flex flex-wrap gap-2 text-[11px]">
-            <Tooltip content={tip(RESOURCE_TIPS.medkit)}><span className="rounded bg-white/5 px-2 py-0.5 text-gray-200">🩺 <b className="text-white">{r.medkit}</b></span></Tooltip>
-            <Tooltip content={tip(RESOURCE_TIPS.mechkit)}><span className="rounded bg-white/5 px-2 py-0.5 text-gray-200">🔧 <b className="text-white">{r.mechkit}</b></span></Tooltip>
-            <Tooltip content={tip(RESOURCE_TIPS.armorkit)}><span className="rounded bg-white/5 px-2 py-0.5 text-gray-200">🛡️ <b className="text-white">{r.armorkit}</b></span></Tooltip>
-            <Tooltip content={tip(RESOURCE_TIPS.skmech)}><span className="rounded bg-white/5 px-2 py-0.5 text-gray-200">👷 <b className="text-white">{r.skmech}</b></span></Tooltip>
-            <Tooltip content={tip(RESOURCE_TIPS.gas)}><span className="rounded bg-white/5 px-2 py-0.5 text-gray-200">⛽ <b className="text-white">{r.gas}</b></span></Tooltip>
-            <Tooltip content={tip(RESOURCE_TIPS.battery)}><span className="rounded bg-white/5 px-2 py-0.5 text-gray-200">🔋 <b className="text-white">{r.battery}</b></span></Tooltip>
-            <Tooltip content={tip(RESOURCE_TIPS.hazmat)}><span className="rounded bg-white/5 px-2 py-0.5 text-gray-200">🧥 <b className="text-white">{r.hazmat}</b></span></Tooltip>
-            <Tooltip content={tip(RESOURCE_TIPS.shots)}><span className="rounded bg-white/5 px-2 py-0.5 text-gray-200">💉 <b className="text-white">{r.shots}</b></span></Tooltip>
-            <Tooltip content={tip(RESOURCE_TIPS.alloy)}><span className="rounded bg-white/5 px-2 py-0.5 text-gray-200">⚙️ <b className="text-white">{r.alloys}</b></span></Tooltip>
-          </div>
-        </div>
-
-        {[
-          { note: "Tier 0 · Step Out — gates fielding ANY exploration", kinds: ["medkit", "mechkit", "armorkit"] as CraftKind[] },
-          { note: "Tier 1 · Outer & mild zones — radiation shots, skilled mechanics, fuel & battery", kinds: ["skmech", "gas", "battery", "shots"] as CraftKind[] },
-          { note: "Tier 2 · Deep zones — suits let you EXPLORE, alloys let you EXTRACT", kinds: ["hazmat", "alloy"] as CraftKind[] },
-        ].map((tier, ti) => (
-          <div key={ti} className="mt-4">
-            <p className="text-[11px] uppercase tracking-wider text-text-3">{tier.note}</p>
-            <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {tier.kinds.map((k) => {
-                const def = CRAFT[k];
-                const can = r.supplies >= def.supplies && (k !== "alloy" || canForgeAlloy(state));
-                const desc = k === "alloy" && !canForgeAlloy(state)
-                  ? `Missing the recipe — need ${ownMat >= 1 ? "own ✓" : "your own"} + ${4 - (recipe.length ? recipe.filter((rid) => rid !== state.race).length : 0)} more race materials.`
-                  : def.description;
-                return (
-                  <div key={k} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <Tooltip content={tip({ what: def.label, does: def.description, how: `Costs ${def.supplies} 📦. ${k === "alloy" ? "Consumes 5 race materials (own + 4 others)." : k === "gas" || k === "battery" ? "Consumed each exploration you launch." : "Stacks in the colony stores."}` })}>
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-white">{def.icon} {def.label}</span>
-                        <span className="text-xs text-lime-300">{def.supplies} 📦</span>
-                      </div>
-                    </Tooltip>
-                    <p className="mt-1 text-xs text-gray-400">{desc}</p>
-                    <button onClick={() => onCraft(k)} disabled={!can} className="mt-2 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-                      {k === "alloy" && !canForgeAlloy(state) ? "Recipe locked" : can ? "Forge" : `Need ${def.supplies} 📦`}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-
-        {/* The alloy recipe — cross-race territory materials */}
-        <div className="mt-4 rounded-lg border border-white/10 bg-black/40 p-3">
-          <Tooltip content={tip(RESOURCE_TIPS.mats)}>
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="font-semibold text-amber-200">🔑 Alloy recipe — 5 unique race materials</span>
-              <span className="text-gray-400">your own + any 4 other races.</span>
-              <span className={`ms-auto font-semibold ${canForgeAlloy(state) ? "text-ember-soft" : "text-gray-300"}`}>
-                {canForgeAlloy(state) ? "✓ Recipe complete — forge an alloy" : `${recipe.length === 0 ? 1 : 1 + recipe.filter((rid) => rid !== state.race).length}/5 held`}
-              </span>
-            </div>
-          </Tooltip>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {RACES.map((race) => {
-              const count = r.mats[race.id] ?? 0;
-              const isOwn = state.race === race.id;
-              const inRecipe = recipe.includes(race.id);
-              return (
-                <Tooltip key={race.id} content={tip({ what: `${race.name} territory material`, does: "A unique supply found only in their home region — part of the alloy recipe.", how: `Loot it by running Explorations into ${race.homeRegion}. ${isOwn ? "This is YOUR race's material." : "One of the 4 foreign materials needed."}` })}>
-                  <span className={`rounded-full border px-2.5 py-0.5 text-[11px] ${inRecipe ? "border-ember/50 bg-ember/10 text-ember-soft" : count > 0 ? "border-amber-400/40 bg-amber-400/10 text-amber-200" : "border-white/10 bg-white/5 text-text-3"}`}>
-                    {race.id === "grays" ? "👽" : race.id === "nephilim" ? "🗿" : race.id === "draconians" ? "🐉" : race.id === "anunnaki" ? "🏛️" : race.id === "ashtar" ? "⭐" : "📖"} {race.name.replace("The ", "")}{isOwn ? " (own)" : ""} ×{count}
-                  </span>
-                </Tooltip>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 rounded-xl border border-white/10 bg-black/30 p-5">
-        <h3 className="font-semibold text-white">Exploration Ledger <span className="text-xs text-text-3">({state.completedExpeditions} completed)</span></h3>
-        <div className="mt-2 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-          <Stat label="Total Embers looted" value={state.totalEmbersLooted} />
-          <Stat label="Total Chipsets looted" value={state.totalChipsetsLooted} />
-          <Stat label="Insight distilled" value={Math.round(state.insight)} />
-          <Stat label="Colony founded" value={new Date(state.createdAt).toLocaleDateString()} />
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={() => { setCodexOpen(true); sound.tab(); }}
-        aria-haspopup="dialog"
-        className="mt-6 flex w-full items-center gap-3 rounded-xl border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-start transition-colors hover:border-amber-400/60 hover:bg-amber-400/10"
-      >
-        <span className="text-lg" aria-hidden="true">📖</span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-amber-200">Open the Codex — Legends of the Shatterlands</span>
-          <span className="block text-xs text-text-3">the myths the colonies tell about the world that burned — fiction, worn as ways of life</span>
-        </span>
-        <span className="chip shrink-0 border border-amber-400/40 bg-amber-400/10 text-amber-200">{RACES.length + 1} legends</span>
-      </button>
-      <JournalButton title="Chronicle of the Cradle" subtitle="the world as the colony remembers it — newest first" log={state.log} />
-      {codexOpen && <CodexModal onClose={() => { setCodexOpen(false); sound.tab(); }} />}
-    </main>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div>
-      <div className="text-lg font-semibold text-white">{value}</div>
-      <div className="text-xs text-text-3">{label}</div>
-    </div>
-  );
-}
-
-function Meter({ label, value, danger, tip: tooltip }: { label: string; value: number; danger: boolean; tip: ReactNode }) {
-  const color = danger ? "bg-danger" : "bg-ember";
-  return (
-    <Tooltip content={tooltip}>
-      <div>
-        <div className="flex justify-between text-xs text-gray-400"><span>{label}</span><span className={danger ? "text-red-400" : ""}>{Math.round(value)}%</span></div>
-        <div className="mt-1 h-2 rounded bg-white/10"><div className={"h-2 rounded " + color} style={{ width: `${value}%` }} /></div>
-      </div>
-    </Tooltip>
   );
 }
 

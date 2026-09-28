@@ -40,7 +40,9 @@ function StoreRow({
         <span className="block text-[13px] font-semibold text-text-1">{label}</span>
         <span className="block text-[11px] leading-tight text-text-3">{sub}</span>
       </span>
-      <b className="num shrink-0 text-sm text-text-1">{value.toLocaleString()}</b>
+      <b className="shrink-0 text-sm text-text-1">
+        <Bdi dir="ltr" className="num">{value.toLocaleString()}</Bdi>
+      </b>
     </li>
   );
 }
@@ -105,7 +107,7 @@ export default function CradleSheet({
         {/* 1 · Stores — every figure, with the prose that used to be hover-only */}
         <section aria-labelledby="cradle-stores">
           <h3 id="cradle-stores" className="eyebrow">
-            {t("cradleSheet.stores", "Stores")} \u00b7 <Bdi dir="ltr" className="num">{t("time.tokens")}</Bdi>
+            {t("cradleSheet.stores", "Stores")} · <Bdi dir="ltr" className="num">{t("time.tokens")}</Bdi>
           </h3>
           <ul className="mt-2 space-y-1.5">
             <StoreRow icon="flame" label={t("resource.embers", "Embers")} value={Math.floor(r.embers)} sub={RESOURCE_TIPS.embers.what} />
