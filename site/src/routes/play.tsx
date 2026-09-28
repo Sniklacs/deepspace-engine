@@ -49,7 +49,7 @@ import CradleSheet from "../components/shell/CradleSheet";
 import SettingsSheet from "../components/shell/SettingsSheet";
 import ChatSheet from "../components/chat/ChatSheet";
 import { configureChat } from "../game/chat/chat-store";
-import { useT } from "../components/i18n/I18n";
+import { useT, useLang } from "../components/i18n/I18n";
 import { navBadges } from "../game/nav-badges";
 import type { Tab } from "../game/nav-slots";
 import CradleScreen from "../components/screens/CradleScreen";
@@ -1079,6 +1079,10 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
 interface ReportItem { id: number; text: string; ts: number; }
 
 function ReportsSheet({ open, onClose, reports }: { open: boolean; onClose: () => void; reports: ReportItem[] }) {
+  // The device's language in force right now — `useT()` hands back the lookup only,
+  // it carries no language of its own. Formatted numerals in this file take their
+  // locale from here, never from the device default.
+  const lang = useLang();
   return (
     <Sheet open={open} onClose={onClose} labelledBy="reports-title" title="Cradle Reports">
       <SheetHeader id="reports-title" title="Cradle Reports" subtitle="what came home while you watched — newest first" onClose={onClose} />
@@ -1090,7 +1094,7 @@ function ReportsSheet({ open, onClose, reports }: { open: boolean; onClose: () =
             {reports.map((r) => (
               <li key={r.id} className="rounded-lg border border-line bg-surf-2/60 px-3 py-2 text-xs leading-relaxed text-text-2">
                 {r.text}
-                <Bdi dir="ltr" className="num mt-1 block text-[11px] text-text-3">{formatTime(t.lang ?? "en", r.ts)}</Bdi>
+                <Bdi dir="ltr" className="num mt-1 block text-[11px] text-text-3">{formatTime(lang, r.ts)}</Bdi>
               </li>
             ))}
           </ul>
