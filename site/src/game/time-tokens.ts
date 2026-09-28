@@ -20,21 +20,27 @@
 // WHERE THE MONEY DATA LIVES: NOT here. A price and a product id are CATALOGUE data
 // and they live in `monetization.ts` — `TIME_TOKEN_PACKS`, one row per sellable
 // size, shaped exactly like `VOTIVE_PACKS`/`HEAD_START_PACKS` (id / sizeId / name /
-// priceUsd / providerSkuId). `TimeTokenPackDef.providerSkuId` is THE ONE PLACE a
-// Stripe product id lands, and it is `""` today: no product exists yet, so
-// `timeTokenSaleRefusal()` refuses every one of the six BY NAME rather than
-// defaulting or silently selling. `time-token-tests` §A asserts this file's CODE
-// still defines no price, product, checkout or purchase object.
+// priceUsd / providerSkuId). `TimeTokenPackDef.providerSkuId` is the column the
+// Stripe product id lands in, and it is FILLED as of 2026-09-27: the six products
+// exist live, and the id is read from `payments/payment-links.ts`, where it is
+// written once. `timeTokenSaleRefusal()` still refuses any size whose product id is
+// missing, BY NAME, rather than defaulting or silently selling.
+// `time-token-tests` §A asserts this file's CODE still defines no price, product,
+// checkout or purchase object.
 //
-// NOTHING HERE SELLS ANYTHING, and nothing here conjures what is sold: the only
-// grant door in this file is `grantTimeToken`, and it REFUSES a sellable size by
-// name — the earned door pays the Devotion's two sizes (daily.ts). The purchased
-// token's entitlement lands with the Stripe products and the switch flip.
-// `MONETIZATION_CONFIG.storefrontEnabled` stays false, and every purchase route
-// stays gated on it (api.ts). The catalogue's vocabulary tripwire no longer bans
-// the word "speed-up" — we sell speed-ups now, and the owner's sentence is the one
-// that describes them — while it still bans every word that would MISdescribe them
-// and still refuses a purchasable key that names war hardware.
+// NOTHING HERE SELLS ANYTHING, and nothing here conjures what is sold: this file
+// has exactly TWO grant doors, and they cannot reach each other's sizes.
+// `grantTimeToken` is the EARNED door (the Devotion's `1m`/`5m`) and REFUSES a
+// sellable size by name; `grantSoldTimeToken` is the PURCHASE door (the six
+// sellable sizes) and refuses an earned one. Only `monetization.ts`
+// `applyExternalPurchase()`, behind a signature-verified Stripe session, reaches
+// the second — and both doors pay the same held tokens, spent by the same
+// `applyTimeToken`, bounded by the same floor. `MONETIZATION_CONFIG.storefrontEnabled`
+// stays false, and every purchase route stays gated on it (api.ts). The catalogue's
+// vocabulary tripwire no longer bans the word "speed-up" — we sell speed-ups now,
+// and the owner's sentence is the one that describes them — while it still bans
+// every word that would MISdescribe them and still refuses a purchasable key that
+// names war hardware.
 //
 // THE FLOOR, ASSERTED AT APPLICATION (re-time spec; MIN_TIMER_FRACTION = 0.286):
 // `timerFloor()` in engine.ts applies the SAME constant to the earned modifier
@@ -231,7 +237,8 @@ export interface TimeTokenGrantResult {
  * sell half's security property: this door cannot conjure a token that is sold, so
  * no earned path (a Devotion claim, a replay, a future daily reward) can hand out
  * what the store charges for. A purchased token's entitlement is granted by the
- * purchase path, which lands with the Stripe products and the switch flip.
+ * purchase path — `monetization.applyExternalPurchase()` → `grantSoldTimeToken()`
+ * below, which pays the six SELLABLE sizes and refuses these two by name.
  */
 export function grantTimeToken(
   state: GameState,
@@ -245,6 +252,53 @@ export function grantTimeToken(
     return { ok: false, error: `The ${sizeId} token is SOLD, not earned — this door pays the Devotion's two sizes only.` };
   }
   if (!isEarnedTimeTokenSize(sizeId)) return { ok: false, error: `Unknown time-token size "${sizeId}".` };
+  if (!eventId) return { ok: false, error: "A time-token grant requires an eventId (idempotency)." };
+  if (eventIdUsed(state, eventId)) return { ok: true, idempotent: true };
+  state.timeTokens![sizeId] = heldTimeTokens(state, sizeId) + 1;
+  state.timeTokenLedger!.push({ eventId, kind: "earn", sizeId, amount: 1, reason, ts: now });
+  return { ok: true };
+}
+
+/**
+ * GRANT ONE TIME TOKEN — THE PURCHASE DOOR (2026-09-27).
+ *
+ * WHY IT EXISTS, AND WHY IT IS NOT `grantTimeToken`. The earned door REFUSES a
+ * sellable size by name — that is a security property, not a pedantic one: it
+ * means no earned path (a Devotion claim, a replay, a future daily reward) can
+ * hand out what the store charges for. So a token a player PAID for needs its own
+ * door, with its own, narrower rule: it pays a size the catalogue SELLS and
+ * nothing else. The two doors are disjoint by construction — the earned door pays
+ * exactly `1m`/`5m`, this one pays exactly the six sellable sizes — so neither can
+ * ever be widened into the other, and `time-token-tests` §I asserts both refusals.
+ *
+ * WHO CALLS IT: `monetization.ts` `applyExternalPurchase()`, and only from there —
+ * a signature-verified Stripe session is the sole thing that reaches this door.
+ *
+ * WHAT IT GRANTS: ONE held token of that size, in the SAME holdings an earned
+ * token lands in, spendable through the SAME `applyTimeToken` and therefore
+ * bounded by the SAME floor (`TIME_TOKEN_FLOOR_FRACTION == MIN_TIMER_FRACTION`).
+ * A purchased token is not a stronger token: nothing here touches resources,
+ * strength, scored currency, season XP or any timer — the ONLY thing that differs
+ * from an earned token is which door it came through and what the ledger says.
+ *
+ * IDEMPOTENT BY `eventId`, exactly as the earned door is: the purchase path passes
+ * `purch:<Stripe session id>`, so a re-delivered webhook is a no-op flagged
+ * `idempotent: true` and never a second token.
+ */
+export function grantSoldTimeToken(
+  state: GameState,
+  sizeId: string,
+  eventId: string,
+  reason: string,
+  now = Date.now(),
+): TimeTokenGrantResult {
+  ensureTimeTokens(state);
+  if (isEarnedTimeTokenSize(sizeId)) {
+    return { ok: false, error: `The ${sizeId} token is EARNED, never sold — the purchase door pays the six sellable sizes only.` };
+  }
+  if (!isSellableTimeTokenSize(sizeId)) {
+    return { ok: false, error: `Unknown time-token size "${sizeId}" — nothing sells it.` };
+  }
   if (!eventId) return { ok: false, error: "A time-token grant requires an eventId (idempotency)." };
   if (eventIdUsed(state, eventId)) return { ok: true, idempotent: true };
   state.timeTokens![sizeId] = heldTimeTokens(state, sizeId) + 1;
