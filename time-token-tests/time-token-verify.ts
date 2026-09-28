@@ -32,6 +32,7 @@ import * as engine from "/home/team/shared/site/src/game/engine.ts";
 import {
   applyTimeToken,
   ensureTimeTokens,
+  grantSoldTimeToken,
   grantTimeToken,
   heldTimeTokens,
   heldTimeTokenMs,
@@ -67,7 +68,12 @@ import {
   PAYMENT_LINKS,
   checkoutUrl,
   isSellable,
+  paymentLinkRow,
+  productIdForSku,
   sellableSkus,
+  skuForMetadataSku,
+  skuForPriceId,
+  skuForProductId,
 } from "/home/team/shared/site/src/game/payments/payment-links.ts";
 import type { GameState } from "/home/team/shared/site/src/game/types.ts";
 import fs from "node:fs";
@@ -152,15 +158,24 @@ check("the module's CODE defines no price, product, checkout or purchase object"
   !/priceCents|priceVotives|priceUsd|productId|providerSkuId|checkout|stripe|storefrontEnabled|storefront/i.test(tokenCode));
 const exportedFns = [...tokenSrc.matchAll(/export (?:async )?function (\w+)/g)].map((m) => m[1]).sort();
 check("the module's export surface is exactly the MECHANIC \u2014 a whitelist, so no buy/sell/checkout "
-  + "function can ever appear here without this check failing",
-  exportedFns.join(",") === "applyTimeToken,ensureTimeTokens,freshTimeTokens,grantTimeToken,heldTimeTokenMs,"
-  + "heldTimeTokens,isEarnedTimeTokenSize,isSellableTimeTokenSize,isTimeTokenSize,maxTimeTokenCompressionMs,"
+  + "function can ever appear here without this check failing. TWO grant doors are named, and they are "
+  + "the two the slice has: `grantTimeToken` (the Devotion's) and `grantSoldTimeToken` (the purchase "
+  + "path's, added 2026-09-27) \u2014 WIDENED, not weakened: the control below still refuses a planted name",
+  exportedFns.join(",") === "applyTimeToken,ensureTimeTokens,freshTimeTokens,grantSoldTimeToken,grantTimeToken,"
+  + "heldTimeTokenMs,heldTimeTokens,isEarnedTimeTokenSize,isSellableTimeTokenSize,isTimeTokenSize,maxTimeTokenCompressionMs,"
   + "timeTokenMs,timeTokensPublicView",
   exportedFns.join(","));
+const BANNED_EXPORT_NAME = /price|product|sku|checkout|stripe|storefront|purchase|charg|invoice|entitle/i;
 check("no exported name at all mentions a price, a product, a checkout, a store or an entitlement",
   ![...tokenSrc.matchAll(/export (?:async )?(?:function|const|let|class|interface|type) (\w+)/g)]
     .map((m) => m[1])
-    .some((n) => /price|product|sku|checkout|stripe|storefront|purchase|charg|invoice|entitle/i.test(n)));
+    .some((n) => BANNED_EXPORT_NAME.test(n)));
+// NEGATIVE CONTROL for the widened whitelist above: the new door's NAME must be
+// clear of the store's vocabulary, and this proves the ban still bites on a name
+// that is not (`grantSoldTimeToken` passes; the obvious alternative would not).
+check("NEGATIVE CONTROL \u00b7 the name ban still refuses a planted store-flavoured export name",
+  !BANNED_EXPORT_NAME.test("grantSoldTimeToken") && BANNED_EXPORT_NAME.test("grantPurchasedTimeToken")
+  && BANNED_EXPORT_NAME.test("timeTokenPriceUsd") && BANNED_EXPORT_NAME.test("stripeCheckoutToken"));
 check("the ruling this slice implements is quoted in the source",
   /speed-ups are sold, they compress one timer by at most 3\.5/.test(tokenSrc) && /sign-off, go build it/.test(tokenSrc));
 check("and the owner's never-sell-these words are quoted too",
@@ -181,10 +196,21 @@ check("nothing prices 1m or 5m (timeTokenPriceUsd is 0 and there is no row)",
 check("the catalogue id is one formula from the size, and every row uses it",
   TIME_TOKEN_PACKS.every((p) => p.id === timeTokenPackId(p.sizeId))
   && new Set(TIME_TOKEN_PACKS.map((p) => p.id)).size === 6);
-check("THE ONE PLACE THE PRODUCT ID LANDS: every row's providerSkuId is UNSET today \u2014 no Stripe id is invented",
-  TIME_TOKEN_PACKS.every((p) => p.providerSkuId === TIME_TOKEN_PRODUCT_ID_UNSET)
-  && TIME_TOKEN_PRODUCT_ID_UNSET === "",
+check("THE PRODUCT ID COLUMN IS FILLED \u2014 with the six LIVE Stripe product ids, one per size, no duplicates",
+  TIME_TOKEN_PACKS.map((p) => p.providerSkuId).join(",")
+  === "prod_VL1IlrKotjeEc8,prod_VL1I6RcBYf9ip1,prod_VL1IhfQkbh15q2,prod_VL1IEaKNpi2sXz,prod_VL1IvxuGGlgwN2,prod_VL1IdZr899TCNt"
+  && new Set(TIME_TOKEN_PACKS.map((p) => p.providerSkuId)).size === 6
+  && TIME_TOKEN_PACKS.every((p) => /^prod_[A-Za-z0-9]+$/.test(p.providerSkuId)),
   TIME_TOKEN_PACKS.map((p) => p.providerSkuId).join(","));
+check("the empty id still means UNSET, and the referee still has that state to refuse",
+  TIME_TOKEN_PRODUCT_ID_UNSET === "");
+check("…and each product id is READ from the one place it is written (payment-links.ts), not typed twice",
+  TIME_TOKEN_PACKS.every((p) => paymentLinkRow(p.id)?.productId === p.providerSkuId),
+  TIME_TOKEN_PACKS.map((p) => `${p.id}:${paymentLinkRow(p.id)?.productId ?? "MISSING"}`).join(" "));
+check("…while the price column is untouched \u2014 no amountUsd/priceUsd moved in this slice",
+  TIME_TOKEN_PACKS.map((p) => p.priceUsd).join(",") === "2.99,3.99,7.99,9.99,14.99,24.99"
+  && PAYMENT_LINKS.filter((r) => r.skuId.startsWith("time-token-")).every((r) => r.amountUsd === timeTokenPriceUsd(r.skuId.replace("time-token-", ""))),
+  PAYMENT_LINKS.filter((r) => r.skuId.startsWith("time-token-")).map((r) => `${r.skuId}:${r.amountUsd}`).join(" "));
 check("a speed-up row carries NO grant payload \u2014 it grants time and nothing else",
   TIME_TOKEN_PACKS.every((p) => !Object.prototype.hasOwnProperty.call(p, "grants")));
 check("no catalogue row references a resource, a strength or a scored currency field at all",
@@ -215,14 +241,22 @@ refuses("NEGATIVE CONTROL \u00b7 a price that breaks monotonicity is refused",
 refuses("NEGATIVE CONTROL \u00b7 a WAR-HARDWARE name on a speed-up row is refused",
   () => { TIME_TOKEN_PACKS[0].name = "Plasma cache with a speed-up"; },
   () => { TIME_TOKEN_PACKS[0].name = "Half-Hour Token"; });
+// NEW with the wiring (2026-09-27): now that the product ids are real, the guard
+// that matters is that a PLACEHOLDER cannot pass as one.
+refuses("NEGATIVE CONTROL \u00b7 a placeholder product id is refused (it is a prod_\u2026 id or it is nothing)",
+  () => { TIME_TOKEN_PACKS[0].providerSkuId = "TODO"; },
+  () => { TIME_TOKEN_PACKS[0].providerSkuId = productIdForSku("time-token-30m"); });
+// A blank product id is a legal catalogue VALUE ("not wired yet") — the guard
+// that refuses it is the SALE REFEREE, not assertCatalogFair, so it is asserted
+// there (§E) rather than through `refuses()` above.
 check("the catalogue is byte-identical to the shipped one after the controls",
   JSON.stringify(TIME_TOKEN_PACKS) === JSON.stringify([
-    { id: "time-token-30m", sizeId: "30m", name: "Half-Hour Token", priceUsd: 2.99, providerSkuId: "" },
-    { id: "time-token-1h", sizeId: "1h", name: "One-Hour Token", priceUsd: 3.99, providerSkuId: "" },
-    { id: "time-token-8h", sizeId: "8h", name: "Eight-Hour Token", priceUsd: 7.99, providerSkuId: "" },
-    { id: "time-token-12h", sizeId: "12h", name: "Twelve-Hour Token", priceUsd: 9.99, providerSkuId: "" },
-    { id: "time-token-24h", sizeId: "24h", name: "Day Token", priceUsd: 14.99, providerSkuId: "" },
-    { id: "time-token-48h", sizeId: "48h", name: "Two-Day Token", priceUsd: 24.99, providerSkuId: "" },
+    { id: "time-token-30m", sizeId: "30m", name: "Half-Hour Token", priceUsd: 2.99, providerSkuId: "prod_VL1IlrKotjeEc8" },
+    { id: "time-token-1h", sizeId: "1h", name: "One-Hour Token", priceUsd: 3.99, providerSkuId: "prod_VL1I6RcBYf9ip1" },
+    { id: "time-token-8h", sizeId: "8h", name: "Eight-Hour Token", priceUsd: 7.99, providerSkuId: "prod_VL1IhfQkbh15q2" },
+    { id: "time-token-12h", sizeId: "12h", name: "Twelve-Hour Token", priceUsd: 9.99, providerSkuId: "prod_VL1IEaKNpi2sXz" },
+    { id: "time-token-24h", sizeId: "24h", name: "Day Token", priceUsd: 14.99, providerSkuId: "prod_VL1IvxuGGlgwN2" },
+    { id: "time-token-48h", sizeId: "48h", name: "Two-Day Token", priceUsd: 24.99, providerSkuId: "prod_VL1IdZr899TCNt" },
   ]));
 
 // =========================================================== §B the floor
@@ -432,19 +466,52 @@ check("1m is REFUSED FOR SALE by name (earned-only, keyed for five languages)",
 check("5m is REFUSED FOR SALE by name too", timeTokenSaleRefusal("5m")?.errorKey === "time.earnedOnly");
 check("the 1m/5m refusal names the Devotion as where they come from",
   /Devotion/.test(timeTokenSaleRefusal("1m")?.error ?? ""));
-check("every one of the SIX is REFUSED right now \u2014 because no Stripe product id exists yet",
-  SELLABLE_TIME_TOKEN_SIZES.every((s) => timeTokenSaleRefusal(s)?.errorKey === "store.notForSale"),
-  SELLABLE_TIME_TOKEN_SIZES.map((s) => `${s}:${timeTokenSaleRefusal(s)?.errorKey}`).join(" "));
-check("…and the refusal NAMES the size and the place its product id will land",
-  /8h/.test(timeTokenSaleRefusal("8h")?.error ?? "") && /providerSkuId/.test(timeTokenSaleRefusal("8h")?.error ?? ""),
-  timeTokenSaleRefusal("8h")?.error ?? "");
-check("the set of sizes actually sellable today is EMPTY (read from the rows, not assumed)",
-  sellableTimeTokenSizes().length === 0, sellableTimeTokenSizes().join(","));
-check("no Payment Link row exists for a speed-up (nothing to open, nothing to charge)",
-  PAYMENT_LINKS.every((r) => !SELLABLE_TIME_TOKEN_SIZES.some((s) => r.skuId === timeTokenPackId(s))),
-  PAYMENT_LINKS.map((r) => r.skuId).join(","));
-check("…so no SKU of any kind is sellable and checkout refuses for a speed-up",
-  sellableSkus().length === 0 && !isSellable("time-token-8h") && checkoutUrl("time-token-8h", "acct") === null);
+check("NOW THE STRIPE PRODUCTS EXIST: all six are OFFERED \u2014 the referee returns null for every size",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => timeTokenSaleRefusal(s) === null),
+  SELLABLE_TIME_TOKEN_SIZES.map((s) => `${s}:${JSON.stringify(timeTokenSaleRefusal(s))}`).join(" "));
+// WIDENED, NOT WEAKENED: filling the ids removed the "every size is refused"
+// state, so the refusal it proved is re-proved on a planted UNSET id \u2014 the row
+// still cannot be sold without a Stripe object, by name, with both facts in it.
+check("…while a row whose product id is UNSET is STILL refused by name (the control for that removal)",
+  (() => {
+    const row = TIME_TOKEN_PACKS.find((p) => p.sizeId === "8h")!;
+    const before = row.providerSkuId;
+    row.providerSkuId = TIME_TOKEN_PRODUCT_ID_UNSET;
+    const refused = timeTokenSaleRefusal("8h");
+    row.providerSkuId = before;
+    return refused?.errorKey === "store.notForSale" && /8h/.test(refused.error) && /providerSkuId/.test(refused.error)
+      && timeTokenSaleRefusal("8h") === null;
+  })());
+check("the set of sizes actually sellable is exactly the six (read from the rows, not assumed)",
+  sellableTimeTokenSizes().join(",") === SELLABLE_TIME_TOKEN_SIZES.join(","), sellableTimeTokenSizes().join(","));
+check("a link-table row exists for all six \u2014 that is the RECOGNITION path (metadata/plink/price/product ids)",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => {
+    const r = paymentLinkRow(timeTokenPackId(s));
+    return !!r && /^plink_/.test(r.paymentLinkId) && /^price_/.test(r.priceId) && /^prod_/.test(r.productId ?? "");
+  }),
+  PAYMENT_LINKS.filter((r) => r.skuId.startsWith("time-token-")).map((r) => r.skuId).join(",") || "(none)");
+check("…and the three token resolvers answer for every one of the six (nothing is recognised by accident)",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => {
+    const r = paymentLinkRow(timeTokenPackId(s))!;
+    return skuForMetadataSku(r.skuId) === r.skuId && skuForPriceId(r.priceId) === r.skuId && skuForProductId(r.productId) === r.skuId
+      && skuForProductId("prod_not_ours") === null && skuForPriceId("price_not_ours") === null;
+  }));
+// THE HONEST SURFACE ANSWER, asserted rather than asserted-in-prose: six rows
+// exist and NOT ONE has a url, so no token is buyable and checkout refuses.
+check("NOT ONE token row carries a url \u2014 there is no buy surface for a token today",
+  PAYMENT_LINKS.filter((r) => r.skuId.startsWith("time-token-")).every((r) => r.url === ""),
+  PAYMENT_LINKS.filter((r) => r.skuId.startsWith("time-token-")).map((r) => `${r.skuId}:${r.url || "(no url)"}`).join(" "));
+check("…so no token is sellable and checkout refuses for every one of the six",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => !isSellable(timeTokenPackId(s)) && checkoutUrl(timeTokenPackId(s), "acct") === null)
+  && sellableSkus().every((s) => !s.startsWith("time-token-")));
+check("NEGATIVE CONTROL \u00b7 the URL is the gate: a planted url makes a token buyable, and removing it restores the refusal",
+  (() => {
+    const row = paymentLinkRow("time-token-8h")!;
+    row.url = "https://buy.stripe.com/test_token_planted";
+    const becameBuyable = isSellable("time-token-8h") && checkoutUrl("time-token-8h", "acct") !== null;
+    row.url = "";
+    return becameBuyable && !isSellable("time-token-8h") && checkoutUrl("time-token-8h", "acct") === null;
+  })());
 check("THE STOREFRONT IS STILL OFF \u2014 this slice did not flip the switch",
   MONETIZATION_CONFIG.storefrontEnabled === false);
 check("…and BOTH purchase handlers are still gated on it (no way around the switch)",
@@ -468,6 +535,96 @@ check("the catalogue module cannot GRANT a token at all \u2014 no grant door is 
   !/grantTimeToken/.test(monCode) && !/applyTimeToken/.test(monCode));
 check("and no pack grant kind is 'time' anywhere in the catalogue",
   !/kind:\s*"time"/.test(monCode));
+
+// =========================================================== §I the purchase door
+section("I \u00b7 THE PURCHASE DOOR \u2014 the entitlement a verified purchase lands, floored and idempotent");
+// The door exists because a purchased token has to be GRANTABLE without widening
+// the earned door. Every assertion below is about the two properties that matter:
+// it pays exactly the six sold sizes, and a bought token is not a stronger token.
+check("every one of the six is GRANTABLE through the purchase door, one held token each",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => {
+    const st = mk();
+    const g = grantSoldTimeToken(st, s, `purch:cs_${s}`, `Purchased token ${s} (Stripe session cs_${s})`, NOW);
+    return g.ok && heldTimeTokens(st, s) === 1;
+  }));
+check("the grant is RECORDED in the ledger, with its size, its amount and the session it came from",
+  (() => {
+    const st = mk();
+    grantSoldTimeToken(st, "8h", "purch:cs_test_8h", "Purchased Eight-Hour Token (Stripe session cs_test_8h)", NOW);
+    const rows = st.timeTokenLedger ?? [];
+    return rows.length === 1 && rows[0].kind === "earn" && rows[0].sizeId === "8h" && rows[0].amount === 1
+      && rows[0].eventId === "purch:cs_test_8h" && /cs_test_8h/.test(rows[0].reason);
+  })());
+check("it REFUSES the two EARNED sizes by name \u2014 the two doors cannot reach each other's sizes",
+  (() => {
+    const st = mk();
+    const a = grantSoldTimeToken(st, "1m", "purch:cs_1m", "test", NOW);
+    const b = grantSoldTimeToken(st, "5m", "purch:cs_5m", "test", NOW);
+    return !a.ok && /EARNED/.test(a.error ?? "") && !b.ok && heldTimeTokens(st, "1m") === 0 && heldTimeTokens(st, "5m") === 0
+      && (st.timeTokenLedger ?? []).length === 0;
+  })());
+check("…and it refuses an unknown size and a request with no eventId",
+  (() => {
+    const st = mk();
+    return !grantSoldTimeToken(st, "3h", "purch:cs_x", "test", NOW).ok
+      && !grantSoldTimeToken(st, "8h", "", "test", NOW).ok
+      && heldTimeTokens(st, "8h") === 0;
+  })());
+check("IDEMPOTENT: a replayed purchase (same session id) pays ONCE and says it was already paid",
+  (() => {
+    const st = mk();
+    const first = grantSoldTimeToken(st, "24h", "purch:cs_replay", "Purchased Day Token (Stripe session cs_replay)", NOW);
+    const again = grantSoldTimeToken(st, "24h", "purch:cs_replay", "Purchased Day Token (Stripe session cs_replay)", NOW);
+    return first.ok && !first.idempotent && again.ok && again.idempotent === true
+      && heldTimeTokens(st, "24h") === 1 && (st.timeTokenLedger ?? []).length === 1;
+  })());
+check("an eventId is spent ONCE across both doors (a purchase id can never buy a free earned token, or the reverse)",
+  (() => {
+    const st = mk();
+    grantTimeToken(st, "1m", "shared-id", "Devotion", NOW);
+    const sold = grantSoldTimeToken(st, "8h", "shared-id", "test", NOW);
+    return sold.ok && sold.idempotent === true && heldTimeTokens(st, "8h") === 0;
+  })());
+check("POWER INVARIANCE per size: a purchase grant changes the token fields and NOTHING else",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => {
+    const st = mk();
+    const before = stripTokenFields(st);
+    grantSoldTimeToken(st, s, `purch:cs_inv_${s}`, "test", NOW);
+    return stripTokenFields(st) === before;
+  }));
+check("FLOORED: a bought 48h token on a 2h timer takes it to the floor, never below, never to zero",
+  (() => {
+    const st = mk({ armoryBuilds: { a: { targetTier: 2, startedAt: NOW, doneAt: NOW + 2 * HOUR } } });
+    grantSoldTimeToken(st, "48h", "purch:cs_floor", "test", NOW);
+    const r = applyTimeToken(st, "48h", "req-bought-floor", { kind: "armory_build", id: "a" }, NOW);
+    const base = 2 * HOUR;
+    return r.ok && r.baseMs === base && (r.compressedTotalMs ?? 0) <= maxTimeTokenCompressionMs(base)
+      && (r.remainingMs ?? 0) >= base * TIME_TOKEN_FLOOR_FRACTION - 1 && (r.remainingMs ?? 0) > 0
+      && heldTimeTokens(st, "48h") === 0;
+  })());
+check("FLOORED: a PILE of bought tokens cannot go past the same ceiling either (100 × 48h vs a 30-day timer)",
+  (() => {
+    const st = mk({ armoryBuilds: { a: { targetTier: 4, startedAt: NOW, doneAt: NOW + 30 * DAY } } });
+    for (let i = 0; i < 100; i++) grantSoldTimeToken(st, "48h", `purch:cs_pile_${i}`, "test", NOW);
+    let applied = 0;
+    while (heldTimeTokens(st, "48h") > 0) {
+      const r = applyTimeToken(st, "48h", `req-pile-${applied}`, { kind: "armory_build", id: "a" }, NOW);
+      if (!r.ok) break;
+      applied++;
+      if (applied > 120) break;
+    }
+    const compressed = st.armoryBuilds.a.timeTokenMs ?? 0;
+    return compressed <= maxTimeTokenCompressionMs(30 * DAY) && compressed === maxTimeTokenCompressionMs(30 * DAY)
+      && (30 * DAY - compressed) >= 30 * DAY * TIME_TOKEN_FLOOR_FRACTION - 1;
+  })());
+check("the earn door and the purchase door are DISJOINT on both sides (a sold size is never earned, and vice versa)",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => !isEarnedTimeTokenSize(s) && !grantTimeToken(mk(), s, `evt-${s}`, "test", NOW).ok)
+  && EARNED_TIME_TOKEN_SIZES.every((s) => !isSellableTimeTokenSize(s)));
+check("the PURCHASE PATH is where the catalogue reaches it: monetization routes a token SKU to this door",
+  /grantSoldTimeToken\(/.test(monCode) && /TIME_TOKEN_PACK_BY_ID\[purchase\.skuId\]/.test(monCode));
+check("…and nothing on the EARNED side can reach it: neither daily.ts nor api.ts names the purchase door",
+  !/grantSoldTimeToken/.test(fs.readFileSync("/home/team/shared/site/src/game/daily.ts", "utf8"))
+  && !/grantSoldTimeToken/.test(fs.readFileSync("/home/team/shared/site/src/game/api.ts", "utf8")));
 
 // =========================================================== §F idempotency
 section("F \u00b7 IDEMPOTENCY \u2014 both ways");

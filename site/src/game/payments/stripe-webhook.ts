@@ -28,7 +28,8 @@
 //   · an unknown SKU, an amount that disagrees with the price list, or a
 //     reference that names no account → REFUSE LOUDLY (status 500 at the route:
 //     money was taken and nobody was credited — a retry is harmless, silence is
-//     not)
+//     not). TIME TOKENS GET THE SAME TRIPWIRE, from the same row: a $2.99 token
+//     session that reports $24.99 is refused, not granted as the bigger token.
 //
 // This module is PURE (no node imports): the crypto is Web Crypto, and the SKU
 // knowledge comes from payment-links.ts.
@@ -39,6 +40,7 @@ import {
   skuForMetadataSku,
   skuForPaymentLinkId,
   skuForPriceId,
+  skuForProductId,
 } from "./payment-links";
 
 export const DEFAULT_TOLERANCE_SECONDS = 300;
@@ -170,8 +172,18 @@ function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-/** Which SKU a Checkout Session is for. Three paths, most explicit first; a
- *  result that names nothing we sell is a refusal at the caller. */
+/** Which SKU a Checkout Session is for. Four paths, most explicit first; a
+ *  result that names nothing we sell is a refusal at the caller.
+ *
+ *  THE TIME TOKENS (2026-09-27). This used to resolve ONLY against the rows in
+ *  payment-links.ts that carried a buyable link, so a paid token session resolved
+ *  to null and the route answered 500 `unknown_sku` — money taken, nothing
+ *  granted. The six tokens now have rows of their own (ids, no url), so all four
+ *  paths cover them: `metadata.sku` (their Payment Links carry the game SKU id),
+ *  the payment-link id, the price id, and — the path this slice added — the
+ *  PRODUCT id from a line item's `price.product`. There is no token-shaped
+ *  exception anywhere: a token is recognised by exactly the same code as a pack,
+ *  and an id we cannot name is still a loud refusal. */
 export function skuForSession(session: Json): { skuId: string | null; recognition: string } {
   const metadata = asObject(session.metadata) ?? {};
   const metaSku = skuForMetadataSku(asString(metadata.sku));
@@ -184,6 +196,9 @@ export function skuForSession(session: Json): { skuId: string | null; recognitio
   const first = Array.isArray(lineItems?.data) ? asObject((lineItems!.data as unknown[])[0]) : null;
   const priceSku = skuForPriceId(asString(asObject(first?.price)?.id));
   if (priceSku) return { skuId: priceSku, recognition: "line_items.price" };
+
+  const productSku = skuForProductId(asString(asObject(first?.price)?.product));
+  if (productSku) return { skuId: productSku, recognition: "line_items.price.product" };
 
   return { skuId: null, recognition: "none" };
 }
@@ -269,7 +284,7 @@ export async function verifyStripeEvent(input: {
       kind: "reject",
       status: 500,
       code: "unknown_sku",
-      message: "This session names no SKU the game sells (set metadata.sku on the Payment Link, or fill paymentLinkId in payment-links.ts). Money was taken; grant it by hand or refund it.",
+      message: "This session names no SKU the game sells (set metadata.sku on the Payment Link, or fill its paymentLinkId / priceId / productId in payment-links.ts). Money was taken; grant it by hand or refund it.",
       eventId,
       eventType,
     };

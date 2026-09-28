@@ -48,13 +48,15 @@ const ref = (await import(`${SITE}/src/game/payments/account-ref.ts`)) as {
   ACCOUNT_REF_PREFIX: string;
 };
 const links = (await import(`${SITE}/src/game/payments/payment-links.ts`)) as {
-  PAYMENT_LINKS: Array<{ skuId: string; url: string; paymentLinkId: string; priceId: string; amountUsd: number }>;
+  PAYMENT_LINKS: Array<{ skuId: string; url: string; paymentLinkId: string; priceId: string; amountUsd: number; productId?: string }>;
   checkoutUrl: (sku: string, accountId: string | null) => string | null;
   isSellable: (sku: string) => boolean;
   sellableSkus: () => string[];
   skuForMetadataSku: (s: string | null | undefined) => string | null;
   skuForPaymentLinkId: (s: string | null | undefined) => string | null;
   skuForPriceId: (s: string | null | undefined) => string | null;
+  skuForProductId: (s: string | null | undefined) => string | null;
+  paymentLinkRow: (sku: string) => { skuId: string; url: string; productId?: string } | null;
   afterCompletionUrl: (origin: string, sku: string) => string;
   STRIPE_WEBHOOK_PATH?: string;
 };
@@ -97,6 +99,7 @@ const monetization = (await import(`${SITE}/src/game/monetization.ts`)) as {
   VOTIVE_PACKS: Array<{ id: string; name: string; votives: number; bonus: number; priceUsd: number }>;
   HEAD_START_PACKS: Array<{ id: string; name: string; priceUsd: number }>;
   COSMETICS: Array<{ id: string }>;
+  TIME_TOKEN_PACKS: Array<{ id: string; sizeId: string; name: string; priceUsd: number; providerSkuId: string }>;
   MONETIZATION_CONFIG: { storefrontEnabled: boolean };
 };
 // Server-only + store-backed: imported AFTER the chdir so the fs store lands in
@@ -144,6 +147,9 @@ interface SessionOpts {
   created?: number;
   paymentLink?: string | null;
   lineItemPrice?: string | null;
+  /** The line item's `price.product` — the FOURTH recognition path, added with
+   *  the time tokens (2026-09-27). */
+  lineItemProduct?: string | null;
   omitAmount?: boolean;
 }
 function sessionBody(opts: SessionOpts = {}): { body: string; sessionId: string } {
@@ -159,7 +165,12 @@ function sessionBody(opts: SessionOpts = {}): { body: string; sessionId: string 
   };
   if (!opts.omitAmount) session.amount_total = opts.amount ?? 499;
   if (opts.paymentLink) session.payment_link = opts.paymentLink;
-  if (opts.lineItemPrice) session.line_items = { object: "list", data: [{ price: { id: opts.lineItemPrice } }] };
+  if (opts.lineItemPrice || opts.lineItemProduct) {
+    const price: Record<string, unknown> = {};
+    if (opts.lineItemPrice) price.id = opts.lineItemPrice;
+    if (opts.lineItemProduct) price.product = opts.lineItemProduct;
+    session.line_items = { object: "list", data: [{ price }] };
+  }
   const body = JSON.stringify({
     id: `evt_${sessionCounter}`,
     object: "event",
@@ -268,6 +279,66 @@ console.log("— 2 · event → purchase: only the right event, PAID, known, cor
   check("…and by its price id as the last resort", dbp.kind === "apply" && dbp["skuId"] === "votive-steady" && dbp["recognition"] === "line_items.price");
   row.priceId = savedPrice;
   check("with a blank paymentLinkId an unrecognised link id grants nothing", links.skuForPaymentLinkId("pl_whatever") === null);
+
+  // ---- §2b · THE SIX TIME TOKENS (2026-09-27) --------------------------------
+  //
+  // Before this slice, `skuForSession()` resolved only against rows a player
+  // could BUY, so a paid token session resolved to null and the route answered
+  // 500 `unknown_sku` — money taken, nothing granted. A token is now recognised
+  // by the SAME four paths as a pack, and it gets the SAME amount tripwire.
+  const tokenRow = links.PAYMENT_LINKS.find((r) => r.skuId === "time-token-8h")!;
+  const tokenAmount = 799; // $7.99 — the owner's price for 8h
+
+  const tokenMeta = sessionBody({ sku: "time-token-8h", amount: tokenAmount });
+  const dtm = await decide(tokenMeta.body, sign(tokenMeta.body));
+  check("a paid TOKEN session is recognised at all (it used to resolve to null and refuse)",
+    dtm.kind === "apply" && dtm["skuId"] === "time-token-8h" && dtm["recognition"] === "metadata.sku");
+  check("…and its amount is checked against the game's own catalogue price ($7.99), not just accepted",
+    dtm.kind === "apply" && dtm["amountCents"] === tokenAmount);
+
+  const tokenByLink = sessionBody({ sku: null, paymentLink: tokenRow.paymentLinkId, amount: tokenAmount });
+  const dtl = await decide(tokenByLink.body, sign(tokenByLink.body));
+  check("a token is recognised by its payment_link id when metadata.sku is absent",
+    dtl.kind === "apply" && dtl["skuId"] === "time-token-8h" && dtl["recognition"] === "payment_link");
+
+  const tokenByPrice = sessionBody({ sku: null, lineItemPrice: tokenRow.priceId, amount: tokenAmount });
+  const dtp = await decide(tokenByPrice.body, sign(tokenByPrice.body));
+  check("…and by its price id", dtp.kind === "apply" && dtp["skuId"] === "time-token-8h" && dtp["recognition"] === "line_items.price");
+
+  const tokenByProduct = sessionBody({ sku: null, lineItemProduct: tokenRow.productId, amount: tokenAmount });
+  const dtpr = await decide(tokenByProduct.body, sign(tokenByProduct.body));
+  check("…and by its PRODUCT id (the path this slice added, off the line item's price.product)",
+    dtpr.kind === "apply" && dtpr["skuId"] === "time-token-8h" && dtpr["recognition"] === "line_items.price.product");
+
+  check("every one of the six token product ids resolves to its own size, and a stranger's does not",
+    monetization.TIME_TOKEN_PACKS.every((p) => links.skuForProductId(p.providerSkuId) === p.id)
+    && links.skuForProductId("prod_other_business") === null);
+
+  const tokenWrongAmount = sessionBody({ sku: "time-token-8h", amount: 2499 });
+  const dtw = await decide(tokenWrongAmount.body, sign(tokenWrongAmount.body));
+  check("A TOKEN AMOUNT THAT DISAGREES IS REFUSED (the same tripwire the packs get) — $2.99 paid for the 8h token",
+    dtw.kind === "reject" && dtw["status"] === 500 && dtw["code"] === "amount_mismatch",
+    JSON.stringify(dtw).slice(0, 120));
+  const tokenOtherSize = sessionBody({ sku: "time-token-8h", amount: 299 });
+  const dtos = await decide(tokenOtherSize.body, sign(tokenOtherSize.body));
+  check("…so a cheaper size's price cannot be used to buy a bigger token",
+    dtos.kind === "reject" && dtos["code"] === "amount_mismatch");
+
+  const tokenNoAmount = sessionBody({ sku: "time-token-8h", omitAmount: true });
+  const dtna = await decide(tokenNoAmount.body, sign(tokenNoAmount.body));
+  check("…and a token session that reports NO amount is refused, never granted on trust",
+    dtna.kind === "reject" && dtna["code"] === "amount_mismatch");
+
+  const tokenUnknown = sessionBody({ sku: "time-token-3h", amount: tokenAmount });
+  const dtu = await decide(tokenUnknown.body, sign(tokenUnknown.body));
+  check("a token size the game does not sell is refused loudly (never a guess)",
+    dtu.kind === "reject" && dtu["status"] === 500 && dtu["code"] === "unknown_sku");
+  const earnedSize = sessionBody({ sku: "time-token-1m", amount: 100 });
+  const des = await decide(earnedSize.body, sign(earnedSize.body));
+  const earned5m = sessionBody({ sku: "time-token-5m", amount: 100 });
+  const d5m = await decide(earned5m.body, sign(earned5m.body));
+  check("NEGATIVE CONTROL · the EARNED sizes are not purchasable at any price (1m/5m have no row at all)",
+    des.kind === "reject" && des["code"] === "unknown_sku" && d5m.kind === "reject" && d5m["code"] === "unknown_sku");
 }
 
 // ===========================================================================
@@ -350,6 +421,52 @@ console.log("— 4 · the route grants exactly once, through the real store —"
   const faRes = await route.handleStripeWebhookRequest({ rawBody: faBody.body, signatureHeader: sign(faBody.body), secret: SECRET });
   check("a PERSIAN username pays and is credited (the reference carries any UTF-8 account id)", faRes.status === 200 && (await votivesOf("فرزانه")) === 1280);
 
+  // ---- §4b · A TIME TOKEN, END TO END (the entitlement door, 2026-09-27) -----
+  //
+  // The job: money in at Stripe → one held token of that size in the colony,
+  // keyed by the session id so a re-delivered webhook cannot double-grant, with
+  // no resource, no Votives and no strength moving with it.
+  const grants = async (id: string) => {
+    const s = await store.loadAccountSaves(id);
+    const g = s?.games[s.activeGameId as string] as unknown as {
+      timeTokens?: Record<string, number>;
+      timeTokenLedger?: Array<{ kind: string; sizeId: string; amount: number; eventId: string; reason: string }>;
+      resources: Record<string, number>;
+    };
+    return g;
+  };
+  const tokensOf = async (id: string, size: string) => ((await grants(id))?.timeTokens ?? {})[size] ?? 0;
+
+  const votivesBeforeToken = await votivesOf("payer");
+  const suppliesBeforeToken = (await grants("payer")).resources.supplies;
+  const tokenBuy = sessionBody({ sku: "time-token-8h", amount: 799 });
+  const tokenRes = await route.handleStripeWebhookRequest({ rawBody: tokenBuy.body, signatureHeader: sign(tokenBuy.body), secret: SECRET });
+  check("a verified 8h TOKEN session is applied (200) and grants exactly one held token",
+    tokenRes.status === 200 && tokenRes.body.applied === true && (await tokensOf("payer", "8h")) === 1,
+    JSON.stringify(tokenRes.body));
+  const tokenLedger = (await grants("payer")).timeTokenLedger ?? [];
+  check("…recorded in the TOKEN LEDGER, keyed by the purchase (Stripe session) id",
+    tokenLedger.some((e) => e.kind === "earn" && e.sizeId === "8h" && e.amount === 1
+      && e.eventId === `purch:${tokenBuy.sessionId}` && e.reason.includes(tokenBuy.sessionId)),
+    JSON.stringify(tokenLedger));
+  check("…and the colony's wallet and stores did NOT move (a token is TIME, never a resource, G1–G4)",
+    (await votivesOf("payer")) === votivesBeforeToken && (await grants("payer")).resources.supplies === suppliesBeforeToken);
+  const tokenReplay = await route.handleStripeWebhookRequest({ rawBody: tokenBuy.body, signatureHeader: sign(tokenBuy.body), secret: SECRET });
+  check("a REPLAYED token delivery answers 200 but is idempotent — no second token",
+    tokenReplay.status === 200 && tokenReplay.body.idempotent === true && (await tokensOf("payer", "8h")) === 1);
+  const tokenWrong = sessionBody({ sku: "time-token-48h", amount: 799 });
+  const tokenWrongRes = await route.handleStripeWebhookRequest({ rawBody: tokenWrong.body, signatureHeader: sign(tokenWrong.body), secret: SECRET });
+  check("a session paying the 8h price for the 48h token is refused 500 and grants NOTHING",
+    tokenWrongRes.status === 500 && tokenWrongRes.body.error === "amount_mismatch" && (await tokensOf("payer", "48h")) === 0);
+  const tokenUnknownSku = sessionBody({ sku: "time-token-3h", amount: 799 });
+  const tokenUnknownRes = await route.handleStripeWebhookRequest({ rawBody: tokenUnknownSku.body, signatureHeader: sign(tokenUnknownSku.body), secret: SECRET });
+  check("a token size the game does not define is refused 500 unknown_sku (loud, never a silent grant)",
+    tokenUnknownRes.status === 500 && tokenUnknownRes.body.error === "unknown_sku");
+  const tokenEarnedSize = sessionBody({ sku: "time-token-1m", amount: 100 });
+  const tokenEarnedRes = await route.handleStripeWebhookRequest({ rawBody: tokenEarnedSize.body, signatureHeader: sign(tokenEarnedSize.body), secret: SECRET });
+  check("NEGATIVE CONTROL · the EARNED size 1m cannot be bought from the route either (no row, refused by name)",
+    tokenEarnedRes.status === 500 && tokenEarnedRes.body.error === "unknown_sku" && (await tokensOf("payer", "1m")) === 0);
+
   const forgedBefore = await votivesOf("payer");
   const forged = sessionBody({ sku: "votive-circuit", amount: 3999 });
   const forgedRes = await route.handleStripeWebhookRequest({ rawBody: forged.body, signatureHeader: sign(forged.body, "whsec_forged"), secret: SECRET });
@@ -378,33 +495,87 @@ console.log("— 5 · the factory, the price list, the wiring —");
   check("createIntent is refused honestly (links are created in Stripe, not by the game)", (await configured.createIntent({})).ok === false);
   check("refund is refused honestly (refunds happen in the dashboard)", (await configured.refund({ purchaseId: "p1", reason: "x" })).ok === false);
 
-  check("the price list covers the seven live Stripe SKUs", links.PAYMENT_LINKS.length === 7);
+  // ---- THE WIRING (2026-09-27) ------------------------------------------------
+  //
+  // Thirteen rows, every one a LIVE Stripe object created by the lead under the
+  // owner's go-ahead ("Yes go ahead and put the links in for the store"): the
+  // seven SKUs that already existed now have their Payment Links, and the six
+  // time tokens have rows of their own — ids, no url, because no token has a
+  // purchase surface yet. The ids are pinned below byte for byte against the
+  // wiring table, so a typo cannot ship as a "wired" object.
+  check("the price list carries thirteen rows — the seven sellable SKUs plus the six time tokens",
+    links.PAYMENT_LINKS.length === 13, String(links.PAYMENT_LINKS.length));
   const votiveIds = monetization.VOTIVE_PACKS.map((p) => p.id);
   const kitIds = monetization.HEAD_START_PACKS.map((p) => p.id);
-  check("every linked SKU exists in the game's own catalogue", links.PAYMENT_LINKS.every((r) => votiveIds.includes(r.skuId) || kitIds.includes(r.skuId)));
+  const tokenIds = monetization.TIME_TOKEN_PACKS.map((p) => p.id);
+  check("every linked SKU exists in the game's own catalogue",
+    links.PAYMENT_LINKS.every((r) => votiveIds.includes(r.skuId) || kitIds.includes(r.skuId) || tokenIds.includes(r.skuId)));
   const priceOk = links.PAYMENT_LINKS.every((r) => {
     const v = monetization.VOTIVE_PACKS.find((p) => p.id === r.skuId);
     const k = monetization.HEAD_START_PACKS.find((p) => p.id === r.skuId);
-    return r.amountUsd === (v?.priceUsd ?? k?.priceUsd);
+    const t = monetization.TIME_TOKEN_PACKS.find((p) => p.id === r.skuId);
+    return r.amountUsd === (v?.priceUsd ?? k?.priceUsd ?? t?.priceUsd);
   });
   check("…and every price matches the catalogue exactly (the tripwire cannot drift from the game)", priceOk);
   check("the game's sellable set is exactly the four Votive packs plus the three kits", [...votiveIds, ...kitIds].length === 7);
 
-  check("with no link configured NO SKU is sellable", links.sellableSkus().length === 0 && !links.isSellable("votive-small"));
-  check("…and checkoutUrl refuses rather than opening a link that would take money for nobody", links.checkoutUrl("votive-small", "payer") === null);
+  // THE THIRTEEN IDS, PINNED. [url, paymentLinkId, priceId]
+  const WIRED: Record<string, [string, string, string]> = {
+    "votive-small": ["https://buy.stripe.com/8x2fZh7xQeMh7Mp8CLdjO05", "plink_1UKLG4DzrKy7FKhapupfUGDf", "price_1UJotkDzrKy7FKha0fWNgYvJ"],
+    "votive-steady": ["https://buy.stripe.com/00weVd5pIdId8Qt5qzdjO06", "plink_1UKLG4DzrKy7FKhaXldk4bHc", "price_1UJotpDzrKy7FKhafuXbHXAr"],
+    "votive-grand": ["https://buy.stripe.com/aFa3cvdWe33z4Ad9GPdjO07", "plink_1UKLG5DzrKy7FKhawNis22AZ", "price_1UJotpDzrKy7FKhakvHCijDn"],
+    "votive-circuit": ["https://buy.stripe.com/eVq28r19s1Zv7Mpg5ddjO08", "plink_1UKLG5DzrKy7FKhaQQXbfMuo", "price_1UJotpDzrKy7FKhaAJu1OxpW"],
+    "scavengers-kit": ["https://buy.stripe.com/eVq9ATdWegUp8Qt9GPdjO09", "plink_1UKLG5DzrKy7FKhatEb3qHnW", "price_1UJottDzrKy7FKha7v2B03Oz"],
+    "expeditionary-kit": ["https://buy.stripe.com/fZu5kD7xQ7jP6IldX5djO0a", "plink_1UKLG6DzrKy7FKhaBvZzCuRV", "price_1UJottDzrKy7FKhad2b6DKFE"],
+    "long-haul-cart": ["https://buy.stripe.com/5kQ28r05o33z6IldX5djO0b", "plink_1UKLG6DzrKy7FKhaSJOY1AsQ", "price_1UJottDzrKy7FKhaGrx5qItD"],
+    "time-token-30m": ["", "plink_1UKLGMDzrKy7FKhajAtBOtQA", "price_1UKLFuDzrKy7FKhaYGrKPc6v"],
+    "time-token-1h": ["", "plink_1UKLGMDzrKy7FKhauB7BViAm", "price_1UKLFuDzrKy7FKha0Gn7s9jl"],
+    "time-token-8h": ["", "plink_1UKLGMDzrKy7FKhaeU3rkft9", "price_1UKLFuDzrKy7FKhaCaw7m7Oc"],
+    "time-token-12h": ["", "plink_1UKLGLDzrKy7FKhaKqPENQCX", "price_1UKLFtDzrKy7FKhaxFFoV8nC"],
+    "time-token-24h": ["", "plink_1UKLGLDzrKy7FKhakJxG5pqr", "price_1UKLFtDzrKy7FKhavcYIkj0V"],
+    "time-token-48h": ["", "plink_1UKLGLDzrKy7FKhaDk8UMFvU", "price_1UKLFtDzrKy7FKhao41jV0nY"],
+  };
+  const wired = (r: { skuId: string; url: string; paymentLinkId: string; priceId: string }) =>
+    !!WIRED[r.skuId] && r.url === WIRED[r.skuId][0] && r.paymentLinkId === WIRED[r.skuId][1] && r.priceId === WIRED[r.skuId][2];
+  check("all thirteen rows carry the live ids from the wiring table, byte for byte (url / plink / price)",
+    links.PAYMENT_LINKS.every(wired),
+    links.PAYMENT_LINKS.filter((r) => !wired(r)).map((r) => r.skuId).join(",") || "");
+  const TOKEN_PRODUCT_IDS = ["prod_VL1IlrKotjeEc8", "prod_VL1I6RcBYf9ip1", "prod_VL1IhfQkbh15q2", "prod_VL1IEaKNpi2sXz", "prod_VL1IvxuGGlgwN2", "prod_VL1IdZr899TCNt"];
+  check("…and the six token rows carry the live product ids, matching TIME_TOKEN_PACKS.providerSkuId",
+    tokenIds.every((id, i) => links.paymentLinkRow(id)?.productId === TOKEN_PRODUCT_IDS[i]
+      && links.paymentLinkRow(id)?.productId === monetization.TIME_TOKEN_PACKS[i].providerSkuId),
+    tokenIds.map((id) => `${id}:${links.paymentLinkRow(id)?.productId ?? "MISSING"}`).join(" "));
+
+  // ---- WHAT THE PLAYER CAN REACH ---------------------------------------------
+  check("exactly the seven linked SKUs are sellable — the six tokens carry ids and NO url",
+    links.sellableSkus().length === 7
+    && links.sellableSkus().every((s) => !s.startsWith("time-token-")),
+    links.sellableSkus().join(","));
+  check("no token is sellable and checkout refuses for every one of the six (ids are not a surface)",
+    tokenIds.every((id) => !links.isSellable(id) && links.checkoutUrl(id, "payer") === null));
+  // NEGATIVE CONTROL: the allow-list is read from `url`, not from the row's
+  // existence — so the widening above cannot be vacuous.
+  const controlRow = links.paymentLinkRow("votive-small")!;
+  const controlUrl = controlRow.url;
+  controlRow.url = "";
+  const droppedOut = !links.isSellable("votive-small") && links.sellableSkus().length === 6 && links.checkoutUrl("votive-small", "payer") === null;
+  controlRow.url = controlUrl;
+  check("NEGATIVE CONTROL · blanking a live row's url takes that SKU out of the allow-list and blocks checkout",
+    droppedOut && links.isSellable("votive-small") && links.sellableSkus().length === 7);
 
   const row = links.PAYMENT_LINKS[0];
   row.url = "https://buy.stripe.com/test_small?utm_source=game";
-  check("a configured SKU becomes sellable", links.isSellable("votive-small") && links.sellableSkus().length === 1);
   const url = links.checkoutUrl("votive-small", "payer");
   const parsed = new URL(url!);
   check("the checkout URL carries client_reference_id for the signed-in account", parsed.searchParams.get("client_reference_id") === REF);
   check("…and keeps the link's own query parameters", parsed.searchParams.get("utm_source") === "game");
+  row.url = WIRED["votive-small"][0];
+  check("…and the live link is restored (the catalogue is back to the shipped ids)",
+    links.PAYMENT_LINKS[0].url === WIRED["votive-small"][0] && links.sellableSkus().length === 7);
   check("a signed-out player has no checkout URL (there is no account to attach)", links.checkoutUrl("votive-small", null) === null && links.checkoutUrl("votive-small", "") === null);
   const after = links.afterCompletionUrl("https://game.example", "votive-small");
   check("the return URL keeps {CHECKOUT_SESSION_ID} verbatim for Stripe to substitute", after.includes("session_id={CHECKOUT_SESSION_ID}"));
   check("…and names the SKU and the return marker so the ledger can open honestly", after.includes("purchase=return") && after.includes("sku=votive-small") && after.startsWith("https://game.example/play?"));
-  row.url = "";
 
   check("the storefront switch is still OFF in this commit", monetization.MONETIZATION_CONFIG.storefrontEnabled === false);
 
@@ -549,6 +720,12 @@ console.log("— 5 · the factory, the price list, the wiring —");
   intent.savePurchaseIntent(fakeStorage, { skuId: "votive-small", signature: sig, at: Date.now() });
   check("the purchase note round-trips (and is what tells 'it landed' from 'not yet')", intent.readPurchaseIntent(fakeStorage)?.skuId === "votive-small");
   check("a wallet that grew does NOT match the note (that is the confirmation signal)", intent.walletSignature({ ...wallet, currency: { votives: 550, scrip: 10 } }) !== sig);
+  check("a wallet whose TIME TOKENS grew does NOT match the note either — a token purchase confirms like any other",
+    intent.walletSignature({ ...wallet, timeTokens: { "1m": 0, "5m": 0, "8h": 1 } }) !== sig
+    && intent.walletSignature({ ...wallet, timeTokens: { "1m": 0, "5m": 0, "8h": 1 } }) !== intent.walletSignature({ ...wallet })
+    && intent.walletSignature({ ...wallet }) === intent.walletSignature({ ...wallet, timeTokens: {} })
+    // compared PER SIZE: a size that moved is a change even when the total did not
+    && intent.walletSignature({ ...wallet, timeTokens: { "1m": 1 } }) !== intent.walletSignature({ ...wallet, timeTokens: { "5m": 1 } }));
   check("a stale note reads as absent — an old note can never claim a purchase", intent.readPurchaseIntent(fakeStorage, Date.now() + intent.PURCHASE_INTENT_TTL_MS + 1) === null);
   intent.clearPurchaseIntent(fakeStorage);
   check("the note can be cleared (Dismiss)", intent.readPurchaseIntent(fakeStorage) === null);

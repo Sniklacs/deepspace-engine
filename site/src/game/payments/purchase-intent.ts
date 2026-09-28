@@ -41,14 +41,23 @@ export interface Walletish {
     passes?: string[];
   } | null;
   battlePass?: { premium?: boolean } | null;
+  /** Held time tokens, by size. A purchase is allowed to change these too — the
+   *  six sellable sizes are bought (monetization.ts TIME_TOKEN_PACKS), and the
+   *  webhook grants one held token of the purchased size — so a note taken at the
+   *  click must be able to tell "the token landed" from "we have not seen it". */
+  timeTokens?: Record<string, number> | null;
 }
 
 /**
  * A signature of everything a purchase is allowed to change in the wallet:
- * Votives, pack entitlements, cosmetic entitlements, pass entitlements. Scrip is
- * in here too (a pack may carry it) — while the daily-reward scrip is not,
- * because that is a different edge's grant. Two equal signatures mean the wallet
- * has NOT moved for purchase-shaped reasons.
+ * Votives, pack entitlements, cosmetic entitlements, pass entitlements and the
+ * held time-token counts. Scrip is in here too (a pack may carry it) — while the
+ * daily-reward scrip is not, because that is a different edge's grant. Two equal
+ * signatures mean the wallet has NOT moved for purchase-shaped reasons.
+ *
+ * Time tokens are compared PER SIZE, not as one total: a purchase adds a token of
+ * one size, and a player who also SPENT a token of another size in the same window
+ * would leave a total unchanged and make an honest purchase read as "not yet".
  */
 export function walletSignature(w: Walletish | null | undefined): string {
   const votives = Math.floor(Number(w?.currency?.votives ?? 0) * 100) / 100;
@@ -57,7 +66,13 @@ export function walletSignature(w: Walletish | null | undefined): string {
   const cosmetics = new Set(w?.entitlements?.cosmetics ?? []).size;
   const passes = new Set(w?.entitlements?.passes ?? []).size;
   const premium = w?.battlePass?.premium === true ? 1 : 0;
-  return `v${votives}|s${scrip}|p${packs}|c${cosmetics}|r${passes}|x${premium}`;
+  const tokens = Object.keys(w?.timeTokens ?? {})
+    .map((k) => [k, Math.max(0, Math.floor(Number(w?.timeTokens?.[k]) || 0))] as const)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([k, n]) => `${k}:${n}`)
+    .join("+");
+  return `v${votives}|s${scrip}|p${packs}|c${cosmetics}|r${passes}|x${premium}|t${tokens}`;
 }
 
 interface StorageLike {
