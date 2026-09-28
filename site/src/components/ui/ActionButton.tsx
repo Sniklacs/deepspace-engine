@@ -44,7 +44,13 @@ export function ActionButton({
   ariaLabel,
   className = "",
 }: {
-  label: string;
+  // A NODE, NOT A STRING (2026-09-28): a label or a reason can be a translated
+  // VALUE — and a value's numerals must be their own isolated run, which means
+  // the caller has to be able to hand in segments (`<SplitValue …/>`: a `<bdi>`
+  // per numeral), not a finished string. Both already render inside a `<span>`
+  // below, so nothing about the button's layout changes. `ariaLabel` stays a
+  // `string`: an attribute cannot hold a node.
+  label: ReactNode;
   /** the always-visible second line: cost, effect, or state */
   sub?: ReactNode;
   icon?: IconName;
@@ -53,7 +59,7 @@ export function ActionButton({
   full?: boolean;
   onClick?: () => void;
   /** why the action is not available (rendered, never hidden) */
-  reason?: string;
+  reason?: ReactNode;
   /** aria-disabled — the action stays focusable and stays explained */
   locked?: boolean;
   busy?: boolean;

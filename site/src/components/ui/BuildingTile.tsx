@@ -8,6 +8,7 @@ import { Icon } from "../icons";
 import { Bdi } from "./Bdi";
 import { ReadyDot } from "./ReadyDot";
 import { useT } from "../i18n/I18n";
+import { SplitValue } from "../i18n/SplitValue";
 import { slotLabel } from "../../game/i18n";
 
 export function BuildingTile({
@@ -45,7 +46,9 @@ export function BuildingTile({
           <Bdi dir="ltr" className="num">{level}</Bdi> {t(`tile.${slot.counter}`, slot.counter)}
         </span>
       ) : (
-        <span className="num text-[11px] text-ember-soft">{t("tile.lv", { level })}</span>
+        <span className="text-[11px] text-ember-soft">
+          <SplitValue k="tile.lv" params={{ level }} />
+        </span>
       )}
       {ready ? (
         <ReadyDot label={t("tile.ready", { slot: label })} className="absolute end-1.5 top-1.5" />

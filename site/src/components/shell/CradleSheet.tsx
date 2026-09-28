@@ -109,7 +109,12 @@ export default function CradleSheet({
         {/* 1 · Stores — every figure, with the prose that used to be hover-only */}
         <section aria-labelledby="cradle-stores">
           <h3 id="cradle-stores" className="eyebrow">
-            {t("cradleSheet.stores", "Stores")} · <Bdi dir="ltr" className="num">{t("time.tokens")}</Bdi>
+            {/* NOT Bdi dir=ltr class=num (2026-09-28): the run here is a translated
+                WORD, not a numeral, so forcing ltr would force a Persian heading to
+                an LTR base direction — a new bug, not isolation. A prose run carries
+                no num class (§13's own no-exemption rule; §13d-2b fails the other
+                shape). */}
+            {t("cradleSheet.stores", "Stores")} · {t("time.tokens")}
           </h3>
           <ul className="mt-2 space-y-1.5">
             <StoreRow icon="flame" label={t("resource.embers", "Embers")} value={Math.floor(r.embers)} sub={RESOURCE_TIPS.embers.what} />

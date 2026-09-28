@@ -9,6 +9,7 @@ import { Icon } from "../icons";
 import type { IconName } from "../icons";
 import { useLang, useT } from "../i18n/I18n";
 import { formatNumber } from "../../game/i18n/format";
+import { SplitValue } from "../i18n/SplitValue";
 
 export function PortraitFrame({
   accent,
@@ -62,8 +63,8 @@ export function RosterCard({
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold text-text-1">{name}</p>
         <p className="truncate text-[11px] text-text-3">{roleLine}</p>
-        <p className="num mt-1 text-[11px] text-ember-soft">
-          {t("tile.lv", { level: formatNumber(lang, level) })}
+        <p className="mt-1 text-[11px] text-ember-soft">
+          <SplitValue k="tile.lv" params={{ level: formatNumber(lang, level) }} />
         </p>
         <div
           role="progressbar"

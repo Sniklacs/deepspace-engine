@@ -56,6 +56,27 @@ export function formatNumber(lang: string, n: number): string {
 }
 
 /**
+ * THE STRING-SPACE ISOLATE — U+2066 LRI … U+2069 PDI, the one spelling of
+ * `<Bdi dir="ltr">` where there is no element to write it with.
+ *
+ * WHY IT LIVES BESIDE `formatNumber` (2026-09-28): isolation has exactly one
+ * spelling in each space, and a second hand-rolled copy of these two codepoints
+ * at a call site is how the two spellings drift apart. Node space uses
+ * `components/ui/Bdi.tsx` (`<bdi dir="ltr">`); string space — a `title=`, an
+ * `aria-label`, a toast's string state — has no `<bdi>`, so the same boundary is
+ * the Unicode isolate. `game/i18n/split.ts` (`joinValue`) is the one caller that
+ * matters today: it joins a split translated value back into one string with
+ * every numeral run isolated.
+ *
+ * IT IS NOT FOR A WHOLE SENTENCE. `<Bdi dir="ltr">` around a translated value
+ * forces an RTL sentence to an LTR base direction — the same mistake in a
+ * string, and §13d-2(b) of i18n-verify fails it. Wrap the numeral run only.
+ */
+export function isolateLtr(text: string): string {
+  return `\u2066${text}\u2069`;
+}
+
+/**
  * A USD amount as the storefront prints it, e.g. `24.99` — digits and the
  * decimal point, never a currency symbol (the caller owns the `$`).
  *
