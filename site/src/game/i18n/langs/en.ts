@@ -475,5 +475,15 @@ export const en: Catalogue = {
   "dur.hour": "{h}h {m}m",
   "dur.minute": "{m}m {s}s",
   "dur.second": "{s}s",
+
+  // ---- the shared primitives' own words (2026-09-28) ------------------------
+  // Two strings were hard English INSIDE components the whole app draws: the
+  // word `high` every MeterBar shows at >= 50%, and the accessible name of a
+  // roster card's xp bar. They were the only un-keyed literals left in those two
+  // primitives, so they are keys now, translated in all five files in the same
+  // commit.
+  "meter.high": "high",
+  "roster.xpAria": "{name} — experience",
+
 };
 export default en;

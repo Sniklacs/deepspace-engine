@@ -7,6 +7,8 @@
 // real art exists — §2.6 lists the portraits to commission.
 import { Icon } from "../icons";
 import type { IconName } from "../icons";
+import { useLang, useT } from "../i18n/I18n";
+import { formatNumber } from "../../game/i18n/format";
 
 export function PortraitFrame({
   accent,
@@ -52,16 +54,20 @@ export function RosterCard({
   badge?: string;
   onClick?: () => void;
 }) {
+  const t = useT();
+  const lang = useLang();
   const inner = (
     <>
       <PortraitFrame accent={accent} name={name} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold text-text-1">{name}</p>
         <p className="truncate text-[11px] text-text-3">{roleLine}</p>
-        <p className="num mt-1 text-[11px] text-ember-soft">Lv {level}</p>
+        <p className="num mt-1 text-[11px] text-ember-soft">
+          {t("tile.lv", { level: formatNumber(lang, level) })}
+        </p>
         <div
           role="progressbar"
-          aria-label={`${name} — experience`}
+          aria-label={t("roster.xpAria", { name })}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(pct)}
