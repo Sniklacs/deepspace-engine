@@ -30,6 +30,7 @@ import { Sheet, SheetHeader } from "./Sheet";
 import { Bdi } from "./ui/Bdi";
 import { useLang, useT } from "./i18n/I18n";
 import { formatNumber, formatUsd } from "../game/i18n/format";
+import { SplitValue } from "./i18n/SplitValue";
 import type { ReactNode } from "react";
 import {
   MONETIZATION_CONFIG,
@@ -239,8 +240,11 @@ function VotiveCard({
       <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold text-text-1">{pack.name}</div>
         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-text-3">
-          <span className="num">
-            {t("store.votivesAmount", { votives: formatNumber(lang, pack.votives) })}
+          <span>
+            <SplitValue
+              k="store.votivesAmount"
+              params={{ votives: formatNumber(lang, pack.votives) }}
+            />
           </span>
           {pack.bonus > 0 && (
             <span className="text-ember-soft">

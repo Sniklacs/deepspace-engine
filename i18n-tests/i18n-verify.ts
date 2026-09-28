@@ -25,6 +25,10 @@
 //       its own `<Bdi dir="ltr">`, with a planted-leak control; and §13c the
 //       device-locale bypass scan — no hand-rolled number in the five surfaces
 //       this slice moved onto `game/i18n/format.ts` (2026-09-28)
+//   §13d-2 the blind spot §13 declares: a numeral that arrives INSIDE a
+//       translated value. A `.num` element rendering `t(...)` and a whole-sentence
+//       `<Bdi dir="ltr">` are both leaks now, with planted controls and the
+//       splitter's own unit (2026-09-28)
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -161,10 +165,43 @@ const UI_FILES = [...SWEPT, "src/components/screens/CradleScreen.tsx", "src/rout
   // that did not know the new address reported four USED keys as unused. One more
   // file scanned, no check relaxed — the call-site count goes up.
   "src/game/i18n/format.ts"];
+/**
+ * Every key one file ASKS FOR, in every shape the UI asks it (widened 2026-09-28).
+ * The renderer decision added two doors into the same catalogue — `<SplitValue
+ * k="…">` (a value rendered with its numerals isolated) and `splitValue/joinValue
+ * (lang, "key", …)` — and this scan is what keeps a key's call site visible, so a
+ * key asked for ONLY through a splitter was reported UNUSED. Widening a checker
+ * needs its negative control in the same commit: the check right below plants each
+ * shape (and a plain `{label}`, which asks for nothing).
+ */
+function keysAskedIn(src: string): string[] {
+  const out: string[] = [];
+  for (const m of src.matchAll(/\b(?:t|tf)\(\s*["'`]([A-Za-z][A-Za-z0-9.]*)/g)) {
+    const kk = m[1].replace(/\.$/, "");
+    out.push(m[0].includes("`") ? kk + ".*" : kk);
+  }
+  // `<SplitValue k="cradle.needSupplies" …>` — on one line or wrapped over three
+  for (const m of src.matchAll(/<SplitValue\b[\s\S]{0,240}?\bk=\s*(?:"([A-Za-z][A-Za-z0-9.]*)"|\{`([A-Za-z][A-Za-z0-9.]*)`\})/g)) {
+    out.push(m[1] ?? m[2]);
+  }
+  // `splitValue(lang, "key", …)` / `joinValue(t.lang, "key", …)`
+  for (const m of src.matchAll(/\b(?:split|join)Value\(\s*[\w.$]+\s*,\s*["'`]([A-Za-z][A-Za-z0-9.]*)/g)) {
+    out.push(m[1]);
+  }
+  return out;
+}
+check(
+  "the key scan sees every shape the UI asks a key in — t/tf, <SplitValue k=…>, splitValue/joinValue (and a plain node asks nothing)",
+  keysAskedIn('<SplitValue k="cradle.needSupplies" params={{ cost }} />').includes("cradle.needSupplies") &&
+    keysAskedIn('<SplitValue\n  k="cradle.devotionStreak"\n  params={{ n }}\n/>').includes("cradle.devotionStreak") &&
+    keysAskedIn('joinValue(t.lang, "cradle.devotionTitle", { n })').includes("cradle.devotionTitle") &&
+    keysAskedIn('splitValue(lang, "cradle.forgeKit", { label })').includes("cradle.forgeKit") &&
+    keysAskedIn('t("resource.supplies")').includes("resource.supplies") &&
+    keysAskedIn('<b className="num">{label}</b>').length === 0,
+);
 const used = new Set<string>();
 for (const f of UI_FILES) {
-  const src = read(f);
-  for (const m of src.matchAll(/\b(?:t|tf)\(\s*["'`]([A-Za-z][A-Za-z0-9.]*)/g)) { const kk = m[1].replace(/\.$/, ""); used.add(m[0].includes("`") ? kk + ".*" : kk); }
+  for (const k of keysAskedIn(read(f))) used.add(k);
 }
 const unknown = [...used].filter((k) => !k.endsWith(".*") && !(k in CATALOGUES[SOURCE_LANG]));
 check(`every key used by the UI exists in the English catalogue (${used.size} call sites)`, unknown.length === 0, unknown.join(","));
@@ -698,6 +735,136 @@ check(
   CATALOGUES.fa["resource.suppliesSub"].includes("در دقیقه") &&
     CATALOGUES.fa["resource.suppliesSub"].includes("گهواره برپاست") &&
     !CATALOGUES.fa["resource.suppliesSub"].startsWith("+"),
+);
+
+// ---------------------------- §13d-2 the numeral INSIDE a translated value (2026-09-28)
+// THE BLIND SPOT §13 ITSELF DECLARES AND COULD NOT SEE (its comment above: "a
+// numeral that arrives inside a TRANSLATED VALUE … is not visible to it").
+// MEASURED, not traced: the shipped `numeralLeaks` run against the planted string
+//   `<b className="num">{t("cradle.devotionStreak", { n: streak })}</b>`
+// reports **0 leaks** — it blanks the element to `{t(…)}`, `NUM_BARE` does not
+// match, and the scan `continue`s. `CradleScreen.tsx:678` carried that exact line,
+// so the defect was live and this suite was green about it.
+//
+// TWO SHAPES, both wrong, both invisible before this check:
+//   (a) a `.num` element whose whole content is a translated value call. `num` is
+//       STYLE (app.css: mono + tabular digits) — no direction, no `unicode-bidi`
+//       — so the value's numerals are isolated NOWHERE and the sentence decides
+//       where they land: "a translated value's numerals are not isolated".
+//   (b) a `<Bdi dir="ltr">` wrapping a WHOLE translated value call. That is the
+//       same mistake the other way round — it forces an RTL sentence to an LTR
+//       base direction, a NEW bug, not a fix: "isolation applied to the whole
+//       sentence (forces LTR base direction)".
+// The correct idiom is neither: the value is SPLIT and only the numeral run is
+// isolated (`game/i18n/split.ts`, `<SplitValue>` in node space / `joinValue` in
+// string space). This is the half of §13d that can land today — §13d-1 (the
+// catalogue value scan) fails on 14 of today's 15 numeral-bearing values and lands
+// with the value conversions; §13d-3 rides with the refusal seam.
+const T_CALL = /(?:^|[^\w$.])tf?\s*\(\s*["'`]/;
+/** is `s` EXACTLY one call to the lookup — `t("k"…)` / `tf("k"…)` and nothing else? */
+function isWholeValueCall(s: string): boolean {
+  const head = /^tf?\s*\(/.exec(s);
+  if (!head) return false;
+  let depth = 0;
+  for (let i = head[0].length - 1; i < s.length; i++) {
+    if (s[i] === "(") depth++;
+    else if (s[i] === ")") {
+      depth--;
+      if (depth === 0) return i === s.length - 1;
+    }
+  }
+  return false;
+}
+/** the numeral-in-a-value leaks in one file's source (exported shape for the self-test) */
+function translatedValueLeaks(file: string, source: string): string[] {
+  const text = numStripComments(source);
+  const lines = text.split("\n");
+  const at = (i: number) => text.slice(0, i).split("\n").length;
+  const spans = bdiSpans(text);
+  const out: string[] = [];
+  // (a) a `.num` element rendering a translated value
+  for (const m of text.matchAll(/className=(?:"([^"\n]*)"|\{`([^`\n]*)`\})/g)) {
+    const classes = (m[1] ?? m[2] ?? "").trim();
+    if (!/(^|\s)num(\s|$)/.test(classes)) continue;
+    const el = numElementSpan(text, m.index!);
+    if (!el) continue;
+    const [start, end, tag] = el;
+    const inside = spans.find(([a, b]) => start >= a && start < b);
+    if (inside) {
+      const openTag = text.slice(inside[0], text.indexOf(">", inside[0]) + 1);
+      // a `.num` that IS the whole isolated run is (b)'s business, reported once
+      if (inside[0] === start && /dir="ltr"/.test(openTag)) continue;
+    }
+    const inner = text.slice(start, end).replace(/<[^<>]*>/g, " ");
+    if (!T_CALL.test(inner)) continue;
+    out.push(
+      `${file}:${at(start)} <${tag} class=num> renders a translated value — a translated value's numerals are not isolated :: ${lines[at(start) - 1].trim().slice(0, 96)}`,
+    );
+  }
+  // (b) a `<Bdi dir="ltr">` whose whole content is a translated value
+  for (const span of spans) {
+    const openEnd = text.indexOf(">", span[0]) + 1;
+    if (openEnd <= 0) continue;
+    const openTag = text.slice(span[0], openEnd);
+    if (!/^<bdi\b/i.test(openTag) || !/dir="ltr"/.test(openTag)) continue;
+    const inner = text.slice(openEnd, span[1]).replace(/<\/bdi\s*>?\s*$/i, "").trim();
+    const body = inner.startsWith("{") && inner.endsWith("}") ? inner.slice(1, -1).trim() : inner;
+    if (!isWholeValueCall(body)) continue;
+    out.push(
+      `${file}:${at(span[0])} <Bdi dir="ltr"> wraps a whole translated value — isolation applied to the whole sentence (forces LTR base direction) :: ${lines[at(span[0]) - 1].trim().slice(0, 96)}`,
+    );
+  }
+  return out;
+}
+section("13d-2 · (B) A NUMERAL INSIDE A TRANSLATED VALUE — the blind spot, closed (NEW)");
+let valueLeaks = 0;
+for (const f of NUM_SURFACES) {
+  const hits = translatedValueLeaks(f, read(f));
+  valueLeaks += hits.length;
+  for (const h of hits.slice(0, 3)) console.log(`     ${h}`);
+}
+check(
+  `no rendered translated value leaves its numerals to the sentence's direction (${NUM_SURFACES.length} files, ${valueLeaks} leaks)`,
+  valueLeaks === 0,
+);
+check(
+  "the value scan is neither vacuous nor over-eager — both leaks fail it, the sibling idiom is silent, and §13's own shape is still caught",
+  translatedValueLeaks("planted.tsx", '<b className="num">{t("cradle.devotionStreak", { n: streak })}</b>').length === 1 &&
+    translatedValueLeaks("planted.tsx", '<span className="num">{tf("cradle.needSupplies", { cost, held })}</span>').length === 1 &&
+    translatedValueLeaks("planted.tsx", '<Bdi dir="ltr">{t("cradle.devotionTitle", { n: streak })}</Bdi>').length === 1 &&
+    translatedValueLeaks("planted.tsx", '<Bdi dir="ltr" className="num">{cost}</Bdi> <span>{t("resource.supplies")}</span>').length === 0 &&
+    translatedValueLeaks("planted.tsx", '<b className="text-purity"><Bdi dir="ltr" className="num">{n}</Bdi></b>').length === 0 &&
+    translatedValueLeaks("planted.tsx", '<Bdi dir="ltr">{cost}</Bdi>').length === 0 &&
+    // §13 itself must stay non-vacuous, so the two scanners cannot both rot:
+    numeralLeaks("planted.tsx", '<b className="num">+{x}%</b>').length === 1,
+);
+// ———————— §13d-4 (core) the splitter the sibling idiom rests on (2026-09-28)
+// The scans above are SOURCE scans: they can say "this call site renders a value",
+// never that the renderer then isolates the numeral. That half is asserted here,
+// against the shipped splitter — node space (`splitValue`) and string space
+// (`joinValue`, LRI…PDI). The full §13d-4 unit arrives with the value conversions.
+const splitMod = await import(`${SITE}/src/game/i18n/split.ts`);
+const splitText = (segs: { text: string; num: boolean }[]) => segs.map((s) => s.text).join("");
+const need = (c: string) => splitMod.splitValue(c, "cradle.needSupplies", { cost: 7, held: 7 });
+check(
+  "the splitter moves the numeral and NOT one word of any language's sentence (and isolates it, twice, in both spaces)",
+  LANG_CODES.every(
+    (c) =>
+      splitText(need(c)) === translate(c, "cradle.needSupplies", { cost: 7, held: 7 }) &&
+      need(c).filter((s: { num: boolean }) => s.num).length === 2 &&
+      splitMod.joinValue(c, "cradle.needSupplies", { cost: 7, held: 7 }).split("\u2066").length === 3 &&
+      splitMod.joinValue(c, "cradle.needSupplies", { cost: 7, held: 7 }).split("\u2069").length === 3,
+  ),
+);
+const fmtMod = await import(`${SITE}/src/game/i18n/format.ts`);
+check(
+  "a number param comes out of the ONE formatter, a numeric-shaped string is ONE run, and prose passes through plain",
+  splitMod.splitValue("fa", "cradle.needSupplies", { cost: 1204, held: 3 })[1].text ===
+    fmtMod.formatNumber("fa", 1204) &&
+    !/[\u06F0-\u06F9\u0660-\u0669]/.test(splitMod.joinValue("fa", "cradle.devotionStreak", { n: 1204 })) &&
+    splitMod.splitValue("en", "cradle.devotionStreak", { n: 7 }).length === 2 &&
+    splitMod.splitValue("en", "cradle.plateMeta", { date: "26 Sep 2026" }).filter((s: { num: boolean }) => s.num).length === 1 &&
+    splitMod.splitValue("en", "cradle.forgeKit", { label: "Medkit" }).every((s: { num: boolean }) => !s.num),
 );
 
 // ---------------------------------- §13c the device-locale bypass (2026-09-28)

@@ -136,6 +136,17 @@ const HOOKS = /\b(useT|useLang|useDeviceSettings|langDir|isRtlLang)\b/;
 const stripComments = (s: string) =>
   s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
 const IMPORTS_I18N = /from\s+["'][^"']*i18n\/I18n["']/;
+/** A file that SITS IN `components/i18n/` names its sibling as `"./I18n"` — the same
+ *  module the rule above spells `…/i18n/I18n`. Widened 2026-09-28: `SplitValue.tsx`
+ *  (the numeral splitter's one render site) imports `useLang` from `./I18n` and the
+ *  sweep flagged it for "importing nothing from i18n/I18n" while it imports exactly
+ *  that module. The rule was narrow, not the file wrong — the checker must not dictate
+ *  how a sibling is spelled. The bar does not move: the same text counts for NOTHING
+ *  outside `components/i18n/`, where `"./I18n"` is a different module — see the
+ *  control beside the sweep below. */
+const SIBLING_I18N = /from\s+["']\.\/I18n["']/;
+const importsI18n = (raw: string, rel: string): boolean =>
+  IMPORTS_I18N.test(raw) || (rel.startsWith("components/i18n/") && SIBLING_I18N.test(raw));
 const callSites: { file: string; uses: string[]; imported: boolean }[] = [];
 const bad: string[] = [];
 for (const rel of appFiles) {
@@ -149,12 +160,26 @@ for (const rel of appFiles) {
   // (game/i18n/languages.ts defines langDir/isRtlLang itself).
   const declares = (u: string) => new RegExp(`(function|const)\\s+${u}\\b`).test(text);
   const defines = rel === "components/i18n/I18n.tsx" || uses.every(declares);
-  const imported = IMPORTS_I18N.test(raw) || defines;
+  const imported = importsI18n(raw, rel) || defines;
   callSites.push({ file: rel, uses, imported });
   if (!imported) bad.push(`${rel} uses ${uses.join("/")} but imports nothing from i18n/I18n`);
 }
 check(`every file that reaches for the i18n API imports it (${callSites.length} files checked)`, bad.length === 0, bad.join(" | "));
 check("the sweep is not vacuous — it found the call sites at all", callSites.length >= 5, `${callSites.length}`);
+// NEGATIVE CONTROL for the sibling widening above — both directions, so it is a
+// widening and not a hole: the `"./I18n"` spelling is accepted INSIDE the i18n
+// directory (where it is that module) and refused OUTSIDE it (where it is not).
+check(
+  "…and the sibling `./I18n` spelling is accepted only inside components/i18n/ (the control)",
+  importsI18n('import { useLang } from "./I18n";', "components/i18n/SplitValue.tsx") === true &&
+    importsI18n('import { useLang } from "./I18n";', "components/chat/MessageRow.tsx") === false &&
+    importsI18n('import { useLang } from "./I18n";', "game/i18n/format.ts") === false &&
+    // …and a file INSIDE the directory that reaches for the hook with no import at
+    // all is still refused: the widening is about the spelling of a real import, not
+    // about the directory being exempt (the P0 this sweep exists to catch).
+    importsI18n('export const x = () => useLang();', "components/i18n/Fresh.tsx") === false,
+  "the widened rule accepted a `./I18n` import that is not the i18n module — the sweep would be vacuous",
+);
 // Same rule as above: a `t("…")` shown in a COMMENT is documentation, not a call —
 // game/i18n/index.ts and game/i18n/types.ts document the API in their doc blocks and
 // are not call sites. Scan the same comment-stripped text the sweep above uses.

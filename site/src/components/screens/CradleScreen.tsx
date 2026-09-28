@@ -34,9 +34,14 @@ import { domainDescription, slotLabel } from "../../game/i18n";
 // The ONE date formatter: it pins `nu-latn`, so a Persian device cannot turn a
 // dated row into  ۱۴۰۵/۰۷/۰۶  — §11.4's "western digits only" promise.
 import { formatDate } from "../../game/i18n/format";
+// The render-time splitter: a translated VALUE whose numerals must each be their
+// own isolated run. `joinValue` is the same split for a string-only sink (a
+// `title=`), where there is no element to wrap.
+import { joinValue } from "../../game/i18n/split";
 import { ForgeDoor, ForgeRoom } from "../ForgeViews";
 import { sound } from "../../game/sound";
 import { useT } from "../i18n/I18n";
+import { SplitValue } from "../i18n/SplitValue";
 import { DAILY_ITEM_BY_ID } from "../../game/daily";
 import { SPECIALTY_LABEL } from "../../game/research";
 import { DEED_BY_ID } from "../../game/heroes-data";
@@ -674,8 +679,14 @@ function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onC
             {t("cradle.devotionShort")} <Bdi dir="ltr" className="num text-purity">{devotion}</Bdi>
           </span>
           {streak > 0 ? (
-            <span title={t("cradle.devotionTitle", { n: streak })}>
-              <b className="num text-purity">{t("cradle.devotionStreak", { n: streak })}</b>
+            // THE VALUE, NOT THE SENTENCE, IS THE RUN (2026-09-28): the streak
+            // sentence owns where its numeral sits, so the numeral is isolated
+            // where it lands — `<bdi dir="ltr">` per digit run. `title=` has no
+            // element to wrap, so it takes the same split joined with LRI…PDI.
+            <span title={joinValue(t.lang, "cradle.devotionTitle", { n: streak })}>
+              <b className="text-purity">
+                <SplitValue k="cradle.devotionStreak" params={{ n: streak }} />
+              </b>
             </span>
           ) : null}
         </span>
@@ -833,7 +844,16 @@ function SlotSheet({
                         reason={
                           k === "alloy" && !canForgeAlloy(state)
                             ? t("cradle.alloyLockedReason")
-                            : t("cradle.needSupplies", { cost, held: Math.floor(state.resources.supplies) })
+                            : // TWO numerals in ONE sentence, each its own isolated
+                              // run: `{cost}` is the engine's charge and `{held}`
+                              // is the stores figure — both come out of the
+                              // splitter's formatter, neither out of a weld.
+                              (
+                                <SplitValue
+                                  k="cradle.needSupplies"
+                                  params={{ cost, held: Math.floor(state.resources.supplies) }}
+                                />
+                              )
                         }
                         onClick={() => onCraft(k)}
                       />
