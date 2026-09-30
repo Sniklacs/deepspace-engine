@@ -182,9 +182,15 @@ This is the pressure that makes raiding mandatory rather than optional.
   trade goods, captured AI in transit, unmounted modules sitting in packs.
 - **Equipped modules are never lootable.** What a hero wears into battle, they
   keep (or it breaks per §8 deterioration — but it is never *taken*).
+- **Artifacts are the exception** (owner decision 2026-09-30): when a hero
+  bearing an artifact falls in **real PvP battle**, the victor may take it.
+  Artifacts can never be sold, traded, or wagered — the battlefield is the
+  ONLY way they change hands. Flaunt it in the arena safely; wear it into
+  real war and you're betting it.
 - **The Chorus never loots.** Losing to the hive costs you the fight and the
-  troops; your cargo scatters (destroyed, not transferred). Only players take
-  from players.
+  troops; your cargo scatters (destroyed, not transferred) — and an artifact
+  carried into a Chorus fight is **destroyed**, not captured. The hive
+  doesn't want your legend; it just ends it. Only players take from players.
 - **Defenders retaking their AI:** captured AI in a raider's cargo is lootable
   like any cargo — this is how a server takes its gods' machinery back.
 
@@ -205,6 +211,13 @@ Two tiers, never mixed:
   they are ingredients, not products.
 - The owner may add more artifact kinds later. The rule that never changes:
   no shop, no bundle, no event sells one. Ever.
+- **How artifacts change hands** (owner decision 2026-09-30): NEVER by
+  trade, market, or duel wager — otherwise players would farm duels for
+  them. The ONLY transfer is the battlefield: beachhead battles,
+  cross-server raids, home defense against raiders. If you fall in real PvP
+  wearing one, the victor takes it (§7). If you fall to the Chorus wearing
+  one, it's destroyed. Wear it in the arena all you like — that's the
+  showroom. Wear it in real war, and it's on the table.
 
 **MODULES — the commodity tier. Sold, lootable, breakable.**
 - The Forge also makes **modules**: fixed-attribute gear (armor, damage,

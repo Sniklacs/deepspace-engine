@@ -134,9 +134,15 @@
 
 ## 9. Open questions for the owner
 
-1. **Artifacts in trade/duels:** truly never — not on the market, not as
+1. ~~**Artifacts in trade/duels:** truly never — not on the market, not as
    duel stakes? (Proposed: never. "You can't buy legend" has to survive
-   contact with rich players, or it's just a slogan.)
+   contact with rich players, or it's just a slogan.)~~ — ANSWERED,
+   LOCKED 2026-09-30: **never.** No market listings, no duel wagers —
+   otherwise players would farm duels for artifacts. The ONLY way an
+   artifact changes hands is the real PvP battlefield (`forward-base.md`
+   §§7–8): beachhead battles, cross-server raids, home defense. Fall to
+   players wearing one, they take it. Fall to the Chorus wearing one, it's
+   destroyed.
 2. **Market currency:** Scrip only, or supplies as well? (Proposed: Scrip —
    one price signal per server keeps the economy legible.)
 3. **Duel formats:** hero-only duels plus capped skirmishes, or more
