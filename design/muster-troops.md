@@ -201,9 +201,11 @@ the game are **deserters**: soldiers who walked away from a starving army
    Cheap to reserve, expensive to retrofit — call it now.~~ — ANSWERED
    2026-09-30: **v2.** Reserve cohort tracking in the casualty feed now
    (§5, §9); ship the stat bumps later.
-3. **Troop type stat spreads:** beyond supply weight, do types differ in
+3. ~~**Troop type stat spreads:** beyond supply weight, do types differ in
    power per troop, or is weight the only lever? (Proposed: weight is the
-   only lever in v1; heroes/modules provide the texture.)
+   only lever in v1; heroes/modules provide the texture.)~~ — ANSWERED
+   2026-09-30: **weight only in v1.** Heroes and modules provide the
+   texture; troops are the clay.
 4. ~~**Muster time curve:** linear per troop, or batch discounts for big
    musters? (Proposed: linear — big armies should feel expensive in *time*
    too, which is what makes the alliance help-tick rule bite on buildings
