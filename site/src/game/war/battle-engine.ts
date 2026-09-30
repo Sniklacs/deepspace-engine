@@ -919,10 +919,12 @@ export function advanceManeuverEntries(battle: Battle, now: number): number {
     if (now < battle.startedAt + Math.max(0, e.enterAtMin) * 60_000) continue;
     e.entered = true;
     e.enteredAt = now;
-    // The maneuver's weight was locked at plan-attach; marching it in is a
-    // sim move, not a roster move (no new commit, no double-lock).
+    // The maneuver's weight was locked at plan-attach (or pledge, for rally
+    // battles); marching it in is a sim move, not a roster move (no new
+    // commit, no double-lock). Entries carry their own weight; the segment
+    // lookup is the legacy path for pre-weight entries.
     const seg = segmentsFor(battle, ps.side).find((s) => s.kind === "maneuver" && s.vector === e.vector);
-    const w = Math.max(0, Math.trunc(seg?.weight ?? 0) || 0);
+    const w = Math.max(0, Math.trunc(e.weight ?? seg?.weight ?? 0) || 0);
     const force = battle[ps.side];
     force.troops += w;
     const screened = !!ps.screens[e.vector];
@@ -987,6 +989,20 @@ export type AttachPlanResult =
   | { ok: true; planId: string }
   | { ok: false; error: string };
 
+export interface AttachPlanOptions {
+  /** Precommitted mode (rally launches): the force was already committed when
+   *  the pledges locked, so the plan is a SIM-ONLY partition of that pool —
+   *  no roster commits, no maneuver segments, entries march their weight in
+   *  on schedule without touching the garrison again. */
+  precommitted?: boolean;
+  /** The full precommitted pool weight (the pledged force). Required with
+   *  precommitted — the plan may not pledge more than the rally holds. */
+  pledgedWeight?: number;
+  /** Intel composition override (scouts report the muster, not the plan).
+   *  Defaults to planComposition(plan). */
+  composition?: Record<string, number>;
+}
+
 export function attachBattlePlan(
   state: GameState,
   battle: Battle,
@@ -994,32 +1010,46 @@ export function attachBattlePlan(
   plan: BattlePlan,
   home: RosterHome,
   now: number,
-  reserves: BattleReserves,
+  reserves?: BattleReserves,
+  opts?: AttachPlanOptions,
 ): AttachPlanResult {
   if (battle.status !== "active") return { ok: false, error: "This battle is already decided." };
   if (battle.internal.planState) return { ok: false, error: "A battle plan is already attached to this fight." };
   const errors = validateBattlePlan(plan, battle.durationMs);
   if (errors.length > 0) return { ok: false, error: errors[0] };
   const need = planWeight(plan);
-  if (need > reserves.reserveTroops) {
-    return { ok: false, error: `The plan pledges ${need} troop weight but the garrison holds ${reserves.reserveTroops}.` };
-  }
-  // All-or-nothing: synchronous and pre-validated against the same roster the
-  // reserves were read from, so every maneuver's commit lands — a short commit
-  // here is a can't-happen that rejects the whole plan rather than pledging half.
-  for (const m of plan.maneuvers) {
-    const w = maneuverWeight(m);
-    const got = commitRosterWeight(state, home, w);
-    if (got < w) return { ok: false, error: "The garrison shifted mid-pledge — the plan was rejected." };
-    stampRosterSegment(battle, side, {
-      id: `${plan.id}:${m.id}`,
-      kind: "maneuver",
-      home,
-      vector: m.vector,
-      weight: got,
-      tollsPaid: 0,
-      committedAt: now,
-    });
+  if (opts?.precommitted) {
+    const pool = opts.pledgedWeight ?? 0;
+    if (need > pool) {
+      return { ok: false, error: `The plan pledges ${need} troop weight but the rally holds ${pool}.` };
+    }
+    // Precommitted: the pledges already left the garrison when they were made.
+    // The unplanned remainder holds the field at T+0; the entries march in on
+    // schedule as sim moves — nothing commits twice.
+    const force = side === "attacker" ? battle.attacker : battle.defender;
+    force.troops = Math.max(0, force.troops - need);
+  } else {
+    const have = reserves?.reserveTroops ?? 0;
+    if (need > have) {
+      return { ok: false, error: `The plan pledges ${need} troop weight but the garrison holds ${have}.` };
+    }
+    // All-or-nothing: synchronous and pre-validated against the same roster the
+    // reserves were read from, so every maneuver's commit lands — a short commit
+    // here is a can't-happen that rejects the whole plan rather than pledging half.
+    for (const m of plan.maneuvers) {
+      const w = maneuverWeight(m);
+      const got = commitRosterWeight(state, home, w);
+      if (got < w) return { ok: false, error: "The garrison shifted mid-pledge — the plan was rejected." };
+      stampRosterSegment(battle, side, {
+        id: `${plan.id}:${m.id}`,
+        kind: "maneuver",
+        home,
+        vector: m.vector,
+        weight: got,
+        tollsPaid: 0,
+        committedAt: now,
+      });
+    }
   }
   battle.internal.planState = {
     side,
@@ -1030,12 +1060,13 @@ export function attachBattlePlan(
       vector: m.vector,
       enterAtMin: m.enterAtMin,
       entered: false,
+      weight: maneuverWeight(m),
     })),
     screens: {},
   };
   battle.maneuverIntel = {
     side,
-    composition: planComposition(plan),
+    composition: opts?.composition ?? planComposition(plan),
     entered: [],
     unentered: plan.maneuvers.length,
   };

@@ -290,51 +290,54 @@ feel alive.
 
 ## 10. Implementation status (Sep 30 2026, branch `xsolla-paystation`, local only)
 
-**Rally maneuvers — engine layer: SHIPPED.** The battle-plan primitive exists
-and is tested, without pretending any alliance code exists:
+**Rally maneuvers — engine layer: SHIPPED.** (unchanged from earlier in the day;
+see git history for the full engine notes.)
 
-- `site/src/game/war/maneuvers.ts` — pure plan math: `validateBattlePlan`
-  (Thunder/REAR vector rules, ≤4 maneuvers, exactly one MAIN at T+0, entries
-  inside the battle), weight/composition/surprise helpers.
-- `battle-engine.ts: attachBattlePlan(state, battle, side, plan, home, now,
-  reserves)` — the standalone attach/launch seam. One plan per battle;
-  illegal plans rejected BEFORE anything is pledged; the pledge is
-  all-or-nothing out of the side's real roster (one `maneuver` segment per
-  vector, committed via `commitRosterWeight`); the plan stays hidden in
-  `internal.planState`; `battle.maneuverIntel` publishes ONLY the pledged
-  composition at launch. Timed entries march in via
-  `advanceManeuverEntries`; FLANK/REAR get a 5-minute surprise window
-  (+25%, halved to +12.5% when screened); each entry opens a defender
-  response window (MAIN needs none).
-- `api.ts: battlePlanFn` + `battleScreenFn` — server endpoints. Screen costs
-  `screenEnergyCost` war energy per vector, idempotent per vector; the plan
-  owner cannot screen their own plan.
-- `site/src/game/war/maneuvers.test.ts` — 11 tests: attach legality (Thunder
-  flank, REAR wardens, affordability, one-plan-per-battle), all-or-nothing
-  pledge (illegal/unaffordable plans touch nothing), hidden-plan /
-  public-composition split, MAIN-at-T+0 entries, 5-min surprise windows,
-  screened 12.5% bonus, defender response windows, screen idempotency,
-  real-roster reinforcement validation, withdrawal toll settlement with no
-  double-billing, zero-casualty lock release.
+**Alliance + rally backend — SHIPPED (local domain/API/test layer).**
+`site/src/game/war/alliances.ts` — migration-safe alliance state; create
+(500 supplies, Cradle T2+), apply, invite, accept/decline; leave, kick,
+promote, demote, leadership transfer, disband; 50-member cap; 5-officer
+limit; open pledges release on leave/kick/disband; leadership passes to
+oldest officer, else oldest member. `site/src/game/war/rallies.ts` —
+create (15-min minimum lead), pledge (troops LOCK at pledge time, heroes
+locked), unpledge, set plan, cancel, launch (→ real battle via the
+precommitted `attachBattlePlan` seam — no double commit, no maneuver
+segments; one `rally` roster segment per colony), auto-launch, resolve
+(victory → contribution-locked supply loot, per-colony loss accounting;
+the local colony's share is delivered locally). Help ticks: 5/day,
+Cradle T1–T5 = 5/12/25/40/60 minutes, buildings + research only, never
+troops/muster/forge. Reinforcements: send (locks sender troops + heroes),
+recall, dismiss, auto-recall on leave; host upkeep; guests starve before
+hosts. API routes: `allianceCreate/Apply/Invite/Answer/Leave/Kick/
+Promote/Demote/Transfer/Disband`, `rallyCreate/Pledge/Unpledge/Plan/
+Launch/Cancel`, `helpTickFn`, `reinforceSend/Recall/Dismiss`.
+38 tests, 139 expectations, green.
 
-**Ghost troop reserve — REMOVED.** `WarReserve.troops` is gone from active
-code. Reinforcement, aid, and withdrawal now validate against the real
-available roster weight (`availableWeight` of the side's troop home) and
-commit out of it (`commitRosterWeight` + `RosterCommitSegment` stamping).
-Withdrawal tolls settle immediately via `settleToll` and survive as a
-casualty floor through later recomputes; retreats bill real segments.
-`battleReservesFor()` in `api.ts` is the single real-roster view.
+**Alliance UI — SHIPPED.** `site/src/components/AlliancePanel.tsx`,
+rendered inside the Battles tab (the war slot owns war UI; no new nav
+slot, per the nav spec). No-alliance state: found form + invite answers +
+apply to known bands. Alliance home: members with role actions
+(promote/demote/kick/transfer/leave/disband), applications inbox,
+rally board (call rally, pledge/unpledge, battle-plan presets — Main
+thrust / Pincer / Hammer & anvil — launch now, cancel, outcomes with
+loot shares and fallen), reinforcements (guests stationed here,
+troops abroad, send form), help board (5/day budget, lend-a-hand per
+member). All posts ride the play route's `act()` (busy gate + state
+refresh + refusal surfacing).
 
 **Still missing (no pretending):**
 
-- No rally/alliance UI and no alliance code at all — the plan seam is a
-  battle-level primitive waiting for the rally flow to call it. The API
-  endpoint lets either side attach one plan; the rally UI will restrict plan
-  authorship to the rally leader.
-- True cross-account allied roster mutation does not exist — aid commits
-  from the responder's own home today. (One alliance per colony, pledges on
-  the Rally object, cross-server reinforcement — all v1 alliance work.)
-- No battle-plan launch/attach UI; no screen-posting UI.
+- No true cross-account shared store: `withColony` reads/writes only the
+  caller's active save. Tests model multiple colonies in one local
+  `GameState`; they do NOT prove cross-account membership, pledges, troop
+  locks, casualty attribution, loot delivery, or reinforcement deaths.
+- `helpTickFn` records the helper action and spends the budget locally but
+  does not yet open and reduce the TARGET player's authoritative save.
+- Reinforcement guest deaths / sender-roster casualty attribution still
+  need the cross-account transaction seam (host upkeep + guest-first
+  desertion helpers exist locally; authoritative ticking does not).
+- Rally memorial/plaque attribution not yet deliberately addressed.
+- No battle-plan launch/attach UI beyond the rally presets; no
+  screen-posting UI.
 - Defender battle plans stay v2 (screens + response window only, per the
-  ratified spec) — the engine technically allows a defender-side plan, but
-  nothing calls it that way.
+  ratified spec).

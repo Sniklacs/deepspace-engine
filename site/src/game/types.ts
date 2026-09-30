@@ -399,6 +399,20 @@ export interface GameState {
   forwardBases?: Record<string, ForwardBase>;
   serverBands?: Record<string, MercenaryBand[]>;
   lastJumpAt?: number | null;
+  /** ALLIANCES + RALLIES (design/alliances.md) — the war band. Server-shaped
+   *  records (keyed by id, members by colonyId) so a future multiplayer
+   *  server migration is mechanical. Soul-level: membership PERSISTS across
+   *  seasons — no reset path touches this store (alliances.md §9).
+   *  Initialized by ensureAlliances/ensureRallies on first advance. */
+  alliances?: Record<string, import("./war/alliances").Alliance>;
+  rallies?: Record<string, import("./war/rallies").Rally>;
+  reinforcements?: import("./war/alliances").Reinforcement[];
+  /** Help-tick daily budget (server day key + spent count). */
+  helpDay?: string;
+  helpUsed?: number;
+  /** Help ledger: ticks this colony gave; who helped this colony this week. */
+  helpLedger?: import("./war/alliances").HelpTick[];
+  helpReceived?: import("./war/alliances").HelpTick[];
   // ---- Prologue state spine (V11, opening-prologue-spec §4–§8 — The Fall) ----
   // The per-colony ledger for the voiced opening: stage, sealed height
   // records, the final stand, the History Book + ash echoes. The player's own

@@ -61,6 +61,8 @@ import {
   freshDaily,
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
+import { ensureAlliances } from "./war/alliances";
+import { advanceRallies, ensureRallies } from "./war/rallies";
 import {
   advanceTroopHome,
   emptyTroopHome,
@@ -1676,6 +1678,8 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureBattles(state); // V9: real-time battle entities + report ledger (no-op on new saves)
   ensureTroops(state, now); // MUSTER: garrison + queues + hunger clock (additive on old saves)
   ensureForwardBases(state, now); // BEACHHEADS: forward bases + shared server band pools (additive)
+  ensureAlliances(state); // WAR BAND: alliance store + help budget + reinforcements (additive; never wiped by seasons)
+  ensureRallies(state); // RALLIES: rally board (additive)
   ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
   ensureReTime(state, now); // RE-TIME: energy pool + deploy slot (no-op on a fresh save)
   // V7 daily rollover: when the UTC day turned since the last advance, finalize
@@ -1779,6 +1783,11 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // actual cohorts (newest-first) and lands in the memorial feed. Idempotent
   // per battle; no-op until a creator stamps a commit.
   resolveRosterCasualties(state);
+  // RALLIES (war/rallies.ts): fire rally timers whose moment came (the pool
+  // marches even if the caller's away) and resolve launched rallies whose
+  // battles finished — contribution-locked loot, per-colony loss ledger.
+  // Runs AFTER resolveRosterCasualties so the segments are already billed.
+  advanceRallies(state, now);
   // THE MUSTER (design/muster-troops.md): resolve finished muster orders,
   // charge upkeep from the supply stockpile, run the hunger clock
   // (grace → desertion → mercenary bands). Lazy and idempotent like every

@@ -246,6 +246,9 @@ export interface Battle {
   decisions: BattleDecision[];
   /** B11 aid beacons (≤ maxAidPerSide per side). */
   aidCalls: AidCall[];
+  /** Rally battles: which alliance's war band marched (alliances.md §2). The
+   *  memorial plaques read this + the per-pledger roster segments. */
+  allianceId?: string;
   /** Server-only internals — STRIPPED from every public payload
    *  (battlePublicView). Nothing about power/odds is hidden; this block is
    *  reserved for future server-private bookkeeping (reinforcement queues,
@@ -278,7 +281,7 @@ export interface Battle {
 export type RosterHome = { kind: "home" } | { kind: "base"; serverId: string };
 
 /** What kind of order locked a detachment out of its roster. */
-export type RosterCommitKind = "initial" | "reinforcement" | "aid" | "maneuver";
+export type RosterCommitKind = "initial" | "reinforcement" | "aid" | "maneuver" | "rally";
 
 /** One detachment locked out of a real roster for one battle. A side carries
  *  a LIST of these: the initial force plus every mid-battle addition
@@ -318,6 +321,10 @@ export interface ManeuverEntryState {
   enterAtMin: number;
   entered: boolean;
   enteredAt?: number;
+  /** Supply-weight this maneuver marches in with. Set at plan time; the
+   *  entry mechanic prefers it over the roster-segment lookup (rally
+   *  pledges are pre-committed, so no maneuver segments are stamped). */
+  weight?: number;
   /** FLANK/REAR only: surprise window end — now < surpriseUntil → boosted. */
   surpriseUntil?: number;
   /** Whether the defender had screened this vector when it entered. */

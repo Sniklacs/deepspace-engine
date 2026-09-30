@@ -54,6 +54,35 @@ import {
 } from "./war/roster-commit";
 import { availableWeight } from "./war/troops";
 import type { BattlePlan } from "./war/maneuvers";
+import type { PlannedManeuver } from "./war/maneuvers";
+import {
+  acceptMembership,
+  allianceOf,
+  applyToAlliance,
+  createAlliance,
+  declineMembership,
+  demoteMember,
+  disbandAlliance,
+  giveHelp,
+  inviteToAlliance,
+  kickMember,
+  leaveAlliance,
+  promoteMember,
+  transferLeadership,
+} from "./war/alliances";
+import {
+  cancelRally,
+  createRally,
+  launchRally,
+  pledgeToRally,
+  setRallyPlan,
+  unpledgeFromRally,
+} from "./war/rallies";
+import {
+  dismissReinforcement,
+  recallReinforcement,
+  sendReinforcement,
+} from "./war/alliances";
 import { ACT1_CONFIG, openAct1Front } from "./prologue/act1-battle";
 import { prologueState } from "./prologue/prologue-engine";
 // Chat + mail, slice A1: the server functions live in their own module (the same
@@ -1417,6 +1446,267 @@ const hireServerBandFn = createServerFn({ method: "POST" }).validator(
   return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
 });
 
+// ---------------------------------------------------------------------------
+// ALLIANCES + RALLIES (design/alliances.md) — the war band's server surface.
+// ---------------------------------------------------------------------------
+
+/** Shared boilerplate: token → account → advanced colony → work → persist. */
+async function withColony(
+  token: string,
+  work: (
+    st: GameState,
+    ctx: { colonyId: string; colonyName: string; now: number },
+  ) => { ok: true; value?: unknown } | { ok: false; error: string },
+): Promise<GameResult> {
+  const accountId = await accountForToken(token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const now = Date.now();
+  const st = engine.advance(saves.games[saves.activeGameId], now);
+  if (!st.race) return { ok: false, error: "Found your colony first." };
+  const res = work(st, { colonyId: saves.activeGameId, colonyName: st.playerName, now });
+  if (!res.ok) return { ok: false, error: res.error };
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+}
+
+const allianceCreateFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    name: z.string().min(3).max(40),
+    banner: z.string().max(8).optional(),
+    motto: z.string().max(120).optional(),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) =>
+    createAlliance(
+      st,
+      { id: ctx.colonyId, name: ctx.colonyName },
+      engine.cradleTier(st),
+      { name: data.name, banner: data.banner, motto: data.motto },
+      ctx.now,
+    ),
+  ),
+);
+
+const allianceApplyFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) =>
+    applyToAlliance(st, data.allianceId, { id: ctx.colonyId, name: ctx.colonyName }, ctx.now),
+  ),
+);
+
+const allianceInviteFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    allianceId: z.string(),
+    targetId: z.string(),
+    targetName: z.string().min(1).max(60),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) =>
+    inviteToAlliance(st, data.allianceId, ctx.colonyId, { id: data.targetId, name: data.targetName }, ctx.now),
+  ),
+);
+
+const allianceAnswerFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    allianceId: z.string(),
+    colonyId: z.string(),
+    accept: z.boolean(),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) =>
+    data.accept
+      ? acceptMembership(st, data.allianceId, ctx.colonyId, data.colonyId, ctx.now)
+      : declineMembership(st, data.allianceId, ctx.colonyId, data.colonyId),
+  ),
+);
+
+const allianceLeaveFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => leaveAlliance(st, ctx.colonyId, ctx.now)),
+);
+
+const allianceKickFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), targetId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => kickMember(st, data.allianceId, ctx.colonyId, data.targetId, ctx.now)),
+);
+
+const alliancePromoteFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), targetId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => promoteMember(st, data.allianceId, ctx.colonyId, data.targetId)),
+);
+
+const allianceDemoteFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), targetId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => demoteMember(st, data.allianceId, ctx.colonyId, data.targetId)),
+);
+
+const allianceTransferFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), targetId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => transferLeadership(st, data.allianceId, ctx.colonyId, data.targetId)),
+);
+
+const allianceDisbandFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => disbandAlliance(st, data.allianceId, ctx.colonyId)),
+);
+
+const rallyCreateFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    name: z.string().min(3).max(60),
+    targetKind: z.enum(["chorus-site", "forward-base", "defense-point"]),
+    targetLabel: z.string().min(1).max(80),
+    zoneId: z.string().min(1).max(64),
+    launchAt: z.number().int().positive(),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => {
+    const a = allianceOf(st, ctx.colonyId);
+    if (!a) return { ok: false, error: "Join an alliance before calling rallies." };
+    return createRally(
+      st,
+      { id: ctx.colonyId, name: ctx.colonyName },
+      a.id,
+      {
+        name: data.name,
+        target: { kind: data.targetKind, label: data.targetLabel, zoneId: data.zoneId },
+        launchAt: data.launchAt,
+      },
+      ctx.now,
+    );
+  }),
+);
+
+const rallyPledgeFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    rallyId: z.string(),
+    troops: z.number().int().min(0).max(100000),
+    heroes: z.array(battleHeroSchema).optional(),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) =>
+    pledgeToRally(
+      st,
+      data.rallyId,
+      { id: ctx.colonyId, name: ctx.colonyName },
+      data.troops,
+      (data.heroes ?? []) as unknown as BattleHeroSnapshot[],
+      ctx.now,
+    ),
+  ),
+);
+
+const rallyUnpledgeFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), rallyId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => unpledgeFromRally(st, data.rallyId, ctx.colonyId)),
+);
+
+const rallyPlanSchema = z.object({
+  id: z.string(),
+  maneuvers: z.array(z.object({
+    id: z.string(),
+    vector: z.enum(["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR", "RESERVE"]),
+    enterAtMin: z.number().min(0).max(480),
+    composition: z.record(z.string(), z.number().int().min(0)).optional(),
+  })).min(1).max(4),
+});
+
+const rallyPlanFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), rallyId: z.string(), plan: rallyPlanSchema })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) =>
+    setRallyPlan(st, data.rallyId, ctx.colonyId, {
+      id: data.plan.id,
+      maneuvers: data.plan.maneuvers.map((m) => ({
+        id: m.id,
+        vector: m.vector,
+        enterAtMin: m.enterAtMin,
+        composition: (m.composition ?? {}) as PlannedManeuver["composition"],
+      })),
+    }),
+  ),
+);
+
+const rallyLaunchFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), rallyId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => launchRally(st, data.rallyId, ctx.colonyId, ctx.now)),
+);
+
+const rallyCancelFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), rallyId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => cancelRally(st, data.rallyId, ctx.colonyId)),
+);
+
+const helpTickFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    targetId: z.string(),
+    targetName: z.string().min(1).max(60),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => {
+    const r = giveHelp(
+      st,
+      { id: ctx.colonyId, name: ctx.colonyName, tier: engine.cradleTier(st) },
+      { id: data.targetId, name: data.targetName },
+      ctx.now,
+    );
+    return r.ok ? { ok: true as const, value: r.value.minutes } : r;
+  }),
+);
+
+const reinforceSendFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    toId: z.string(),
+    toName: z.string().min(1).max(60),
+    troops: z.number().int().min(0).max(100000),
+    heroIds: z.array(z.string()).max(12).optional(),
+    fobServerId: z.string().max(64).optional(),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) =>
+    sendReinforcement(
+      st,
+      { id: ctx.colonyId, name: ctx.colonyName },
+      { id: data.toId, name: data.toName, fobServerId: data.fobServerId },
+      data.troops,
+      data.heroIds ?? [],
+      ctx.now,
+    ),
+  ),
+);
+
+const reinforceRecallFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), reinforcementId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => recallReinforcement(st, ctx.colonyId, data.reinforcementId)),
+);
+
+const reinforceDismissFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), reinforcementId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => dismissReinforcement(st, ctx.colonyId, data.reinforcementId)),
+);
+
 export {
   getState,
   createGameFn,
@@ -1460,6 +1750,26 @@ export {
   plantForwardBaseFn,
   musterForwardTroopsFn,
   hireServerBandFn,
+  allianceCreateFn,
+  allianceApplyFn,
+  allianceInviteFn,
+  allianceAnswerFn,
+  allianceLeaveFn,
+  allianceKickFn,
+  alliancePromoteFn,
+  allianceDemoteFn,
+  allianceTransferFn,
+  allianceDisbandFn,
+  rallyCreateFn,
+  rallyPledgeFn,
+  rallyUnpledgeFn,
+  rallyPlanFn,
+  rallyLaunchFn,
+  rallyCancelFn,
+  helpTickFn,
+  reinforceSendFn,
+  reinforceRecallFn,
+  reinforceDismissFn,
   enterActOneFn,
   leaveActOneFn,
   // ---- chat + mail (slice A1) — their own module, the same zod-validated shape

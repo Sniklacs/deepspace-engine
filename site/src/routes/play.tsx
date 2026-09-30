@@ -604,6 +604,7 @@ function PlayPage() {
           now={now}
           token={token ?? undefined}
           onDecision={() => { void refresh(); }}
+          onAction={(fn, label) => act(fn, label)}
           muted={muted}
         />
       )}

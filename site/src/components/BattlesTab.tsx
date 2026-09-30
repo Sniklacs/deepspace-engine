@@ -20,6 +20,7 @@ import type { Battle, BattleReport, BattleSide, CommittedForce } from "../game/w
 import { battleMoment, battleEndAt } from "../game/war/battle-engine";
 import { availableWeight } from "../game/war/troops";
 import { battleIssueFn, battleRespondFn } from "../game/api";
+import type { GameResult } from "../game/api";
 import {
   CONFIRM_CANCEL_LABEL,
   DECISION_ACTIONS,
@@ -57,6 +58,7 @@ import { familyFor } from "../game/armory";
 import { Icon } from "./icons";
 import type { IconName } from "./icons";
 import TutorialCueLayer from "./TutorialCueLayer";
+import AlliancePanel from "./AlliancePanel";
 import {
   TUTORIAL_CONFIG,
   activeCue,
@@ -1050,7 +1052,7 @@ function BattleLog({ reports }: { reports: BattleReport[] }) {
 }
 
 /** The Battles tab root: live list + detail, then the report log below. */
-export default function BattlesTab({ state, now, token, onDecision, tutorial, muted = false }: {
+export default function BattlesTab({ state, now, token, onDecision, tutorial, muted = false, onAction }: {
   state: GameState;
   now: number;
   token?: string;
@@ -1059,6 +1061,8 @@ export default function BattlesTab({ state, now, token, onDecision, tutorial, mu
   tutorial?: boolean;
   /** The sound layer's mute (the Cradle sheet's Sound row) — the voice gate. */
   muted?: boolean;
+  /** Post a server action and refresh (the play route's `act`). */
+  onAction?: (fn: () => Promise<unknown>, label: string) => void;
 }) {
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
@@ -1069,6 +1073,7 @@ export default function BattlesTab({ state, now, token, onDecision, tutorial, mu
           something worth bringing next time.
         </p>
       </div>
+      {onAction && <AlliancePanel state={state} now={now} token={token} onAction={onAction as (fn: () => Promise<GameResult>, label: string) => void} />}
       <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorial ?? true} muted={muted} />
       <div className="rounded-xl border border-line bg-surf-2/40 p-4">
         <h3 className="mb-2 text-sm font-semibold text-text-1">Battle log</h3>
