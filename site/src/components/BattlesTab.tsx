@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameState } from "../game/types";
 import type { Battle, BattleReport, BattleSide, CommittedForce } from "../game/war/war-types";
 import { battleMoment, battleEndAt } from "../game/war/battle-engine";
+import BattleReplay from "./BattleReplay";
 import { availableWeight } from "../game/war/troops";
 import { battleIssueFn, battleRespondFn } from "../game/api";
 import type { GameResult } from "../game/api";
@@ -82,6 +83,7 @@ import type {
   UiTarget,
 } from "../game/war/tutorial-cues";
 import { voiceEngine } from "../game/voice/voice-engine";
+import { Link } from "@tanstack/react-router";
 
 const CHIP_META: Record<string, { label: string; cls: string }> = {
   stalemate: { label: "Stalemate", cls: "bg-sky-400/15 text-sky-200 border-sky-400/30" },
@@ -916,6 +918,7 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
   const side = ourSide(battle, me);
   // The tutorial narrates only OUR fight (§12.1) and only while it is live.
   const tutorial = useBattleTutorial(battle, side, now, tutorialEnabled && side !== null && battle.status === "active");
+  const [watch, setWatch] = useState(false);
   // The voice reads the same cue the plate renders — no second observer.
   const voice = useVoiceLayer({
     cue: tutorial.cue,
@@ -937,12 +940,21 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
           <h3 className="text-base font-semibold text-text-1">{battle.zoneName || battle.zoneId}</h3>
           <p className="text-xs text-text-3">Power {battle.forcePower.attacker} vs {battle.forcePower.defender} · gap {Math.round(m.gap * 100)}%</p>
         </div>
-        <span
-          data-tutorial-target="live-state-chip"
-          className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase ${chip.cls} ${tutorialRing(tutorial.target, "live-state-chip")}`}
-        >
-          {chip.label}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setWatch(!watch)}
+            className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase ${watch ? "border-ember text-ember-soft" : "border-surf-3 text-text-3 hover:text-text-1"}`}
+            title="Open the 2.5D plan-driven battle viewer"
+          >
+            {watch ? "▼ Field view" : "▶ Watch the field"}
+          </button>
+          <span
+            data-tutorial-target="live-state-chip"
+            className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase ${chip.cls} ${tutorialRing(tutorial.target, "live-state-chip")}`}
+          >
+            {chip.label}
+          </span>
+        </div>
       </div>
 
       {/* The narrator, the Leaders and the heroes speak here (§12.4). */}
@@ -1006,6 +1018,8 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
           focusTarget={tutorial.target}
         />
       )}
+
+      {watch && <BattleReplay battle={battle} />}
     </>
   );
 }
@@ -1066,12 +1080,17 @@ export default function BattlesTab({ state, now, token, onDecision, tutorial, mu
 }) {
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
-      <div>
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-text-1"><Icon name="sword" size={20} /> Battles</h2>
-        <p className="text-xs text-text-2">
-          The fights running on your fronts. Watch how the enemy fields their force — every report teaches you
-          something worth bringing next time.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-text-1"><Icon name="sword" size={20} /> Battles</h2>
+          <p className="text-xs text-text-2">
+            The fights running on your fronts. Watch how the enemy fields their force — every report teaches you
+            something worth bringing next time.
+          </p>
+        </div>
+        <Link to="/replay" className="rounded-md border border-surf-3 px-2.5 py-1 text-xs text-text-3 hover:text-text-1">
+          🎬 Replay prototype
+        </Link>
       </div>
       {onAction && <AlliancePanel state={state} now={now} token={token} onAction={onAction as (fn: () => Promise<GameResult>, label: string) => void} />}
       <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorial ?? true} muted={muted} />

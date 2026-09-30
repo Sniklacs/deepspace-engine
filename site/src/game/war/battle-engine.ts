@@ -70,6 +70,7 @@ import {
   type FobStage,
   type ManeuverVector,
   type ReinforcePayload,
+  type ReplayEntryIntel,
   type RosterHome,
   type WarReserve,
 } from "./war-types";
@@ -1208,5 +1209,27 @@ export function battleMoment(battle: Battle, now: number): BattleMoment {
 export function battlePublicView(battle: Battle): Battle {
   const { internal: _internal, ...pub } = battle;
   void _internal;
+  // The replay viewer gets the replay-safe slice: entered maneuvers fully
+  // visible, posted screens timestamped, unentered vectors hidden (count
+  // only). The plan itself never leaves the server.
+  const ps = battle.internal?.planState;
+  if (ps) {
+    const entries: ReplayEntryIntel[] = ps.entries
+      .filter((e) => e.entered)
+      .map((e) => ({
+        vector: e.vector,
+        entered: true as const,
+        enteredAt: e.enteredAt,
+        surpriseUntil: e.surpriseUntil,
+        screenedAtEntry: e.screenedAtEntry,
+        weight: e.weight,
+      }));
+    (pub as Battle).replayIntel = {
+      side: ps.side,
+      entries,
+      unentered: ps.entries.filter((e) => !e.entered).length,
+      screens: { ...ps.screens },
+    };
+  }
   return pub as Battle;
 }

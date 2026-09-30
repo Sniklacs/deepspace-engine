@@ -270,10 +270,17 @@ export interface Battle {
      *  timing stay hidden here until each maneuver enters; the public
      *  battle.maneuverIntel carries composition + revealed entries. */
     planState?: BattlePlanState;
+    /** Rally battles: the rally that launched this fight (alliances.md §2). */
+    rallyId?: string;
+    /** Rally battles: the war band's name — the memorial plaques read it. */
+    allianceName?: string;
   };
   /** Public maneuver intel (symmetric — both sides see the same): composition
    *  is visible at launch, the plan stays hidden until each maneuver enters. */
   maneuverIntel?: ManeuverIntel;
+  /** Replay-safe slice for the 2.5D battle viewer (attached by
+   *  battlePublicView — never leaks unentered vectors or timing). */
+  replayIntel?: BattleReplayIntel;
 }
 
 /** Which real troop home backs a battle side: the Cradle garrison ("home")
@@ -350,6 +357,31 @@ export interface ManeuverIntel {
   composition: Record<string, number>;
   entered: { id: string; vector: ManeuverVector; troops: number; enteredAt: number }[];
   unentered: number;
+}
+
+/** Replay-safe battle slice (battle.replayIntel) — everything the 2.5D
+ *  battle viewer may show without leaking the plan. Entered maneuvers are
+ *  fully visible (both sides see the troops on the field, and the attacker
+ *  sees whether the surprise landed); unentered vectors stay hidden — only
+ *  their COUNT rides along (maneuverIntel parity). Posted screens are
+ *  physical pickets on the field: visible to everyone, timestamped. */
+export interface ReplayEntryIntel {
+  vector: ManeuverVector;
+  entered: boolean;
+  enteredAt?: number;
+  /** FLANK/REAR only: surprise window end — visible as it happens. */
+  surpriseUntil?: number;
+  /** Whether the vector was screened when it entered. */
+  screenedAtEntry?: boolean;
+  /** Supply-weight that marched in. */
+  weight?: number;
+}
+
+export interface BattleReplayIntel {
+  side: BattleSide;
+  entries: ReplayEntryIntel[];
+  unentered: number;
+  screens: Partial<Record<ManeuverVector, { at: number }>>;
 }
 
 export interface BattleResult {
