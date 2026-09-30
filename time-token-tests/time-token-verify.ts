@@ -1,5 +1,5 @@
 // TIME TOKENS — the EARNED path AND the SELL half (owner ruling 2026-09-27).
-// Runner:  cd /home/team/shared/time-token-tests && env -u DATABASE_URL bun run ./time-token-verify.ts
+// Runner:  cd /home/hatch/workspace/deepspace-engine/time-token-tests && env -u DATABASE_URL bun run ./time-token-verify.ts
 //
 // Covers, in the order the brief set them:
 //   A · the type      — TWO earned sizes (1m/5m) and SIX sellable sizes
@@ -28,7 +28,7 @@
 //                       5 + 5 (30 minutes of token time); the grant is surfaced.
 //   H · migration     — an old save gets the earned sizes at zero, once; a save that
 //                       holds a SOLD size keeps it.
-import * as engine from "/home/team/shared/site/src/game/engine.ts";
+import * as engine from "/home/hatch/workspace/deepspace-engine/site/src/game/engine.ts";
 import {
   applyTimeToken,
   ensureTimeTokens,
@@ -47,8 +47,8 @@ import {
   TIME_TOKEN_TIMER_KINDS,
   EARNED_TIME_TOKEN_SIZES,
   SELLABLE_TIME_TOKEN_SIZES,
-} from "/home/team/shared/site/src/game/time-tokens.ts";
-import { DAILY_CONFIG, claimDaily, freshDaily, reconcileDaily } from "/home/team/shared/site/src/game/daily.ts";
+} from "/home/hatch/workspace/deepspace-engine/site/src/game/time-tokens.ts";
+import { DAILY_CONFIG, claimDaily, freshDaily, reconcileDaily } from "/home/hatch/workspace/deepspace-engine/site/src/game/daily.ts";
 import {
   HEAD_START_PACKS,
   MONETIZATION_CONFIG,
@@ -63,19 +63,16 @@ import {
   timeTokenSaleRefusal,
   utcDayKey,
   type TimeTokenPackDef,
-} from "/home/team/shared/site/src/game/monetization.ts";
+} from "/home/hatch/workspace/deepspace-engine/site/src/game/monetization.ts";
 import {
-  PAYMENT_LINKS,
-  checkoutUrl,
+  XSOLLA_CATALOG,
   isSellable,
-  paymentLinkRow,
-  productIdForSku,
   sellableSkus,
-  skuForMetadataSku,
-  skuForPriceId,
-  skuForProductId,
-} from "/home/team/shared/site/src/game/payments/payment-links.ts";
-import type { GameState } from "/home/team/shared/site/src/game/types.ts";
+  skuForXsollaSku,
+  xsollaCatalogRow,
+  xsollaSkuFor,
+} from "/home/hatch/workspace/deepspace-engine/site/src/game/payments/xsolla-catalog.ts";
+import type { GameState } from "/home/hatch/workspace/deepspace-engine/site/src/game/types.ts";
 import fs from "node:fs";
 
 let pass = 0, fail = 0;
@@ -152,7 +149,7 @@ check("`isSellableTimeTokenSize` is true for the six and FALSE for 1m, 5m and ju
   && !isSellableTimeTokenSize("1m") && !isSellableTimeTokenSize("5m") && !isSellableTimeTokenSize("2h"));
 check("`isTimeTokenSize` is true for every defined size and false for junk",
   ids.every((id) => isTimeTokenSize(id)) && !isTimeTokenSize("3h") && !isTimeTokenSize(""));
-const tokenSrc = fs.readFileSync("/home/team/shared/site/src/game/time-tokens.ts", "utf8");
+const tokenSrc = fs.readFileSync("/home/hatch/workspace/deepspace-engine/site/src/game/time-tokens.ts", "utf8");
 const tokenCode = tokenSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 check("the module's CODE defines no price, product, checkout or purchase object",
   !/priceCents|priceVotives|priceUsd|productId|providerSkuId|checkout|stripe|storefrontEnabled|storefront/i.test(tokenCode));
@@ -196,21 +193,21 @@ check("nothing prices 1m or 5m (timeTokenPriceUsd is 0 and there is no row)",
 check("the catalogue id is one formula from the size, and every row uses it",
   TIME_TOKEN_PACKS.every((p) => p.id === timeTokenPackId(p.sizeId))
   && new Set(TIME_TOKEN_PACKS.map((p) => p.id)).size === 6);
-check("THE PRODUCT ID COLUMN IS FILLED \u2014 with the six LIVE Stripe product ids, one per size, no duplicates",
+check("THE SKU COLUMN IS FILLED \u2014 with the six Xsolla SKU ids, one per size, no duplicates",
   TIME_TOKEN_PACKS.map((p) => p.providerSkuId).join(",")
-  === "prod_VL1IlrKotjeEc8,prod_VL1I6RcBYf9ip1,prod_VL1IhfQkbh15q2,prod_VL1IEaKNpi2sXz,prod_VL1IvxuGGlgwN2,prod_VL1IdZr899TCNt"
+  === "time-token-30m,time-token-1h,time-token-8h,time-token-12h,time-token-24h,time-token-48h"
   && new Set(TIME_TOKEN_PACKS.map((p) => p.providerSkuId)).size === 6
-  && TIME_TOKEN_PACKS.every((p) => /^prod_[A-Za-z0-9]+$/.test(p.providerSkuId)),
+  && TIME_TOKEN_PACKS.every((p) => p.providerSkuId === p.id),
   TIME_TOKEN_PACKS.map((p) => p.providerSkuId).join(","));
 check("the empty id still means UNSET, and the referee still has that state to refuse",
   TIME_TOKEN_PRODUCT_ID_UNSET === "");
-check("…and each product id is READ from the one place it is written (payment-links.ts), not typed twice",
-  TIME_TOKEN_PACKS.every((p) => paymentLinkRow(p.id)?.productId === p.providerSkuId),
-  TIME_TOKEN_PACKS.map((p) => `${p.id}:${paymentLinkRow(p.id)?.productId ?? "MISSING"}`).join(" "));
+check("…and each SKU is READ from the one place it is written (xsolla-catalog.ts), not typed twice",
+  TIME_TOKEN_PACKS.every((p) => xsollaCatalogRow(p.id)?.skuId === p.providerSkuId && xsollaSkuFor(p.id) === p.providerSkuId),
+  TIME_TOKEN_PACKS.map((p) => `${p.id}:${xsollaSkuFor(p.id) ?? "MISSING"}`).join(" "));
 check("…while the price column is untouched \u2014 no amountUsd/priceUsd moved in this slice",
   TIME_TOKEN_PACKS.map((p) => p.priceUsd).join(",") === "2.99,3.99,7.99,9.99,14.99,24.99"
-  && PAYMENT_LINKS.filter((r) => r.skuId.startsWith("time-token-")).every((r) => r.amountUsd === timeTokenPriceUsd(r.skuId.replace("time-token-", ""))),
-  PAYMENT_LINKS.filter((r) => r.skuId.startsWith("time-token-")).map((r) => `${r.skuId}:${r.amountUsd}`).join(" "));
+  && XSOLLA_CATALOG.filter((r) => r.skuId.startsWith("time-token-")).every((r) => r.amountUsd === timeTokenPriceUsd(r.skuId.replace("time-token-", ""))),
+  XSOLLA_CATALOG.filter((r) => r.skuId.startsWith("time-token-")).map((r) => `${r.skuId}:${r.amountUsd}`).join(" "));
 check("a speed-up row carries NO grant payload \u2014 it grants time and nothing else",
   TIME_TOKEN_PACKS.every((p) => !Object.prototype.hasOwnProperty.call(p, "grants")));
 check("no catalogue row references a resource, a strength or a scored currency field at all",
@@ -243,20 +240,20 @@ refuses("NEGATIVE CONTROL \u00b7 a WAR-HARDWARE name on a speed-up row is refuse
   () => { TIME_TOKEN_PACKS[0].name = "Half-Hour Token"; });
 // NEW with the wiring (2026-09-27): now that the product ids are real, the guard
 // that matters is that a PLACEHOLDER cannot pass as one.
-refuses("NEGATIVE CONTROL \u00b7 a placeholder product id is refused (it is a prod_\u2026 id or it is nothing)",
+refuses("NEGATIVE CONTROL \u00b7 a placeholder SKU is refused (it is a catalogue SKU or it is nothing)",
   () => { TIME_TOKEN_PACKS[0].providerSkuId = "TODO"; },
-  () => { TIME_TOKEN_PACKS[0].providerSkuId = productIdForSku("time-token-30m"); });
+  () => { TIME_TOKEN_PACKS[0].providerSkuId = xsollaSkuFor("time-token-30m"); });
 // A blank product id is a legal catalogue VALUE ("not wired yet") — the guard
 // that refuses it is the SALE REFEREE, not assertCatalogFair, so it is asserted
 // there (§E) rather than through `refuses()` above.
 check("the catalogue is byte-identical to the shipped one after the controls",
   JSON.stringify(TIME_TOKEN_PACKS) === JSON.stringify([
-    { id: "time-token-30m", sizeId: "30m", name: "Half-Hour Token", priceUsd: 2.99, providerSkuId: "prod_VL1IlrKotjeEc8" },
-    { id: "time-token-1h", sizeId: "1h", name: "One-Hour Token", priceUsd: 3.99, providerSkuId: "prod_VL1I6RcBYf9ip1" },
-    { id: "time-token-8h", sizeId: "8h", name: "Eight-Hour Token", priceUsd: 7.99, providerSkuId: "prod_VL1IhfQkbh15q2" },
-    { id: "time-token-12h", sizeId: "12h", name: "Twelve-Hour Token", priceUsd: 9.99, providerSkuId: "prod_VL1IEaKNpi2sXz" },
-    { id: "time-token-24h", sizeId: "24h", name: "Day Token", priceUsd: 14.99, providerSkuId: "prod_VL1IvxuGGlgwN2" },
-    { id: "time-token-48h", sizeId: "48h", name: "Two-Day Token", priceUsd: 24.99, providerSkuId: "prod_VL1IdZr899TCNt" },
+    { id: "time-token-30m", sizeId: "30m", name: "Half-Hour Token", priceUsd: 2.99, providerSkuId: "time-token-30m" },
+    { id: "time-token-1h", sizeId: "1h", name: "One-Hour Token", priceUsd: 3.99, providerSkuId: "time-token-1h" },
+    { id: "time-token-8h", sizeId: "8h", name: "Eight-Hour Token", priceUsd: 7.99, providerSkuId: "time-token-8h" },
+    { id: "time-token-12h", sizeId: "12h", name: "Twelve-Hour Token", priceUsd: 9.99, providerSkuId: "time-token-12h" },
+    { id: "time-token-24h", sizeId: "24h", name: "Day Token", priceUsd: 14.99, providerSkuId: "time-token-24h" },
+    { id: "time-token-48h", sizeId: "48h", name: "Two-Day Token", priceUsd: 24.99, providerSkuId: "time-token-48h" },
   ]));
 
 // =========================================================== §B the floor
@@ -407,7 +404,7 @@ check("total held time counts a SOLD size too (it is a held thing like any other
 
 // =========================================================== §E the sell half
 section("E \u00b7 THE SELL HALF \u2014 six sizes offered, 1m/5m refused, every sale refused by name today");
-const monSrc = fs.readFileSync("/home/team/shared/site/src/game/monetization.ts", "utf8");
+const monSrc = fs.readFileSync("/home/hatch/workspace/deepspace-engine/site/src/game/monetization.ts", "utf8");
 const monCode = monSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 // ---- the record, both halves ----
 check("the tripwire list NO LONGER bans the words for what we sell (\"speed-up\"/\"speedup\" are gone)",
@@ -420,8 +417,8 @@ check("and the WAR-HARDWARE terms are untouched: plasma, armory, weapon, trebuch
 check("the earn-only tripwire still exists as code (FORBIDDEN_POWER_TERMS + assertCatalogFair)",
   /FORBIDDEN_POWER_TERMS/.test(monCode) && /export function assertCatalogFair/.test(monCode));
 check("the armory's earn-only claim is still stated in the engine and the api",
-  /EARN-ONLY/.test(fs.readFileSync("/home/team/shared/site/src/game/engine.ts", "utf8"))
-  && /EARN-ONLY/.test(fs.readFileSync("/home/team/shared/site/src/game/api.ts", "utf8")));
+  /EARN-ONLY/.test(fs.readFileSync("/home/hatch/workspace/deepspace-engine/site/src/game/engine.ts", "utf8"))
+  && /EARN-ONLY/.test(fs.readFileSync("/home/hatch/workspace/deepspace-engine/site/src/game/api.ts", "utf8")));
 // ---- the tripwire's own three controls: widened, not weakened ----
 function probePack(name: string, blurb: string, playEquivalent: string) {
   return { id: "probe_pack", name, blurb, playEquivalent, priceUsd: 4.99, providerSkuId: "",
@@ -471,7 +468,7 @@ check("NOW THE STRIPE PRODUCTS EXIST: all six are OFFERED \u2014 the referee ret
   SELLABLE_TIME_TOKEN_SIZES.map((s) => `${s}:${JSON.stringify(timeTokenSaleRefusal(s))}`).join(" "));
 // WIDENED, NOT WEAKENED: filling the ids removed the "every size is refused"
 // state, so the refusal it proved is re-proved on a planted UNSET id \u2014 the row
-// still cannot be sold without a Stripe object, by name, with both facts in it.
+// still cannot be sold without an Xsolla SKU, by name, with both facts in it.
 check("…while a row whose product id is UNSET is STILL refused by name (the control for that removal)",
   (() => {
     const row = TIME_TOKEN_PACKS.find((p) => p.sizeId === "8h")!;
@@ -484,38 +481,39 @@ check("…while a row whose product id is UNSET is STILL refused by name (the co
   })());
 check("the set of sizes actually sellable is exactly the six (read from the rows, not assumed)",
   sellableTimeTokenSizes().join(",") === SELLABLE_TIME_TOKEN_SIZES.join(","), sellableTimeTokenSizes().join(","));
-check("a link-table row exists for all six \u2014 that is the RECOGNITION path (metadata/plink/price/product ids)",
+check("a catalog row exists for all six \u2014 that is the RECOGNITION path (the webhook maps items[].sku back through it)",
   SELLABLE_TIME_TOKEN_SIZES.every((s) => {
-    const r = paymentLinkRow(timeTokenPackId(s));
-    return !!r && /^plink_/.test(r.paymentLinkId) && /^price_/.test(r.priceId) && /^prod_/.test(r.productId ?? "");
+    const r = xsollaCatalogRow(timeTokenPackId(s));
+    return !!r && r.skuId === timeTokenPackId(s) && r.amountUsd === timeTokenPriceUsd(s);
   }),
-  PAYMENT_LINKS.filter((r) => r.skuId.startsWith("time-token-")).map((r) => r.skuId).join(",") || "(none)");
-check("…and the three token resolvers answer for every one of the six (nothing is recognised by accident)",
+  XSOLLA_CATALOG.filter((r) => r.skuId.startsWith("time-token-")).map((r) => r.skuId).join(",") || "(none)");
+check("…and the SKU resolver answers for every one of the six (nothing is recognised by accident)",
   SELLABLE_TIME_TOKEN_SIZES.every((s) => {
-    const r = paymentLinkRow(timeTokenPackId(s))!;
-    return skuForMetadataSku(r.skuId) === r.skuId && skuForPriceId(r.priceId) === r.skuId && skuForProductId(r.productId) === r.skuId
-      && skuForProductId("prod_not_ours") === null && skuForPriceId("price_not_ours") === null;
+    const r = xsollaCatalogRow(timeTokenPackId(s))!;
+    return skuForXsollaSku(r.skuId) === r.skuId
+      && skuForXsollaSku("not_our_sku") === null && skuForXsollaSku("") === null && skuForXsollaSku(null) === null;
   }));
 // THE HONEST SURFACE ANSWER, asserted rather than asserted-in-prose: six rows
-// exist and NOT ONE has a url, so no token is buyable and checkout refuses.
-check("NOT ONE token row carries a url \u2014 there is no buy surface for a token today",
-  PAYMENT_LINKS.filter((r) => r.skuId.startsWith("time-token-")).every((r) => r.url === ""),
-  PAYMENT_LINKS.filter((r) => r.skuId.startsWith("time-token-")).map((r) => `${r.skuId}:${r.url || "(no url)"}`).join(" "));
-check("…so no token is sellable and checkout refuses for every one of the six",
-  SELLABLE_TIME_TOKEN_SIZES.every((s) => !isSellable(timeTokenPackId(s)) && checkoutUrl(timeTokenPackId(s), "acct") === null)
+// exist and NOT ONE is on sale \u2014 the sell switch is off for every token, so no
+// token is buyable and the token mint refuses.
+check("NOT ONE token row is on sale \u2014 the six are recognised but the sell switch is off (no token shop surface yet)",
+  XSOLLA_CATALOG.filter((r) => r.skuId.startsWith("time-token-")).every((r) => r.enabled === false),
+  XSOLLA_CATALOG.filter((r) => r.skuId.startsWith("time-token-")).map((r) => `${r.skuId}:${r.enabled}`).join(" "));
+check("…so no token is sellable for every one of the six",
+  SELLABLE_TIME_TOKEN_SIZES.every((s) => !isSellable(timeTokenPackId(s)))
   && sellableSkus().every((s) => !s.startsWith("time-token-")));
-check("NEGATIVE CONTROL \u00b7 the URL is the gate: a planted url makes a token buyable, and removing it restores the refusal",
+check("NEGATIVE CONTROL \u00b7 the sell switch is the gate: flipping a token's enabled makes it sellable, and flipping it back restores the refusal",
   (() => {
-    const row = paymentLinkRow("time-token-8h")!;
-    row.url = "https://buy.stripe.com/test_token_planted";
-    const becameBuyable = isSellable("time-token-8h") && checkoutUrl("time-token-8h", "acct") !== null;
-    row.url = "";
-    return becameBuyable && !isSellable("time-token-8h") && checkoutUrl("time-token-8h", "acct") === null;
+    const row = xsollaCatalogRow("time-token-8h")!;
+    row.enabled = true;
+    const becameSellable = isSellable("time-token-8h") && sellableSkus().includes("time-token-8h");
+    row.enabled = false;
+    return becameSellable && !isSellable("time-token-8h") && !sellableSkus().includes("time-token-8h");
   })());
 check("THE STOREFRONT IS STILL OFF \u2014 this slice did not flip the switch",
   MONETIZATION_CONFIG.storefrontEnabled === false);
 check("…and BOTH purchase handlers are still gated on it (no way around the switch)",
-  (fs.readFileSync("/home/team/shared/site/src/game/api.ts", "utf8").match(/storefrontEnabled\)/g) ?? []).length >= 2);
+  (fs.readFileSync("/home/hatch/workspace/deepspace-engine/site/src/game/api.ts", "utf8").match(/storefrontEnabled\)/g) ?? []).length >= 2);
 // ---- the earned door cannot conjure what is sold ----
 check("the EARNED grant door REFUSES a sellable size \u2014 no free 8h token",
   (() => {
@@ -544,16 +542,16 @@ section("I \u00b7 THE PURCHASE DOOR \u2014 the entitlement a verified purchase l
 check("every one of the six is GRANTABLE through the purchase door, one held token each",
   SELLABLE_TIME_TOKEN_SIZES.every((s) => {
     const st = mk();
-    const g = grantSoldTimeToken(st, s, `purch:cs_${s}`, `Purchased token ${s} (Stripe session cs_${s})`, NOW);
+    const g = grantSoldTimeToken(st, s, `purch:cs_${s}`, `Purchased token ${s} (Xsolla order ${s})`, NOW);
     return g.ok && heldTimeTokens(st, s) === 1;
   }));
 check("the grant is RECORDED in the ledger, with its size, its amount and the session it came from",
   (() => {
     const st = mk();
-    grantSoldTimeToken(st, "8h", "purch:cs_test_8h", "Purchased Eight-Hour Token (Stripe session cs_test_8h)", NOW);
+    grantSoldTimeToken(st, "8h", "purch:87654008", "Purchased Eight-Hour Token (Xsolla order 87654008)", NOW);
     const rows = st.timeTokenLedger ?? [];
     return rows.length === 1 && rows[0].kind === "earn" && rows[0].sizeId === "8h" && rows[0].amount === 1
-      && rows[0].eventId === "purch:cs_test_8h" && /cs_test_8h/.test(rows[0].reason);
+      && rows[0].eventId === "purch:87654008" && /87654008/.test(rows[0].reason);
   })());
 check("it REFUSES the two EARNED sizes by name \u2014 the two doors cannot reach each other's sizes",
   (() => {
@@ -573,8 +571,8 @@ check("…and it refuses an unknown size and a request with no eventId",
 check("IDEMPOTENT: a replayed purchase (same session id) pays ONCE and says it was already paid",
   (() => {
     const st = mk();
-    const first = grantSoldTimeToken(st, "24h", "purch:cs_replay", "Purchased Day Token (Stripe session cs_replay)", NOW);
-    const again = grantSoldTimeToken(st, "24h", "purch:cs_replay", "Purchased Day Token (Stripe session cs_replay)", NOW);
+    const first = grantSoldTimeToken(st, "24h", "purch:87654240", "Purchased Day Token (Xsolla order 87654240)", NOW);
+    const again = grantSoldTimeToken(st, "24h", "purch:87654240", "Purchased Day Token (Xsolla order 87654240)", NOW);
     return first.ok && !first.idempotent && again.ok && again.idempotent === true
       && heldTimeTokens(st, "24h") === 1 && (st.timeTokenLedger ?? []).length === 1;
   })());
@@ -623,8 +621,8 @@ check("the earn door and the purchase door are DISJOINT on both sides (a sold si
 check("the PURCHASE PATH is where the catalogue reaches it: monetization routes a token SKU to this door",
   /grantSoldTimeToken\(/.test(monCode) && /TIME_TOKEN_PACK_BY_ID\[purchase\.skuId\]/.test(monCode));
 check("…and nothing on the EARNED side can reach it: neither daily.ts nor api.ts names the purchase door",
-  !/grantSoldTimeToken/.test(fs.readFileSync("/home/team/shared/site/src/game/daily.ts", "utf8"))
-  && !/grantSoldTimeToken/.test(fs.readFileSync("/home/team/shared/site/src/game/api.ts", "utf8")));
+  !/grantSoldTimeToken/.test(fs.readFileSync("/home/hatch/workspace/deepspace-engine/site/src/game/daily.ts", "utf8"))
+  && !/grantSoldTimeToken/.test(fs.readFileSync("/home/hatch/workspace/deepspace-engine/site/src/game/api.ts", "utf8")));
 
 // =========================================================== §F idempotency
 section("F \u00b7 IDEMPOTENCY \u2014 both ways");

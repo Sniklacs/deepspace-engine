@@ -30,9 +30,9 @@ import {
   MONETIZATION_CONFIG,
   walletView,
   purchaseWithVotives,
-  applyExternalPurchase,
   createPaymentProvider,
 } from "./monetization";
+import { isSellable, xsollaCatalogRow, xsollaReturnUrlFor } from "./payments/xsolla-catalog";
 import { dailyPublicView } from "./daily";
 import { timeTokensPublicView } from "./time-tokens";
 import {
@@ -1045,28 +1045,60 @@ const purchaseWithVotivesFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
-/** THE payment-provider seam (spec §7.3/§7.4): a webhook payload is handed to
- *  the provider for verification; ONLY a verified purchase is applied. The
- *  handler knows nothing about the provider — swap createPaymentProvider()
- *  (one factory in monetization.ts) when real payments are wired. Idempotent
- *  by purchaseId. Store gated until the owner flips the switch. */
-const confirmExternalPurchaseFn = createServerFn({ method: "POST" }).validator(
-  z.object({ token: z.string(), payload: z.unknown() })
-).handler(async ({ data }): Promise<GameResult> => {
+/** THE Xsolla checkout seam: mints a Pay Station token server-side for the
+ *  SIGNED-IN account and returns the URL the client navigates to.
+ *
+ *  The token binds the account (its encoded ref — the value the webhook echoes
+ *  back, which is what pins the credit to the right account) to one sellable
+ *  SKU at the catalog price. Nothing is granted here: the entitlement lands
+ *  only via the signature-verified Xsolla webhook. The API key never leaves
+ *  the server — it is read from the environment at call time.
+ *
+ *  Env: XSOLLA_PROJECT_ID, XSOLLA_API_KEY, XSOLLA_SANDBOX ("true"/"1" for the
+ *  sandbox Pay Station), XSOLLA_SITE_ORIGIN (optional canonical return host).
+ *  Store gated until the owner flips the switch. */
+const xsollaCheckoutFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), skuId: z.string(), origin: z.string().max(256).optional() })
+).handler(async ({ data }): Promise<GameResult & { url?: string }> => {
   const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
   if (!MONETIZATION_CONFIG.storefrontEnabled) {
-    return { ok: false, error: "Purchases are disabled during beta (§8.6)." };
+    return { ok: false, error: "The Cradle Market isn't open yet — purchases are disabled during beta (§8.6)." };
   }
-  const verified = await createPaymentProvider().verifyWebhook(data.payload);
-  if (!verified.ok || !verified.purchase) {
-    return { ok: false, error: verified.error ?? "Unverified purchase." };
+  if (!isSellable(data.skuId)) {
+    return { ok: false, error: "That item isn't for sale." };
   }
-  const st = await loadActiveState(accountId);
-  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const res = applyExternalPurchase(st, verified.purchase, Date.now());
-  if (res.state) await saveActiveState(accountId, res.state);
-  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+  const env = (typeof process !== "undefined" ? process.env : {}) as Record<string, string | undefined>;
+  const projectId = env.XSOLLA_PROJECT_ID?.trim();
+  const apiKey = env.XSOLLA_API_KEY?.trim();
+  if (!projectId || !apiKey) {
+    return { ok: false, error: "Checkout isn't wired yet — the till is still being connected." };
+  }
+  const sandbox = env.XSOLLA_SANDBOX === "true" || env.XSOLLA_SANDBOX === "1";
+  const row = xsollaCatalogRow(data.skuId)!;
+  const provider = createPaymentProvider({
+    projectId,
+    apiKey,
+    sandbox,
+    returnUrlFor: (skuId) =>
+      xsollaReturnUrlFor({
+        skuId,
+        origin: data.origin,
+        sandbox,
+        canonicalOrigin: env.XSOLLA_SITE_ORIGIN?.trim() || undefined,
+      }),
+  });
+  const intent = await provider.createIntent({
+    accountId,
+    skuId: data.skuId,
+    idempotencyKey: `checkout-${accountId}-${data.skuId}-${Date.now().toString(36)}`,
+    amountCents: Math.round(row.amountUsd * 100),
+    currency: "usd",
+  });
+  if (!intent.ok || !intent.url) {
+    return { ok: false, error: intent.error ?? "Checkout failed." };
+  }
+  return { ok: true, url: intent.url };
 });
 
 export {
@@ -1099,7 +1131,7 @@ export {
   claimDailyRewardFn,
   applyTimeTokenFn,
   purchaseWithVotivesFn,
-  confirmExternalPurchaseFn,
+  xsollaCheckoutFn,
   submitFeedbackFn,
   listMyFeedbackFn,
   dismissNoticeFn,

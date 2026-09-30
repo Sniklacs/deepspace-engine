@@ -21,9 +21,9 @@
 // and they live in `monetization.ts` — `TIME_TOKEN_PACKS`, one row per sellable
 // size, shaped exactly like `VOTIVE_PACKS`/`HEAD_START_PACKS` (id / sizeId / name /
 // priceUsd / providerSkuId). `TimeTokenPackDef.providerSkuId` is the column the
-// Stripe product id lands in, and it is FILLED as of 2026-09-27: the six products
-// exist live, and the id is read from `payments/payment-links.ts`, where it is
-// written once. `timeTokenSaleRefusal()` still refuses any size whose product id is
+// Xsolla SKU lands in, and it is FILLED as of 2026-09-30: the six catalog rows
+// exist, and the SKU is read from `payments/xsolla-catalog.ts`, where it is
+// written once. `timeTokenSaleRefusal()` still refuses any size whose SKU is
 // missing, BY NAME, rather than defaulting or silently selling.
 // `time-token-tests` §A asserts this file's CODE still defines no price, product,
 // checkout or purchase object.
@@ -33,7 +33,7 @@
 // `grantTimeToken` is the EARNED door (the Devotion's `1m`/`5m`) and REFUSES a
 // sellable size by name; `grantSoldTimeToken` is the PURCHASE door (the six
 // sellable sizes) and refuses an earned one. Only `monetization.ts`
-// `applyExternalPurchase()`, behind a signature-verified Stripe session, reaches
+// `applyExternalPurchase()`, behind a signature-verified Xsolla order, reaches
 // the second — and both doors pay the same held tokens, spent by the same
 // `applyTimeToken`, bounded by the same floor. `MONETIZATION_CONFIG.storefrontEnabled`
 // stays false, and every purchase route stays gated on it (api.ts). The catalogue's
@@ -272,7 +272,7 @@ export function grantTimeToken(
  * ever be widened into the other, and `time-token-tests` §I asserts both refusals.
  *
  * WHO CALLS IT: `monetization.ts` `applyExternalPurchase()`, and only from there —
- * a signature-verified Stripe session is the sole thing that reaches this door.
+ * a signature-verified Xsolla order is the sole thing that reaches this door.
  *
  * WHAT IT GRANTS: ONE held token of that size, in the SAME holdings an earned
  * token lands in, spendable through the SAME `applyTimeToken` and therefore
@@ -282,7 +282,7 @@ export function grantTimeToken(
  * from an earned token is which door it came through and what the ledger says.
  *
  * IDEMPOTENT BY `eventId`, exactly as the earned door is: the purchase path passes
- * `purch:<Stripe session id>`, so a re-delivered webhook is a no-op flagged
+ * `purch:<Xsolla transaction id>`, so a re-delivered webhook is a no-op flagged
  * `idempotent: true` and never a second token.
  */
 export function grantSoldTimeToken(

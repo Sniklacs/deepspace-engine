@@ -73,7 +73,7 @@ import { ensureTimeTokens } from "./time-tokens";
 // MIN_TIMER_FRACTION the earned modifier stack uses. Since the owner's signed
 // ruling of 2026-09-27 six sizes ARE sold — their prices and product ids live in
 // monetization.ts (`TIME_TOKEN_PACKS`) — and nothing in THIS module sells anything:
-// the sell-side entitlement lands with the Stripe products and the storefront
+// the sell-side entitlement lands with the Xsolla catalog rows and the storefront
 // switch, both still absent (time-tokens.ts carries the whole record).
 export { applyTimeToken, grantTimeToken, heldTimeTokens, TIME_TOKEN_SIZES } from "./time-tokens";
 

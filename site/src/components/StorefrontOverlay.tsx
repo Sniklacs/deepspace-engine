@@ -44,7 +44,8 @@ import {
   type HeadStartPackDef,
   type VotivePackDef,
 } from "../game/monetization";
-import { checkoutUrl, isSellable } from "../game/payments/payment-links";
+import { isSellable } from "../game/payments/xsolla-catalog";
+import { xsollaCheckoutFn } from "../game/api";
 import { savePurchaseIntent, walletSignature } from "../game/payments/purchase-intent";
 import type { GameState, CosmeticSlot } from "../game/types";
 
@@ -160,7 +161,7 @@ function PackCard({
   onBuy: (skuId: string) => void;
 }) {
   const t = useT();
-  // A SKU with no Stripe link configured is NEVER presented as buyable, and a
+  // A SKU with no Xsolla catalog row configured is NEVER presented as buyable, and a
   // signed-out player has no account to attach to a purchase — so the control
   // stays locked and says why.
   const buyable = storeOpen && signedIn && isSellable(pack.id);
@@ -216,7 +217,7 @@ function PackCard({
   );
 }
 
-/** Votive packs — real money, bought through a Stripe Payment Link. Rendered as
+/** Votive packs — real money, bought through Xsolla Pay Station. Rendered as
  *  part of the seam whether or not the store is open (consistent with the rest
  *  of the ledger); the buy control appears only when the store is open, the
  *  player is signed in, and that SKU's link is configured. */
@@ -279,7 +280,7 @@ function VotiveCard({
 }
 
 /** The post-purchase return state. It NEVER grants anything: the entitlement
- *  arrives from the Stripe webhook, and this panel only re-reads the wallet the
+ *  arrives from the Xsolla webhook, and this panel only re-reads the wallet the
  *  server already holds. A forged return URL therefore buys nothing — the worst
  *  it can do is show "not confirmed yet". */
 function PurchaseReturnPanel({ view }: { view: PurchaseReturnView }) {
@@ -385,6 +386,7 @@ export function StorefrontOverlay({
   open,
   onClose,
   accountId = null,
+  token = null,
   purchaseReturn = null,
 }: {
   state: GameState;
@@ -394,6 +396,9 @@ export function StorefrontOverlay({
    *  means signed out, and a signed-out player cannot start a purchase (there
    *  would be nobody to grant it to). */
   accountId?: string | null;
+  /** The session token — the server mints the Xsolla checkout token for the
+   *  account this token resolves to, so checkout needs it, not just the id. */
+  token?: string | null;
   purchaseReturn?: PurchaseReturnView | null;
 }) {
   const t = useT();
@@ -405,19 +410,23 @@ export function StorefrontOverlay({
   const hasWallet = !!state.currency;
 
   /**
-   * OPEN THE PAYMENT LINK — the entire client half of the money path.
+   * OPEN CHECKOUT — the entire client half of the money path.
    *
-   * The Stripe Payment Link is opened with `client_reference_id` set to this
-   * account, in the SAME tab so Stripe's `after_completion` redirect returns the
-   * player into /play carrying {CHECKOUT_SESSION_ID}. Nothing is granted here:
-   * the entitlement is applied by the signature-verified webhook, which is the
-   * only writer. If the SKU has no link, or there is no account to attach, this
-   * refuses rather than opening a link that would take money for nobody.
+   * The server mints an Xsolla Pay Station token bound to this account and
+   * hands back the URL; the client navigates there in the SAME tab so Xsolla's
+   * return URL brings the player back into /play carrying the purchase-return
+   * marker. Nothing is granted here: the entitlement is applied by the
+   * signature-verified webhook, which is the only writer. If the SKU is not
+   * sellable, or there is no session to mint for, this refuses rather than
+   * starting a checkout that would take money for nobody.
    */
-  const buy = (skuId: string) => {
-    const url = checkoutUrl(skuId, accountId);
-    if (!url) {
-      console.warn(`[storefront] refused to open a checkout link for ${skuId}: no link configured or no account reference`);
+  const buy = async (skuId: string) => {
+    if (!isSellable(skuId)) {
+      console.warn(`[storefront] refused checkout for ${skuId}: not sellable`);
+      return;
+    }
+    if (!token) {
+      console.warn(`[storefront] refused checkout for ${skuId}: not signed in`);
       return;
     }
     // A private note to self about what the wallet looked like at the click, so
@@ -428,7 +437,22 @@ export function StorefrontOverlay({
       signature: walletSignature(state),
       at: Date.now(),
     });
-    window.location.assign(url);
+    try {
+      const res = await xsollaCheckoutFn({
+        data: {
+          token,
+          skuId,
+          origin: typeof window === "undefined" ? undefined : window.location.origin,
+        },
+      });
+      if (res.ok && res.url) {
+        window.location.assign(res.url);
+      } else {
+        console.warn(`[storefront] checkout failed for ${skuId}: ${res.error ?? "unknown error"}`);
+      }
+    } catch (err) {
+      console.warn(`[storefront] checkout threw for ${skuId}: ${(err as Error)?.message ?? err}`);
+    }
   };
 
   return (
@@ -460,7 +484,7 @@ export function StorefrontOverlay({
         {/* ---- Back from a purchase: the webhook decides, this only re-reads ---- */}
         {purchaseReturn && <PurchaseReturnPanel view={purchaseReturn} />}
 
-        {/* ---- Votives (real money, Stripe Payment Links) ---- */}
+        {/* ---- Votives (real money, Xsolla Pay Station) ---- */}
         <div className="pt-5">
           <SectionHeading>{t("store.votivesHeading", "Votives")}</SectionHeading>
           <p className="mt-1 text-xs text-text-2">

@@ -372,7 +372,7 @@ export const en: Catalogue = {
   "translator.notReady": "Translation is preparing",
   "translator.translate": "Translate",
   "translator.original": "Show original",
-  // ---- the Cradle Market (real money: Stripe Payment Links + signed webhook) ----
+  // ---- the Cradle Market (real money: Xsolla Pay Station + signed webhook) ----
   // 13 keys, added by the payments slice: the buy control, the honest reasons it can
   // be locked, and the post-purchase panel. Copy carries NO limitation language.
   "store.buy": "Buy",

@@ -81,8 +81,8 @@ export function isolateLtr(text: string): string {
  * decimal point, never a currency symbol (the caller owns the `$`).
  *
  * WHY IT TAKES NO LANGUAGE (2026-09-28): a price is the INSTRUMENT's own
- * convention, not the reader's. All thirteen live Stripe objects are in US
- * dollars, the price table in `game/monetization.ts` has to match Stripe to the
+ * convention, not the reader's. All thirteen live Xsolla catalog items are in US
+ * dollars, the price table in `game/monetization.ts` has to match Xsolla to the
  * cent, and a published price that re-grouped itself per UI language
  * ("1.234,56" in Spanish, "1 234,56" in Russian) would be a different string on
  * every screen for the same charge. So it pins the dollar's own presentation

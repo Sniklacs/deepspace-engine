@@ -2,25 +2,29 @@
 //
 // WHAT THIS SUITE IS TRYING TO PROVE, and why each part exists:
 //   §1  the SIGNATURE is what makes a payload real — valid accepted, tampered
-//       body / wrong secret / stale timestamp / missing header all refused;
-//   §2  the EVENT maps to a purchase only when it is the right type, PAID, a
-//       known SKU, the right amount, and a reference that names an account;
+//       body / wrong secret / missing / malformed header all refused;
+//   §2  the EVENT maps to a purchase only when it is order_paid, a single
+//       item, a known SKU, the right USD amount, and a user reference that
+//       names an account (user_validation answers separately; anything else
+//       is ignored, never granted);
 //   §3  an account reference survives any username a player can pick (Persian,
 //       spaces) and a forged one names nobody;
 //   §4  the ROUTE grants exactly once, into the active colony, through the real
-//       store (scratch cwd, fs backend) — including replay and every refusal;
-//   §5  the wiring: the factory no longer returns the stub, every sellable SKU is
-//       pinned to the game's own catalogue, an unconfigured SKU cannot be bought,
-//       the two servers answer on one path, and the client cannot import the
-//       server handler.
+//       store (scratch cwd, fs backend) — including replay, user_validation,
+//       cancellations, and every refusal;
+//   §5  the wiring: the factory returns the Xsolla provider, token minting is
+//       server-side and refuses honestly, every catalog row is pinned to the
+//       game's own catalogue, an unconfigured SKU cannot be bought, the two
+//       servers answer on one path, and the client cannot import the server
+//       handler.
 //
-// Run: cd /home/team/shared/payments-tests && env -u DATABASE_URL bun run payments-verify.ts
-import { createHmac } from "node:crypto";
+// Run: cd ~/workspace/deepspace-engine/payments-tests && env -u DATABASE_URL bun run payments-verify.ts
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const SITE = "/home/team/shared/site";
+const SITE = "/home/hatch/workspace/deepspace-engine/site";
 const read = (p: string) => readFileSync(`${SITE}/${p}`, "utf8");
 
 let pass = 0;
@@ -47,44 +51,43 @@ const ref = (await import(`${SITE}/src/game/payments/account-ref.ts`)) as {
   decodeAccountRef: (r: string | null | undefined) => string | null;
   ACCOUNT_REF_PREFIX: string;
 };
-const links = (await import(`${SITE}/src/game/payments/payment-links.ts`)) as {
-  PAYMENT_LINKS: Array<{ skuId: string; url: string; paymentLinkId: string; priceId: string; amountUsd: number; productId?: string }>;
-  checkoutUrl: (sku: string, accountId: string | null) => string | null;
+const catalog = (await import(`${SITE}/src/game/payments/xsolla-catalog.ts`)) as {
+  XSOLLA_CATALOG: Array<{ skuId: string; amountUsd: number; enabled: boolean }>;
+  xsollaCatalogRow: (sku: string) => { skuId: string; amountUsd: number; enabled: boolean } | null;
+  xsollaReturnUrl: (origin: string, skuId: string) => string;
+  xsollaReturnUrlFor: (input: { skuId: string; origin?: string; sandbox?: boolean; canonicalOrigin?: string }) => string | null;
   isSellable: (sku: string) => boolean;
   sellableSkus: () => string[];
-  skuForMetadataSku: (s: string | null | undefined) => string | null;
-  skuForPaymentLinkId: (s: string | null | undefined) => string | null;
-  skuForPriceId: (s: string | null | undefined) => string | null;
-  skuForProductId: (s: string | null | undefined) => string | null;
-  paymentLinkRow: (sku: string) => { skuId: string; url: string; productId?: string } | null;
-  afterCompletionUrl: (origin: string, sku: string) => string;
-  STRIPE_WEBHOOK_PATH?: string;
+  xsollaSkuFor: (sku: string) => string;
+  skuForXsollaSku: (s: string | null | undefined) => string | null;
+  XSOLLA_WEBHOOK_PATH?: string;
 };
-const verifier = (await import(`${SITE}/src/game/payments/stripe-webhook.ts`)) as {
-  verifyStripeEvent: (input: {
+const verifier = (await import(`${SITE}/src/game/payments/xsolla-webhook.ts`)) as {
+  verifyXsollaEvent: (input: {
     rawBody: string;
     signatureHeader: string | null;
-    secret: string | null;
+    secret: string | null | undefined;
     now?: number;
-    toleranceSeconds?: number;
   }) => Promise<{ kind: string; [k: string]: unknown }>;
-  verifyStripeSignature: (input: {
+  verifyXsollaSignature: (input: {
     rawBody: string;
-    signatureHeader: string | null;
+    signatureHeader: string | null | undefined;
     secret: string;
-    now?: number;
-    toleranceSeconds?: number;
   }) => Promise<{ ok: boolean; code?: string }>;
-  hmacHex: (secret: string, message: string) => Promise<string>;
-  skuForSession: (session: Record<string, unknown>) => { skuId: string | null; recognition: string };
+  xsollaSignatureHex: (rawBody: string, secret: string) => Promise<string>;
+  parseSignatureHeader: (h: string | null | undefined) => string | null;
 };
-const provider = (await import(`${SITE}/src/game/payments/stripe-provider.ts`)) as {
-  createStripePaymentProvider: (o?: { signingSecret?: string | null }) => {
+const providerMod = (await import(`${SITE}/src/game/payments/xsolla-provider.ts`)) as {
+  createXsollaPaymentProvider: (o?: Record<string, unknown>) => {
     name: string;
-    verifyWebhook: (p: unknown) => Promise<{ ok: boolean; purchase?: { skuId: string; accountId: string }; error?: string }>;
-    createIntent: (i: unknown) => Promise<{ ok: boolean; error?: string }>;
+    createIntent: (i: { accountId: string; skuId: string; idempotencyKey: string; amountCents: number; currency: string }) => Promise<{ ok: boolean; url?: string; intentId?: string; error?: string }>;
+    verifyWebhook: (p: unknown) => Promise<{ ok: boolean; error?: string }>;
     refund: (o: { purchaseId: string; reason: string }) => Promise<{ ok: boolean; error?: string }>;
   };
+  mintXsollaPaymentToken: (input: Record<string, unknown>) => Promise<{ ok: boolean; token?: string; orderId?: number; payUrl?: string; error?: string }>;
+  xsollaBasicAuth: (projectId: string, apiKey: string) => string;
+  XSOLLA_PAY_STATION_URL: string;
+  XSOLLA_PAY_STATION_SANDBOX_URL: string;
 };
 const intent = (await import(`${SITE}/src/game/payments/purchase-intent.ts`)) as {
   walletSignature: (w: unknown) => string;
@@ -95,23 +98,26 @@ const intent = (await import(`${SITE}/src/game/payments/purchase-intent.ts`)) as
   PURCHASE_INTENT_TTL_MS: number;
 };
 const monetization = (await import(`${SITE}/src/game/monetization.ts`)) as {
-  createPaymentProvider: (o?: { signingSecret?: string | null }) => { name: string; verifyWebhook: (p: unknown) => Promise<{ ok: boolean; error?: string }> };
+  createPaymentProvider: (o?: Record<string, unknown>) => { name: string };
   VOTIVE_PACKS: Array<{ id: string; name: string; votives: number; bonus: number; priceUsd: number }>;
-  HEAD_START_PACKS: Array<{ id: string; name: string; priceUsd: number }>;
-  COSMETICS: Array<{ id: string }>;
+  HEAD_START_PACKS: Array<{ id: string; name: string; priceUsd: number; blurb: string; playEquivalent: string; grants: Array<{ kind: string; key?: string; currency?: string; itemId?: string; vehicleId?: string; note: string }> }>;
+  COSMETICS: Array<{ id: string; name: string; blurb: string }>;
+  COSMETIC_BY_ID: Record<string, { blurb: string }>;
   TIME_TOKEN_PACKS: Array<{ id: string; sizeId: string; name: string; priceUsd: number; providerSkuId: string }>;
   MONETIZATION_CONFIG: { storefrontEnabled: boolean };
+  assertCatalogFair: () => void;
 };
 // Server-only + store-backed: imported AFTER the chdir so the fs store lands in
 // the scratch directory.
 const route = (await import(`${SITE}/src/game/payments/webhook-route.ts`)) as {
-  STRIPE_WEBHOOK_PATH: string;
-  STRIPE_WEBHOOK_SECRET_ENV: string;
+  XSOLLA_WEBHOOK_PATH: string;
+  XSOLLA_WEBHOOK_SECRET_ENV: string;
   readWebhookSecret: (env?: Record<string, string | undefined>) => string | null;
-  handleStripeWebhookRequest: (input: { rawBody: string; signatureHeader: string | null; now?: number; secret?: string | null }) => Promise<{
+  handleXsollaWebhookRequest: (input: { rawBody: string; signatureHeader: string | null; now?: number; secret?: string | null }) => Promise<{
     status: number;
-    body: Record<string, unknown>;
+    body: Record<string, unknown> | null;
   }>;
+  webhookResponse: (r: { status: number; body: Record<string, unknown> | null }) => Response;
 };
 const store = (await import(`${SITE}/src/game/store.ts`)) as {
   loadAccounts: () => Promise<Record<string, unknown>>;
@@ -125,220 +131,231 @@ const engine = (await import(`${SITE}/src/game/engine.ts`)) as {
 };
 
 // ---------------------------------------------------------------------------
-// signing helpers — node's own HMAC, so the verifier is checked against an
-// implementation it does not share code with.
+// signing helpers — node's own SHA-1, so the verifier is checked against an
+// implementation it does not share code with. Xsolla's scheme: lowercase hex
+// of SHA-1 over (rawBody + secretKey) — plain hash, NOT HMAC.
 // ---------------------------------------------------------------------------
-const SECRET = "whsec_test_5f2a1c0d9e8b7a6f";
+const SECRET = "test_secret_key_5f2a1c0d9e8b7a6f";
 const REF = ref.encodeAccountRef("payer");
 
-function sign(rawBody: string, secret = SECRET, atSeconds = Math.floor(Date.now() / 1000)): string {
-  const mac = createHmac("sha256", secret).update(`${atSeconds}.${rawBody}`, "utf8").digest("hex");
-  return `t=${atSeconds},v1=${mac}`;
+function sign(rawBody: string, secret = SECRET): string {
+  const hex = createHash("sha1").update(rawBody + secret, "utf8").digest("hex");
+  return `Signature ${hex}`;
 }
 
-let sessionCounter = 0;
-interface SessionOpts {
-  sku?: string | null;
-  amount?: number;
+let orderCounter = 0;
+interface OrderOpts {
+  skus?: (string | null)[];
+  amount?: string | null;
+  billingAmount?: number | null;
   currency?: string;
-  paymentStatus?: string;
-  accountRef?: string | null;
+  userRef?: string | null;
+  userId?: string | null;
+  customRef?: string | null;
   type?: string;
-  created?: number;
-  paymentLink?: string | null;
-  lineItemPrice?: string | null;
-  /** The line item's `price.product` — the FOURTH recognition path, added with
-   *  the time tokens (2026-09-27). */
-  lineItemProduct?: string | null;
+  mode?: string;
+  dryRun?: boolean;
+  paymentDate?: string | null;
+  txId?: number | string | null;
   omitAmount?: boolean;
+  omitUser?: boolean;
+  omitItems?: boolean;
 }
-function sessionBody(opts: SessionOpts = {}): { body: string; sessionId: string } {
-  sessionCounter++;
-  const sessionId = `cs_test_${sessionCounter}`;
-  const session: Record<string, unknown> = {
-    id: sessionId,
-    object: "checkout.session",
-    payment_status: opts.paymentStatus ?? "paid",
-    currency: opts.currency ?? "usd",
-    client_reference_id: opts.accountRef === undefined ? REF : opts.accountRef,
-    metadata: opts.sku ? { sku: opts.sku } : {},
+function orderBody(opts: OrderOpts = {}): { body: string; txId: string } {
+  orderCounter++;
+  const n = orderCounter;
+  const txId = opts.txId === undefined ? 87654000 + n : opts.txId;
+  const skus = opts.skus === undefined ? ["votive-small"] : opts.skus;
+  const amount = opts.amount === undefined ? "4.99" : opts.amount;
+  const order: Record<string, unknown> = {
+    id: 4567000 + n,
+    mode: opts.mode ?? "default",
+    currency: opts.currency ?? "USD",
+    status: "paid",
+    invoice_id: `inv_${n}`,
   };
-  if (!opts.omitAmount) session.amount_total = opts.amount ?? 499;
-  if (opts.paymentLink) session.payment_link = opts.paymentLink;
-  if (opts.lineItemPrice || opts.lineItemProduct) {
-    const price: Record<string, unknown> = {};
-    if (opts.lineItemPrice) price.id = opts.lineItemPrice;
-    if (opts.lineItemProduct) price.product = opts.lineItemProduct;
-    session.line_items = { object: "list", data: [{ price }] };
+  if (!opts.omitAmount && amount !== null) order.amount = amount;
+  const body: Record<string, unknown> = {
+    notification_type: opts.type ?? "order_paid",
+    order,
+    custom_parameters: { dse_account_ref: opts.customRef ?? null, dse_sku: skus[0] ?? null },
+    billing: {
+      transaction: {
+        id: txId,
+        payment_date: opts.paymentDate === undefined ? "2026-09-30T12:00:00+00:00" : opts.paymentDate,
+        dry_run: opts.dryRun ? 1 : 0,
+      },
+      purchase: { total: { amount: opts.billingAmount ?? null, currency: opts.currency ?? "USD" } },
+    },
+  };
+  if (!opts.omitItems) body.items = skus.map((s) => ({ sku: s, quantity: 1 }));
+  if (!opts.omitUser) {
+    body.user = {
+      external_id: opts.userRef === undefined ? REF : opts.userRef,
+      email: "payer@example.com",
+      country: "US",
+    };
+    if (opts.userId !== undefined) (body.user as Record<string, unknown>).id = opts.userId;
   }
-  const body = JSON.stringify({
-    id: `evt_${sessionCounter}`,
-    object: "event",
-    type: opts.type ?? "checkout.session.completed",
-    created: opts.created ?? Math.floor(Date.now() / 1000),
-    livemode: false,
-    data: { object: session },
-  });
-  return { body, sessionId };
+  return { body: JSON.stringify(body), txId: String(txId) };
 }
 
-async function decide(rawBody: string, header: string | null, secret: string | null = SECRET) {
-  return verifier.verifyStripeEvent({ rawBody, signatureHeader: header, secret });
+function validationBody(userRef: string | null): string {
+  return JSON.stringify({
+    notification_type: "user_validation",
+    user: { id: userRef, email: "payer@example.com", country: "US" },
+    settings: { project_id: 12345 },
+  });
+}
+
+async function decide(rawBody: string, header: string | null, secret: string | null | undefined = SECRET) {
+  return verifier.verifyXsollaEvent({ rawBody, signatureHeader: header, secret });
 }
 
 // ===========================================================================
 console.log("— 1 · the signature is what makes a payload real —");
 {
-  const known = await verifier.hmacHex(SECRET, "1700000000.hello");
-  const expected = createHmac("sha256", SECRET).update("1700000000.hello", "utf8").digest("hex");
-  check("our HMAC matches node's HMAC byte for byte (Web Crypto vs OpenSSL)", known === expected, known.slice(0, 12));
+  const known = await verifier.xsollaSignatureHex("hello", SECRET);
+  const expected = createHash("sha1").update("hello" + SECRET, "utf8").digest("hex");
+  check("our SHA-1 matches node's SHA-1 byte for byte (Web Crypto vs OpenSSL)", known === expected, known.slice(0, 12));
+  check("the scheme is plain SHA-1 over body+secret, NOT an HMAC", known !== createHash("sha256").update("hello" + SECRET, "utf8").digest("hex"));
 
-  const { body } = sessionBody({ sku: "votive-small" });
-  check("a correctly signed event verifies", (await verifier.verifyStripeSignature({ rawBody: body, signatureHeader: sign(body), secret: SECRET })).ok === true);
+  const { body } = orderBody();
+  check("a correctly signed event verifies", (await verifier.verifyXsollaSignature({ rawBody: body, signatureHeader: sign(body), secret: SECRET })).ok === true);
+  check("an UPPERCASE hex signature verifies too (the header is lowercased before comparing)", (await verifier.verifyXsollaSignature({ rawBody: body, signatureHeader: `Signature ${createHash("sha1").update(body + SECRET, "utf8").digest("hex").toUpperCase()}`, secret: SECRET })).ok === true);
   check(
     "a TAMPERED body is refused (the signature covers the exact bytes, not the parsed meaning)",
-    (await verifier.verifyStripeSignature({ rawBody: body.replace("votive-small", "votive-circuit"), signatureHeader: sign(body), secret: SECRET })).ok === false,
+    (await verifier.verifyXsollaSignature({ rawBody: body.replace("votive-small", "votive-circuit"), signatureHeader: sign(body), secret: SECRET })).ok === false,
   );
-  check("a WRONG SECRET is refused", (await verifier.verifyStripeSignature({ rawBody: body, signatureHeader: sign(body, "whsec_someone_elses"), secret: SECRET })).ok === false);
-  check("a MISSING header is refused", (await verifier.verifyStripeSignature({ rawBody: body, signatureHeader: null, secret: SECRET })).ok === false);
-  check("a malformed header is refused", (await verifier.verifyStripeSignature({ rawBody: body, signatureHeader: "nonsense", secret: SECRET })).ok === false);
-  const stale = Math.floor(Date.now() / 1000) - 3600;
-  const staleVerdict = await verifier.verifyStripeSignature({ rawBody: body, signatureHeader: sign(body, SECRET, stale), secret: SECRET });
-  check("a STALE timestamp (1h old) is refused", staleVerdict.ok === false && staleVerdict.code === "stale_timestamp");
-  const future = Math.floor(Date.now() / 1000) + 3600;
-  check("a timestamp far in the FUTURE is refused too", (await verifier.verifyStripeSignature({ rawBody: body, signatureHeader: sign(body, SECRET, future), secret: SECRET })).ok === false);
-  const edge = Math.floor(Date.now() / 1000) - 290;
-  check("a timestamp inside the 5-minute tolerance still verifies", (await verifier.verifyStripeSignature({ rawBody: body, signatureHeader: sign(body, SECRET, edge), secret: SECRET })).ok === true);
-  const twoSigs = `${sign(body, SECRET)},v1=${"a".repeat(64)}`;
-  check("a header carrying several v1 signatures accepts the matching one (Stripe rotates secrets)", (await verifier.verifyStripeSignature({ rawBody: body, signatureHeader: twoSigs, secret: SECRET })).ok === true);
+  check("a WRONG SECRET is refused", (await verifier.verifyXsollaSignature({ rawBody: body, signatureHeader: sign(body, "someone_elses_key"), secret: SECRET })).ok === false);
+  check("a MISSING header is refused", (await verifier.verifyXsollaSignature({ rawBody: body, signatureHeader: null, secret: SECRET })).ok === false);
+  check("a Bearer-style header is refused", (await verifier.verifyXsollaSignature({ rawBody: body, signatureHeader: "Bearer abc123", secret: SECRET })).ok === false);
+  check("a truncated hex signature is refused", (await verifier.verifyXsollaSignature({ rawBody: body, signatureHeader: "Signature deadbeef", secret: SECRET })).ok === false);
+  check("a non-hex signature is refused", (await verifier.verifyXsollaSignature({ rawBody: body, signatureHeader: `Signature ${"z".repeat(40)}`, secret: SECRET })).ok === false);
+  check("parseSignatureHeader returns null for shapes it cannot read", verifier.parseSignatureHeader(null) === null && verifier.parseSignatureHeader("Signature") === null && verifier.parseSignatureHeader("") === null);
 }
 
 // ===========================================================================
-console.log("— 2 · event → purchase: only the right event, PAID, known, correctly priced —");
+console.log("— 2 · event → purchase: only order_paid, one item, known, correctly priced —");
 {
-  const { body } = sessionBody({ sku: "votive-small", amount: 499 });
+  const { body, txId } = orderBody({ skus: ["votive-small"] });
   const d = await decide(body, sign(body));
-  check("a paid checkout.session.completed for a known SKU maps to an apply", d.kind === "apply");
-  check("it carries the SKU, the account, the amount and the session id as the purchase id", d.kind === "apply" && d["skuId"] === "votive-small" && d["accountId"] === "payer" && d["amountCents"] === 499 && d["purchaseId"] === "cs_test_" + sessionCounter);
-  check("the recognition path is recorded (metadata.sku here)", d.kind === "apply" && d["recognition"] === "metadata.sku");
+  check("a paid order_paid for a known SKU maps to an apply", d.kind === "apply");
+  check("it carries the SKU, the account, the amount and the transaction id as the purchase id",
+    d.kind === "apply" && d["skuId"] === "votive-small" && d["accountId"] === "payer" && d["amountCents"] === 499 && d["purchaseId"] === txId);
+  check("the recognition path is recorded (items[0].sku here)", d.kind === "apply" && d["recognition"] === "items[0].sku");
+  check("a live order is live mode", d.kind === "apply" && d["mode"] === "live");
 
-  const unpaid = sessionBody({ sku: "votive-small", paymentStatus: "unpaid" });
-  const du = await decide(unpaid.body, sign(unpaid.body));
-  check("an UNPAID session is ignored (async payment methods complete before they settle)", du.kind === "ignore" && String(du["reason"]).startsWith("not_paid"));
+  const test = orderBody({ mode: "sandbox" });
+  const dt = await decide(test.body, sign(test.body));
+  check("a sandbox order still applies, but is marked test (review before production)", dt.kind === "apply" && dt["mode"] === "test");
 
-  const other = sessionBody({ sku: "votive-small", type: "payment_intent.succeeded" });
-  const dt = await decide(other.body, sign(other.body));
-  check("an UNHANDLED event type is ignored, not refused (so Stripe stops re-delivering it)", dt.kind === "ignore" && dt["reason"] === "unhandled_event_type");
+  const dry = orderBody({ dryRun: true });
+  const dd = await decide(dry.body, sign(dry.body));
+  check("a dry_run transaction is marked test too", dd.kind === "apply" && dd["mode"] === "test");
 
-  const unknown = sessionBody({ sku: "votive-mega" });
+  const canceled = orderBody({ type: "order_canceled" });
+  const dc = await decide(canceled.body, sign(canceled.body));
+  check("order_canceled is ignored, not refused (it never grants and Xsolla stops re-delivering)", dc.kind === "ignore" && String(dc["reason"]).includes("order_canceled"));
+
+  const other = orderBody({ type: "payment_succeeded" });
+  const do_ = await decide(other.body, sign(other.body));
+  check("an UNHANDLED event type is ignored, not refused", do_.kind === "ignore" && String(do_["reason"]).startsWith("unhandled_notification:"));
+
+  const missingType = JSON.stringify({ order: { id: 1, amount: "4.99", currency: "USD" } });
+  const dm = await decide(missingType, sign(missingType));
+  check("an event with NO notification_type is ignored", dm.kind === "ignore" && dm["reason"] === "missing_notification_type");
+
+  const unknown = orderBody({ skus: ["votive-mega"] });
   const dn = await decide(unknown.body, sign(unknown.body));
   check("an UNKNOWN SKU is refused loudly (500) — money taken, nobody credited", dn.kind === "reject" && dn["status"] === 500 && dn["code"] === "unknown_sku");
 
-  const noSku = sessionBody({ sku: null });
+  const noSku = orderBody({ skus: [null] });
   const dns = await decide(noSku.body, sign(noSku.body));
-  check("a session naming no SKU at all is refused (no recognition path resolves)", dns.kind === "reject" && dns["code"] === "unknown_sku");
+  check("an item naming no SKU at all is refused (no recognition path resolves)", dns.kind === "reject" && dns["code"] === "unknown_sku");
 
-  const wrongAmount = sessionBody({ sku: "votive-small", amount: 3999 });
+  const twoItems = orderBody({ skus: ["votive-small", "votive-steady"] });
+  const dti = await decide(twoItems.body, sign(twoItems.body));
+  check("TWO items are refused 500 (a cart is never silently granted as a single pack)", dti.kind === "reject" && dti["status"] === 500 && dti["code"] === "unexpected_items");
+
+  const noItems = orderBody({ omitItems: true });
+  const dni = await decide(noItems.body, sign(noItems.body));
+  check("an order with NO items is refused, never granted on trust", dni.kind === "reject" && dni["code"] === "unexpected_items");
+
+  const wrongAmount = orderBody({ skus: ["votive-small"], amount: "39.99" });
   const dwa = await decide(wrongAmount.body, sign(wrongAmount.body));
-  check("an AMOUNT that disagrees with the price list is refused (a wrong link must not gift a bigger pack)", dwa.kind === "reject" && dwa["code"] === "amount_mismatch");
+  check("an AMOUNT that disagrees with the catalog is refused (a wrong SKU must not gift a bigger pack)", dwa.kind === "reject" && dwa["code"] === "amount_mismatch");
 
-  const wrongCurrency = sessionBody({ sku: "votive-small", amount: 499, currency: "eur" });
+  const wrongCurrency = orderBody({ skus: ["votive-small"], currency: "EUR" });
   const dwc = await decide(wrongCurrency.body, sign(wrongCurrency.body));
-  check("a non-USD session is refused", dwc.kind === "reject" && dwc["code"] === "amount_mismatch");
+  check("a non-USD order is refused", dwc.kind === "reject" && dwc["code"] === "unexpected_currency");
 
-  const blankRef = sessionBody({ sku: "votive-small", accountRef: "" });
+  const missingAmount = orderBody({ skus: ["votive-small"], amount: null });
+  const dma = await decide(missingAmount.body, sign(missingAmount.body));
+  check("an order reporting NO amount is refused, never granted on trust", dma.kind === "reject" && dma["code"] === "amount_mismatch");
+
+  // Billing echo tolerance: order.amount is the invoice of record; when it is
+  // missing the billing total stands in, and a disagreement there also refuses.
+  const billingMissing = orderBody({ amount: null, billingAmount: 4.99 });
+  const dbm = await decide(billingMissing.body, sign(billingMissing.body));
+  check("a missing order.amount falls back to the billing total and still applies", dbm.kind === "apply" && dbm["amountCents"] === 499);
+  const billingWrong = orderBody({ amount: null, billingAmount: 39.99 });
+  const dbw = await decide(billingWrong.body, sign(billingWrong.body));
+  check("…but a billing total that disagrees with the catalog is refused", dbw.kind === "reject" && dbw["code"] === "amount_mismatch");
+
+  const blankRef = orderBody({ userRef: "" });
   const dbr = await decide(blankRef.body, sign(blankRef.body));
-  check("a BLANK client_reference_id is refused (500) — there is nobody to credit", dbr.kind === "reject" && dbr["status"] === 500 && dbr["code"] === "no_account_reference");
+  check("a BLANK user reference is refused (500) — there is nobody to credit", dbr.kind === "reject" && dbr["status"] === 500 && dbr["code"] === "unresolvable_user");
 
-  const missingRef = sessionBody({ sku: "votive-small", accountRef: null });
-  check("a MISSING client_reference_id is refused", (await decide(missingRef.body, sign(missingRef.body)))["code"] === "no_account_reference");
+  const missingRef = orderBody({ omitUser: true });
+  check("a MISSING user block is refused", (await decide(missingRef.body, sign(missingRef.body)))["code"] === "unresolvable_user");
 
-  const junkRef = sessionBody({ sku: "votive-small", accountRef: "not-an-account-ref!!" });
+  const junkRef = orderBody({ userRef: "not-an-account-ref!!" });
   const djr = await decide(junkRef.body, sign(junkRef.body));
-  check("an UNRESOLVABLE reference is refused (500) — it names nobody this game ever wrote", djr.kind === "reject" && djr["code"] === "unresolvable_account_reference");
+  check("an UNRESOLVABLE reference is refused (500) — it names nobody this game ever wrote", djr.kind === "reject" && djr["code"] === "unresolvable_user");
 
-  const noSecret = await decide(sessionBody({ sku: "votive-small" }).body, "t=1,v1=deadbeefdeadbeef", null);
-  check("NO SIGNING SECRET means refuse everything (fail closed, never trust-and-pray)", noSecret.kind === "reject" && noSecret["status"] === 500 && noSecret["code"] === "no_signing_secret");
+  const viaCustom = orderBody({ omitUser: true, customRef: ref.encodeAccountRef("payer") });
+  const dcp = await decide(viaCustom.body, sign(viaCustom.body));
+  check("custom_parameters.dse_account_ref is the fallback when user.external_id is absent", dcp.kind === "apply" && dcp["accountId"] === "payer");
 
-  const malformed = "{\"id\":\"evt_x\",\"type\":\"checkout.session.completed\"";
-  const dm = await decide(malformed, sign(malformed));
-  check("a signed but malformed body is refused 400 (it cannot have come from Stripe)", dm.kind === "reject" && dm["status"] === 400 && dm["code"] === "malformed_body");
+  const noSecret = await decide(orderBody().body, "Signature deadbeef", null);
+  check("NO SECRET KEY means refuse everything (fail closed, never trust-and-pray)", noSecret.kind === "reject" && noSecret["status"] === 500 && noSecret["code"] === "no_secret_key");
 
-  // recognition paths 2 and 3 (the ids the lead may fill in payment-links.ts)
-  const row = links.PAYMENT_LINKS.find((r) => r.skuId === "votive-steady")!;
-  const savedLink = row.paymentLinkId;
-  row.paymentLinkId = "pl_test_steady";
-  const byLink = sessionBody({ sku: null, paymentLink: "pl_test_steady", amount: 999 });
-  const dbl = await decide(byLink.body, sign(byLink.body));
-  check("a session is recognised by its payment_link id when metadata.sku is absent", dbl.kind === "apply" && dbl["skuId"] === "votive-steady" && dbl["recognition"] === "payment_link");
-  row.paymentLinkId = savedLink;
-  const savedPrice = row.priceId;
-  row.priceId = "price_test_steady";
-  const byPrice = sessionBody({ sku: null, lineItemPrice: "price_test_steady", amount: 999 });
-  const dbp = await decide(byPrice.body, sign(byPrice.body));
-  check("…and by its price id as the last resort", dbp.kind === "apply" && dbp["skuId"] === "votive-steady" && dbp["recognition"] === "line_items.price");
-  row.priceId = savedPrice;
-  check("with a blank paymentLinkId an unrecognised link id grants nothing", links.skuForPaymentLinkId("pl_whatever") === null);
+  const malformed = "{\"notification_type\":\"order_paid\",\"order\":{";
+  const dmf = await decide(malformed, sign(malformed));
+  check("a signed but malformed body is refused 400 (it cannot have come from Xsolla)", dmf.kind === "reject" && dmf["status"] === 400 && dmf["code"] === "malformed_body");
 
-  // ---- §2b · THE SIX TIME TOKENS (2026-09-27) --------------------------------
-  //
-  // Before this slice, `skuForSession()` resolved only against rows a player
-  // could BUY, so a paid token session resolved to null and the route answered
-  // 500 `unknown_sku` — money taken, nothing granted. A token is now recognised
-  // by the SAME four paths as a pack, and it gets the SAME amount tripwire.
-  const tokenRow = links.PAYMENT_LINKS.find((r) => r.skuId === "time-token-8h")!;
-  const tokenAmount = 799; // $7.99 — the owner's price for 8h
+  const notJson = "not json at all";
+  check("a non-JSON body is refused 400 too", (await decide(notJson, sign(notJson)))["code"] === "malformed_body");
 
-  const tokenMeta = sessionBody({ sku: "time-token-8h", amount: tokenAmount });
-  const dtm = await decide(tokenMeta.body, sign(tokenMeta.body));
-  check("a paid TOKEN session is recognised at all (it used to resolve to null and refuse)",
-    dtm.kind === "apply" && dtm["skuId"] === "time-token-8h" && dtm["recognition"] === "metadata.sku");
-  check("…and its amount is checked against the game's own catalogue price ($7.99), not just accepted",
-    dtm.kind === "apply" && dtm["amountCents"] === tokenAmount);
+  // ---- user_validation -------------------------------------------------------
+  // The verifier answers with the RAW reference; decoding and the account
+  // lookup happen at the route (which is where the store lives).
+  const uvBody = validationBody(REF);
+  const uv = await decide(uvBody, sign(uvBody));
+  check("user_validation decodes the reference and answers validate_user", uv.kind === "validate_user" && uv["userRef"] === REF);
+  const uvfBody = validationBody("dse1_%%%%");
+  const uvForged = await decide(uvfBody, sign(uvfBody));
+  check("user_validation with a FORGED reference still answers validate_user (the route checks the account)", uvForged.kind === "validate_user" && uvForged["userRef"] === "dse1_%%%%");
 
-  const tokenByLink = sessionBody({ sku: null, paymentLink: tokenRow.paymentLinkId, amount: tokenAmount });
-  const dtl = await decide(tokenByLink.body, sign(tokenByLink.body));
-  check("a token is recognised by its payment_link id when metadata.sku is absent",
-    dtl.kind === "apply" && dtl["skuId"] === "time-token-8h" && dtl["recognition"] === "payment_link");
+  // ---- §2b · THE SIX TIME TOKENS ----------------------------------------------
+  // A token is recognised by the SAME catalog lookup and gets the SAME amount
+  // tripwire as a pack.
+  const tokenPaid = orderBody({ skus: ["time-token-8h"], amount: "7.99" });
+  const dtm = await decide(tokenPaid.body, sign(tokenPaid.body));
+  check("a paid TOKEN order is recognised and amount-checked ($7.99)", dtm.kind === "apply" && dtm["skuId"] === "time-token-8h" && dtm["amountCents"] === 799);
 
-  const tokenByPrice = sessionBody({ sku: null, lineItemPrice: tokenRow.priceId, amount: tokenAmount });
-  const dtp = await decide(tokenByPrice.body, sign(tokenByPrice.body));
-  check("…and by its price id", dtp.kind === "apply" && dtp["skuId"] === "time-token-8h" && dtp["recognition"] === "line_items.price");
-
-  const tokenByProduct = sessionBody({ sku: null, lineItemProduct: tokenRow.productId, amount: tokenAmount });
-  const dtpr = await decide(tokenByProduct.body, sign(tokenByProduct.body));
-  check("…and by its PRODUCT id (the path this slice added, off the line item's price.product)",
-    dtpr.kind === "apply" && dtpr["skuId"] === "time-token-8h" && dtpr["recognition"] === "line_items.price.product");
-
-  check("every one of the six token product ids resolves to its own size, and a stranger's does not",
-    monetization.TIME_TOKEN_PACKS.every((p) => links.skuForProductId(p.providerSkuId) === p.id)
-    && links.skuForProductId("prod_other_business") === null);
-
-  const tokenWrongAmount = sessionBody({ sku: "time-token-8h", amount: 2499 });
-  const dtw = await decide(tokenWrongAmount.body, sign(tokenWrongAmount.body));
-  check("A TOKEN AMOUNT THAT DISAGREES IS REFUSED (the same tripwire the packs get) — $2.99 paid for the 8h token",
-    dtw.kind === "reject" && dtw["status"] === 500 && dtw["code"] === "amount_mismatch",
-    JSON.stringify(dtw).slice(0, 120));
-  const tokenOtherSize = sessionBody({ sku: "time-token-8h", amount: 299 });
-  const dtos = await decide(tokenOtherSize.body, sign(tokenOtherSize.body));
-  check("…so a cheaper size's price cannot be used to buy a bigger token",
-    dtos.kind === "reject" && dtos["code"] === "amount_mismatch");
-
-  const tokenNoAmount = sessionBody({ sku: "time-token-8h", omitAmount: true });
-  const dtna = await decide(tokenNoAmount.body, sign(tokenNoAmount.body));
-  check("…and a token session that reports NO amount is refused, never granted on trust",
-    dtna.kind === "reject" && dtna["code"] === "amount_mismatch");
-
-  const tokenUnknown = sessionBody({ sku: "time-token-3h", amount: tokenAmount });
-  const dtu = await decide(tokenUnknown.body, sign(tokenUnknown.body));
+  const tokenWrong = orderBody({ skus: ["time-token-8h"], amount: "2.99" });
+  check("A TOKEN AMOUNT THAT DISAGREES IS REFUSED — $2.99 paid for the 8h token",
+    (await decide(tokenWrong.body, sign(tokenWrong.body)))["code"] === "amount_mismatch");
+  const tokenUnknown = orderBody({ skus: ["time-token-3h"], amount: "7.99" });
   check("a token size the game does not sell is refused loudly (never a guess)",
-    dtu.kind === "reject" && dtu["status"] === 500 && dtu["code"] === "unknown_sku");
-  const earnedSize = sessionBody({ sku: "time-token-1m", amount: 100 });
-  const des = await decide(earnedSize.body, sign(earnedSize.body));
-  const earned5m = sessionBody({ sku: "time-token-5m", amount: 100 });
-  const d5m = await decide(earned5m.body, sign(earned5m.body));
-  check("NEGATIVE CONTROL · the EARNED sizes are not purchasable at any price (1m/5m have no row at all)",
-    des.kind === "reject" && des["code"] === "unknown_sku" && d5m.kind === "reject" && d5m["code"] === "unknown_sku");
+    (await decide(tokenUnknown.body, sign(tokenUnknown.body)))["code"] === "unknown_sku");
+  const earnedSize = orderBody({ skus: ["time-token-1m"], amount: "1.00" });
+  const earned5m = orderBody({ skus: ["time-token-5m"], amount: "1.00" });
+  check("NEGATIVE CONTROL · the EARNED sizes are not purchasable at any price (1m/5m are refused by name)",
+    (await decide(earnedSize.body, sign(earnedSize.body)))["code"] === "unknown_sku"
+    && (await decide(earned5m.body, sign(earned5m.body)))["code"] === "unknown_sku");
 }
 
 // ===========================================================================
@@ -351,7 +368,7 @@ console.log("— 3 · the account reference (a username may be ANY text, Persian
   }
   check("a reference the game never wrote decodes to nobody", ref.decodeAccountRef("dse1_%%%%") === null && ref.decodeAccountRef("dse1_") === null);
   check("an empty reference names nobody", ref.decodeAccountRef("") === null && ref.decodeAccountRef(null) === null);
-  check("a raw safe id is accepted (a hand-written link still works for a smoke test)", ref.decodeAccountRef("payer") === "payer");
+  check("a raw safe id is accepted (a hand-written checkout still works for a smoke test)", ref.decodeAccountRef("payer") === "payer");
   check("a raw id with different case is refused (ids are stored lowercased; \"Payer\" is not an id)", ref.decodeAccountRef("Payer") === null);
   check("a padded raw id is trimmed to the id it names, never rejected as an id", ref.decodeAccountRef("  payer  ") === "payer");
   check("an over-long reference is refused", ref.decodeAccountRef(ref.encodeAccountRef("x".repeat(40))) === null);
@@ -383,33 +400,33 @@ console.log("— 4 · the route grants exactly once, through the real store —"
   };
 
   const before = await votivesOf("payer");
-  const { body, sessionId } = sessionBody({ sku: "votive-small", amount: 499 });
+  const { body, txId } = orderBody({ skus: ["votive-small"] });
   const header = sign(body);
-  const first = await route.handleStripeWebhookRequest({ rawBody: body, signatureHeader: header, secret: SECRET });
-  check("a verified event is applied (200 + applied:true)", first.status === 200 && first.body.applied === true && first.body.sessionId === sessionId);
+  const first = await route.handleXsollaWebhookRequest({ rawBody: body, signatureHeader: header, secret: SECRET });
+  check("a verified event is applied (204 + empty body)", first.status === 204 && first.body === null);
   check("the wallet the player sees gains exactly the pack (550 Votives)", (await votivesOf("payer")) === before + 550);
   const ledger = (await store.loadAccountSaves("payer"))!.games[saves.activeGameId as string].currency.ledger;
   check("the grant is recorded in the ledger as a purchase, not as play", ledger.some((e) => e.kind === "purchase" && e.reason.includes("Small Offering")));
 
-  const replay = await route.handleStripeWebhookRequest({ rawBody: body, signatureHeader: header, secret: SECRET });
-  check("a REPLAYED delivery answers 200 but is idempotent", replay.status === 200 && replay.body.idempotent === true);
+  const replay = await route.handleXsollaWebhookRequest({ rawBody: body, signatureHeader: header, secret: SECRET });
+  check("a REPLAYED delivery answers 204 but is idempotent", replay.status === 204 && replay.body === null);
   check("…and does not double-grant", (await votivesOf("payer")) === before + 550);
 
   const packBefore = (await store.loadAccountSaves("payer"))!.games[saves.activeGameId as string].resources.supplies;
-  const pack = sessionBody({ sku: "scavengers-kit", amount: 499 });
-  const packRes = await route.handleStripeWebhookRequest({ rawBody: pack.body, signatureHeader: sign(pack.body), secret: SECRET });
+  const pack = orderBody({ skus: ["scavengers-kit"] });
+  const packRes = await route.handleXsollaWebhookRequest({ rawBody: pack.body, signatureHeader: sign(pack.body), secret: SECRET });
   const after = (await store.loadAccountSaves("payer"))!.games[saves.activeGameId as string];
-  check("a HEAD-START PACK grants its listed resources (150 supplies)", packRes.status === 200 && after.resources.supplies === packBefore + 150);
+  check("a HEAD-START PACK grants its listed resources (150 supplies)", packRes.status === 204 && after.resources.supplies === packBefore + 150);
   check("…and its entitlement is recorded", after.entitlements.packs.includes("scavengers-kit"));
 
   const strangerId = "nobody-here";
-  const stranger = sessionBody({ sku: "votive-small", accountRef: ref.encodeAccountRef(strangerId), amount: 499 });
-  const strangerRes = await route.handleStripeWebhookRequest({ rawBody: stranger.body, signatureHeader: sign(stranger.body), secret: SECRET });
-  check("an account the reference decodes to but THIS SERVER DOES NOT HAVE is refused 500", strangerRes.status === 500 && strangerRes.body.error === "unknown_account");
+  const stranger = orderBody({ userRef: ref.encodeAccountRef(strangerId) });
+  const strangerRes = await route.handleXsollaWebhookRequest({ rawBody: stranger.body, signatureHeader: sign(stranger.body), secret: SECRET });
+  check("an account the reference decodes to but THIS SERVER DOES NOT HAVE is refused 500", strangerRes.status === 500 && strangerRes.body?.error === "unknown_account");
 
-  const colonyless = sessionBody({ sku: "votive-small", accountRef: ref.encodeAccountRef("colonyless"), amount: 499 });
-  const colonylessRes = await route.handleStripeWebhookRequest({ rawBody: colonyless.body, signatureHeader: sign(colonyless.body), secret: SECRET });
-  check("an account with no active colony is refused 500 (visible, retryable — never silently dropped)", colonylessRes.status === 500 && colonylessRes.body.error === "no_active_colony");
+  const colonyless = orderBody({ userRef: ref.encodeAccountRef("colonyless") });
+  const colonylessRes = await route.handleXsollaWebhookRequest({ rawBody: colonyless.body, signatureHeader: sign(colonyless.body), secret: SECRET });
+  check("an account with no active colony is refused 500 (visible, retryable — never silently dropped)", colonylessRes.status === 500 && colonylessRes.body?.error === "no_active_colony");
 
   const faGame = engine.newGame("فرزانه", "watchers", now);
   faGame.gameId = "g-fa";
@@ -417,15 +434,36 @@ console.log("— 4 · the route grants exactly once, through the real store —"
   faSaves.activeGameId = faGame.gameId;
   faSaves.games[faGame.gameId] = faGame;
   await store.saveAccountSaves("فرزانه", faSaves);
-  const faBody = sessionBody({ sku: "votive-steady", accountRef: ref.encodeAccountRef("فرزانه"), amount: 999 });
-  const faRes = await route.handleStripeWebhookRequest({ rawBody: faBody.body, signatureHeader: sign(faBody.body), secret: SECRET });
-  check("a PERSIAN username pays and is credited (the reference carries any UTF-8 account id)", faRes.status === 200 && (await votivesOf("فرزانه")) === 1280);
+  const faBody = orderBody({ skus: ["votive-steady"], amount: "9.99", userRef: ref.encodeAccountRef("فرزانه") });
+  const faRes = await route.handleXsollaWebhookRequest({ rawBody: faBody.body, signatureHeader: sign(faBody.body), secret: SECRET });
+  check("a PERSIAN username pays and is credited (the reference carries any UTF-8 account id)", faRes.status === 204 && (await votivesOf("فرزانه")) === 1280);
 
-  // ---- §4b · A TIME TOKEN, END TO END (the entitlement door, 2026-09-27) -----
+  // ---- user_validation at the route -------------------------------------------
+  // The route decodes the reference and checks the store: known → 204,
+  // unknown or forged → 400 INVALID_USER (Xsolla's documented shape).
+  const uvKnownBody = validationBody(REF);
+  const uvKnown = await route.handleXsollaWebhookRequest({ rawBody: uvKnownBody, signatureHeader: sign(uvKnownBody), secret: SECRET });
+  check("user_validation for a known account answers 204", uvKnown.status === 204 && uvKnown.body === null);
+  const uvGhostBody = validationBody(ref.encodeAccountRef("ghost"));
+  const uvGhost = await route.handleXsollaWebhookRequest({ rawBody: uvGhostBody, signatureHeader: sign(uvGhostBody), secret: SECRET });
+  check("user_validation for an UNKNOWN account answers 400 INVALID_USER", uvGhost.status === 400 && (uvGhost.body?.error as { code?: string } | undefined)?.code === "INVALID_USER");
+  const uvForgedBody = validationBody("dse1_%%%%");
+  const uvForged = await route.handleXsollaWebhookRequest({ rawBody: uvForgedBody, signatureHeader: sign(uvForgedBody), secret: SECRET });
+  check("user_validation for a FORGED reference answers 400 INVALID_USER", uvForged.status === 400 && (uvForged.body?.error as { code?: string } | undefined)?.code === "INVALID_USER");
+
+  // ---- a cancellation is a no-op -------------------------------------------------
+  // (the pack above also granted 150 Votives — the point here is the cancel
+  // moves nothing, so measure against the pre-cancel wallet, not the pre-test one)
+  const cancelVotivesBefore = await votivesOf("payer");
+  const cancel = orderBody({ type: "order_canceled" });
+  const cancelRes = await route.handleXsollaWebhookRequest({ rawBody: cancel.body, signatureHeader: sign(cancel.body), secret: SECRET });
+  check("order_canceled answers 204 and touches nothing", cancelRes.status === 204 && cancelRes.body === null && (await votivesOf("payer")) === cancelVotivesBefore);
+
+  // ---- §4b · A TIME TOKEN, END TO END -------------------------------------------
   //
-  // The job: money in at Stripe → one held token of that size in the colony,
-  // keyed by the session id so a re-delivered webhook cannot double-grant, with
-  // no resource, no Votives and no strength moving with it.
+  // Money in at Xsolla → one held token of that size in the colony, keyed by the
+  // transaction id so a re-delivered webhook cannot double-grant, with no
+  // resource, no Votives and no strength moving with it.
   const grants = async (id: string) => {
     const s = await store.loadAccountSaves(id);
     const g = s?.games[s.activeGameId as string] as unknown as {
@@ -439,157 +477,168 @@ console.log("— 4 · the route grants exactly once, through the real store —"
 
   const votivesBeforeToken = await votivesOf("payer");
   const suppliesBeforeToken = (await grants("payer")).resources.supplies;
-  const tokenBuy = sessionBody({ sku: "time-token-8h", amount: 799 });
-  const tokenRes = await route.handleStripeWebhookRequest({ rawBody: tokenBuy.body, signatureHeader: sign(tokenBuy.body), secret: SECRET });
-  check("a verified 8h TOKEN session is applied (200) and grants exactly one held token",
-    tokenRes.status === 200 && tokenRes.body.applied === true && (await tokensOf("payer", "8h")) === 1,
-    JSON.stringify(tokenRes.body));
+  const tokenBuy = orderBody({ skus: ["time-token-8h"], amount: "7.99" });
+  const tokenRes = await route.handleXsollaWebhookRequest({ rawBody: tokenBuy.body, signatureHeader: sign(tokenBuy.body), secret: SECRET });
+  check("a verified 8h TOKEN order is applied (204) and grants exactly one held token",
+    tokenRes.status === 204 && (await tokensOf("payer", "8h")) === 1,
+    JSON.stringify(tokenRes));
   const tokenLedger = (await grants("payer")).timeTokenLedger ?? [];
-  check("…recorded in the TOKEN LEDGER, keyed by the purchase (Stripe session) id",
+  check("…recorded in the TOKEN LEDGER, keyed by the purchase (Xsolla transaction) id",
     tokenLedger.some((e) => e.kind === "earn" && e.sizeId === "8h" && e.amount === 1
-      && e.eventId === `purch:${tokenBuy.sessionId}` && e.reason.includes(tokenBuy.sessionId)),
+      && e.eventId === `purch:${tokenBuy.txId}` && e.reason.includes(tokenBuy.txId)),
     JSON.stringify(tokenLedger));
-  check("…and the colony's wallet and stores did NOT move (a token is TIME, never a resource, G1–G4)",
+  check("…and the colony's wallet and stores did NOT move (a token is TIME, never a resource)",
     (await votivesOf("payer")) === votivesBeforeToken && (await grants("payer")).resources.supplies === suppliesBeforeToken);
-  const tokenReplay = await route.handleStripeWebhookRequest({ rawBody: tokenBuy.body, signatureHeader: sign(tokenBuy.body), secret: SECRET });
-  check("a REPLAYED token delivery answers 200 but is idempotent — no second token",
-    tokenReplay.status === 200 && tokenReplay.body.idempotent === true && (await tokensOf("payer", "8h")) === 1);
-  const tokenWrong = sessionBody({ sku: "time-token-48h", amount: 799 });
-  const tokenWrongRes = await route.handleStripeWebhookRequest({ rawBody: tokenWrong.body, signatureHeader: sign(tokenWrong.body), secret: SECRET });
-  check("a session paying the 8h price for the 48h token is refused 500 and grants NOTHING",
-    tokenWrongRes.status === 500 && tokenWrongRes.body.error === "amount_mismatch" && (await tokensOf("payer", "48h")) === 0);
-  const tokenUnknownSku = sessionBody({ sku: "time-token-3h", amount: 799 });
-  const tokenUnknownRes = await route.handleStripeWebhookRequest({ rawBody: tokenUnknownSku.body, signatureHeader: sign(tokenUnknownSku.body), secret: SECRET });
+  const tokenReplay = await route.handleXsollaWebhookRequest({ rawBody: tokenBuy.body, signatureHeader: sign(tokenBuy.body), secret: SECRET });
+  check("a REPLAYED token delivery answers 204 but is idempotent — no second token",
+    tokenReplay.status === 204 && (await tokensOf("payer", "8h")) === 1);
+  const tokenWrong = orderBody({ skus: ["time-token-48h"], amount: "7.99" });
+  const tokenWrongRes = await route.handleXsollaWebhookRequest({ rawBody: tokenWrong.body, signatureHeader: sign(tokenWrong.body), secret: SECRET });
+  check("an order paying the 8h price for the 48h token is refused 500 and grants NOTHING",
+    tokenWrongRes.status === 500 && tokenWrongRes.body?.error === "amount_mismatch" && (await tokensOf("payer", "48h")) === 0);
+  const tokenUnknownSku = orderBody({ skus: ["time-token-3h"], amount: "7.99" });
+  const tokenUnknownRes = await route.handleXsollaWebhookRequest({ rawBody: tokenUnknownSku.body, signatureHeader: sign(tokenUnknownSku.body), secret: SECRET });
   check("a token size the game does not define is refused 500 unknown_sku (loud, never a silent grant)",
-    tokenUnknownRes.status === 500 && tokenUnknownRes.body.error === "unknown_sku");
-  const tokenEarnedSize = sessionBody({ sku: "time-token-1m", amount: 100 });
-  const tokenEarnedRes = await route.handleStripeWebhookRequest({ rawBody: tokenEarnedSize.body, signatureHeader: sign(tokenEarnedSize.body), secret: SECRET });
+    tokenUnknownRes.status === 500 && tokenUnknownRes.body?.error === "unknown_sku");
+  const tokenEarnedSize = orderBody({ skus: ["time-token-1m"], amount: "1.00" });
+  const tokenEarnedRes = await route.handleXsollaWebhookRequest({ rawBody: tokenEarnedSize.body, signatureHeader: sign(tokenEarnedSize.body), secret: SECRET });
   check("NEGATIVE CONTROL · the EARNED size 1m cannot be bought from the route either (no row, refused by name)",
-    tokenEarnedRes.status === 500 && tokenEarnedRes.body.error === "unknown_sku" && (await tokensOf("payer", "1m")) === 0);
+    tokenEarnedRes.status === 500 && tokenEarnedRes.body?.error === "unknown_sku" && (await tokensOf("payer", "1m")) === 0);
 
   const forgedBefore = await votivesOf("payer");
-  const forged = sessionBody({ sku: "votive-circuit", amount: 3999 });
-  const forgedRes = await route.handleStripeWebhookRequest({ rawBody: forged.body, signatureHeader: sign(forged.body, "whsec_forged"), secret: SECRET });
+  const forged = orderBody();
+  const forgedRes = await route.handleXsollaWebhookRequest({ rawBody: forged.body, signatureHeader: sign(forged.body, "forged_key"), secret: SECRET });
   check("a FORGED request grants nothing at all", forgedRes.status === 400 && (await votivesOf("payer")) === forgedBefore);
 
-  const noSecretRes = await route.handleStripeWebhookRequest({ rawBody: forged.body, signatureHeader: sign(forged.body), secret: null });
-  check("with no secret configured the route refuses (500) rather than granting", noSecretRes.status === 500 && noSecretRes.body.error === "no_signing_secret");
+  const noSecretRes = await route.handleXsollaWebhookRequest({ rawBody: forged.body, signatureHeader: sign(forged.body), secret: null });
+  check("with no secret configured the route refuses (500) rather than granting", noSecretRes.status === 500 && noSecretRes.body?.error === "no_secret_key");
 
-  check("readWebhookSecret reads the env var, trims it, and treats blank as unset", route.readWebhookSecret({ STRIPE_WEBHOOK_SECRET: " whsec_x " }) === "whsec_x" && route.readWebhookSecret({}) === null && route.readWebhookSecret({ STRIPE_WEBHOOK_SECRET: "  " }) === null);
-  check("the env var name is the one the PR tells the lead to set", route.STRIPE_WEBHOOK_SECRET_ENV === "STRIPE_WEBHOOK_SECRET");
+  check("readWebhookSecret reads the env var, trims it, and treats blank as unset", route.readWebhookSecret({ XSOLLA_WEBHOOK_SECRET: " secret_x " }) === "secret_x" && route.readWebhookSecret({}) === null && route.readWebhookSecret({ XSOLLA_WEBHOOK_SECRET: "  " }) === null);
+  check("the env var name is the one the ops notes tell the lead to set", route.XSOLLA_WEBHOOK_SECRET_ENV === "XSOLLA_WEBHOOK_SECRET");
+  check("webhookResponse renders 204 with an empty body", route.webhookResponse({ status: 204, body: null }).status === 204);
 }
 
 // ===========================================================================
-console.log("— 5 · the factory, the price list, the wiring —");
+console.log("— 5 · the factory, the token mint, the catalog wiring —");
 {
   const prov = monetization.createPaymentProvider();
-  check("createPaymentProvider() NO LONGER returns the stub", prov.name === "StripePaymentProvider");
+  check("createPaymentProvider() NO LONGER returns the stub", prov.name === "XsollaPaymentProvider");
   check("…and an unconfigured provider refuses a plausible payload instead of simulating one", (await prov.verifyWebhook({ purchaseId: "p1", skuId: "votive-small", accountId: "a" })).ok === false);
-  const configured = provider.createStripePaymentProvider({ signingSecret: SECRET });
-  const { body } = sessionBody({ sku: "votive-small", amount: 499 });
-  const okRes = await configured.verifyWebhook({ rawBody: body, signatureHeader: sign(body) });
-  check("a configured provider returns the verified purchase through the old interface", okRes.ok === true && okRes.purchase?.skuId === "votive-small" && okRes.purchase?.accountId === "payer");
-  check("…and refuses a raw body with no header", (await configured.verifyWebhook({ rawBody: body, signatureHeader: null })).ok === false);
-  const cfgNoSecret = provider.createStripePaymentProvider({ signingSecret: null });
-  check("a provider with no secret refuses a valid-looking payload", (await cfgNoSecret.verifyWebhook({ rawBody: body, signatureHeader: sign(body) })).ok === false);
-  check("createIntent is refused honestly (links are created in Stripe, not by the game)", (await configured.createIntent({})).ok === false);
-  check("refund is refused honestly (refunds happen in the dashboard)", (await configured.refund({ purchaseId: "p1", reason: "x" })).ok === false);
+  check("createIntent is refused honestly when unconfigured (no project id, no token, no checkout)", (await providerMod.createXsollaPaymentProvider({}).createIntent({ accountId: "a", skuId: "votive-small", idempotencyKey: "k", amountCents: 499, currency: "usd" })).ok === false);
+  check("refund is refused honestly (refunds happen in the Xsolla Publisher Account)", (await providerMod.createXsollaPaymentProvider({ projectId: "1", apiKey: "k" }).refund({ purchaseId: "p1", reason: "x" })).ok === false);
+  check("Basic auth is exactly the documented form", providerMod.xsollaBasicAuth("123", "key") === "Basic " + Buffer.from("123:key", "utf8").toString("base64"));
 
-  // ---- THE WIRING (2026-09-27) ------------------------------------------------
+  // ---- token minting, with the network stubbed ---------------------------------
+  // createXsollaPaymentProvider.createIntent uses the global fetch; the stub
+  // below stands in for the Xsolla API server so the request shape can be read.
+  const realFetch = globalThis.fetch;
+  let seenUrl = "";
+  let seenInit: RequestInit = {};
+  const okToken = { token: "tok_abc123", order_id: 98765 };
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    seenUrl = String(url);
+    seenInit = init ?? {};
+    return new Response(JSON.stringify(okToken), { status: 201, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  const configured = providerMod.createXsollaPaymentProvider({
+    projectId: "999",
+    apiKey: "api_key",
+    sandbox: true,
+    returnUrlFor: (skuId) => catalog.xsollaReturnUrlFor({ skuId, sandbox: true, canonicalOrigin: "https://play.example" }),
+  });
+  const mint = await configured.createIntent({ accountId: "payer", skuId: "votive-small", idempotencyKey: "k1", amountCents: 499, currency: "usd" });
+  check("a configured provider mints a token and returns the SANDBOX Pay Station URL",
+    mint.ok === true && mint.url === `${providerMod.XSOLLA_PAY_STATION_SANDBOX_URL}tok_abc123` && mint.intentId === "xsolla-98765");
+  const reqBody = JSON.parse(String((seenInit as { body?: string }).body));
+  check("the token request carries the game's SKU, the user reference and the return url",
+    seenUrl === "https://store.xsolla.com/api/v3/project/999/admin/payment/token"
+    && reqBody?.user?.id?.value === REF
+    && reqBody?.custom_parameters?.dse_account_ref === REF
+    && reqBody?.custom_parameters?.dse_sku === "votive-small"
+    && reqBody?.purchase?.items?.[0]?.sku === "votive-small"
+    && reqBody?.settings?.currency === "USD"
+    && reqBody?.settings?.return_url === catalog.xsollaReturnUrlFor({ skuId: "votive-small", sandbox: true, canonicalOrigin: "https://play.example" })
+    && reqBody?.sandbox === true);
+  check("the request is Basic-authed over the project id and API key",
+    (seenInit.headers as Record<string, string>).Authorization === providerMod.xsollaBasicAuth("999", "api_key"));
+  globalThis.fetch = realFetch;
+
+  // ---- the mint refuses honestly ------------------------------------------------
+  const mintInput = { projectId: "1", apiKey: "k", accountId: "payer", returnUrl: "https://x" };
+  check("minting an unknown SKU is refused", (await providerMod.mintXsollaPaymentToken({ ...mintInput, skuId: "votive-mega" })).ok === false);
+  check("minting a NOT-SELLABLE SKU is refused (the six tokens have catalog rows but no shop)",
+    (await providerMod.mintXsollaPaymentToken({ ...mintInput, skuId: "time-token-8h" })).ok === false);
+  check("minting without a project id is refused before any network happens",
+    await (async () => {
+      const r = await providerMod.mintXsollaPaymentToken({ ...mintInput, projectId: "", skuId: "votive-small", fetchImpl: async () => { throw new Error("must not be called"); } });
+      return r.ok === false && String(r.error).includes("not configured");
+    })());
+  check("a network failure is refused, never retried silently", (await providerMod.mintXsollaPaymentToken({ ...mintInput, skuId: "votive-small", fetchImpl: async () => { throw new Error("down"); } })).ok === false);
+  check("a non-2xx Xsolla answer is refused with its status",
+    (await providerMod.mintXsollaPaymentToken({ ...mintInput, skuId: "votive-small", fetchImpl: async () => new Response(JSON.stringify({ message: "bad project" }), { status: 401 }) })).error === "Xsolla refused the checkout (HTTP 401: bad project).");
+  check("a 2xx answer with no token is refused", (await providerMod.mintXsollaPaymentToken({ ...mintInput, skuId: "votive-small", fetchImpl: async () => new Response("{}", { status: 201 }) })).ok === false);
+  const liveMint = await providerMod.mintXsollaPaymentToken({ ...mintInput, skuId: "votive-small", fetchImpl: async () => new Response(JSON.stringify({ token: "t1" }), { status: 200 }) });
+  check("a live mint returns the LIVE Pay Station URL", liveMint.ok === true && liveMint.payUrl === `${providerMod.XSOLLA_PAY_STATION_URL}t1`);
+
+  // ---- THE WIRING ----------------------------------------------------------------
   //
-  // Thirteen rows, every one a LIVE Stripe object created by the lead under the
-  // owner's go-ahead ("Yes go ahead and put the links in for the store"): the
-  // seven SKUs that already existed now have their Payment Links, and the six
-  // time tokens have rows of their own — ids, no url, because no token has a
-  // purchase surface yet. The ids are pinned below byte for byte against the
-  // wiring table, so a typo cannot ship as a "wired" object.
-  check("the price list carries thirteen rows — the seven sellable SKUs plus the six time tokens",
-    links.PAYMENT_LINKS.length === 13, String(links.PAYMENT_LINKS.length));
+  // Thirteen catalog rows, every one pinned against the game's own catalogue:
+  // the seven sellable SKUs plus the six time tokens, which have rows and NO
+  // shop surface. Xsolla-side SKU for every row is the game's own sku id, so a
+  // typo cannot ship as a "wired" object.
+  check("the catalog carries thirteen rows — the seven sellable SKUs plus the six time tokens",
+    catalog.XSOLLA_CATALOG.length === 13, String(catalog.XSOLLA_CATALOG.length));
   const votiveIds = monetization.VOTIVE_PACKS.map((p) => p.id);
   const kitIds = monetization.HEAD_START_PACKS.map((p) => p.id);
   const tokenIds = monetization.TIME_TOKEN_PACKS.map((p) => p.id);
-  check("every linked SKU exists in the game's own catalogue",
-    links.PAYMENT_LINKS.every((r) => votiveIds.includes(r.skuId) || kitIds.includes(r.skuId) || tokenIds.includes(r.skuId)));
-  const priceOk = links.PAYMENT_LINKS.every((r) => {
+  check("every catalog row exists in the game's own catalogue",
+    catalog.XSOLLA_CATALOG.every((r) => votiveIds.includes(r.skuId) || kitIds.includes(r.skuId) || tokenIds.includes(r.skuId)));
+  const priceOk = catalog.XSOLLA_CATALOG.every((r) => {
     const v = monetization.VOTIVE_PACKS.find((p) => p.id === r.skuId);
     const k = monetization.HEAD_START_PACKS.find((p) => p.id === r.skuId);
     const t = monetization.TIME_TOKEN_PACKS.find((p) => p.id === r.skuId);
     return r.amountUsd === (v?.priceUsd ?? k?.priceUsd ?? t?.priceUsd);
   });
   check("…and every price matches the catalogue exactly (the tripwire cannot drift from the game)", priceOk);
-  check("the game's sellable set is exactly the four Votive packs plus the three kits", [...votiveIds, ...kitIds].length === 7);
-
-  // THE THIRTEEN IDS, PINNED. [url, paymentLinkId, priceId]
-  const WIRED: Record<string, [string, string, string]> = {
-    "votive-small": ["https://buy.stripe.com/8x2fZh7xQeMh7Mp8CLdjO05", "plink_1UKLG4DzrKy7FKhapupfUGDf", "price_1UJotkDzrKy7FKha0fWNgYvJ"],
-    "votive-steady": ["https://buy.stripe.com/00weVd5pIdId8Qt5qzdjO06", "plink_1UKLG4DzrKy7FKhaXldk4bHc", "price_1UJotpDzrKy7FKhafuXbHXAr"],
-    "votive-grand": ["https://buy.stripe.com/aFa3cvdWe33z4Ad9GPdjO07", "plink_1UKLG5DzrKy7FKhawNis22AZ", "price_1UJotpDzrKy7FKhakvHCijDn"],
-    "votive-circuit": ["https://buy.stripe.com/eVq28r19s1Zv7Mpg5ddjO08", "plink_1UKLG5DzrKy7FKhaQQXbfMuo", "price_1UJotpDzrKy7FKhaAJu1OxpW"],
-    "scavengers-kit": ["https://buy.stripe.com/eVq9ATdWegUp8Qt9GPdjO09", "plink_1UKLG5DzrKy7FKhatEb3qHnW", "price_1UJottDzrKy7FKha7v2B03Oz"],
-    "expeditionary-kit": ["https://buy.stripe.com/fZu5kD7xQ7jP6IldX5djO0a", "plink_1UKLG6DzrKy7FKhaBvZzCuRV", "price_1UJottDzrKy7FKhad2b6DKFE"],
-    "long-haul-cart": ["https://buy.stripe.com/5kQ28r05o33z6IldX5djO0b", "plink_1UKLG6DzrKy7FKhaSJOY1AsQ", "price_1UJottDzrKy7FKhaGrx5qItD"],
-    "time-token-30m": ["", "plink_1UKLGMDzrKy7FKhajAtBOtQA", "price_1UKLFuDzrKy7FKhaYGrKPc6v"],
-    "time-token-1h": ["", "plink_1UKLGMDzrKy7FKhauB7BViAm", "price_1UKLFuDzrKy7FKha0Gn7s9jl"],
-    "time-token-8h": ["", "plink_1UKLGMDzrKy7FKhaeU3rkft9", "price_1UKLFuDzrKy7FKhaCaw7m7Oc"],
-    "time-token-12h": ["", "plink_1UKLGLDzrKy7FKhaKqPENQCX", "price_1UKLFtDzrKy7FKhaxFFoV8nC"],
-    "time-token-24h": ["", "plink_1UKLGLDzrKy7FKhakJxG5pqr", "price_1UKLFtDzrKy7FKhavcYIkj0V"],
-    "time-token-48h": ["", "plink_1UKLGLDzrKy7FKhaDk8UMFvU", "price_1UKLFtDzrKy7FKhao41jV0nY"],
-  };
-  const wired = (r: { skuId: string; url: string; paymentLinkId: string; priceId: string }) =>
-    !!WIRED[r.skuId] && r.url === WIRED[r.skuId][0] && r.paymentLinkId === WIRED[r.skuId][1] && r.priceId === WIRED[r.skuId][2];
-  check("all thirteen rows carry the live ids from the wiring table, byte for byte (url / plink / price)",
-    links.PAYMENT_LINKS.every(wired),
-    links.PAYMENT_LINKS.filter((r) => !wired(r)).map((r) => r.skuId).join(",") || "");
-  const TOKEN_PRODUCT_IDS = ["prod_VL1IlrKotjeEc8", "prod_VL1I6RcBYf9ip1", "prod_VL1IhfQkbh15q2", "prod_VL1IEaKNpi2sXz", "prod_VL1IvxuGGlgwN2", "prod_VL1IdZr899TCNt"];
-  check("…and the six token rows carry the live product ids, matching TIME_TOKEN_PACKS.providerSkuId",
-    tokenIds.every((id, i) => links.paymentLinkRow(id)?.productId === TOKEN_PRODUCT_IDS[i]
-      && links.paymentLinkRow(id)?.productId === monetization.TIME_TOKEN_PACKS[i].providerSkuId),
-    tokenIds.map((id) => `${id}:${links.paymentLinkRow(id)?.productId ?? "MISSING"}`).join(" "));
+  check("the Xsolla-side SKU is the game's own id for every row (no mapping table to typo)",
+    catalog.XSOLLA_CATALOG.every((r) => catalog.xsollaSkuFor(r.skuId) === r.skuId && catalog.skuForXsollaSku(r.skuId) === r.skuId));
+  check("a foreign SKU maps to nothing", catalog.skuForXsollaSku("someone_elses_sku") === null && catalog.xsollaCatalogRow("nope") === null);
 
   // ---- WHAT THE PLAYER CAN REACH ---------------------------------------------
-  check("exactly the seven linked SKUs are sellable — the six tokens carry ids and NO url",
-    links.sellableSkus().length === 7
-    && links.sellableSkus().every((s) => !s.startsWith("time-token-")),
-    links.sellableSkus().join(","));
-  check("no token is sellable and checkout refuses for every one of the six (ids are not a surface)",
-    tokenIds.every((id) => !links.isSellable(id) && links.checkoutUrl(id, "payer") === null));
-  // NEGATIVE CONTROL: the allow-list is read from `url`, not from the row's
-  // existence — so the widening above cannot be vacuous.
-  const controlRow = links.paymentLinkRow("votive-small")!;
-  const controlUrl = controlRow.url;
-  controlRow.url = "";
-  const droppedOut = !links.isSellable("votive-small") && links.sellableSkus().length === 6 && links.checkoutUrl("votive-small", "payer") === null;
-  controlRow.url = controlUrl;
-  check("NEGATIVE CONTROL · blanking a live row's url takes that SKU out of the allow-list and blocks checkout",
-    droppedOut && links.isSellable("votive-small") && links.sellableSkus().length === 7);
+  check("exactly the seven sellable SKUs are sellable — the six tokens carry rows and NO surface",
+    catalog.sellableSkus().length === 7 && catalog.sellableSkus().every((s) => !s.startsWith("time-token-")), catalog.sellableSkus().join(","));
+  check("no token is sellable", tokenIds.every((id) => !catalog.isSellable(id)));
+  // NEGATIVE CONTROL: the allow-list is read from `enabled`, not from the row's
+  // existence — so the check above cannot be vacuous.
+  const controlRow = catalog.xsollaCatalogRow("votive-small")!;
+  controlRow.enabled = false;
+  const droppedOut = !catalog.isSellable("votive-small") && catalog.sellableSkus().length === 6;
+  controlRow.enabled = true;
+  check("NEGATIVE CONTROL · disabling a live row takes that SKU out of the allow-list",
+    droppedOut && catalog.isSellable("votive-small") && catalog.sellableSkus().length === 7);
 
-  const row = links.PAYMENT_LINKS[0];
-  row.url = "https://buy.stripe.com/test_small?utm_source=game";
-  const url = links.checkoutUrl("votive-small", "payer");
-  const parsed = new URL(url!);
-  check("the checkout URL carries client_reference_id for the signed-in account", parsed.searchParams.get("client_reference_id") === REF);
-  check("…and keeps the link's own query parameters", parsed.searchParams.get("utm_source") === "game");
-  row.url = WIRED["votive-small"][0];
-  check("…and the live link is restored (the catalogue is back to the shipped ids)",
-    links.PAYMENT_LINKS[0].url === WIRED["votive-small"][0] && links.sellableSkus().length === 7);
-  check("a signed-out player has no checkout URL (there is no account to attach)", links.checkoutUrl("votive-small", null) === null && links.checkoutUrl("votive-small", "") === null);
-  const after = links.afterCompletionUrl("https://game.example", "votive-small");
-  check("the return URL keeps {CHECKOUT_SESSION_ID} verbatim for Stripe to substitute", after.includes("session_id={CHECKOUT_SESSION_ID}"));
-  check("…and names the SKU and the return marker so the ledger can open honestly", after.includes("purchase=return") && after.includes("sku=votive-small") && after.startsWith("https://game.example/play?"));
+  // ---- the return url ----------------------------------------------------------
+  const ret = catalog.xsollaReturnUrlFor({ skuId: "votive-small", origin: "https://game.example" });
+  check("the return url keeps the sku and the return marker so the ledger can open honestly",
+    ret === "https://game.example/play?purchase=return&sku=votive-small");
+  check("…an http origin is refused in live mode", catalog.xsollaReturnUrlFor({ skuId: "votive-small", origin: "http://game.example" }) === null);
+  check("…but accepted in sandbox mode", catalog.xsollaReturnUrlFor({ skuId: "votive-small", origin: "http://localhost:5173", sandbox: true }) === "http://localhost:5173/play?purchase=return&sku=votive-small");
+  check("…and a garbage origin falls back to the canonical site, never to a null",
+    catalog.xsollaReturnUrlFor({ skuId: "votive-small", origin: "https://", canonicalOrigin: "https://play.deepspace-engine.gg" }) === "https://play.deepspace-engine.gg/play?purchase=return&sku=votive-small");
 
   check("the storefront switch is still OFF in this commit", monetization.MONETIZATION_CONFIG.storefrontEnabled === false);
 
   // The two servers on one path, and the client kept out of the server module.
   const serveSrc = read("serve.ts");
   const viteSrc = read("vite.config.ts");
-  check("serve.ts answers the webhook path (the published build)", serveSrc.includes("STRIPE_WEBHOOK_PATH") && serveSrc.includes("handleStripeWebhookRequest"));
-  check("vite.config.ts repeats the SAME path literal (the dev host behaves identically)", viteSrc.includes(`"${route.STRIPE_WEBHOOK_PATH}"`));
+  check("serve.ts answers the Xsolla webhook path (the published build)", serveSrc.includes("XSOLLA_WEBHOOK_PATH") && serveSrc.includes("handleXsollaWebhookRequest"));
+  check("vite.config.ts repeats the SAME path literal (the dev host behaves identically)", viteSrc.includes(`"${route.XSOLLA_WEBHOOK_PATH}"`));
   check("the dev middleware loads the same handler through ssrLoadModule", viteSrc.includes("/src/game/payments/webhook-route.ts") && viteSrc.includes("ssrLoadModule"));
   const clientFiles = [
     "src/components/StorefrontOverlay.tsx",
     "src/routes/play.tsx",
     "src/game/monetization.ts",
-    "src/game/payments/payment-links.ts",
+    "src/game/payments/xsolla-catalog.ts",
     "src/game/payments/purchase-intent.ts",
   ];
   // An IMPORT of the server module, not a mention of its name in prose: the
@@ -598,9 +647,14 @@ console.log("— 5 · the factory, the price list, the wiring —");
   check("no client file imports the server handler (the store can never be reached from the browser)", clientFiles.every((f) => !importsServer(read(f))));
   check("…while serve.ts does import it (the check above can actually fail)", importsServer(read("serve.ts")));
   const overlay = read("src/components/StorefrontOverlay.tsx");
-  check("the storefront opens the link built from the signed-in account, in the same tab", overlay.includes("checkoutUrl(skuId, accountId)") && overlay.includes("window.location.assign(url)"));
-  check("…and a SKU is buyable only when the store is open, the player is signed in, and its link exists", overlay.includes("storeOpen && signedIn && isSellable("));
+  check("the storefront opens the Pay Station url the authenticated checkout mints, in the same tab", overlay.includes("xsollaCheckoutFn") && overlay.includes("window.location.assign(res.url)"));
+  check("…and a SKU is buyable only when the store is open, the player is signed in, and its catalog row exists", overlay.includes("storeOpen && signedIn && isSellable("));
   check("…and the client never grants anything (no entitlement write on the buy path)", !overlay.includes("saveActiveState") && !overlay.includes("applyExternalPurchase"));
+  const apiSrc = read("src/game/api.ts");
+  check("the checkout fn reads the Xsolla project credentials from the server environment…",
+    apiSrc.includes("XSOLLA_PROJECT_ID") && apiSrc.includes("XSOLLA_API_KEY"));
+  check("…and returns ONLY the Pay Station URL to the client (the API key never leaves the server)",
+    apiSrc.includes("return { ok: true, url: intent.url };"));
 
   // ---- i18n: the store's strings are keyed and translated in all five languages --
   const cat = (await import(`${SITE}/src/game/i18n/index.ts`)) as { CATALOGUES: Record<string, Record<string, string>>; SOURCE_LANG: string };
@@ -648,15 +702,14 @@ console.log("— 5 · the factory, the price list, the wiring —");
    * within the earned cap" footer, "no tier skips", and any what-you-can't-do framing
    * are OUT of the player's view — the store presents the packs and lets people buy.
    *
-   * This REPLACES the earlier check, which asserted a regex over the 13 catalogue keys
-   * of one slice. It asserts the same intent over everything the player can actually
+   * This scan asserts the same intent over everything the player can actually
    * read — every store.* value, every pack line, every cosmetic name and blurb, and
    * the overlay's own markup with comments stripped — so a string that is rendered but
    * never keyed cannot hide from it either.
    *
-   * The guardrails themselves are INTERNAL and stay internal: the vocabulary below is
-   * still the law inside src/game/monetization.ts, inside monetization-verify.ts and in
-   * design/*.md — and the checks at the end of this block prove it still bites.
+   * NOTE (2026-09-30): the owner has since REVOKED the no-pay-to-win guardrails and
+   * ordered a fresh monetization direction. This scan stays until the revamp lands —
+   * it pins the CURRENT store copy, which predates the revamp.
    */
   const LIMITATION = /earnable|earned cap|head[-\s]start|never (?:buy|buyable|for sale|sale)|pay-to-win|p2w|solo win|no solo|tier[-\s]?skip|timers? skipped|no research|no oracle trust|hero power|no stat|no speed|no edge|craftable/i;
   // ONE documented allowance: "Head-Start Packs" is the pack CATEGORY's name — the
@@ -688,9 +741,9 @@ console.log("— 5 · the factory, the price list, the wiring —");
   check("…and an identifier that merely starts with those letters is not copy (no false positive)",
     !LIMITATION.test("HeadStartPackDef") && !LIMITATION.test("HEAD_START_PACKS"));
 
-  // THE GUARDRAIL IS INTERNAL — and still armed. G1–G4 live in the code, not on the
-  // store surface, and assertCatalogFair() still refuses a catalog that carries power
-  // vocabulary.
+  // THE GUARDRAIL IS INTERNAL — and, until the revamp lands, still armed. G1–G4
+  // live in the code, not on the store surface, and assertCatalogFair() still
+  // refuses a catalog that carries power vocabulary.
   const monSrc = read("src/game/monetization.ts");
   check("the fairness guardrail still exists in code (FORBIDDEN_POWER_TERMS + assertCatalogFair)",
     /FORBIDDEN_POWER_TERMS/.test(monSrc) && /export function assertCatalogFair/.test(monSrc));

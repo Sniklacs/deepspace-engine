@@ -1,10 +1,10 @@
-// THE ACCOUNT REFERENCE — how a Stripe Payment Link carries "who paid".
+// THE ACCOUNT REFERENCE — how a checkout carries "who paid".
 //
 // WHY THIS EXISTS AT ALL (and why it is not just the raw account id).
 //
-// Stripe Payment Links take a `client_reference_id` query parameter and echo it
+// Xsolla takes our user id in the token request and echoes it back in the
 // back on the Checkout Session, which is the only channel from "this link was
-// opened" to "this account paid". The value travels inside a URL, so Stripe
+// opened" to "this account paid". The value travels inside a URL and a webhook, so
 // constrains it, and our account ids are *usernames* (auth.ts
 // normalizeUsername(): trimmed, lowercased, up to 32 characters, and — this is
 // the real hazard — allowed to be ANY characters the player typed, including

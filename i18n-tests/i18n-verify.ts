@@ -1,7 +1,7 @@
 // i18n VERIFICATION — the language foundation, slice 1
 // (design/localization-settings-captions.md §2, L1–L10).
 //
-// Run: cd /home/team/shared/i18n-tests && env -u DATABASE_URL bun run i18n-verify.ts
+// Run: cd /home/hatch/workspace/deepspace-engine/i18n-tests && env -u DATABASE_URL bun run i18n-verify.ts
 //
 // What this gates, in order:
 //   §1 the drop-in contract (one file per language, every file registered)
@@ -32,7 +32,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-const SITE = "/home/team/shared/site";
+const SITE = "/home/hatch/workspace/deepspace-engine/site";
 const read = (p: string) => readFileSync(`${SITE}/${p}`, "utf8");
 /** Every file under site/src, relative to it — the §11 mirror scan walks this. */
 const allFiles: string[] = (() => {

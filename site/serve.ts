@@ -11,7 +11,7 @@
 import handler from "./dist/server/server.js";
 import { createHash } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
-import { STRIPE_WEBHOOK_PATH, handleStripeWebhookRequest, webhookResponse } from "./src/game/payments/webhook-route";
+import { XSOLLA_WEBHOOK_PATH, handleXsollaWebhookRequest, webhookResponse } from "./src/game/payments/webhook-route";
 
 // Pinned, NOT read from the environment. The published preview URL
 // (<label>.<PUBLIC_SITE_DOMAIN>) is reverse-proxied to 0.0.0.0:3000 inside the
@@ -200,17 +200,17 @@ export function cacheHeaders(pathname: string, build = BUILD): Record<string, st
 export async function appFetch(req: Request): Promise<Response> {
   const { pathname } = new URL(req.url);
   /**
-   * THE STRIPE WEBHOOK — the one POST route this server owns.
+   * THE XSOLLA WEBHOOK — the one POST route this server owns.
    *
    * Why here and not a TanStack Start route file: the signature is computed over
-   * the EXACT bytes Stripe sent, so this handler must read the request body
+   * the EXACT bytes Xsolla sent, so this handler must read the request body
    * itself, before any framework parses it, and it must answer with status codes
-   * (400/500 tell Stripe to retry and show the failure in their dashboard)
+   * (400/500 tell Xsolla to retry and show the failure in their dashboard)
    * instead of a page. A route file renders HTML through the app shell; this is
    * transport, so it sits in the transport layer — the same module the dev
    * server's middleware calls, so both hosts behave identically.
    */
-  if (pathname === STRIPE_WEBHOOK_PATH) {
+  if (pathname === XSOLLA_WEBHOOK_PATH) {
     if (req.method !== "POST") {
       return new Response(JSON.stringify({ ok: false, error: "method_not_allowed" }), {
         status: 405,
@@ -218,9 +218,9 @@ export async function appFetch(req: Request): Promise<Response> {
       });
     }
     return webhookResponse(
-      await handleStripeWebhookRequest({
+      await handleXsollaWebhookRequest({
         rawBody: await req.text(),
-        signatureHeader: req.headers.get("stripe-signature"),
+        signatureHeader: req.headers.get("authorization"),
       }),
     );
   }

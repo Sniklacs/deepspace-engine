@@ -45,16 +45,16 @@ import {
   timeTokenMs,
   type SellableTimeTokenSizeId,
 } from "./time-tokens";
-// The real payment provider (payment-links + signature-verified webhook). Its
-// imports back into this file are TYPE-ONLY, so there is no runtime cycle and
-// this module stays pure for the client bundle.
-import { createStripePaymentProvider, type StripeProviderOptions } from "./payments/stripe-provider";
-// THE STRIPE PRODUCT IDS — the ONE place they are written is payments/payment-links.ts
-// (rows 8–13 of the wiring table, read from there, never typed twice). This import
-// direction is safe: payment-links.ts imports nothing but account-ref, so there is
-// no cycle back into this module, and `productIdForSku()` throws rather than
-// returning an empty id, so a token whose Stripe object is missing fails at load.
-import { productIdForSku } from "./payments/payment-links";
+// The real payment provider (Pay Station token minting + signature-verified
+// webhook). Its imports back into this file are TYPE-ONLY, so there is no
+// runtime cycle and this module stays pure for the client bundle.
+import { createXsollaPaymentProvider, type XsollaProviderOptions } from "./payments/xsolla-provider";
+// THE XSOLLA SKUs — the ONE place they are written is payments/xsolla-catalog.ts
+// (the wiring table, read from there, never typed twice). This import direction
+// is safe: xsolla-catalog.ts imports nothing but account-ref, so there is no
+// cycle back into this module, and `xsollaSkuFor()` throws rather than
+// returning an empty id, so a token whose catalog row is missing fails at load.
+import { xsollaSkuFor } from "./payments/xsolla-catalog";
 
 // ======================================================================
 // §4.1 — SEASON 0's OBJECTIVE TABLES, and the tier price DERIVED from them.
@@ -369,15 +369,13 @@ export const PACK_BY_ID = Object.fromEntries(HEAD_START_PACKS.map((p) => [p.id, 
 // speed-up's ENTIRE effect is time, and `time-token-tests` §A/§D assert that.
 //
 // THE PRODUCT ID AND WHERE IT LANDS: `TIME_TOKEN_PACKS[*].providerSkuId` below.
-// WIRED 2026-09-27 — the six Stripe products now EXIST (created live by the lead
-// under the owner's go-ahead: "Yes go ahead and put the links in for the store"),
-// and each row's `providerSkuId` is filled from the one place the id is written,
-// `payments/payment-links.ts` (the token rows, which carry the product, price and
-// payment-link ids — and, deliberately, NO `url`, because no token has a purchase
-// surface yet). `timeTokenSaleRefusal(sizeId)` still refuses a size whose product
-// id is missing, BY NAME: no sale, no default to a guess, no silent fall-through.
-// A sellable size whose `providerSkuId` were left empty would STILL refuse, which
-// is the property the six rows' absence used to carry and a test still asserts.
+// WIRED 2026-09-27 as Stripe products, REWIRED 2026-09-30 as Xsolla catalog
+// rows: each row's `providerSkuId` is filled from the one place the SKU is
+// written, `payments/xsolla-catalog.ts`. `timeTokenSaleRefusal(sizeId)` still
+// refuses a size whose SKU is missing, BY NAME: no sale, no default to a guess,
+// no silent fall-through. A sellable size whose `providerSkuId` were left empty
+// would STILL refuse, which is the property the six rows' absence used to carry
+// and a test still asserts.
 //
 // AND THE SHOP IS STILL SHUT: `MONETIZATION_CONFIG.storefrontEnabled` stays false
 // and every purchase route stays gated on it (api.ts gates both handlers). These
@@ -388,19 +386,19 @@ export interface TimeTokenPackDef {
   sizeId: SellableTimeTokenSizeId; // the SIZE this row sells
   name: string; // English label; the store UI keys it when the rows land
   priceUsd: number; // owner-decided, and monotonic in value per hour (asserted below)
-  providerSkuId: string; // THE Stripe product id, read from payments/payment-links.ts
+  providerSkuId: string; // THE Xsolla SKU, read from payments/xsolla-catalog.ts
 }
 /** The empty product id, named once so a refusal can point at it. A row may still
- *  carry it — that is how "we have no Stripe object for this size" is stated — and
+ *  carry it — that is how "we have no Xsolla SKU for this size" is stated — and
  *  the sale referee refuses such a row by name. */
 export const TIME_TOKEN_PRODUCT_ID_UNSET = "";
 export const TIME_TOKEN_PACKS: TimeTokenPackDef[] = [
-  { id: "time-token-30m", sizeId: "30m", name: "Half-Hour Token", priceUsd: 2.99, providerSkuId: productIdForSku("time-token-30m") },
-  { id: "time-token-1h", sizeId: "1h", name: "One-Hour Token", priceUsd: 3.99, providerSkuId: productIdForSku("time-token-1h") },
-  { id: "time-token-8h", sizeId: "8h", name: "Eight-Hour Token", priceUsd: 7.99, providerSkuId: productIdForSku("time-token-8h") },
-  { id: "time-token-12h", sizeId: "12h", name: "Twelve-Hour Token", priceUsd: 9.99, providerSkuId: productIdForSku("time-token-12h") },
-  { id: "time-token-24h", sizeId: "24h", name: "Day Token", priceUsd: 14.99, providerSkuId: productIdForSku("time-token-24h") },
-  { id: "time-token-48h", sizeId: "48h", name: "Two-Day Token", priceUsd: 24.99, providerSkuId: productIdForSku("time-token-48h") },
+  { id: "time-token-30m", sizeId: "30m", name: "Half-Hour Token", priceUsd: 2.99, providerSkuId: xsollaSkuFor("time-token-30m") },
+  { id: "time-token-1h", sizeId: "1h", name: "One-Hour Token", priceUsd: 3.99, providerSkuId: xsollaSkuFor("time-token-1h") },
+  { id: "time-token-8h", sizeId: "8h", name: "Eight-Hour Token", priceUsd: 7.99, providerSkuId: xsollaSkuFor("time-token-8h") },
+  { id: "time-token-12h", sizeId: "12h", name: "Twelve-Hour Token", priceUsd: 9.99, providerSkuId: xsollaSkuFor("time-token-12h") },
+  { id: "time-token-24h", sizeId: "24h", name: "Day Token", priceUsd: 14.99, providerSkuId: xsollaSkuFor("time-token-24h") },
+  { id: "time-token-48h", sizeId: "48h", name: "Two-Day Token", priceUsd: 24.99, providerSkuId: xsollaSkuFor("time-token-48h") },
 ];
 export const TIME_TOKEN_PACK_BY_ID = Object.fromEntries(TIME_TOKEN_PACKS.map((p) => [p.id, p])) as Record<string, TimeTokenPackDef>;
 /** The catalogue id of a size's row — one formula, so a lookup cannot miss. */
@@ -435,9 +433,8 @@ export interface TimeTokenSaleRefusal {
  *      still `TIME_TOKEN_PRODUCT_ID_UNSET`     -> store.notForSale, BY NAME
  *
  * A refusal here is a REFUSAL TO SELL, not a message: this function grants nothing
- * and has no purchase path behind it. Money still needs the Stripe products, the
- * signing secret, the Payment Link rows and the `storefrontEnabled` flip — the
- * owner's step, not this module's.
+ * and has no purchase path behind it. Money still needs the Xsolla project, the
+ * secret key and the `storefrontEnabled` flip — the owner's step, not this module's.
  */
 export function timeTokenSaleRefusal(sizeId: string): TimeTokenSaleRefusal | null {
   if (!isTimeTokenSize(sizeId)) {
@@ -456,7 +453,7 @@ export function timeTokenSaleRefusal(sizeId: string): TimeTokenSaleRefusal | nul
   if (!row.providerSkuId) {
     return {
       errorKey: "store.notForSale",
-      error: `The ${sizeId} token has no Stripe product id yet (${row.id}.providerSkuId is empty) — refused by name rather than sold without one.`,
+      error: `The ${sizeId} token has no Xsolla SKU yet (${row.id}.providerSkuId is empty) — refused by name rather than sold without one.`,
     };
   }
   return null;
@@ -1088,7 +1085,7 @@ export function applyExternalPurchase(
     return { ok: true, state };
   }
   // 2b) TIME TOKEN — THE PURCHASED TOKEN'S ENTITLEMENT DOOR (2026-09-27, the
-  //     slice the sell half said would land "with the Stripe products and the
+  //     slice the sell half said would land "with the Xsolla catalog rows and the
   //     switch flip"). A verified purchase of `time-token-<size>` grants ONE
   //     held token of that size, through time-tokens.ts's own ledger door, and
   //     NOWHERE ELSE: the earned door still refuses a sold size outright, so
@@ -1099,7 +1096,7 @@ export function applyExternalPurchase(
   //       2. the same id again as the time-token ledger's eventId
   //          (`grantSoldTimeToken`, which uses the ledger's own eventId-once rule).
   //     The grant is RECORDED IN TWO PLACES: the colony's `timeTokenLedger`
-  //     (kind "earn", sizeId, amount 1, reason naming the Stripe session — the
+  //     (kind "earn", sizeId, amount 1, reason naming the Xsolla transaction — the
   //     append-only record of where a token came from) and
   //     `entitlements.consumed` (the purchase-id registry every SKU shares).
   //     A GRANTED TOKEN IS NOT A STRONGER TOKEN: it lands in the same held
@@ -1107,7 +1104,7 @@ export function applyExternalPurchase(
   //     the same MIN_TIMER_FRACTION floor as the Devotion's earned ones.
   const tokenPack = TIME_TOKEN_PACK_BY_ID[purchase.skuId];
   if (tokenPack) {
-    const r = grantSoldTimeToken(state, tokenPack.sizeId, eventId, `Purchased ${tokenPack.name} (Stripe session ${purchase.purchaseId})`, now);
+    const r = grantSoldTimeToken(state, tokenPack.sizeId, eventId, `Purchased ${tokenPack.name} (Xsolla transaction ${purchase.purchaseId})`, now);
     if (!r.ok) return { ok: false, error: r.error, state };
     if (r.idempotent) return { ok: true, idempotent: true, state };
     if (!consumedHas(state, eventId)) state.entitlements.consumed.push(eventId);
@@ -1130,7 +1127,7 @@ export function applyExternalPurchase(
 }
 
 // ======================================================================
-// PAYMENT PROVIDER (spec §7.3) — interface + STUB only. Real Stripe/regional
+// PAYMENT PROVIDER (spec §7.3) — interface + STUB only. Real Xsolla/regional
 // pricing/tax/refunds/legal are explicitly out of scope until the owner flips
 // the switch. The single swap point is createPaymentProvider().
 // ======================================================================
@@ -1154,7 +1151,10 @@ export interface VerifiedPurchase {
 
 export interface PaymentProvider {
   readonly name: string;
-  createIntent(intent: PurchaseIntent): Promise<{ ok: boolean; intentId?: string; error?: string }>;
+  /** createIntent mints the checkout (Pay Station token) and returns the URL
+   *  the client should navigate to — `url` is empty for providers that have no
+   *  hosted checkout. */
+  createIntent(intent: PurchaseIntent): Promise<{ ok: boolean; intentId?: string; url?: string; error?: string }>;
   verifyWebhook(payload: unknown): Promise<{ ok: boolean; purchase?: VerifiedPurchase; error?: string }>;
   refund(opts: { purchaseId: string; reason: string }): Promise<{ ok: boolean; error?: string }>;
 }
@@ -1200,19 +1200,20 @@ export function createStubPaymentProvider(simulate = true): PaymentProvider {
 }
 
 /**
- * THE single swap point — SWAPPED (2026-09-26). This returns the REAL provider
- * (payments/stripe-provider.ts): Stripe Payment Links are opened by the client,
- * and an entitlement is granted ONLY by a signature-verified webhook. The stub
- * above is kept for tests that exercise the interface, but no code path reaches
- * it any more: an unconfigured real provider REFUSES everything (it has no
- * "simulate" mode to fall back on), which is the honest behaviour for money.
+ * THE single swap point — SWAPPED (2026-09-30). This returns the REAL provider
+ * (payments/xsolla-provider.ts): the server mints an Xsolla Pay Station token
+ * per purchase, and an entitlement is granted ONLY by a signature-verified
+ * webhook. The stub above is kept for tests that exercise the interface, but no
+ * code path reaches it any more: an unconfigured real provider REFUSES
+ * everything (it has no "simulate" mode to fall back on), which is the honest
+ * behaviour for money.
  *
- * The signing secret is injected by the caller — the webhook route reads it from
- * the environment (`STRIPE_WEBHOOK_SECRET`), so this pure module never touches
+ * The secret key is injected by the caller — the webhook route reads it from
+ * the environment (`XSOLLA_WEBHOOK_SECRET`), so this pure module never touches
  * env or node APIs and stays importable by the client bundle.
  */
-export function createPaymentProvider(options: StripeProviderOptions = {}): PaymentProvider {
-  return createStripePaymentProvider(options);
+export function createPaymentProvider(options: XsollaProviderOptions = {}): PaymentProvider {
+  return createXsollaPaymentProvider(options);
 }
 
 // ======================================================================
@@ -1364,14 +1365,14 @@ export function assertCatalogFair(): void {
       throw new Error(`Time-token row ${p.id} must carry a real price (> 0) — a speed-up is sold, not given away.`);
     }
     if (typeof p.providerSkuId !== "string" || p.providerSkuId !== p.providerSkuId.trim()) {
-      throw new Error(`Time-token row ${p.id} has a malformed product id — it is either the empty string (unset) or a real Stripe id.`);
+      throw new Error(`Time-token row ${p.id} has a malformed SKU — it is either the empty string (unset) or a real Xsolla catalog SKU.`);
     }
-    // A SET product id must be a Stripe product id. This is the check that keeps a
-    // placeholder ("TODO", "prod_", a made-up number) from passing as wiring now
-    // that the real ids are in: the referee already treats "" as "not sellable",
-    // and this makes anything that is not a `prod_…` id fail the build instead.
-    if (p.providerSkuId && !/^prod_[A-Za-z0-9]+$/.test(p.providerSkuId)) {
-      throw new Error(`Time-token row ${p.id} carries "${p.providerSkuId}", which is not a Stripe product id.`);
+    // A SET SKU must be the row's own Xsolla catalog SKU. This is the check that
+    // keeps a placeholder ("TODO", a made-up id) from passing as wiring now that
+    // the real SKUs are in: the referee already treats "" as "not sellable", and
+    // this makes anything the catalog does not recognise fail the build instead.
+    if (p.providerSkuId && p.providerSkuId !== xsollaSkuFor(p.id)) {
+      throw new Error(`Time-token row ${p.id} carries "${p.providerSkuId}", which is not its Xsolla catalog SKU.`);
     }
     if ((p as { grants?: unknown }).grants !== undefined) {
       throw new Error(`Time-token row ${p.id} carries a grant payload — a speed-up grants TIME ONLY (owner ruling 2026-09-27).`);

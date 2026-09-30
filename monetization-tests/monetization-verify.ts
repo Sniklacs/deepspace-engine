@@ -1,12 +1,12 @@
 // Engine-level play-test for the MONETIZATION SEAMS (V5) — catalog, currency
 // ledger, entitlements, payment-provider stub, battle pass, and the fairness
 // guardrails. Mirrors the leader-xp/revelation verify style.
-// Run: cd /home/team/shared/monetization-tests && bun run monetization-verify.ts
-import * as engine from "/home/team/shared/site/src/game/engine.ts";
-import * as m from "/home/team/shared/site/src/game/monetization.ts";
-import { publicState } from "/home/team/shared/site/src/game/api.ts";
+// Run: cd /home/hatch/workspace/deepspace-engine/monetization-tests && bun run monetization-verify.ts
+import * as engine from "/home/hatch/workspace/deepspace-engine/site/src/game/engine.ts";
+import * as m from "/home/hatch/workspace/deepspace-engine/site/src/game/monetization.ts";
+import { publicState } from "/home/hatch/workspace/deepspace-engine/site/src/game/api.ts";
 import { readFileSync } from "node:fs";
-import type { GameState } from "/home/team/shared/site/src/game/types.ts";
+import type { GameState } from "/home/hatch/workspace/deepspace-engine/site/src/game/types.ts";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, extra = "") {
@@ -170,18 +170,18 @@ check("unknown item refused", m.purchaseWithVotives(st5, "wat", "buy-4", now).ok
 
 // ======================================================================
 console.log("— 6 · payment provider seam (§7.3) —");
-// SWAPPED 2026-09-26 (payments slice): the factory no longer returns the stub — it
-// returns the real Stripe provider (Payment Links + signature-verified webhook). The
-// seven checks below are the SAME seven, re-pointed at the new reality; the full
-// verifier lives in payments-tests/payments-verify.ts.
+// SWAPPED 2026-09-30 (payments slice): the factory no longer returns the stub — it
+// returns the real Xsolla provider (Pay Station token minting + signature-verified
+// webhook). The seven checks below are the SAME seven, re-pointed at the new
+// reality; the full verifier lives in payments-tests/payments-verify.ts.
 const prov = m.createPaymentProvider();
-check("the factory no longer returns the stub — it returns the real provider", prov.name === "StripePaymentProvider");
+check("the factory no longer returns the stub — it returns the real provider", prov.name === "XsollaPaymentProvider");
 check("an unconfigured provider REFUSES instead of simulating (no simulate fallback)", await (async () => { const r = await prov.createIntent({ accountId: "a", skuId: "votive-steady", idempotencyKey: "k1", amountCents: 999, currency: "usd" }); return r.ok === false && typeof r.error === "string"; })());
 check("the stub is still exported for interface tests and still refuses with simulate:false", await (async () => { const p = m.createStubPaymentProvider(false); const r = await p.createIntent({ accountId: "a", skuId: "x", idempotencyKey: "k", amountCents: 1, currency: "usd" }); return p.name === "StubPaymentProvider" && !r.ok; })());
-check("verifyWebhook refuses a bare payload object (a Stripe webhook is verified over its RAW body)", await (async () => { const r = await prov.verifyWebhook({ purchaseId: "purch-1", skuId: "votive-steady", accountId: "a" }); return r.ok === false; })());
-check("verifyWebhook refuses a raw body with no signature header", await (async () => { const r = await prov.verifyWebhook({ rawBody: "{\"id\":\"evt_1\"}", signatureHeader: null }); return r.ok === false; })());
-check("no payload verifies while no signing secret is configured", await (async () => { const r = await prov.verifyWebhook({ rawBody: "{\"id\":\"evt_1\",\"type\":\"checkout.session.completed\"}", signatureHeader: "t=1,v1=deadbeef" }); return r.ok === false && !r.purchase; })());
-check("refund is refused honestly (refunds are issued in the Stripe dashboard)", await (async () => { const r = await prov.refund({ purchaseId: "purch-1", reason: "chargeback" }); return r.ok === false && typeof r.error === "string"; })());
+check("verifyWebhook refuses a bare payload object (an Xsolla webhook is verified over its RAW body, by verifyXsollaEvent — never by the provider)", await (async () => { const r = await prov.verifyWebhook({ purchaseId: "purch-1", skuId: "votive-steady", accountId: "a" }); return r.ok === false; })());
+check("verifyWebhook refuses a raw body with no signature header", await (async () => { const r = await prov.verifyWebhook({ rawBody: "{\"notification_type\":\"order_paid\"}", signatureHeader: null }); return r.ok === false; })());
+check("no payload verifies while no secret key is configured", await (async () => { const r = await prov.verifyWebhook({ rawBody: "{\"notification_type\":\"order_paid\"}", signatureHeader: "Signature deadbeef" }); return r.ok === false && !r.purchase; })());
+check("refund is refused honestly (refunds are issued in the Xsolla Publisher Account)", await (async () => { const r = await prov.refund({ purchaseId: "purch-1", reason: "chargeback" }); return r.ok === false && typeof r.error === "string"; })());
 
 // ---- applyExternalPurchase: provider-confirmed purchases, idempotent ----
 const st6 = engine.newGame("Mon6", "watchers", now);
@@ -329,10 +329,10 @@ check("…and on a planted power term in the premium pass track", (() => {
 // And the guardrail still EXISTS in both places the owner put it: the code, and the
 // design doc. Asserting this here is the counterweight to removing it from the store.
 {
-  const src = readFileSync("/home/team/shared/site/src/game/monetization.ts", "utf8");
+  const src = readFileSync("/home/hatch/workspace/deepspace-engine/site/src/game/monetization.ts", "utf8");
   check("the forbidden-vocabulary guardrail is still in the code (the ruling moved it off the store, it did not delete it)",
     /FORBIDDEN_POWER_TERMS/.test(src) && /"skip"/.test(src) && /"hero"/.test(src) && /"plasma"/.test(src));
-  const doc = (() => { try { return readFileSync("/home/team/shared/design/monetization.md", "utf8"); } catch { return ""; } })();
+  const doc = (() => { try { return readFileSync("/home/hatch/workspace/deepspace-engine/design/monetization.md", "utf8"); } catch { return ""; } })();
   check("…and the design doc still carries the G1–G4 guardrails the store no longer states",
     /G1/.test(doc) && /G3/.test(doc) && /pay-to-win/i.test(doc) && doc.length > 1000);
 }

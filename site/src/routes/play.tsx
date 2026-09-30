@@ -94,7 +94,7 @@ function PlayPage() {
   const [username, setUsername] = useState<string | null>(null);
   const [gamesOpen, setGamesOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
-  // ---- Back from Stripe (Payments). `intent` is the note written at click time
+  // ---- Back from Xsolla Pay Station (Payments). `intent` is the note written at click time
   // (game/payments/purchase-intent.ts). What the player is told is derived from the
   // SERVER's wallet compared against that note — never from the URL — and this panel
   // grants nothing: the entitlement arrives only through the signed webhook.
@@ -225,8 +225,8 @@ function PlayPage() {
     configureChat(signedIn === true ? token : null, null);
   }, [signedIn, token]);
   // ---- PAYMENT RETURN (Payments) ----------------------------------------------------
-  // Stripe sends the player back to /play?purchase=return&sku=…&session_id=… . The
-  // session id is kept for support only: it proves nothing, so it is never used to
+  // Xsolla sends the player back to /play?purchase=return&sku=… (the return_url
+  // minted with the token). The URL proves nothing, so it is never used to
   // grant or to claim anything. The panel re-reads what the server holds.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -638,6 +638,7 @@ function PlayPage() {
           open={ledgerOpen}
           onClose={() => { setLedgerOpen(false); sound.click(); }}
           accountId={username}
+          token={token}
           purchaseReturn={purchaseReturnView}
         />
       )}

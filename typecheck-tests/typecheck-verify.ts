@@ -1,6 +1,6 @@
 // typecheck-verify — the gate `vite build` does not carry (P0, 2026-09-26).
 //
-// Run: cd /home/team/shared/typecheck-tests && env -u DATABASE_URL bun run typecheck-verify.ts
+// Run: cd /home/hatch/workspace/deepspace-engine/typecheck-tests && env -u DATABASE_URL bun run typecheck-verify.ts
 //
 // WHY. `Sheet.tsx` called `useT()` without importing it. `vite build` bundles
 // with esbuild, which does not resolve identifiers, so the live build shipped
@@ -23,7 +23,7 @@
 import { readdirSync, readFileSync, statSync, rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const SITE = "/home/team/shared/site";
+const SITE = "/home/hatch/workspace/deepspace-engine/site";
 const read = (p: string) => readFileSync(`${SITE}/${p}`, "utf8");
 const guard = (args: string[] = []) =>
   spawnSync("bun", ["run", "scripts/typecheck-guard.ts", ...args], {

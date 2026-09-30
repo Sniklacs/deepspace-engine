@@ -5,33 +5,33 @@ import { defineConfig, type Plugin } from "vite";
 import tsConfigPaths from "vite-tsconfig-paths";
 
 /**
- * THE STRIPE WEBHOOK, ON THE DEV SERVER.
+ * THE XSOLLA WEBHOOK, ON THE DEV SERVER.
  *
  * `serve.ts` owns this route in the published build; the dev server is a
  * different HTTP server and would otherwise answer 404 for the URL we hand
- * Stripe, which makes the one thing that must work in production the one thing
+ * Xsolla, which makes the one thing that must work in production the one thing
  * that cannot be tested before it does. This middleware gives the dev host the
  * same handler, so a delivery can be replayed against the local (or the
  * published -dev) host byte for byte.
  *
  * The path literal is repeated here because a Vite config cannot import app
  * modules at load time; `payments-tests` pins this string to
- * STRIPE_WEBHOOK_PATH in webhook-route.ts, so the two cannot drift apart.
+ * XSOLLA_WEBHOOK_PATH in webhook-route.ts, so the two cannot drift apart.
  *
  * The handler is loaded through `ssrLoadModule` (Vite's own server-side module
  * loader) rather than a static import: the app module imports the game store,
  * which is a runtime concern of the request, not of the config.
  */
-const STRIPE_WEBHOOK_PATH = "/api/dse-stripe-webhook";
-const STRIPE_WEBHOOK_MODULE = "/src/game/payments/webhook-route.ts";
+const XSOLLA_WEBHOOK_PATH = "/api/dse-xsolla-webhook";
+const XSOLLA_WEBHOOK_MODULE = "/src/game/payments/webhook-route.ts";
 
-function stripeWebhookDevRoute(): Plugin {
+function xsollaWebhookDevRoute(): Plugin {
   return {
-    name: "deepspace-stripe-webhook",
+    name: "deepspace-xsolla-webhook",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? "/", "http://localhost");
-        if (url.pathname !== STRIPE_WEBHOOK_PATH) return next();
+        if (url.pathname !== XSOLLA_WEBHOOK_PATH) return next();
         if (req.method !== "POST") {
           res.statusCode = 405;
           res.setHeader("content-type", "application/json; charset=utf-8");
@@ -42,25 +42,30 @@ function stripeWebhookDevRoute(): Plugin {
         const chunks: Buffer[] = [];
         for await (const chunk of req) chunks.push(chunk as Buffer);
         const rawBody = Buffer.concat(chunks).toString("utf8");
-        const header = req.headers["stripe-signature"];
+        const header = req.headers["authorization"];
         try {
-          const mod = (await server.ssrLoadModule(STRIPE_WEBHOOK_MODULE)) as {
-            handleStripeWebhookRequest: (input: { rawBody: string; signatureHeader: string | null }) => Promise<{
+          const mod = (await server.ssrLoadModule(XSOLLA_WEBHOOK_MODULE)) as {
+            handleXsollaWebhookRequest: (input: { rawBody: string; signatureHeader: string | null }) => Promise<{
               status: number;
-              body: Record<string, unknown>;
+              body: Record<string, unknown> | null;
             }>;
           };
-          const result = await mod.handleStripeWebhookRequest({
+          const result = await mod.handleXsollaWebhookRequest({
             rawBody,
             signatureHeader: typeof header === "string" ? header : null,
           });
           res.statusCode = result.status;
-          res.setHeader("content-type", "application/json; charset=utf-8");
           res.setHeader("cache-control", "no-store");
+          if (result.body === null) {
+            // Xsolla asks for an empty 204 on success/ignored.
+            res.end();
+            return;
+          }
+          res.setHeader("content-type", "application/json; charset=utf-8");
           res.end(JSON.stringify(result.body));
         } catch (err) {
-          // A broken dev-time module must not look like a Stripe problem.
-          console.error("[dev stripe-webhook]", err);
+          // A broken dev-time module must not look like an Xsolla problem.
+          console.error("[dev xsolla-webhook]", err);
           res.statusCode = 500;
           res.setHeader("content-type", "application/json; charset=utf-8");
           res.end(JSON.stringify({ ok: false, error: "dev_route_failure" }));
@@ -102,6 +107,6 @@ export default defineConfig({
     }),
     tanstackStart(),
     viteReact(),
-    stripeWebhookDevRoute(),
+    xsollaWebhookDevRoute(),
   ],
 });

@@ -1,6 +1,6 @@
 // THE PURCHASE INTENT — a client-side note to self, and nothing more.
 //
-// THE PROBLEM IT SOLVES. The player is sent to Stripe in the same tab, so the
+// THE PROBLEM IT SOLVES. The player is sent to Xsolla Pay Station in the same tab, so the
 // page they come back to has been destroyed and reloaded. To answer "did my
 // purchase land?" honestly we need to know what the wallet looked like BEFORE
 // the click, and the only place that survives the round trip is the device.
@@ -12,7 +12,7 @@
 // can at worst make the player's own screen say "confirmed" about a purchase
 // they did not make. Nothing is granted from the client, ever.
 //
-// WHY NOT THE URL. Stripe's return URL carries `{CHECKOUT_SESSION_ID}`, and we
+// WHY NOT THE URL. Xsolla's return URL carries no proof of payment, and we
 // keep it (it is useful for support), but it proves nothing on its own: anyone
 // can type it. It is never used to grant, and the panel's state comes from the
 // server's wallet, not from the query string.
