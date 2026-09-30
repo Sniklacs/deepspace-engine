@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameState } from "../game/types";
 import type { Battle, BattleReport, BattleSide, CommittedForce } from "../game/war/war-types";
 import { battleMoment, battleEndAt } from "../game/war/battle-engine";
+import { availableWeight } from "../game/war/troops";
 import { battleIssueFn, battleRespondFn } from "../game/api";
 import {
   CONFIRM_CANCEL_LABEL,
@@ -529,8 +530,12 @@ export function DecisionPanel({
     colonyId: colonyId ?? state.gameId ?? "",
     colonyName: colonyName ?? state.playerName ?? "Unnamed Colony",
   };
+  // Troop affordability is the REAL home-garrison weight (muster roster minus
+  // commitments) — never a reserve ledger. All live battles are home-backed;
+  // when base-backed battles ship, this resolves via the side's home.
+  const homeRoster = state.troops?.home.roster ?? null;
   const reserves = clientReserves({
-    reserveTroops: state.warReserve?.troops ?? 0,
+    reserveTroops: homeRoster ? availableWeight(homeRoster) : 0,
     energy: state.warReserve?.energy ?? 0,
   });
   const rows = decisionRows(battle, side, displayNow, reserves);

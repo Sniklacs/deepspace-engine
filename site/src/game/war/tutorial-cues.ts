@@ -131,8 +131,9 @@ export interface TutorialTrigger {
   /** elapsed: the exact mark (see TUTORIAL_CONFIG.elapsedMarks). */
   afterMs?: number;
   /** window-open: milestone (reinforce/hold/aid/withdraw/retreat) vs edge (the
-   *  rout-risk opening — the pummeled moment). */
-  windowKind?: "milestone" | "edge";
+   *  rout-risk opening — the pummeled moment) vs response (the defender's
+   *  answer window after a hidden maneuver enters). */
+  windowKind?: "milestone" | "edge" | "response";
   /** chip: a specific live-state chip value. */
   chip?: Chip;
   /** decision: the order the player picked (any order when omitted). */
@@ -370,7 +371,7 @@ export type TutorialOutcome = "win" | "loss" | "standoff";
 export type TutorialEvent =
   | { kind: "battle-open"; battleId: string; at: number }
   | { kind: "elapsed"; battleId: string; afterMs: number; at: number }
-  | { kind: "window-open"; battleId: string; windowId: string; windowKind: "milestone" | "edge"; windowIndex: number; at: number }
+  | { kind: "window-open"; battleId: string; windowId: string; windowKind: "milestone" | "edge" | "response"; windowIndex: number; at: number }
   | { kind: "chip"; battleId: string; chip: Chip; at: number }
   | { kind: "decision"; battleId: string; windowId: string; action: TutorialAction; at: number }
   | { kind: "resolve"; battleId: string; outcome: TutorialOutcome; at: number };

@@ -37,19 +37,30 @@ import { dailyPublicView } from "./daily";
 import { timeTokensPublicView } from "./time-tokens";
 import {
   appendReportOnce,
+  attachBattlePlan,
   battleEndAt,
   battlePublicView,
   issueDecision,
   logBattleResolved,
   respondToAid,
+  screenVector,
 } from "./war/battle-engine";
+import {
+  commitRosterWeight,
+  rosterForCommit,
+  settleToll,
+  sideHomeFor,
+  stampRosterSegment,
+} from "./war/roster-commit";
+import { availableWeight } from "./war/troops";
+import type { BattlePlan } from "./war/maneuvers";
 import { ACT1_CONFIG, openAct1Front } from "./prologue/act1-battle";
 import { prologueState } from "./prologue/prologue-engine";
 // Chat + mail, slice A1: the server functions live in their own module (the same
 // zod-validated shape as the feedback channel's), so the chat surface cannot grow
 // inside this file, and `chat-tests` can reach the rules without a 1000-line import.
 import { worldFeedFn, sendWorldFn, chatSyncFn } from "./chat/chat-api";
-import type { BattleHeroSnapshot } from "./war/war-types";
+import type { Battle, BattleHeroSnapshot, BattleSide, ManeuverVector } from "./war/war-types";
 import {
   enqueueMuster,
   hireBand,
@@ -184,11 +195,12 @@ export function publicState(st: GameState): GameState {
     // (stage/leaders/heroes/squad/finalStand/historyBook/echoes). No field is
     // server-secret; defensive copy so callers can't mutate server state.
     prologue: st.prologue ? JSON.parse(JSON.stringify(st.prologue)) : st.prologue,
-    // B12/B11 reserve view: the observable numbers (troops + energy + the
-    // co-op recognition ledger). `lockedHeroes` (commitment bookkeeping) stays
+    // B12/B11 reserve view: the observable numbers (energy + the co-op
+    // recognition ledger). Troop affordability is NEVER a reserve field —
+    // the client reads the real muster roster (state.troops) via
+    // availableWeight. `lockedHeroes` (commitment bookkeeping) stays
     // server-side — the battle decisions render the visible side of it.
     warReserve: {
-      troops: Math.max(0, Math.trunc(st.warReserve?.troops) || 0),
       energy: Math.max(0, Math.trunc(st.warReserve?.energy) || 0),
       cycleId: st.warReserve?.cycleId ?? null,
       aidCredits: Math.max(0, Math.trunc(st.warReserve?.aidCredits) || 0),
@@ -908,10 +920,10 @@ const battleHeroSchema = z.object({
 });
 
 /** Build the engine-facing reserve view for the caller's colony: heroes not
- *  locked in another commitment + its unspent reserve troops/energy. The
- *  roster deep-check (hero actually earned, energy stamps per hero) is the war
- *  layer's job in Phase 1 — today the structural unlocks + commitments stand. */
-function battleReservesFor(st: GameState, proposed: string[]): BattleReservesLike {
+ *  locked in another commitment + its unspent reserve energy. Troop
+ *  affordability is the REAL available garrison weight of the home backing
+ *  `side` (muster roster, minus commitments) — never the old ghost ledger. */
+function battleReservesFor(st: GameState, proposed: string[], battle: Battle, side: BattleSide): BattleReservesLike {
   const locked = new Set(Object.keys(st.warReserve?.lockedHeroes ?? {}));
   const committed = new Set<string>();
   for (const b of st.battles ?? []) {
@@ -920,13 +932,26 @@ function battleReservesFor(st: GameState, proposed: string[]): BattleReservesLik
     for (const c of b.aidCalls ?? []) for (const h of c.heroes ?? []) if (h.id) committed.add(h.id);
   }
   const reserveHeroIds = proposed.filter((id) => !locked.has(id) && !committed.has(id) && id.length > 0);
+  const home = sideHomeFor(battle, side);
+  const roster = home ? rosterForCommit(st, home) : null;
+  const reserveTroops = roster ? availableWeight(roster) : 0;
   return {
     reserveHeroIds,
-    reserveTroops: Math.max(0, Math.trunc(st.warReserve?.troops) || 0),
+    reserveTroops,
     energy: Math.max(0, Math.trunc(st.warReserve?.energy) || 0),
   };
 }
 type BattleReservesLike = { reserveHeroIds: string[]; reserveTroops: number; energy: number };
+
+/** Which side of a battle belongs to a colony (single-player: the caller's
+ *  own colony id). Aid bodies march from the RESPONDER's home even when they
+ *  fight on the caller's side — this is how the API bills the right roster. */
+function playerSideOf(battle: Battle, colonyId: string | undefined): BattleSide | null {
+  if (!colonyId) return null;
+  if (battle.attacker?.colonyId === colonyId) return "attacker";
+  if (battle.defender?.colonyId === colonyId) return "defender";
+  return null;
+}
 
 /** Issue a mid-battle order: reinforce / hold / withdrawal / retreat / callAid. */
 const battleIssueFn = createServerFn({ method: "POST" }).validator(
@@ -950,20 +975,36 @@ const battleIssueFn = createServerFn({ method: "POST" }).validator(
   const battle = st.battles?.find((b) => b.id === data.battleId);
   if (!battle || battle.status !== "active") return { ok: false, error: "That battle isn't running." };
   const heroes = (data.heroes ?? []) as unknown as BattleHeroSnapshot[];
-  const reserves = battleReservesFor(st, heroes.map((h) => h.id));
+  const reserves = battleReservesFor(st, heroes.map((h) => h.id), battle, data.side);
   const res = issueDecision(battle, data.side, data.windowId, data.action, Date.now(), reserves, {
     heroes,
     troops: data.troops ?? 0,
   });
   if (!res.ok) return { ok: false, error: res.error };
   // ---- the real cost: deduct exactly what the engine stamped ----
+  // Energy is the only warReserve debit now — troops come from the real
+  // muster roster (commitRosterWeight), never the ghost ledger. Duplicate
+  // submissions pay nothing twice: no energy, no heroes, no bodies.
   const r = st.warReserve;
   const e = res.decision.effects;
-  if (e.kind === "reinforce") {
+  const dup = res.duplicate === true;
+  if (!dup && e.kind === "reinforce") {
     r.energy = Math.max(0, r.energy - e.energySpent);
-    r.troops = Math.max(0, r.troops - e.troopsAdded);
     for (const h of heroes) r.lockedHeroes[h.id] = { battleId: battle.id, until: battleEndAt(battle) };
-  } else if (e.kind === "callAid") {
+    const home = sideHomeFor(battle, data.side);
+    const committed = home ? commitRosterWeight(st, home, e.troopsAdded) : 0;
+    if (home && committed > 0) {
+      stampRosterSegment(battle, data.side, {
+        id: res.decision.id, kind: "reinforcement", home,
+        weight: committed, tollsPaid: 0, decisionId: res.decision.id,
+        committedAt: Date.now(),
+      });
+    }
+  } else if (!dup && e.kind === "withdrawal") {
+    // The rearguard toll dies NOW, in the real roster — not at battle end.
+    // (Withdrawal itself costs no energy — the toll IS the price.)
+    settleToll(st, battle, data.side, e.rearguardCasualties);
+  } else if (!dup && e.kind === "callAid") {
     r.energy = Math.max(0, r.energy - e.energySpent);
   }
   if (res.decision.action === "retreat") {
@@ -999,7 +1040,12 @@ const battleRespondFn = createServerFn({ method: "POST" }).validator(
   const battle = st.battles?.find((b) => b.id === data.battleId);
   if (!battle || battle.status !== "active") return { ok: false, error: "That battle isn't running." };
   const heroes = data.heroes as unknown as BattleHeroSnapshot[];
-  const reserves = battleReservesFor(st, heroes.map((h) => h.id));
+  // Affordability is the RESPONDER's home: their bodies march even when they
+  // fight on the caller's side. The aid call itself is found here (not after)
+  // so the engine and the API bill the same roster.
+  const call = battle.aidCalls?.find((c) => c.id === data.aidCallId);
+  const responderSide = playerSideOf(battle, data.colonyId) ?? call?.callerSide ?? "defender";
+  const reserves = battleReservesFor(st, heroes.map((h) => h.id), battle, responderSide);
   const res = respondToAid(battle, data.aidCallId, {
     colonyId: data.colonyId,
     colonyName: data.colonyName,
@@ -1016,13 +1062,95 @@ const battleRespondFn = createServerFn({ method: "POST" }).validator(
     for (const h of heroes) r.lockedHeroes[h.id] = { battleId: battle.id, until: battleEndAt(battle) };
     // recognition ledger: the co-op assist accrues to the colony that answered
     r.aidCredits = (r.aidCredits ?? 0) + heroes.length;
+    // Aid bodies are real: committed from the responder's home roster, stamped
+    // on the caller's side with the responder's colonyId (allied ownership —
+    // the API never mutates another account's roster).
+    const marchHome = sideHomeFor(battle, responderSide);
+    const committed = marchHome && e.troopsAdded > 0 ? commitRosterWeight(st, marchHome, e.troopsAdded) : 0;
+    if (marchHome && committed > 0 && call) {
+      stampRosterSegment(battle, call.callerSide, {
+        id: res.decision.id, kind: "aid", home: marchHome,
+        weight: committed, tollsPaid: 0, decisionId: res.decision.id,
+        colonyId: data.colonyId, committedAt: Date.now(),
+      });
+    }
   }
   await saveAccountSaves(accountId, saves);
   return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
 });
 
-// ------- monetization seams (survey-only; NO storefront ships now) -------
-// The catalog/ledger/entitlement layer is fully implemented (§7 of the spec);
+/** Post pickets against a hidden entry vector (maneuvers): halves the flank /
+ *  rear surprise bonus when that vector enters. Energy is the only cost. */
+const battleScreenFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().optional(),
+    battleId: z.string(),
+    side: z.enum(["attacker", "defender"]),
+    vector: z.enum(["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR", "RESERVE"]),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const st = engine.advance(saves.games[saves.activeGameId], Date.now());
+  const battle = st.battles?.find((b) => b.id === data.battleId);
+  if (!battle || battle.status !== "active") return { ok: false, error: "That battle isn't running." };
+  const reserves = battleReservesFor(st, [], battle, data.side);
+  const res = screenVector(battle, data.side, data.vector as ManeuverVector, Date.now(), reserves);
+  if (!res.ok) return { ok: false, error: res.error };
+  if (!res.duplicate) {
+    st.warReserve.energy = Math.max(0, st.warReserve.energy - res.energySpent);
+  }
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
+/** Attach a rally battle plan to a live battle (maneuvers). Validated
+ *  server-side — illegal plans are rejected before anything is pledged — and
+ *  pledged all-or-nothing out of the side's real roster. The plan's vectors
+ *  and timing stay hidden; only the pledged composition goes public. */
+const battlePlanFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().optional(),
+    battleId: z.string(),
+    side: z.enum(["attacker", "defender"]),
+    plan: z.object({
+      id: z.string(),
+      maneuvers: z.array(z.object({
+        id: z.string(),
+        vector: z.enum(["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR", "RESERVE"]),
+        enterAtMin: z.number().nonnegative(),
+        composition: z.record(z.string(), z.number()),
+      })).min(1).max(4),
+    }),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const st = engine.advance(saves.games[saves.activeGameId], Date.now());
+  const battle = st.battles?.find((b) => b.id === data.battleId);
+  if (!battle || battle.status !== "active") return { ok: false, error: "That battle isn't running." };
+  // The pledge comes from the side's stamped home; a side with no home yet
+  // pledges from the caller's own garrison — but never onto a side the
+  // caller doesn't own (no pledging the enemy's war).
+  const playerSide = playerSideOf(battle, saves.activeGameId);
+  const home = sideHomeFor(battle, data.side) ?? (data.side === playerSide ? { kind: "home" } as const : null);
+  if (!home) return { ok: false, error: "No troop home backs that side." };
+  const reserves = battleReservesFor(st, [], battle, data.side);
+  const res = attachBattlePlan(st, battle, data.side, data.plan as BattlePlan, home, Date.now(), reserves);
+  if (!res.ok) return { ok: false, error: res.error };
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
+// ------- monetization seams (survey-only; NO storefront ships now) -------// The catalog/ledger/entitlement layer is fully implemented (§7 of the spec);
 // every purchase path is gated by MONETIZATION_CONFIG.storefrontEnabled (false
 // through beta, §8.6) so the owner flipping one config value later turns the
 // store on without touching these handlers.
@@ -1325,6 +1453,8 @@ export {
   dismissNoticeFn,
   battleIssueFn,
   battleRespondFn,
+  battleScreenFn,
+  battlePlanFn,
   musterTroopsFn,
   hireMercenariesFn,
   plantForwardBaseFn,

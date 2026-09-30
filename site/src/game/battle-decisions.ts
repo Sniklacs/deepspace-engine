@@ -521,11 +521,12 @@ export function commandLabel(side: BattleSide): string {
   return side === "attacker" ? "assault" : "defence";
 }
 
-/** The window title — the milestone beat vs. the line-breaking beat. */
-export function windowTitle(kind: "milestone" | "edge", side: BattleSide): string {
-  return kind === "edge"
-    ? `The line is breaking · you command the ${commandLabel(side)}`
-    : `An order opening · you command the ${commandLabel(side)}`;
+/** The window title — the milestone beat, the line-breaking beat, or the
+ *  defender's answer window after a hidden maneuver enters. */
+export function windowTitle(kind: "milestone" | "edge" | "response", side: BattleSide): string {
+  if (kind === "edge") return `The line is breaking · you command the ${commandLabel(side)}`;
+  if (kind === "response") return `They moved in the dark · answer, you command the ${commandLabel(side)}`;
+  return `An order opening · you command the ${commandLabel(side)}`;
 }
 
 /** The panel's sub-line: what is in reserve, and when an order lands. */

@@ -8,15 +8,17 @@
 // dead cohorts via resolveBattleCasualties() and appends the losses to the
 // colony's memorial feed (the plaques' source).
 //
-// A battle side is roster-backed only when its creator stamps
-// battle.internal.rosterCommits[side]. The Chorus never commits — it has no
-// roster, and its casualties stay ghost numbers by design.
+// A side carries a LIST of commit segments (initial force + every mid-battle
+// addition: reinforcements, aid arrivals, maneuver entries), each stamped
+// with its home, weight, and origin — so casualties bill the right bodies.
+// The Chorus never commits — it has no roster, and its casualties stay ghost
+// numbers by design.
 //
 // Two homes can back a side: "home" (the Cradle garrison) or a forward base
 // (kind "base", keyed by foreign serverId) — the beachhead's last stand
 // spends its own garrison, never the colony's.
 //
-// Design notes the future war Phase 1 path must respect:
+// Design notes the war layer respects:
 //   • Commit BEFORE createBattle: the creator sets CommittedForce.troops to
 //     the committed weight, so the battle simulates what was actually sent.
 //     (The Act I prologue is the exception: its troop numbers are pinned by
@@ -25,26 +27,48 @@
 //     proportionally, the story calibration never moves.)
 //   • Casualties are stamped at creation (finalCasualties) and never
 //     re-priced at resolve — the fraction applied here is
-//     battle.casualties[side] / simulated troops.
-//   • Mid-battle decision tolls (withdrawal rearguard, retreat) are NOT
-//     roster-applied yet — they stay numbers until the decision layer learns
-//     to commit. The resolve path below is the floor, not the ceiling.
-//   • Reinforcements currently pay from BattleReserves (ghost numbers).
-//     When reinforcements learn to muster-commit, they stamp additional
-//     RosterCommits onto battle.internal — resolveRosterCasualties already
-//     iterates every stamped side.
+//     (stamped − settled tolls) / simulated troops.
+//   • Mid-battle tolls (withdrawal rearguard) settle IMMEDIATELY via
+//     settleToll(): the covering force dies now, pro-rata across the side's
+//     live segments, and the final resolve bills only the remainder — tolls
+//     are never double-paid (each segment tracks tollsPaid).
+//   • Reinforcements commit AFTER the decision lands (never before
+//     validation): the API handler commits the stamped troopsAdded out of the
+//     real roster and stamps a segment. Duplicate submissions never commit
+//     twice — the engine's idempotent duplicate path adds no troops, so the
+//     handler commits nothing.
+//   • There is no ghost troop pool. warReserve.troops was removed: the
+//     "reserve" behind a reinforcement is availableWeight() of the side's
+//     troop home — real bodies, or no order.
 //
 // Pure module: deterministic, no Math.random. The engine (engine.ts
 // advance()) owns the clocks; this module owns the math.
 
 import {
+  applyCommittedCasualties,
   availableWeight,
   commitWeight,
   recordCasualties,
+  releaseWeight,
   resolveBattleCasualties,
   type TroopRoster,
+  type TroopType,
 } from "./troops";
-import type { Battle, BattleSide, RosterCommit, RosterHome } from "./war-types";
+import {
+  maneuverWeight,
+  planComposition,
+  planWeight,
+  validateBattlePlan,
+  type BattlePlan,
+} from "./maneuvers";
+import type {
+  Battle,
+  BattleSide,
+  ManeuverVector,
+  RosterCommitKind,
+  RosterCommitSegment,
+  RosterHome,
+} from "./war-types";
 import type { GameState } from "../types";
 
 /** The real roster behind a commit — null when the home doesn't exist
@@ -73,22 +97,231 @@ export function commitRosterWeight(
   return w;
 }
 
-/** Stamp a side's commit onto a battle under construction (server-only —
- *  battlePublicView strips `internal`). */
+/** All live segments for a side — normalizes the pre-segment single-object
+ *  save shape ({ home, weight }) into one "initial" segment, migrating in
+ *  place so toll/weight mutations persist. */
+export function segmentsFor(battle: Battle, side: BattleSide): RosterCommitSegment[] {
+  const rc = battle.internal.rosterCommits?.[side];
+  if (!rc) return [];
+  if (Array.isArray(rc)) return rc;
+  const old = rc as unknown as { home: RosterHome; weight: number };
+  const seg: RosterCommitSegment = {
+    id: `rc-legacy-${battle.id}-${side}`,
+    kind: "initial",
+    home: old.home,
+    weight: Math.max(0, Math.trunc(old.weight) || 0),
+    tollsPaid: 0,
+    committedAt: battle.internal.committedAt ?? battle.startedAt,
+  };
+  battle.internal.rosterCommits![side] = [seg];
+  return [seg];
+}
+
+/** Which troop home backs a side's committed force — the first segment's
+ *  home, or null when the side never committed (ghost/scripted side). The
+ *  API builds real-troop BattleReserves from this. */
+export function sideHomeFor(battle: Battle, side: BattleSide): RosterHome | null {
+  return segmentsFor(battle, side)[0]?.home ?? null;
+}
+
+/** Stamp one segment onto a side (server-only — battlePublicView strips
+ *  `internal`). */
+export function stampRosterSegment(
+  battle: Battle,
+  side: BattleSide,
+  segment: RosterCommitSegment,
+): void {
+  if (!battle.internal.rosterCommits) battle.internal.rosterCommits = {};
+  const list = battle.internal.rosterCommits[side] ?? [];
+  list.push(segment);
+  battle.internal.rosterCommits[side] = list;
+}
+
+/** Stamp a side's initial commit onto a battle under construction — the
+ *  prologue path (kept so act1-battle.ts doesn't change shape). */
 export function stampRosterCommit(
   battle: Battle,
   side: BattleSide,
-  commit: RosterCommit,
+  commit: { home: RosterHome; weight: number },
 ): void {
-  if (!battle.internal.rosterCommits) battle.internal.rosterCommits = {};
-  battle.internal.rosterCommits[side] = commit;
+  stampRosterSegment(battle, side, {
+    id: `rc-${battle.id}-${side}-initial`,
+    kind: "initial",
+    home: commit.home,
+    weight: Math.max(0, Math.trunc(commit.weight) || 0),
+    tollsPaid: 0,
+    committedAt: battle.internal.committedAt ?? Date.now(),
+  });
+}
+
+function emptyLosses(): Record<TroopType, number> {
+  return { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+}
+
+function mergeLosses(into: Record<TroopType, number>, add: Record<TroopType, number>): void {
+  for (const t of Object.keys(into) as TroopType[]) into[t] += add[t] ?? 0;
+}
+
+function recordSegmentLosses(
+  state: GameState,
+  battle: Battle,
+  seasonId: string,
+  lossesByType: Record<TroopType, number>,
+): void {
+  if (!state.troops) return;
+  const total = (Object.values(lossesByType) as number[]).reduce((s, n) => s + n, 0);
+  if (total <= 0) return;
+  recordCasualties(state.troops.history, {
+    battleId: battle.id,
+    site: battle.zoneName,
+    season: seasonId,
+    factions: [battle.attacker.colonyName, battle.defender.colonyName],
+    lossesByType,
+    fallenHeroes: [],
+  });
+}
+
+function seasonFor(state: GameState, season?: string): string {
+  return season ?? state.battlePass?.seasonId ?? "s1";
+}
+
+/**
+ * Settle a mid-battle toll (withdrawal rearguard) IMMEDIATELY: the covering
+ * force dies now, pro-rata across the side's live segments. Each segment's
+ * weight shrinks by what it paid and records tollsPaid, so the final resolve
+ * bills only the remainder. Losses hit the memorial feed at once — the
+ * rearguard's stand is its own plaque entry. Returns the weight actually
+ * killed (0 when the side has no live segments — ghost sides pay nothing).
+ */
+export function settleToll(
+  state: GameState,
+  battle: Battle,
+  side: BattleSide,
+  tollWeight: number,
+  season?: string,
+): number {
+  const segs = segmentsFor(battle, side).filter((s) => s.weight > 0);
+  const total = segs.reduce((s, x) => s + x.weight, 0);
+  const toll = Math.max(0, Math.trunc(tollWeight) || 0);
+  if (total <= 0 || toll <= 0) return 0;
+  const losses = emptyLosses();
+  let killed = 0;
+  for (const s of segs) {
+    const share = Math.min(s.weight, Math.round((toll * s.weight) / total));
+    if (share <= 0) continue;
+    const r = rosterForCommit(state, s.home);
+    if (!r) continue; // home vanished mid-battle — nothing to bill
+    const res = applyCommittedCasualties(r, share);
+    s.weight = Math.max(0, s.weight - res.weightKilled);
+    s.tollsPaid += res.weightKilled;
+    killed += res.weightKilled;
+    mergeLosses(losses, res.losses);
+  }
+  recordSegmentLosses(state, battle, seasonFor(state, season), losses);
+  return killed;
+}
+
+/**
+ * Commit a whole battle plan out of one roster, all-or-nothing: every
+ * maneuver's weight is locked (pledged troops leave the garrison on pledge,
+ * not on launch). Returns the segments — the caller sets the side's
+ * CommittedForce.troops to the MAIN segment's weight BEFORE createBattle,
+ * then stamps via stampBattlePlan(). On any failure nothing is committed.
+ */
+export function commitBattlePlan(
+  state: GameState,
+  side: BattleSide,
+  plan: BattlePlan,
+  home: RosterHome,
+  now: number,
+): { ok: true; segments: RosterCommitSegment[] } | { ok: false; error: string } {
+  // Structural validation here; the entry-time bound needs the battle's
+  // duration, so stampBattlePlan re-validates fully once the battle exists.
+  const structural = validateBattlePlan(plan, Number.POSITIVE_INFINITY);
+  if (structural.length > 0) return { ok: false, error: structural[0] };
+  const total = planWeight(plan);
+  if (total <= 0) return { ok: false, error: "A battle plan with no troops holds nothing." };
+  const r = rosterForCommit(state, home);
+  if (!r || availableWeight(r) < total) {
+    return { ok: false, error: "Not enough troops in the garrison to pledge this plan." };
+  }
+  const segments: RosterCommitSegment[] = [];
+  for (const m of plan.maneuvers) {
+    const w = commitRosterWeight(state, home, maneuverWeight(m)); // cannot fail — total was checked
+    segments.push({
+      id: `rc-plan-${side}-${m.vector}-${now}`,
+      kind: "maneuver",
+      home,
+      weight: w,
+      tollsPaid: 0,
+      vector: m.vector as ManeuverVector,
+      committedAt: now,
+    });
+  }
+  return { ok: true, segments };
+}
+
+/**
+ * Stamp a committed plan onto a battle under construction: segments, the
+ * server-only plan state (vectors/timing hidden until entry), and the public
+ * intel (composition visible at launch). The MAIN maneuver is already in the
+ * fight at T+0, so its entry is marked entered at attach. Illegal-once-timed
+ * plans roll everything back and stamp nothing.
+ */
+export function stampBattlePlan(
+  state: GameState,
+  battle: Battle,
+  side: BattleSide,
+  plan: BattlePlan,
+  segments: RosterCommitSegment[],
+  now: number,
+): { ok: true } | { ok: false; error: string } {
+  const errors = validateBattlePlan(plan, battle.durationMs);
+  if (errors.length > 0) {
+    // Illegal once the battle's clock is known — release everything committed
+    // and stamp nothing. The plan never launches.
+    for (const s of segments) {
+      const r = rosterForCommit(state, s.home);
+      if (r && s.weight > 0) releaseWeight(r, s.weight);
+    }
+    return { ok: false, error: errors[0] };
+  }
+  for (const s of segments) stampRosterSegment(battle, side, s);
+  battle.internal.planState = {
+    side,
+    planId: plan.id,
+    attachedAt: now,
+    entries: plan.maneuvers.map((m) => ({
+      maneuverId: m.id,
+      vector: m.vector,
+      enterAtMin: m.enterAtMin,
+      entered: m.vector === "MAIN",
+      enteredAt: m.vector === "MAIN" ? now : undefined,
+    })),
+    screens: {},
+  };
+  const main = plan.maneuvers.find((m) => m.vector === "MAIN");
+  battle.maneuverIntel = {
+    side,
+    composition: planComposition(plan),
+    entered: main
+      ? [{ id: main.id, vector: main.vector, troops: maneuverWeight(main), enteredAt: now }]
+      : [],
+    unentered: plan.maneuvers.length - (main ? 1 : 0),
+  };
+  return { ok: true };
 }
 
 /**
  * Apply stamped casualties for battles that resolved since the last tick.
  * Idempotent per battle (rosterResolved stamp): repeated advances, repeated
- * saves, and crash-replays can never double-kill. Losses append to the
- * colony's memorial feed — the plaques read them.
+ * saves, and crash-replays can never double-kill. Per side, every live
+ * segment pays its pro-rata share of (stamped − already-settled tolls);
+ * losses append to the colony's memorial feed — the plaques read them.
+ *
+ * THE ZERO-CASUALTY FIX: when a side's billable fraction is zero, the old
+ * code `continue`d and left the commitment locked FOREVER while marking the
+ * battle resolved. Now the locks release — nobody died, everybody comes home.
  *
  * Returns the number of battles whose losses were applied.
  */
@@ -96,39 +329,54 @@ export function resolveRosterCasualties(state: GameState, season?: string): numb
   // No season engine exists yet (seasons.md) — the caller may pass one
   // explicitly; otherwise read the battle-pass window, else the pre-season
   // label. The memorial feed needs a season string; it must never be blank.
-  const seasonId = season ?? state.battlePass?.seasonId ?? "s1";
+  const seasonId = seasonFor(state, season);
   if (!Array.isArray(state.battles)) return 0;
   let applied = 0;
   for (const b of state.battles) {
     if (b.status === "active") continue;
-    const commits = b.internal.rosterCommits;
-    if (!commits || b.internal.rosterResolved) continue;
+    if (b.internal.rosterResolved) continue;
+    let touched = false;
     for (const side of ["attacker", "defender"] as BattleSide[]) {
-      const c = commits[side];
-      if (!c || c.weight <= 0) continue;
-      const r = rosterForCommit(state, c.home);
-      if (!r) continue; // home vanished mid-battle (razed beachhead) — nothing to bill
+      const segs = segmentsFor(b, side).filter((s) => s.weight > 0 || s.tollsPaid > 0);
+      if (segs.length === 0) continue;
+      touched = true;
       const force = side === "attacker" ? b.attacker : b.defender;
       const simulated = Math.max(0, Math.trunc(force.troops) || 0);
       const stamped = side === "attacker" ? b.casualties.attacker : b.casualties.defender;
-      // The stamped casualties are troop-equivalents of the SIMULATED force;
-      // the fraction is what the real detachment pays.
-      const fraction = simulated > 0 ? Math.min(1, stamped / simulated) : 0;
-      if (fraction <= 0) continue;
-      const losses = resolveBattleCasualties(r, c.weight, fraction);
-      if (state.troops) {
-        recordCasualties(state.troops.history, {
-          battleId: b.id,
-          site: b.zoneName,
-          season: seasonId,
-          factions: [b.attacker.colonyName, b.defender.colonyName],
-          lossesByType: losses,
-          fallenHeroes: [],
-        });
+      // Mid-battle tolls (withdrawal rearguard) already died via settleToll —
+      // the final bill is the stamped remainder. Never double-pay.
+      const tollsPaid = segs.reduce((s, x) => s + (x.tollsPaid || 0), 0);
+      const toBill = Math.max(0, stamped - tollsPaid);
+      const totalLive = segs.reduce((s, x) => s + Math.max(0, x.weight), 0);
+      const fraction = simulated > 0 && totalLive > 0 ? Math.min(1, toBill / simulated) : 0;
+      if (fraction <= 0) {
+        // Nobody died on this side — release every live lock. (This is the
+        // zero-casualty fix: the old `continue` stranded the weight forever.)
+        for (const s of segs) {
+          if (s.weight <= 0) continue;
+          const r = rosterForCommit(state, s.home);
+          if (r) releaseWeight(r, s.weight);
+          s.weight = 0;
+        }
+        continue;
       }
+      const losses = emptyLosses();
+      for (const s of segs) {
+        if (s.weight <= 0) continue;
+        const r = rosterForCommit(state, s.home);
+        if (!r) continue; // home vanished mid-battle (razed beachhead) — nothing to bill
+        mergeLosses(losses, resolveBattleCasualties(r, s.weight, fraction));
+        s.weight = 0; // resolveBattleCasualties releases the commitment
+      }
+      recordSegmentLosses(state, b, seasonId, losses);
     }
-    b.internal.rosterResolved = true;
-    applied += 1;
+    if (touched) {
+      b.internal.rosterResolved = true;
+      applied += 1;
+    }
   }
   return applied;
 }
+
+// Re-export the kind for callers that stamp segments directly.
+export type { RosterCommitKind };

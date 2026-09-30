@@ -37,19 +37,19 @@
 //        carry empty arrays; the contribution FORMULA is untouched (battles
 //        feed nothing into it — the Unbound gate stays fixed).
 //
-// Run:  cd /home/team/shared/battle-tests && bun run battle-verify.ts
+// Run:  cd . && bun run battle-verify.ts
 // (pure imports — also runnable unchanged from the site dir; use
 //  `env -u DATABASE_URL` in the full battery so store.ts stays on files.)
 import { readFileSync } from "node:fs";
-import * as engine from "/home/team/shared/site/src/game/engine.ts";
-import { publicState } from "/home/team/shared/site/src/game/api.ts";
+import * as engine from "../site/src/game/engine.ts";
+import { publicState } from "../site/src/game/api.ts";
 import {
   BATTLES_CONFIG,
   type Battle,
   type BattleHeroSnapshot,
   type BattleReserves,
   type CommittedForce,
-} from "/home/team/shared/site/src/game/war/war-types.ts";
+} from "../site/src/game/war/war-types.ts";
 import {
   advanceAidArrivals,
   advanceBattles,
@@ -78,7 +78,7 @@ import {
   stateChip,
   windowDurationMs,
   windowsForView,
-} from "/home/team/shared/site/src/game/war/battle-engine.ts";
+} from "../site/src/game/war/battle-engine.ts";
 import {
   DECISION_ACTIONS,
   answerableAidCalls,
@@ -89,7 +89,7 @@ import {
   ourSide,
   plainDecisionError,
   respondPayload,
-} from "/home/team/shared/site/src/game/battle-decisions.ts";
+} from "../site/src/game/battle-decisions.ts";
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -307,7 +307,7 @@ console.log("— 3 · determinism —");
   advanceBattles(s1, t + 10_000_000_000);
   advanceBattles(s2, t + 10_000_000_000);
   check("resolution + report + log are byte-identical across identical worlds", JSON.stringify(s1.battles) === JSON.stringify(s2.battles) && JSON.stringify(s1.battleReports) === JSON.stringify(s2.battleReports) && JSON.stringify(s1.log) === JSON.stringify(s2.log));
-  const src = [readFileSync("/home/team/shared/site/src/game/war/battle-engine.ts", "utf8"), readFileSync("/home/team/shared/site/src/game/war/war-types.ts", "utf8")];
+  const src = [readFileSync("../site/src/game/war/battle-engine.ts", "utf8"), readFileSync("../site/src/game/war/war-types.ts", "utf8")];
   const stripComments = (s: string) =>
     s
       .replace(/\/\*[\s\S]*?\*\//g, " ")
@@ -358,8 +358,8 @@ console.log("— 4 · offline resolution —");
 console.log("— 5 · no-purchasable term (B4/§9) —");
 {
   const files = [
-    "/home/team/shared/site/src/game/war/war-types.ts",
-    "/home/team/shared/site/src/game/war/battle-engine.ts",
+    "../site/src/game/war/war-types.ts",
+    "../site/src/game/war/battle-engine.ts",
   ];
   const stripComments = (s: string) =>
     s
@@ -383,7 +383,7 @@ console.log("— 5 · no-purchasable term (B4/§9) —");
   const polluted = computeForcePower({ ...pair.attacker, scrip: 999_999, votives: 999_999, whalePowerBonus: 1e9, boughtTier: 4 } as unknown as CommittedForce);
   check("wallet-shaped extra fields on the input change the power output by ZERO", clean === polluted && polluted > 0);
   check("hero snapshots are value-copy inputs — the formula never imports hero/currency modules", (() => {
-    const imports = readFileSync("/home/team/shared/site/src/game/war/battle-engine.ts", "utf8").match(/import[^;]+;/g) ?? [];
+    const imports = readFileSync("../site/src/game/war/battle-engine.ts", "utf8").match(/import[^;]+;/g) ?? [];
     const joined = imports.join("\n");
     return !/monetization|store\b|auth|api|routes\/|react|@tanstack/.test(joined) && joined.includes("../armory");
   })());
@@ -528,7 +528,7 @@ console.log("— 7 · migration & backfill —");
   check("battle resolution feeds NOTHING into contributionScore (Unbound gate stays fixed)", engine.contributionScore(sc) === beforeScore);
   check("hero XP/level data is never touched by the engine path (battles consume snapshots only)", (() => {
     // the battle module itself performs no hero-progression writes — snapshot fields are read-only inputs
-    const src = readFileSync("/home/team/shared/site/src/game/war/battle-engine.ts", "utf8");
+    const src = readFileSync("../site/src/game/war/battle-engine.ts", "utf8");
     return !/grantXp|levelUp|capture\s*\+|xp\s*\+=\s*10/.test(src);
   })());
 }
@@ -760,9 +760,12 @@ console.log("— 8 · decision windows & aid calls (B12/B11) —");
     const legacy = { battles: [{ ...createBattle({ zoneId: "dz", zoneName: "Decision Grounds", ...big }, T), windows: undefined, decisions: undefined, aidCalls: undefined }], battleReports: [], log: [] } as any;
     ensureBattles(legacy);
     ensureBattles(legacy);
+    // The ghost troop reserve is gone by design (Sep 2026): troops live in the
+    // real roster only. The backfilled reserve carries energy, not troops.
     return Array.isArray(legacy.battles[0].windows) && legacy.battles[0].windows.length === 6
       && Array.isArray(legacy.battles[0].decisions) && Array.isArray(legacy.battles[0].aidCalls)
-      && legacy.warReserve && typeof legacy.warReserve.troops === "number" && legacy.warReserve.lockedHeroes && typeof legacy.warReserve.lockedHeroes === "object";
+      && legacy.warReserve && !("troops" in legacy.warReserve) && typeof legacy.warReserve.energy === "number"
+      && legacy.warReserve.lockedHeroes && typeof legacy.warReserve.lockedHeroes === "object";
   })());
   check("buildWindows is deterministic at fixed inputs; window ids are unique per battle", (() => {
     const w1 = buildWindows(100, 100, T, dur);
@@ -893,7 +896,7 @@ console.log("— 9 · client decision contract (buttons) —");
 
   // ---- tutorial seam: stable action set + component attributes ----
   check("DECISION_ACTIONS teaches reinforce/hold first (Beat 1.2 order)", DECISION_ACTIONS.map((a) => a.action).join(",") === "reinforce,hold,callAid,withdrawal,retreat");
-  const tabSrc = readFileSync("/home/team/shared/site/src/components/BattlesTab.tsx", "utf8");
+  const tabSrc = readFileSync("../site/src/components/BattlesTab.tsx", "utf8");
   const hooks = ["decision-panel", "decision-window", "decision-reinforce", "decision-hold", "decision-callAid", "decision-withdrawal", "decision-retreat", "aid-accept", "aid-decline", "onDecision", "aria-live", "data-testid", "data-action"];
   check("BattlesTab carries the tutorial seam (testids + onDecision + aria-live)", hooks.every((h) => tabSrc.includes(h)));
   check("BattlesTab posts through battleIssueFn + battleRespondFn only", tabSrc.includes("battleIssueFn") && tabSrc.includes("battleRespondFn"));

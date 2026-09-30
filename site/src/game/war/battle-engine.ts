@@ -41,11 +41,15 @@
 // wallet-shaped extra inputs).
 //
 // Pure module: type-only imports from types.ts; runtime imports only armory
-// (published weapon statistics). No Math.random anywhere. Client-safe: the
-// Battles tab imports the same pure functions the server resolves with, so
-// its ticking live view is provably the server's math.
+// (published weapon statistics), the maneuver plan module, and the roster
+// handshake (all deterministic, all wallet-free — the static scan below
+// still holds). No Math.random anywhere. Client-safe: the Battles tab imports
+// the same pure functions the server resolves with, so its ticking live view
+// is provably the server's math.
 import { ARMORY_CONFIG, WEAPON_BASE_STATS } from "../armory";
 import type { GameState } from "../types";
+import { planComposition, planWeight, maneuverWeight, surpriseMult, validateBattlePlan, type BattlePlan } from "./maneuvers";
+import { commitRosterWeight, segmentsFor, stampRosterSegment } from "./roster-commit";
 import {
   BATTLES_CONFIG,
   type AidCall,
@@ -64,7 +68,9 @@ import {
   type BattleWindowView,
   type CommittedForce,
   type FobStage,
+  type ManeuverVector,
   type ReinforcePayload,
+  type RosterHome,
   type WarReserve,
 } from "./war-types";
 
@@ -317,12 +323,11 @@ export function ensureBattles(state: GameState): void {
 }
 
 /** The colony-level war reserve seam — the server-verified numbers a colony
- *  can commit (supply-weighted troops + the §6 weekly energy pool + locked
- *  hero commitments + the co-op recognition ledger). Grows only from play;
+ *  can commit (the §6 weekly energy pool + locked hero commitments + the
+ *  co-op recognition ledger). Troops live in the real rosters now, not here;
  *  the prologue seeds the full-power state's numbers at Act I. */
 export function freshWarReserve(cycleId: string | null = null): WarReserve {
   return {
-    troops: 0,
     energy: 0,
     cycleId,
     aidCredits: 0,
@@ -380,6 +385,13 @@ export function advanceBattles(state: GameState, now: number): number {
   for (const b of state.battles) {
     if (b.status !== "active") continue;
     advanceAidArrivals(b, now);
+    advanceManeuverEntries(b, now);
+    // Keep timed surprise modifiers honest on the live view: powers re-derive
+    // every tick for plan battles so an expired window drops out even with no
+    // other battle event. (Casualties are NOT re-stamped here — the blanket
+    // recompute would clobber settled withdrawal tolls; entries and arrivals
+    // re-stamp their own.)
+    if (b.internal.planState) recomputePowers(b, now);
     if (now < battleEndAt(b)) continue;
     resolveScheduled(b);
     appendReportOnce(state, b);
@@ -573,15 +585,46 @@ function recordDecision(battle: Battle, win: BattleWindow, side: BattleSide, act
   return decision;
 }
 
-/** Recompute both sides' power from their committed forces (deterministic). */
-function recomputePowers(battle: Battle): void {
+/** Recompute both sides' power from their committed forces (deterministic),
+ *  then apply any active maneuver-surprise modifiers (timed, gameplay-earned,
+ *  never purchased — computeForcePower itself stays a pure function of the
+ *  force; the battle layer applies the situational multiplier). */
+function recomputePowers(battle: Battle, now: number): void {
   battle.forcePower.attacker = computeForcePower(battle.attacker);
   battle.forcePower.defender = computeForcePower(battle.defender);
+  applySurpriseMods(battle, now);
 }
-/** Recompute both sides' FINAL casualties after a power step (deterministic). */
+
+/** Timed flank/rear surprise: while a maneuver's surprise window is open its
+ *  side fights boosted (halved when the defender screened the vector).
+ *  Overlapping windows don't compound — the strongest surprise rules. */
+function applySurpriseMods(battle: Battle, now: number): void {
+  const ps = battle.internal.planState;
+  if (!ps) return;
+  let mult = 1;
+  for (const e of ps.entries) {
+    if (!e.entered || !e.surpriseUntil || now >= e.surpriseUntil) continue;
+    const m = surpriseMult(e.vector, !!e.screenedAtEntry);
+    if (m > mult) mult = m;
+  }
+  if (mult > 1) battle.forcePower[ps.side] = battle.forcePower[ps.side] * mult;
+}
+/** Settled mid-battle tolls for a side (the withdrawal rearguard, paid out of
+ *  the real roster via settleToll) — deaths the casualty stamp must never
+ *  forget. */
+function settledTolls(battle: Battle, side: BattleSide): number {
+  return segmentsFor(battle, side).reduce((s, x) => s + (x.tollsPaid || 0), 0);
+}
+/** Recompute both sides' FINAL casualties after a power step (deterministic).
+ *  Each side's number is floored at its settled tolls, so a later recompute
+ *  (aid arrival, maneuver entry, the other side's withdrawal) can never
+ *  clobber a toll out of the final bill — the resolve path would otherwise
+ *  underbill or wrongly release the locks. */
 function recomputeCasualties(battle: Battle): void {
-  battle.casualties.attacker = finalCasualties(battle.attacker, battle.defender, battle.forcePower.attacker, battle.forcePower.defender);
-  battle.casualties.defender = finalCasualties(battle.defender, battle.attacker, battle.forcePower.defender, battle.forcePower.attacker);
+  for (const side of ["attacker", "defender"] as BattleSide[]) {
+    const fresh = finalCasualties(battle[side], battle[other(side)], battle.forcePower[side], battle.forcePower[other(side)]);
+    battle.casualties[side] = Math.max(fresh, settledTolls(battle, side));
+  }
 }
 
 export type DecisionResult =
@@ -624,8 +667,11 @@ export function issueDecision(
     const ownCas = Math.min(troops, Math.max(1, Math.round(troops * BATTLES_CONFIG.retreatCasualtyFrac)));
     const enemyCas = liveCasualties(battle, other(side), now);
     const winSide = other(side);
-    battle.casualties[side] = ownCas;
-    battle.casualties[winSide] = Math.min(Math.max(0, Math.trunc(battle[winSide].troops) || 0), enemyCas);
+    // Retreat ends the battle, but it must not erase deaths already paid:
+    // floor both stamps at their settled tolls (a side that withdrew and
+    // later retreats keeps its rearguard in the bill).
+    battle.casualties[side] = Math.max(settledTolls(battle, side), ownCas);
+    battle.casualties[winSide] = Math.max(settledTolls(battle, winSide), Math.min(Math.max(0, Math.trunc(battle[winSide].troops) || 0), enemyCas));
     battle.status = "resolved";
     battle.result = {
       outcome: winSide === "attacker" ? "attacker_victory" : "defender_victory",
@@ -666,7 +712,11 @@ export function issueDecision(
       const troops = Math.max(0, Math.trunc(payload?.troops ?? 0) || 0);
       if (heroes.length === 0 && troops === 0) return { ok: false, error: "Send something — a squad, troops, or both." };
       const cost = reinforceCost(heroes, troops);
-      if (cost.troops > reserves.reserveTroops) return { ok: false, error: "Not enough reserve troops." };
+      // reserves.reserveTroops is REAL uncommitted garrison weight (the API
+      // builds it from availableWeight of the side's troop home) — never
+      // ghost numbers. The engine validates; the caller commits the stamped
+      // troopsAdded out of the real roster after the decision lands.
+      if (cost.troops > reserves.reserveTroops) return { ok: false, error: "Not enough troops in the garrison." };
       if (cost.energy > reserves.energy) return { ok: false, error: "Not enough war energy this week." };
       // A hero already in EITHER committed squad — or locked by an aid beacon
       // (the responder's march commitment) — cannot be re-fieldsed here.
@@ -685,7 +735,7 @@ export function issueDecision(
       battle[side].heroSquad.push(...heroes);
       battle[side].troops += troops;
       const powerBefore = battle.forcePower[side];
-      recomputePowers(battle);
+      recomputePowers(battle, now);
       recomputeCasualties(battle);
       const powerAdded = battle.forcePower[side] - powerBefore;
       const decision = recordDecision(battle, win, side, "reinforce", now, {
@@ -715,11 +765,18 @@ export function issueDecision(
       const rearguard = Math.min(troops, Math.round(troops * frac));
       const troopsRemaining = troops - rearguard;
       force.troops = troopsRemaining;
-      recomputePowers(battle);
-      // The rearguard is charged NOW; the fight goes on with the survivors.
+      recomputePowers(battle, now);
+      // The rearguard is charged NOW (the API settles it against the real
+      // roster via settleToll); the fight goes on with the survivors.
       const remainingFight = finalCasualties(force, battle[other(side)], battle.forcePower[side], battle.forcePower[other(side)]);
       battle.casualties[side] = Math.min(troops, rearguard + remainingFight);
-      recomputeCasualties(battle); // stay consistent with the other side
+      // Recompute ONLY the other side, floored at its settled tolls: the
+      // blanket recomputeCasualties would rebuild this side's number from
+      // the reduced force and silently drop the rearguard toll we just
+      // charged — and a fresh recompute must never forget a toll the other
+      // side already paid either.
+      const os = other(side);
+      battle.casualties[os] = Math.max(settledTolls(battle, os), finalCasualties(battle[os], force, battle.forcePower[os], battle.forcePower[side]));
       const decision = recordDecision(battle, win, side, "withdrawal", now, {
         kind: "withdrawal",
         rearguardCasualties: rearguard,
@@ -773,6 +830,8 @@ export function respondToAid(battle: Battle, aidCallId: string, payload: AidResp
   const heroes = payload.heroes ?? [];
   const energyCost = heroes.length * BATTLES_CONFIG.aidRespondEnergyPerHero;
   if (energyCost > reserves.energy) return { ok: false, error: "Not enough war energy to march those heroes." };
+  const marchTroops = Math.max(0, Math.trunc(payload.troops) || 0);
+  if (marchTroops > reserves.reserveTroops) return { ok: false, error: "Not enough troops in the garrison to march." };
   for (const h of heroes) {
     if (battle.attacker.heroSquad.some((x) => x.id === h.id) || battle.defender.heroSquad.some((x) => x.id === h.id) || !reserves.reserveHeroIds.includes(h.id)) {
       return { ok: false, error: "A hero from that force is already committed to this battle." };
@@ -782,7 +841,7 @@ export function respondToAid(battle: Battle, aidCallId: string, payload: AidResp
   call.responder = { colonyId: payload.colonyId, colonyName: payload.colonyName };
   call.heroes = heroes;
   call.weapons = payload.weapons ?? [];
-  call.troops = Math.max(0, Math.trunc(payload.troops) || 0);
+  call.troops = marchTroops;
   call.fobStage = payload.fobStage;
   call.power = computeForcePower({ ...aidForce, side: call.callerSide });
   call.status = "locked";
@@ -792,7 +851,7 @@ export function respondToAid(battle: Battle, aidCallId: string, payload: AidResp
     side: call.callerSide,
     action: "respondAid",
     issuedAt: now,
-    effects: { kind: "respondAid", aidCallId: call.id, powerAdded: call.power, arrivalAt: call.arrivalAt, energySpent: energyCost },
+    effects: { kind: "respondAid", aidCallId: call.id, powerAdded: call.power, troopsAdded: call.troops, arrivalAt: call.arrivalAt, energySpent: energyCost },
   });
   return { ok: true, decision: battle.decisions[battle.decisions.length - 1] };
 }
@@ -832,7 +891,7 @@ export function advanceAidArrivals(battle: Battle, now: number): number {
     }
     force.troops += call.troops;
     force.fobStage = Math.max(force.fobStage, call.fobStage); // the FOB grows with the aid
-    recomputePowers(battle);
+    recomputePowers(battle, now);
     recomputeCasualties(battle);
     ensureEdgeWindow(battle, other(side), now);
     landed += 1;
@@ -840,9 +899,177 @@ export function advanceAidArrivals(battle: Battle, now: number): number {
   return landed;
 }
 
+/**
+ * Scheduled maneuver entries (alliances.md §2): the battle engine consumes
+ * the plan as timed entry events. An unentered maneuver whose entry time has
+ * come marches its committed weight into the sim, recomputes power +
+ * casualties, and — for FLANK/REAR — opens its surprise window (halved when
+ * the defender screened the vector). The entry is REVEALED: public intel
+ * updates and the defender gets a response window (their reserve answers
+ * through the normal B12 window flow). Deterministic; offline-safe (called
+ * from advanceBattles before the resolve check, so a late entry can still
+ * flip the outcome — same discipline as aid arrivals).
+ */
+export function advanceManeuverEntries(battle: Battle, now: number): number {
+  const ps = battle.internal.planState;
+  if (!ps || battle.status !== "active") return 0;
+  let entered = 0;
+  for (const e of ps.entries) {
+    if (e.entered) continue;
+    if (now < battle.startedAt + Math.max(0, e.enterAtMin) * 60_000) continue;
+    e.entered = true;
+    e.enteredAt = now;
+    // The maneuver's weight was locked at plan-attach; marching it in is a
+    // sim move, not a roster move (no new commit, no double-lock).
+    const seg = segmentsFor(battle, ps.side).find((s) => s.kind === "maneuver" && s.vector === e.vector);
+    const w = Math.max(0, Math.trunc(seg?.weight ?? 0) || 0);
+    const force = battle[ps.side];
+    force.troops += w;
+    const screened = !!ps.screens[e.vector];
+    if (e.vector === "FLANK_LEFT" || e.vector === "FLANK_RIGHT" || e.vector === "REAR") {
+      e.surpriseUntil = now + BATTLES_CONFIG.maneuverSurpriseWindowMs;
+      e.screenedAtEntry = screened;
+    }
+    recomputePowers(battle, now);
+    recomputeCasualties(battle);
+    if (battle.maneuverIntel) {
+      battle.maneuverIntel.entered.push({ id: e.maneuverId, vector: e.vector, troops: w, enteredAt: now });
+      battle.maneuverIntel.unentered = Math.max(0, battle.maneuverIntel.unentered - 1);
+    }
+    // The defender sees the vector hit and gets a response window — commit
+    // the reserve to meet it, or hold. (MAIN needs none: it was visible at T+0.)
+    if (e.vector !== "MAIN") {
+      const ds = other(ps.side);
+      const dur = windowDurationMs(battle.durationMs);
+      battle.windows.push({
+        id: `w-response-${e.maneuverId}`,
+        kind: "response",
+        side: ds,
+        opensAt: now,
+        closesAt: now + dur,
+      });
+      ensureEdgeWindow(battle, ds, now);
+    }
+    entered += 1;
+  }
+  return entered;
+}
+
+export type ScreenResult =
+  | { ok: true; energySpent: number; duplicate?: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Post pickets on a vector (alliances.md §2 counter-play): the defender's
+ * blind answer to a hidden plan. Screens are standing orders, not
+ * window-gated — the defender may screen any time while the battle runs,
+ * without knowing the plan. One screen per vector (re-posting is a no-op);
+ * each costs screenEnergyCost war energy, so screening every vector blind
+ * is a real gamble. A screened FLANK/REAR entry fights at half surprise.
+ */
+
+/** Attach a rally battle plan (alliances.md §2) — the standalone seam the future
+ *  rally UI calls. One plan per battle; illegal plans are rejected BEFORE
+ *  anything is pledged (validateBattlePlan), and the pledge is all-or-nothing:
+ *  every maneuver's weight is committed out of the side's real roster at
+ *  attach time ("pledged troops leave the garrison on pledge, not on launch"),
+ *  stamped as one segment per vector. The plan itself (vectors + timing) stays
+ *  hidden in internal.planState; battle.maneuverIntel publishes ONLY the
+ *  pledged composition at launch. Timed entries march in via
+ *  advanceManeuverEntries; the defender answers with screens (screenVector)
+ *  and response windows.
+ *
+ *  `home` is the side's troop home — the caller resolves it with
+ *  sideHomeFor(battle, side) and falls back to the colony's own garrison when
+ *  the side has no stamped home yet. No alliance code is assumed: this is the
+ *  battle-level primitive. */
+export type AttachPlanResult =
+  | { ok: true; planId: string }
+  | { ok: false; error: string };
+
+export function attachBattlePlan(
+  state: GameState,
+  battle: Battle,
+  side: BattleSide,
+  plan: BattlePlan,
+  home: RosterHome,
+  now: number,
+  reserves: BattleReserves,
+): AttachPlanResult {
+  if (battle.status !== "active") return { ok: false, error: "This battle is already decided." };
+  if (battle.internal.planState) return { ok: false, error: "A battle plan is already attached to this fight." };
+  const errors = validateBattlePlan(plan, battle.durationMs);
+  if (errors.length > 0) return { ok: false, error: errors[0] };
+  const need = planWeight(plan);
+  if (need > reserves.reserveTroops) {
+    return { ok: false, error: `The plan pledges ${need} troop weight but the garrison holds ${reserves.reserveTroops}.` };
+  }
+  // All-or-nothing: synchronous and pre-validated against the same roster the
+  // reserves were read from, so every maneuver's commit lands — a short commit
+  // here is a can't-happen that rejects the whole plan rather than pledging half.
+  for (const m of plan.maneuvers) {
+    const w = maneuverWeight(m);
+    const got = commitRosterWeight(state, home, w);
+    if (got < w) return { ok: false, error: "The garrison shifted mid-pledge — the plan was rejected." };
+    stampRosterSegment(battle, side, {
+      id: `${plan.id}:${m.id}`,
+      kind: "maneuver",
+      home,
+      vector: m.vector,
+      weight: got,
+      tollsPaid: 0,
+      committedAt: now,
+    });
+  }
+  battle.internal.planState = {
+    side,
+    planId: plan.id,
+    attachedAt: now,
+    entries: plan.maneuvers.map((m) => ({
+      maneuverId: m.id,
+      vector: m.vector,
+      enterAtMin: m.enterAtMin,
+      entered: false,
+    })),
+    screens: {},
+  };
+  battle.maneuverIntel = {
+    side,
+    composition: planComposition(plan),
+    entered: [],
+    unentered: plan.maneuvers.length,
+  };
+  return { ok: true, planId: plan.id };
+}
+export function screenVector(
+  battle: Battle,
+  side: BattleSide,
+  vector: ManeuverVector,
+  now: number,
+  reserves: BattleReserves,
+): ScreenResult {
+  if (battle.status !== "active") return { ok: false, error: "This battle is already decided." };
+  const ps = battle.internal.planState;
+  if (!ps) return { ok: false, error: "There is no battle plan to screen against." };
+  if (side === ps.side) return { ok: false, error: "You wrote this plan — there is nothing to screen." };
+  const valid: ManeuverVector[] = ["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR", "RESERVE"];
+  if (!valid.includes(vector)) return { ok: false, error: "Unknown entry vector." };
+  if (ps.screens[vector]) return { ok: true, energySpent: 0, duplicate: true };
+  if (BATTLES_CONFIG.screenEnergyCost > reserves.energy) {
+    return { ok: false, error: "Not enough war energy to post pickets." };
+  }
+  ps.screens[vector] = { at: now };
+  return { ok: true, energySpent: BATTLES_CONFIG.screenEnergyCost };
+}
+
 /** Resolve a battle when its wall-clock end arrives (deterministic; called by
  *  advanceBattles; a retreat already sets the same fields via issueDecision). */
 function resolveScheduled(battle: Battle): void {
+  // Settle timed modifiers BEFORE the verdict: an expired surprise window
+  // must not leak into the outcome (stamped casualties keep the flank's
+  // extra damage — that really happened — but the final power comparison
+  // is fought at base strength).
+  recomputePowers(battle, battleEndAt(battle));
   battle.status = "resolved";
   battle.result = {
     outcome: outcomeFor(battle.forcePower.attacker, battle.forcePower.defender),

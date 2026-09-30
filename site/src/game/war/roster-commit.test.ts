@@ -93,7 +93,10 @@ describe("stampRosterCommit", () => {
   test("stamps server-only metadata the client never sees", () => {
     const b = liveBattle();
     stampRosterCommit(b, "defender", { home: { kind: "home" }, weight: 120 });
-    expect(b.internal.rosterCommits!.defender!.weight).toBe(120);
+    const segs = b.internal.rosterCommits!.defender!;
+    expect(segs).toHaveLength(1);
+    expect(segs[0].weight).toBe(120);
+    expect(segs[0].kind).toBe("initial");
     expect(b.internal.rosterCommits!.attacker).toBeUndefined();
     expect(b.internal.rosterResolved).toBeUndefined();
   });

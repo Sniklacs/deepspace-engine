@@ -285,3 +285,56 @@ feel alive.
   *types* are validated against vector rules at plan time (Thunder can't
   flank, REAR needs its Wardens) — illegal plans are rejected before launch,
   not mid-battle.
+
+---
+
+## 10. Implementation status (Sep 30 2026, branch `xsolla-paystation`, local only)
+
+**Rally maneuvers — engine layer: SHIPPED.** The battle-plan primitive exists
+and is tested, without pretending any alliance code exists:
+
+- `site/src/game/war/maneuvers.ts` — pure plan math: `validateBattlePlan`
+  (Thunder/REAR vector rules, ≤4 maneuvers, exactly one MAIN at T+0, entries
+  inside the battle), weight/composition/surprise helpers.
+- `battle-engine.ts: attachBattlePlan(state, battle, side, plan, home, now,
+  reserves)` — the standalone attach/launch seam. One plan per battle;
+  illegal plans rejected BEFORE anything is pledged; the pledge is
+  all-or-nothing out of the side's real roster (one `maneuver` segment per
+  vector, committed via `commitRosterWeight`); the plan stays hidden in
+  `internal.planState`; `battle.maneuverIntel` publishes ONLY the pledged
+  composition at launch. Timed entries march in via
+  `advanceManeuverEntries`; FLANK/REAR get a 5-minute surprise window
+  (+25%, halved to +12.5% when screened); each entry opens a defender
+  response window (MAIN needs none).
+- `api.ts: battlePlanFn` + `battleScreenFn` — server endpoints. Screen costs
+  `screenEnergyCost` war energy per vector, idempotent per vector; the plan
+  owner cannot screen their own plan.
+- `site/src/game/war/maneuvers.test.ts` — 11 tests: attach legality (Thunder
+  flank, REAR wardens, affordability, one-plan-per-battle), all-or-nothing
+  pledge (illegal/unaffordable plans touch nothing), hidden-plan /
+  public-composition split, MAIN-at-T+0 entries, 5-min surprise windows,
+  screened 12.5% bonus, defender response windows, screen idempotency,
+  real-roster reinforcement validation, withdrawal toll settlement with no
+  double-billing, zero-casualty lock release.
+
+**Ghost troop reserve — REMOVED.** `WarReserve.troops` is gone from active
+code. Reinforcement, aid, and withdrawal now validate against the real
+available roster weight (`availableWeight` of the side's troop home) and
+commit out of it (`commitRosterWeight` + `RosterCommitSegment` stamping).
+Withdrawal tolls settle immediately via `settleToll` and survive as a
+casualty floor through later recomputes; retreats bill real segments.
+`battleReservesFor()` in `api.ts` is the single real-roster view.
+
+**Still missing (no pretending):**
+
+- No rally/alliance UI and no alliance code at all — the plan seam is a
+  battle-level primitive waiting for the rally flow to call it. The API
+  endpoint lets either side attach one plan; the rally UI will restrict plan
+  authorship to the rally leader.
+- True cross-account allied roster mutation does not exist — aid commits
+  from the responder's own home today. (One alliance per colony, pledges on
+  the Rally object, cross-server reinforcement — all v1 alliance work.)
+- No battle-plan launch/attach UI; no screen-posting UI.
+- Defender battle plans stay v2 (screens + response window only, per the
+  ratified spec) — the engine technically allows a defender-side plan, but
+  nothing calls it that way.

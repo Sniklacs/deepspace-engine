@@ -192,6 +192,43 @@ export function releaseWeight(r: TroopRoster, weight: number): void {
 }
 
 /**
+ * Kill `weight` supply-weight of COMMITTED troops, newest-first, WITHOUT
+ * releasing the commitment — for mid-battle tolls (withdrawal rearguard)
+ * that land while the battle (and the rest of the commitment) continues.
+ * The dead leave the roster AND the commitment: dead troops are gone, not
+ * locked. Returns the losses by type plus the exact supply-weight killed
+ * (the kill loop rounds troops up, so the caller reconciles segment weight
+ * against weightKilled, not the request). Pure over the roster
+ * (deterministic, no Math.random).
+ */
+export function applyCommittedCasualties(
+  r: TroopRoster,
+  weight: number,
+): { losses: Record<TroopType, number>; weightKilled: number } {
+  const weightToKill = Math.max(0, Math.round(Math.min(r.committedWeight, weight)));
+  const losses: Record<TroopType, number> = { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+  let weightLeft = weightToKill;
+  let killed = 0;
+  const ordered = [...r.cohorts]
+    .filter((c) => c.count > 0)
+    .sort((a, b) => b.musteredAt - a.musteredAt);
+  for (const c of ordered) {
+    if (weightLeft <= 0) break;
+    const w = supplyWeight(c.type);
+    const take = Math.min(c.count, Math.ceil(weightLeft / w));
+    c.count -= take;
+    const vetLoss = Math.min(c.veterans, take);
+    c.veterans -= vetLoss;
+    losses[c.type] += take;
+    weightLeft -= take * w;
+    killed += take * w;
+  }
+  r.cohorts = r.cohorts.filter((c) => c.count > 0);
+  r.committedWeight = Math.max(0, r.committedWeight - weightToKill);
+  return { losses, weightKilled: killed };
+}
+
+/**
  * Resolve a finished battle's casualties against the roster: `fraction` of
  * the COMMITTED weight dies (newest-first), the commitment clears.
  * The engine's casualty numbers are supply-weight; removal converts

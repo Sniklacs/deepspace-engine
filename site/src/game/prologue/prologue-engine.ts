@@ -189,7 +189,6 @@ export function prologueState(now = Date.now(), race: RaceId = "watchers"): Game
   for (const fam of WEAPON_TYPES) st.armory[fam] = { tier: PROLOGUE_CONFIG.armoryTierAtHeight, everBuilt: true };
   st.weaponsBuilt = 24;
   st.warReserve = freshWarReserve(PROLOGUE_CONFIG.warCycleId);
-  st.warReserve.troops = PROLOGUE_CONFIG.warReserveTroops;
   st.warReserve.energy = PROLOGUE_CONFIG.warReserveEnergy;
   st.warReserve.aidCredits = 25;
 

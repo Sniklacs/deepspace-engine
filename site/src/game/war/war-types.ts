@@ -139,6 +139,19 @@ export const BATTLES_CONFIG = {
   /** Retreat (B10): the army is saved — only this fraction is left behind as
    *  the covering force, no matter how bad the rout-risk was. */
   retreatCasualtyFrac: 0.08,
+  // ---- Rally maneuvers (alliances.md §2 — the battle plan) ----
+  /** Max maneuvers per plan: MAIN + 3. Plans stay legible. */
+  maneuverMaxCount: 4,
+  /** FLANK/REAR enter hidden; on entry they fight surprised for this long. */
+  maneuverSurpriseWindowMs: 5 * 60_000,
+  /** Surprise power multiplier while the window is open. */
+  maneuverSurpriseMult: 1.25,
+  /** A screened vector halves the surprise (early warning). */
+  maneuverScreenedMult: 1.125,
+  /** REAR needs its logistics tail: this fraction of the maneuver's weight. */
+  maneuverRearWardenFrac: 0.2,
+  /** Posting pickets on a vector (the defender's blind counter-play). */
+  screenEnergyCost: 5,
 } as const;
 
 // ============================================================================
@@ -239,26 +252,97 @@ export interface Battle {
    *  B3/B11/B12) so this slice already owns the strip seam. */
   internal: {
     committedAt: number;
-    /** Roster-commit metadata (war/roster-commit.ts): which REAL roster each
-     *  side's troops are drawn from. Absent = ghost/scripted side (the
-     *  Chorus has no roster — its casualties stay numbers by design). */
-    rosterCommits?: Partial<Record<BattleSide, RosterCommit>>;
+    /** Roster-commit SEGMENTS (war/roster-commit.ts): every detachment of REAL
+     *  troops locked out of a roster for this battle — the initial force,
+     *  mid-battle reinforcements, aid arrivals, maneuver entries. Absent/empty
+     *  = ghost/scripted side (the Chorus has no roster — its casualties stay
+     *  numbers by design). Older saves may hold the pre-segment single-object
+     *  shape; roster-commit.ts normalizes it on read. */
+    rosterCommits?: Partial<Record<BattleSide, RosterCommitSegment[]>>;
     /** Idempotency stamp — set once resolveRosterCasualties has applied this
      *  battle's losses, so repeated advances and repeated saves never
      *  double-kill. */
     rosterResolved?: boolean;
+    /** Rally battle-plan state (war/maneuvers.ts) — server-only. Vectors and
+     *  timing stay hidden here until each maneuver enters; the public
+     *  battle.maneuverIntel carries composition + revealed entries. */
+    planState?: BattlePlanState;
   };
+  /** Public maneuver intel (symmetric — both sides see the same): composition
+   *  is visible at launch, the plan stays hidden until each maneuver enters. */
+  maneuverIntel?: ManeuverIntel;
 }
 
 /** Which real troop home backs a battle side: the Cradle garrison ("home")
  *  or a forward base on a foreign server ("base"). */
 export type RosterHome = { kind: "home" } | { kind: "base"; serverId: string };
 
-/** A detachment locked out of a real roster for one battle. */
-export interface RosterCommit {
+/** What kind of order locked a detachment out of its roster. */
+export type RosterCommitKind = "initial" | "reinforcement" | "aid" | "maneuver";
+
+/** One detachment locked out of a real roster for one battle. A side carries
+ *  a LIST of these: the initial force plus every mid-battle addition
+ *  (reinforcements, aid arrivals, maneuver entries) — each stamped with its
+ *  own home, weight, and origin so casualties bill the right bodies. */
+export interface RosterCommitSegment {
+  id: string;
+  kind: RosterCommitKind;
   home: RosterHome;
-  /** Supply-weight locked via commitWeight() at battle creation. */
+  /** Live committed weight — shrinks as mid-battle tolls settle against it. */
   weight: number;
+  /** Weight already killed by settled mid-battle tolls (withdrawal rearguard).
+   *  The final resolve bills (stamped − tollsPaid), so tolls are never
+   *  double-paid. */
+  tollsPaid: number;
+  /** The decision that created this segment (reinforce / aid response). */
+  decisionId?: string;
+  /** Maneuver segments: which vector this detachment marches on. */
+  vector?: ManeuverVector;
+  /** Aid segments: the colony that sent these bodies (their roster paid). */
+  colonyId?: string;
+  committedAt: number;
+}
+
+/** Rally maneuver entry vectors (alliances.md §2 — the battle plan). MAIN
+ *  engages at T+0 and holds the enemy's facing; FLANK/REAR enter hidden at
+ *  their timed offset and fight surprised; RESERVE is held for the caller's
+ *  chosen moment. */
+export type ManeuverVector = "MAIN" | "FLANK_LEFT" | "FLANK_RIGHT" | "REAR" | "RESERVE";
+
+/** One maneuver's server-side entry state. The plan (vectors + timing) lives
+ *  here, hidden, until each maneuver enters. */
+export interface ManeuverEntryState {
+  maneuverId: string;
+  vector: ManeuverVector;
+  /** Minutes from battle start when this maneuver enters (MAIN = 0). */
+  enterAtMin: number;
+  entered: boolean;
+  enteredAt?: number;
+  /** FLANK/REAR only: surprise window end — now < surpriseUntil → boosted. */
+  surpriseUntil?: number;
+  /** Whether the defender had screened this vector when it entered. */
+  screenedAtEntry?: boolean;
+}
+
+/** A rally's battle plan as the engine holds it (server-only). */
+export interface BattlePlanState {
+  side: BattleSide;
+  planId: string;
+  attachedAt: number;
+  entries: ManeuverEntryState[];
+  /** Defender's blind counter-play: vectors with posted pickets. */
+  screens: Partial<Record<ManeuverVector, { at: number }>>;
+}
+
+/** Public maneuver intel (battle.maneuverIntel) — symmetric, both sides see
+ *  the same: the pledged composition is visible at launch, the plan (which
+ *  vectors, when) stays hidden until each maneuver enters. */
+export interface ManeuverIntel {
+  side: BattleSide;
+  /** Total pledged composition by troop type — the scouts' report. */
+  composition: Record<string, number>;
+  entered: { id: string; vector: ManeuverVector; troops: number; enteredAt: number }[];
+  unentered: number;
 }
 
 export interface BattleResult {
@@ -340,7 +424,7 @@ export type BattleDecisionAction =
   | "callAid" // B11: raise the co-op beacon; arrivals ride travel time
   | "respondAid"; // B11: a teammate commits heroes — locked in for the battle
 
-export type BattleWindowKind = "milestone" | "edge";
+export type BattleWindowKind = "milestone" | "edge" | "response";
 /** The window index within a kind (milestone fracs 1..3, edge 1..N). */
 export interface BattleWindow {
   id: string; // `w-milestone-<frac>-<side>` | `w-edge-<n>-<side>`
@@ -378,7 +462,7 @@ export type DecisionEffects =
   | { kind: "withdrawal"; rearguardCasualties: number; troopsRemaining: number; powerAfter: number }
   | { kind: "retreat"; casualties: { attacker: number; defender: number }; endedAt: number }
   | { kind: "callAid"; aidCallId: string; arrivalAt: number; energySpent: number }
-  | { kind: "respondAid"; aidCallId: string; powerAdded: number; arrivalAt: number; energySpent: number };
+  | { kind: "respondAid"; aidCallId: string; powerAdded: number; troopsAdded: number; arrivalAt: number; energySpent: number };
 
 /** One append-only decision record — one per window per side, never mutated,
  *  never re-issued (idempotency: the window consumes it). */
@@ -422,7 +506,11 @@ export interface AidCall {
 export interface BattleReserves {
   /** ids of colony heroes NOT already committed to this battle (caller-verified). */
   reserveHeroIds: string[];
-  /** supply-weighted reserve troops the colony can still commit. */
+  /** Real uncommitted garrison weight the colony can still send — the
+   *  availableWeight() of the side's troop home. Never ghost numbers: the
+   *  engine validates reinforcement/affordable orders against this, and the
+   *  caller commits the stamped troops out of the real roster after the
+   *  decision lands. */
   reserveTroops: number;
   /** war energy the colony can spend on orders this week (§6 pool, caller-verified). */
   energy: number;
@@ -454,14 +542,15 @@ export interface AidCallView {
 }
 
 /** The colony-level war reserve (B12/B11) — the server-verified numbers a
- *  colony can commit mid-battle: supply-weighted reserve troops, the §6
- *  weekly war-energy pool (colony-level view of the per-hero pool), the
- *  locked-hero commitment ledger (a hero committed to one battle cannot be
- *  re-fielsed until it ends), and the co-op recognition ledger (aid calls
- *  answered — recognition, never power). The engine validate/deducts through
+ *  colony can commit mid-battle: the §6 weekly war-energy pool (colony-level
+ *  view of the per-hero pool), the locked-hero commitment ledger (a hero
+ *  committed to one battle cannot be re-fielded until it ends), and the co-op
+ *  recognition ledger (aid calls answered — recognition, never power).
+ *  Troops are NOT a reserve number anymore: reinforcements are real bodies
+ *  committed out of the garrison/forward-base roster (war/roster-commit.ts),
+ *  so there is no ghost pool to track here. The engine validates through
  *  BattleReserves; the API/prologue own this store. Grows only from play. */
 export interface WarReserve {
-  troops: number;
   energy: number;
   cycleId: string | null; // the war week these numbers belong to
   aidCredits: number;
