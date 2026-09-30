@@ -114,6 +114,19 @@ wants. All references are to `site/src/game/war/war-types.ts`:
 - The `war-energy.ts` action costs (march 20, aid 10) are paid in energy;
   the *troops* are paid in bodies. Both gates must pass.
 
+> **Implemented 2026-09-30** (`site/src/game/war/roster-commit.ts`):
+> `commitRosterWeight(state, home, weight)` locks a detachment out of the home
+> garrison or a forward base's garrison (never more than available — never ghost
+> numbers); `stampRosterCommit(battle, side, commit)` records it in the
+> battle's server-only `internal` (stripped from the client view);
+> `resolveRosterCasualties(state)` runs in `engine.advance()` right after
+> `advanceBattles()` and converts each stamped side's casualty fraction into
+> real cohort deaths (newest-first) plus a memorial-feed entry. Idempotent per
+> battle. The Act I prologue stamps its defender commit but keeps its pinned
+> simulated troop number (calibration contract); real troops die
+> proportionally. The Chorus never commits. Reinforcement decisions and
+> mid-battle withdrawal tolls are not roster-wired yet.
+
 ---
 
 ## 5. Casualties — where soldiers go

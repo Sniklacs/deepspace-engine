@@ -71,6 +71,7 @@ import {
   depositBands,
   emptyServerBandPool,
 } from "./war/forward-bases";
+import { resolveRosterCasualties } from "./war/roster-commit";
 import { ensurePrologue, freshPrologue } from "./prologue/prologue-state";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
@@ -1773,12 +1774,19 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // strength formula reads only the §15 B4 snapshot inputs).
   advanceBattles(state, now);
 
+  // ROSTER COMMIT (war/roster-commit.ts): battles that stamped real-roster
+  // commitments now pay them — the stamped casualty fraction comes out of
+  // actual cohorts (newest-first) and lands in the memorial feed. Idempotent
+  // per battle; no-op until a creator stamps a commit.
+  resolveRosterCasualties(state);
   // THE MUSTER (design/muster-troops.md): resolve finished muster orders,
   // charge upkeep from the supply stockpile, run the hunger clock
   // (grace → desertion → mercenary bands). Lazy and idempotent like every
   // other resolver — offline garrisons eat, starve, and desert on the next
-  // read. NOTE: battle→roster casualty wiring lands with the war Phase 1
-  // commit path (battles don't draw from the roster yet).
+  // read. NOTE: the battle→roster casualty wiring lives in
+  // war/roster-commit.ts — resolveRosterCasualties(state) runs right after
+  // advanceBattles() above; battles don't draw from the roster until their
+  // creator stamps a RosterCommit (Act I does; the Chorus never does).
   if (state.troops) {
     const tick = advanceTroopHome(state.troops.home, now, state.resources, {
       sourceColony: state.playerName || "An unnamed colony",

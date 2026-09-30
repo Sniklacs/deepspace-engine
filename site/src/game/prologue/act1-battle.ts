@@ -51,6 +51,7 @@ import {
   type FobStage,
 } from "../war/war-types";
 import { createBattle, openBattle, battleEndAt } from "../war/battle-engine";
+import { commitRosterWeight, stampRosterCommit } from "../war/roster-commit";
 // ============================================================================
 // §1 CONFIG — ONE place for every tunable number. Calibration may move these
 // numbers; the harness re-derives the realized fight from them, so a change
@@ -240,6 +241,14 @@ export function seedAct1Battle(state: GameState, now: number): Battle | null {
   if (act1LiveBattle(state)) return null;
   const forces = act1Forces(state);
   if (!forces) return null;
+  // ROSTER COMMIT (war/roster-commit.ts): the vanguard is drawn from the
+  // real mustered garrison — min(scripted, available) locks out of the
+  // roster, and the stamped fraction of it dies for real at resolve.
+  // The SIMULATED number stays ACT1_CONFIG.ourTroops: the front's shape is
+  // pinned by prologue-tests/act1-entry-verify.ts (§12.3 rout-risk
+  // calibration) and must not move. Real troops die proportionally; the
+  // story never changes shape.
+  const committed = commitRosterWeight(state, { kind: "home" }, ACT1_CONFIG.ourTroops);
   const battle = createBattle(
     {
       zoneId: ACT1_CONFIG.frontId,
@@ -249,6 +258,9 @@ export function seedAct1Battle(state: GameState, now: number): Battle | null {
     },
     now,
   );
+  if (committed > 0) {
+    stampRosterCommit(battle, "defender", { home: { kind: "home" }, weight: committed });
+  }
   openBattle(state, battle);
   state.log.push(ACT1_CONFIG.frontLine);
   state.log = state.log.slice(-60);

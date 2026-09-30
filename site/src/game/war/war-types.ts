@@ -237,7 +237,28 @@ export interface Battle {
    *  (battlePublicView). Nothing about power/odds is hidden; this block is
    *  reserved for future server-private bookkeeping (reinforcement queues,
    *  B3/B11/B12) so this slice already owns the strip seam. */
-  internal: { committedAt: number };
+  internal: {
+    committedAt: number;
+    /** Roster-commit metadata (war/roster-commit.ts): which REAL roster each
+     *  side's troops are drawn from. Absent = ghost/scripted side (the
+     *  Chorus has no roster — its casualties stay numbers by design). */
+    rosterCommits?: Partial<Record<BattleSide, RosterCommit>>;
+    /** Idempotency stamp — set once resolveRosterCasualties has applied this
+     *  battle's losses, so repeated advances and repeated saves never
+     *  double-kill. */
+    rosterResolved?: boolean;
+  };
+}
+
+/** Which real troop home backs a battle side: the Cradle garrison ("home")
+ *  or a forward base on a foreign server ("base"). */
+export type RosterHome = { kind: "home" } | { kind: "base"; serverId: string };
+
+/** A detachment locked out of a real roster for one battle. */
+export interface RosterCommit {
+  home: RosterHome;
+  /** Supply-weight locked via commitWeight() at battle creation. */
+  weight: number;
 }
 
 export interface BattleResult {
