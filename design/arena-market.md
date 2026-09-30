@@ -76,8 +76,11 @@
   the winner takes all. No take-backs, no "I was joking."
 - This is the formal way to settle an argument: two players with a grudge
   put their modules where their mouths are, and the server holds the coats.
-- **Refusing is allowed — and public.** No mechanical penalty for declining;
-  cowardice is punished socially, which in an alliance game is worse.
+- **Refusing is allowed — and public.** The challenge goes out over the
+  **world speaker** (server-wide broadcast): *X challenges Y.* Accept, and
+  it's on. Refuse, and the whole server watched you do it — no mechanical
+  penalty, because in an alliance game the mockery is worse than any fine.
+  "That's the way she rolls."
 - **Artifacts as stakes:** proposed NO (§9 Q1). A duel loss is still a
   transfer, and "earn-only" has to mean it.
 
@@ -148,9 +151,10 @@
 3. **Duel formats:** hero-only duels plus capped skirmishes, or more
    formats? (Proposed: those two. Enough for grudges, not a second arena
    system.)
-4. **Cross-server market visibility:** can you *see* other servers' prices
+4. ~~**Cross-server market visibility:** can you *see* other servers' prices
    without jumping? (Proposed: no — price intel is itself tradeable
-   information. Traders who jump earn their edge.)
+   information. Traders who jump earn their edge.)~~ — CONFIRMED 2026-09-30:
+   **no.** You don't know the prices until you land. Traders earn their edge.
 
 ---
 
