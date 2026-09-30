@@ -39,7 +39,7 @@
 | **Expansion** | 3–6 | First jumps, beachheads planted, early raids. The mercenary market wakes up as somebody's garrison starves. |
 | **War** | 7–10 | Alliance sieges, artifact hunts, cross-server campaigns. Plaques start dotting the map. |
 | **The Storm** | 11–12 | The climax (see §2). |
-| **Intermission** | +1 week | No war. Plaques carved, ladders finalized, champions named. Then the next season opens. |
+| **Intermission** | +1 week | The sandbox (§2.1). Nothing counts, nothing carries. |
 
 Four seasons a year. Each named (`Season 8: The Ashen Tide`) — names are
 content; the world speaker announces them.
@@ -60,6 +60,29 @@ The last two weeks are not normal play. Deliberately:
 - **The design intent:** seasons should produce their biggest battles right
   before the wipe — which conveniently produces the *best* memorial plaques.
   The Storm is a plaque factory with a narrative excuse.
+
+### 2.1 Intermission — the sandbox week
+
+(owner decisions 2026-09-30)
+
+The week between seasons is not downtime — it's **playtime with toy
+soldiers.** The board is wiped, so the game hands out practice that costs
+nothing and means nothing:
+
+- **The arena stays open.** Mock battles, practice skirmishes, duels — fight
+  each other all week. Bloodless as ever.
+- **The Chorus stays open.** All fifteen raid sites remain attackable — for
+  the players who never dared hit the strong ones with real troops. Go see if
+  your comp can actually beat them. Find out. It's free.
+- **Practice resources are ephemeral.** The game grants sandbox troops and
+  sandbox supplies for the week. **Nothing is kept** — no loot, no supplies,
+  no XP, no favor. It all evaporates when the new season opens. Nothing you
+  do in the sandbox counts, and that's the point: it's the one week a year
+  the game has no consequences.
+- **Why:** it keeps the habit warm (players log in during the break), it
+  lets newcomers learn the battle engine before their first real season, and
+  it gives veterans a consequence-free lab for next season's plans. Fun is a
+  retention mechanic.
 
 ---
 
@@ -160,15 +183,18 @@ The last two weeks are not normal play. Deliberately:
    only power resets. Roster politics (who sits out, who rotates) are the
    alliance's own business; the game doesn't adjudicate. 50-member cap
    owner-confirmed.
-3. **New-season head start:** do veterans' persisted artifacts/favor apply
+3. ~~**New-season head start:** do veterans' persisted artifacts/favor apply
    from day one of the new season, or is there a "Landing grace" (e.g.,
    artifacts stay vaulted for weeks 1–2)? (Proposed: day one. The risk
    mechanic handles the rest — and a veteran swaggering in week 1 wearing
-   last season's blade is *content*.)
-4. **Intermission play:** can players log in and socialize (market closed,
+   last season's blade is *content*.)~~ — ANSWERED 2026-09-30: **day one.**
+   Your weapons are yours.
+4. ~~**Intermission play:** can players log in and socialize (market closed,
    arena open?) during intermission, or is it full downtime? (Proposed:
    arena stays open — bloodless practice during the break keeps the habit
-   warm.)
+   warm.)~~ — ANSWERED 2026-09-30: **the sandbox.** Arena open, Chorus open,
+   PvP practice allowed — all with ephemeral practice resources, nothing
+   kept, nothing risked (§2.1). Market closed (nothing real to sell).
 
 ---
 
