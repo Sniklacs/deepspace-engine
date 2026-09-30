@@ -51,6 +51,14 @@ import { prologueState } from "./prologue/prologue-engine";
 import { worldFeedFn, sendWorldFn, chatSyncFn } from "./chat/chat-api";
 import type { BattleHeroSnapshot } from "./war/war-types";
 import {
+  enqueueMuster,
+  hireBand,
+  hireCost,
+  homeGarrisonCap,
+  isTroopType,
+  musterCost,
+} from "./war/troops";
+import {
   loadAccountSaves,
   saveAccountSaves,
   loadAllSaves,
@@ -1101,6 +1109,77 @@ const xsollaCheckoutFn = createServerFn({ method: "POST" }).validator(
   return { ok: true, url: intent.url };
 });
 
+/** THE MUSTER (design/muster-troops.md): enqueue a troop build at the Cradle
+ *  barracks. Validated server action: type known, count positive, fits the
+ *  garrison cap, cost deducted up front. Linear builds, one queue per type —
+ *  and no alliance help, ever (the queue takes no external ticks). */
+const musterTroopsFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    type: z.string(),
+    count: z.number().int().positive().max(2000),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const st = engine.advance(saves.games[saves.activeGameId], Date.now());
+  if (!st.race) return { ok: false, error: "Found your colony first." };
+  engine.ensureTroops(st, Date.now());
+  const t = st.troops!;
+  if (!isTroopType(data.type)) return { ok: false, error: "Unknown troop type." };
+  const cap = homeGarrisonCap(engine.cradleTier(st));
+  const enq = enqueueMuster(t.home.roster, t.home.musterQueue, data.type, data.count, Date.now(), t.home.seq, cap);
+  if (!enq.ok || !enq.order) return { ok: false, error: enq.error ?? "Muster refused." };
+  const cost = musterCost(data.type, data.count);
+  if (st.resources.supplies < cost) {
+    return { ok: false, error: `Need ${cost} supplies to muster ${data.count}.` };
+  }
+  st.resources.supplies -= cost;
+  t.home.musterQueue.push(enq.order);
+  t.home.seq++;
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
+/** Hire a mercenary band: the deserters' market (muster-troops.md §10). The
+ *  ONLY buyable troops — first supplies on the table takes them. Garrison cap
+ *  still applies: the cap is your stomach. */
+const hireMercenariesFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    bandId: z.string(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const st = engine.advance(saves.games[saves.activeGameId], Date.now());
+  if (!st.race) return { ok: false, error: "Found your colony first." };
+  engine.ensureTroops(st, Date.now());
+  const t = st.troops!;
+  const band = t.bands.find((b) => b.id === data.bandId);
+  if (!band) return { ok: false, error: "That band is gone — hired or scattered." };
+  const cost = hireCost(band);
+  if (st.resources.supplies < cost) {
+    return { ok: false, error: `Need ${cost} supplies to hire them.` };
+  }
+  const cap = homeGarrisonCap(engine.cradleTier(st));
+  const res = hireBand(t.home, band, cap, Date.now());
+  if (!res.ok) return { ok: false, error: res.error ?? "Hire refused." };
+  st.resources.supplies -= cost;
+  // The band is spent (hireBand empties it) — drop it from the wild.
+  t.bands = t.bands.filter((b) => b.id !== band.id);
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
 export {
   getState,
   createGameFn,
@@ -1137,6 +1216,8 @@ export {
   dismissNoticeFn,
   battleIssueFn,
   battleRespondFn,
+  musterTroopsFn,
+  hireMercenariesFn,
   enterActOneFn,
   leaveActOneFn,
   // ---- chat + mail (slice A1) — their own module, the same zod-validated shape

@@ -1,6 +1,7 @@
 // Shared game types for Deepspace Engine MVP.
 
 import type { Battle, BattleReport, WarReserve } from "./war/war-types";
+import type { CasualtyRecord, MercenaryBand, TroopHome } from "./war/troops";
 import type { PrologueBlock } from "./prologue/prologue-state";
 import type { ForgeItem } from "./forge";
 import type { TimeTokenLedgerEntry } from "./time-tokens";
@@ -375,6 +376,18 @@ export interface GameState {
    *  engine VALIDATES against it; the API handler (and prologue) deduct the
    *  recorded costs — never a purchasable path (battle-side §9/B4). */
   warReserve: WarReserve;
+  /** THE MUSTER (design/muster-troops.md) — real troops, not ghost numbers.
+   *  Optional for migration: pre-muster saves initialize empty on first
+   *  advance (ensureTroops). `home` is the Cradle garrison + muster queues +
+   *  hunger clock; `bands` are deserter mercenary bands in the wild on this
+   *  server (hireable); `history` is the append-only casualty feed the
+   *  memorial plaques read. Nothing here is secret — all three ride the
+   *  public state to the client. */
+  troops?: {
+    home: TroopHome;
+    bands: MercenaryBand[];
+    history: CasualtyRecord[];
+  };
   // ---- Prologue state spine (V11, opening-prologue-spec §4–§8 — The Fall) ----
   // The per-colony ledger for the voiced opening: stage, sealed height
   // records, the final stand, the History Book + ash echoes. The player's own

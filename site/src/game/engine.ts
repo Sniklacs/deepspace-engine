@@ -61,6 +61,10 @@ import {
   freshDaily,
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
+import {
+  advanceTroopHome,
+  emptyTroopHome,
+} from "./war/troops";
 import { ensurePrologue, freshPrologue } from "./prologue/prologue-state";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
@@ -738,6 +742,33 @@ function log(state: GameState, msg: string) {
 }
 
 // ------- derived state -------
+
+/**
+ * Cradle tier (1–5) — the colony's advancement proxy until the building
+ * system owns a real Cradle tier. Derived from total deployed domain levels:
+ * every 4 levels is a tier. Drives the home garrison cap (troops.ts) and,
+ * later, alliance help-tick strength (alliances.md §4). One seam, one source.
+ */
+export function cradleTier(state: GameState): number {
+  const d = state.deployedDomains;
+  const total = (d?.weaponry ?? 0) + (d?.agriculture ?? 0) + (d?.economy ?? 0) + (d?.industry ?? 0) + (d?.logistics ?? 0);
+  return Math.min(5, Math.max(1, 1 + Math.floor(total / 4)));
+}
+
+/**
+ * THE MUSTER — additive, idempotent. Pre-muster saves gain an empty garrison,
+ * no queues, no hunger, no bands, an empty casualty feed. New games seed via
+ * the same path (called from advance(); newGame flows through advance too).
+ */
+export function ensureTroops(state: GameState, now: number): void {
+  if (!state.troops) {
+    state.troops = { home: emptyTroopHome(now), bands: [], history: [] };
+    return;
+  }
+  if (!state.troops.home) state.troops.home = emptyTroopHome(now);
+  if (!Array.isArray(state.troops.bands)) state.troops.bands = [];
+  if (!Array.isArray(state.troops.history)) state.troops.history = [];
+}
 
 export function effectiveScientists(state: GameState): number {
   return state.scientists;
@@ -1607,6 +1638,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureTimeTokens(state); // EARNED time tokens: zero holdings + empty ledger on an
   //                          old save (the owner's 2026-09-27 direction; earned only)
   ensureBattles(state); // V9: real-time battle entities + report ledger (no-op on new saves)
+  ensureTroops(state, now); // MUSTER: garrison + queues + hunger clock (additive on old saves)
   ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
   ensureReTime(state, now); // RE-TIME: energy pool + deploy slot (no-op on a fresh save)
   // V7 daily rollover: when the UTC day turned since the last advance, finalize
@@ -1704,6 +1736,21 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // double-report. DETERMINISTIC: no Math.random in win/loss/power (the
   // strength formula reads only the §15 B4 snapshot inputs).
   advanceBattles(state, now);
+
+  // THE MUSTER (design/muster-troops.md): resolve finished muster orders,
+  // charge upkeep from the supply stockpile, run the hunger clock
+  // (grace → desertion → mercenary bands). Lazy and idempotent like every
+  // other resolver — offline garrisons eat, starve, and desert on the next
+  // read. NOTE: battle→roster casualty wiring lands with the war Phase 1
+  // commit path (battles don't draw from the roster yet).
+  if (state.troops) {
+    const tick = advanceTroopHome(state.troops.home, now, state.resources, {
+      sourceColony: state.playerName || "An unnamed colony",
+      serverId: state.gameId ?? "0",
+    });
+    for (const band of tick.bands) state.troops.bands.push(band);
+    for (const line of tick.log) log(state, line);
+  }
 
   // Silent track bookkeeping: the untouched-day streak, the stage1 reveal, the
   // §8 world-acknowledgement, and the published-visibility reconcile. All four

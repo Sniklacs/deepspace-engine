@@ -1,0 +1,281 @@
+// Tests for the muster system (war/troops.ts) — design/muster-troops.md.
+// Run: bun test site/src/game/war/troops.test.ts
+import { describe, expect, test } from "bun:test";
+import {
+  TROOP_TYPES,
+  TROOPS_CONFIG,
+  addCohort,
+  advanceTroopHome,
+  applyCasualties,
+  availableWeight,
+  bandCount,
+  bandWeight,
+  commitWeight,
+  emptyRoster,
+  emptyTroopHome,
+  enqueueMuster,
+  hireBand,
+  hireCost,
+  homeGarrisonCap,
+  isTroopType,
+  musterCost,
+  musterDurationMs,
+  recordCasualties,
+  recordDeaths,
+  releaseWeight,
+  removeTroopsNewestFirst,
+  resolveBattleCasualties,
+  rosterByType,
+  rosterCount,
+  rosterWeight,
+  supplyWeight,
+  type CasualtyRecord,
+  type TroopHome,
+} from "./troops";
+
+const HOUR = 3600_000;
+
+function stockedHome(now: number, supplies = 10_000): { home: TroopHome; stock: { supplies: number } } {
+  return { home: emptyTroopHome(now), stock: { supplies } };
+}
+
+describe("supply weight — the single source of truth", () => {
+  test("thunder counts double, everything else single", () => {
+    expect(supplyWeight("thunder")).toBe(2);
+    for (const t of TROOP_TYPES) if (t !== "thunder") expect(supplyWeight(t)).toBe(1);
+  });
+  test("v1: weight is the ONLY stat lever — config carries no power numbers", () => {
+    const keys = Object.keys(TROOPS_CONFIG);
+    expect(keys.some((k) => /power|damage|attack/i.test(k))).toBe(false);
+  });
+  test("isTroopType guards unknown types", () => {
+    expect(isTroopType("bulwark")).toBe(true);
+    expect(isTroopType("space-marine")).toBe(false);
+  });
+});
+
+describe("muster queue — linear, validated, never helped", () => {
+  test("cost is 4 supplies × weight × count", () => {
+    expect(musterCost("bulwark", 10)).toBe(40);
+    expect(musterCost("thunder", 10)).toBe(80); // weight 2
+  });
+  test("time is linear: 30s per troop, no batch discount", () => {
+    expect(musterDurationMs(1)).toBe(30_000);
+    expect(musterDurationMs(100)).toBe(100 * 30_000);
+  });
+  test("enqueue validates: positive count, one queue per type, garrison cap", () => {
+    const r = emptyRoster();
+    const now = Date.now();
+    expect(enqueueMuster(r, [], "bulwark", 0, now, 0, 200).ok).toBe(false);
+    const first = enqueueMuster(r, [], "bulwark", 10, now, 0, 200);
+    expect(first.ok).toBe(true);
+    expect(first.order!.completesAt - first.order!.startedAt).toBe(10 * 30_000);
+    // second queue of the same type is rejected
+    const dup = enqueueMuster(r, [first.order!], "bulwark", 5, now, 1, 200);
+    expect(dup.ok).toBe(false);
+    // over cap is rejected
+    const over = enqueueMuster(r, [], "reaver", 201, now, 1, 200);
+    expect(over.ok).toBe(false);
+    expect(over.error).toMatch(/cap/);
+  });
+  test("completed orders become cohorts on advance", () => {
+    const now = Date.now();
+    const { home, stock } = stockedHome(now);
+    const q = enqueueMuster(home.roster, home.musterQueue, "reaver", 5, now, home.seq++, 2000);
+    expect(q.ok).toBe(true);
+    home.musterQueue.push(q.order!);
+    home.roster = home.roster; // (cohorts land via advance)
+    advanceTroopHome(home, now + 5 * 30_000 + 1000, stock, { sourceColony: "c1", serverId: "s1" });
+    expect(rosterCount(home.roster)).toBe(5);
+    expect(rosterByType(home.roster).reaver).toBe(5);
+    expect(home.musterQueue.length).toBe(0);
+  });
+});
+
+describe("roster — cohorts, commitment, casualties", () => {
+  test("weight sums supply weights; commitment ledgers separately", () => {
+    const r = emptyRoster();
+    const now = Date.now();
+    addCohort(r, "bulwark", 10, now);
+    addCohort(r, "thunder", 5, now);
+    expect(rosterCount(r)).toBe(15);
+    expect(rosterWeight(r)).toBe(10 * 1 + 5 * 2);
+    expect(availableWeight(r)).toBe(20);
+    expect(commitWeight(r, 25)).toBe(false); // can't fabricate troops
+    expect(commitWeight(r, 12)).toBe(true);
+    expect(availableWeight(r)).toBe(8);
+    releaseWeight(r, 12);
+    expect(availableWeight(r)).toBe(20);
+  });
+  test("applyCasualties is pure math: fraction of headcount, newest-first", () => {
+    const r = emptyRoster();
+    const now = Date.now();
+    addCohort(r, "bulwark", 100, now); // old
+    addCohort(r, "bulwark", 100, now + 1000); // new
+    const { lossesByType } = applyCasualties(r, 0.5);
+    expect(lossesByType.bulwark).toBe(100);
+    expect(rosterCount(r)).toBe(100);
+    // the survivors are the OLD cohort (newest died first)
+    expect(r.cohorts.length).toBe(1);
+    expect(r.cohorts[0].musteredAt).toBe(now);
+  });
+  test("resolveBattleCasualties kills committed weight, clears the ledger", () => {
+    const r = emptyRoster();
+    const now = Date.now();
+    addCohort(r, "bulwark", 100, now); // weight 100
+    expect(commitWeight(r, 100)).toBe(true);
+    const losses = resolveBattleCasualties(r, 100, 0.5);
+    expect(losses.bulwark).toBe(50);
+    expect(rosterCount(r)).toBe(50);
+    expect(r.committedWeight).toBe(0);
+    expect(availableWeight(r)).toBe(50);
+  });
+  test("removeTroopsNewestFirst with type filter", () => {
+    const r = emptyRoster();
+    const now = Date.now();
+    addCohort(r, "bulwark", 10, now);
+    addCohort(r, "reaver", 10, now);
+    const lost = removeTroopsNewestFirst(r, 5, "reaver");
+    expect(lost.reaver).toBe(5);
+    expect(lost.bulwark).toBe(0);
+    expect(rosterByType(r).bulwark).toBe(10);
+  });
+});
+
+describe("hunger — one system: grace, then desertion, then mercenaries", () => {
+  test("fed garrison: upkeep deducts, no hunger", () => {
+    const now = Date.now();
+    const { home, stock } = stockedHome(now, 10_000);
+    addCohort(home.roster, "bulwark", 100, now);
+    const before = stock.supplies;
+    advanceTroopHome(home, now + HOUR, stock, { sourceColony: "c1", serverId: "s1" });
+    // 100 troops × 0.1/hr = 10 supplies for the hour
+    expect(stock.supplies).toBeCloseTo(before - 10, 6);
+    expect(home.hungerSince).toBeNull();
+    expect(rosterCount(home.roster)).toBe(100);
+  });
+  test("24h grace: no desertion while foraging", () => {
+    const now = Date.now();
+    const { home, stock } = stockedHome(now, 0);
+    addCohort(home.roster, "bulwark", 100, now);
+    const tick = advanceTroopHome(home, now + 23 * HOUR, stock, { sourceColony: "c1", serverId: "s1" });
+    expect(tick.bands.length).toBe(0);
+    expect(rosterCount(home.roster)).toBe(100);
+    expect(home.hungerSince).not.toBeNull();
+  });
+  test("after grace: 5%/hr desertion, newest-first, deserters become a band", () => {
+    const now = Date.now();
+    const { home, stock } = stockedHome(now, 0);
+    addCohort(home.roster, "bulwark", 60, now); // old
+    addCohort(home.roster, "reaver", 40, now + 1000); // new
+    // 24h grace + 20 starving hours → 1-(0.95)^20 ≈ 64% of 100 ≈ 64 desert
+    const tick = advanceTroopHome(home, now + 44 * HOUR, stock, { sourceColony: "c1", serverId: "s1" });
+    expect(tick.bands.length).toBe(1);
+    const band = tick.bands[0];
+    expect(band.sourceColony).toBe("c1");
+    // composition mirrors the deserters; newest (reavers) went first
+    const reaversLost = band.cohorts.find((c) => c.type === "reaver")?.count ?? 0;
+    expect(reaversLost).toBe(40);
+    expect(bandCount(band)).toBeGreaterThan(40);
+    expect(rosterCount(home.roster)).toBe(100 - bandCount(band));
+    expect(tick.log.some((l) => /Starvation/.test(l))).toBe(true);
+  });
+  test("desertion does not compound across ticks", () => {
+    const now = Date.now();
+    const { home, stock } = stockedHome(now, 0);
+    addCohort(home.roster, "bulwark", 1000, now);
+    const opts = { sourceColony: "c1", serverId: "s1" };
+    advanceTroopHome(home, now + 25 * HOUR, stock, opts); // 1 starving hour
+    const afterFirst = rosterCount(home.roster);
+    const expectFirst = 1000 - Math.floor(1000 * (1 - Math.pow(0.95, 1)));
+    expect(afterFirst).toBe(expectFirst);
+    advanceTroopHome(home, now + 26 * HOUR, stock, opts); // one more starving hour
+    const afterSecond = rosterCount(home.roster);
+    // second tick deserts ~5% of the SURVIVORS, not 5% of the original again
+    const expectSecond = afterFirst - Math.floor(afterFirst * (1 - Math.pow(0.95, 1)));
+    expect(afterSecond).toBe(expectSecond);
+  });
+  test("feeding ends hunger", () => {
+    const now = Date.now();
+    const { home, stock } = stockedHome(now, 0);
+    addCohort(home.roster, "bulwark", 10, now);
+    advanceTroopHome(home, now + HOUR, stock, { sourceColony: "c1", serverId: "s1" });
+    expect(home.hungerSince).not.toBeNull();
+    stock.supplies = 500;
+    const tick = advanceTroopHome(home, now + 2 * HOUR, stock, { sourceColony: "c1", serverId: "s1" });
+    expect(home.hungerSince).toBeNull();
+    expect(tick.log.some((l) => /fed again/.test(l))).toBe(true);
+  });
+});
+
+describe("mercenaries — the deserters' market", () => {
+  function hiredBand(now: number) {
+    return {
+      id: "band-0",
+      serverId: "s1",
+      sourceColony: "neglectful-neighbor",
+      cohorts: [
+        { type: "bulwark" as const, count: 20, veterans: 0 },
+        { type: "thunder" as const, count: 5, veterans: 0 },
+      ],
+      createdAt: now,
+    };
+  }
+  test("hire cost = muster-cost equivalent (time is the discount)", () => {
+    const band = hiredBand(Date.now());
+    // (20×1 + 5×2) weight × 4 supplies
+    expect(bandWeight(band)).toBe(30);
+    expect(hireCost(band)).toBe(120);
+  });
+  test("hiring adds cohorts; the band is spent (double-hire is a no-op)", () => {
+    const now = Date.now();
+    const { home } = stockedHome(now);
+    const band = hiredBand(now);
+    const res = hireBand(home, band, 2000, now);
+    expect(res.ok).toBe(true);
+    expect(rosterByType(home.roster).bulwark).toBe(20);
+    expect(rosterByType(home.roster).thunder).toBe(5);
+    expect(bandCount(band)).toBe(0);
+    const again = hireBand(home, band, 2000, now);
+    expect(again.ok).toBe(false);
+    expect(rosterCount(home.roster)).toBe(25);
+  });
+  test("garrison cap is the stomach — over-cap hire refused", () => {
+    const now = Date.now();
+    const { home } = stockedHome(now);
+    addCohort(home.roster, "bulwark", 1990, now);
+    const res = hireBand(home, hiredBand(now), 2000, now);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/cap/);
+  });
+});
+
+describe("memorial feed — casualty records for the plaques", () => {
+  test("records append; deaths sum across types", () => {
+    const feed: CasualtyRecord[] = [];
+    recordCasualties(feed, {
+      battleId: "b1",
+      site: "Ashen Field",
+      season: "S7",
+      factions: ["Draconians", "Grays"],
+      lossesByType: { bulwark: 600, reaver: 300, longeye: 100, thunder: 50, warden: 20 },
+      fallenHeroes: ["Vex Mara"],
+      at: 123,
+    });
+    expect(feed.length).toBe(1);
+    expect(feed[0].at).toBe(123);
+    expect(recordDeaths(feed[0])).toBe(1070); // ≥ plaque threshold
+  });
+});
+
+describe("garrison caps", () => {
+  test("T1 200 → T5 2000, clamped", () => {
+    expect(homeGarrisonCap(1)).toBe(200);
+    expect(homeGarrisonCap(5)).toBe(2000);
+    expect(homeGarrisonCap(0)).toBe(200);
+    expect(homeGarrisonCap(99)).toBe(2000);
+  });
+  test("forward cap is fixed and small", () => {
+    expect(TROOPS_CONFIG.forwardGarrisonCap).toBe(500);
+  });
+});
