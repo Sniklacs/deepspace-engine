@@ -70,6 +70,51 @@ import type {
   RosterHome,
 } from "./war-types";
 import type { GameState } from "../types";
+// Type-only: the fx shapes live in alliances.ts, which imports THIS module —
+// a value import would be a module cycle. The queue itself is just an array
+// push (mirrors queueAllianceFx's shape).
+import type { AllianceFx } from "./alliances";
+
+/** Queue a cross-account effect without importing alliances.ts (cycle-safe).
+ *  alliance-transact.ts drains and applies these. */
+function queueFx(state: GameState, fx: AllianceFx): void {
+  if (!Array.isArray(state.allianceFx)) state.allianceFx = [];
+  state.allianceFx.push(fx);
+}
+
+/** This colony's id — segments whose colonyId differs are foreign bodies:
+ *  their roster lives on another account and is billed through the seam. */
+function localColonyId(state: GameState): string {
+  return state.gameId ?? "";
+}
+
+/** A segment is foreign when it names another colony's bodies. */
+function isForeignSegment(state: GameState, s: RosterCommitSegment): boolean {
+  return !!s.colonyId && s.colonyId !== localColonyId(state);
+}
+
+/** The war band's name for memorial attribution (rallies stamp allianceId). */
+function allianceNameFor(state: GameState, battle: Battle): string | undefined {
+  const aid = (battle as unknown as { allianceId?: string }).allianceId;
+  if (!aid) return undefined;
+  const store = (state as unknown as { alliances?: Record<string, { name?: string }> }).alliances;
+  const name = store?.[aid]?.name;
+  return typeof name === "string" && name.length > 0 ? name : undefined;
+}
+
+/** Shared memorial context for one battle side's foreign billing. */
+function foreignBillCtx(
+  state: GameState,
+  battle: Battle,
+  season: string | undefined,
+): { site: string; season: string; factions: [string, string]; allianceName?: string } {
+  return {
+    site: battle.zoneName,
+    season: seasonFor(state, season),
+    factions: [battle.attacker.colonyName, battle.defender.colonyName],
+    allianceName: allianceNameFor(state, battle),
+  };
+}
 
 /** The real roster behind a commit — null when the home doesn't exist
  *  (pre-muster saves, unplanted beachheads: commit degrades to 0). */
@@ -178,6 +223,8 @@ function recordSegmentLosses(
     factions: [battle.attacker.colonyName, battle.defender.colonyName],
     lossesByType,
     fallenHeroes: [],
+    allianceName: allianceNameFor(state, battle),
+    colonyName: state.playerName || "An unnamed colony",
   });
 }
 
@@ -206,9 +253,33 @@ export function settleToll(
   if (total <= 0 || toll <= 0) return 0;
   const losses = emptyLosses();
   let killed = 0;
+  const ctx = foreignBillCtx(state, battle, season);
   for (const s of segs) {
     const share = Math.min(s.weight, Math.round((toll * s.weight) / total));
     if (share <= 0) continue;
+    if (isForeignSegment(state, s)) {
+      // Foreign bodies pay through the seam — the sender's roster, the
+      // sender's memorial. The segment shrinks here so the final resolve
+      // never rebills the toll.
+      queueFx(state, {
+        kind: "bill-foreign-casualties",
+        colonyId: s.colonyId!,
+        segmentId: s.id,
+        reinforcementId: s.reinforcementId,
+        weight: share,
+        segmentWeight: s.weight,
+        key: `casualty:${battle.id}:${s.id}:toll:${s.tollsPaid + share}`,
+        battleId: battle.id,
+        site: ctx.site,
+        season: ctx.season,
+        factions: ctx.factions,
+        allianceName: ctx.allianceName,
+      });
+      s.weight = Math.max(0, s.weight - share);
+      s.tollsPaid += share;
+      killed += share;
+      continue;
+    }
     const r = rosterForCommit(state, s.home);
     if (!r) continue; // home vanished mid-battle — nothing to bill
     const res = applyCommittedCasualties(r, share);
@@ -354,6 +425,21 @@ export function resolveRosterCasualties(state: GameState, season?: string): numb
         // zero-casualty fix: the old `continue` stranded the weight forever.)
         for (const s of segs) {
           if (s.weight <= 0) continue;
+          if (isForeignSegment(state, s)) {
+            // Reinforcement guests: survivors stay stationed — the sender's
+            // lock holds, nothing to bill, nothing to release.
+            // Rally pledgers: their lock was only this battle — march home.
+            if (!s.reinforcementId) {
+              queueFx(state, {
+                kind: "release-troop-lock",
+                colonyId: s.colonyId!,
+                weight: s.weight,
+                key: `casualty:${b.id}:${s.id}:release`,
+              });
+            }
+            s.weight = 0;
+            continue;
+          }
           const r = rosterForCommit(state, s.home);
           if (r) releaseWeight(r, s.weight);
           s.weight = 0;
@@ -361,8 +447,28 @@ export function resolveRosterCasualties(state: GameState, season?: string): numb
         continue;
       }
       const losses = emptyLosses();
+      const ctx = foreignBillCtx(state, b, season);
       for (const s of segs) {
         if (s.weight <= 0) continue;
+        if (isForeignSegment(state, s)) {
+          // Foreign bodies: the sender's roster pays through the seam (their
+          // memorial, their alliance attribution) — never the local roster.
+          queueFx(state, {
+            kind: "bill-foreign-casualties",
+            colonyId: s.colonyId!,
+            segmentId: s.id,
+            reinforcementId: s.reinforcementId,
+            fraction,
+            segmentWeight: s.weight,
+            battleId: b.id,
+            site: ctx.site,
+            season: ctx.season,
+            factions: ctx.factions,
+            allianceName: ctx.allianceName,
+          });
+          s.weight = 0;
+          continue;
+        }
         const r = rosterForCommit(state, s.home);
         if (!r) continue; // home vanished mid-battle (razed beachhead) — nothing to bill
         mergeLosses(losses, resolveBattleCasualties(r, s.weight, fraction));

@@ -310,6 +310,8 @@ export interface RosterCommitSegment {
   vector?: ManeuverVector;
   /** Aid segments: the colony that sent these bodies (their roster paid). */
   colonyId?: string;
+  /** Guest segments: the reinforcement record this detachment belongs to. */
+  reinforcementId?: string;
   committedAt: number;
 }
 

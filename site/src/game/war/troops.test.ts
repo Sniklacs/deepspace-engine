@@ -18,6 +18,7 @@ import {
   hireCost,
   homeGarrisonCap,
   isTroopType,
+  mixWeight,
   musterCost,
   musterDurationMs,
   recordCasualties,
@@ -29,6 +30,7 @@ import {
   rosterCount,
   rosterWeight,
   supplyWeight,
+  takeWeightAsTroops,
   type CasualtyRecord,
   type TroopHome,
 } from "./troops";
@@ -277,5 +279,58 @@ describe("garrison caps", () => {
   });
   test("forward cap is fixed and small", () => {
     expect(TROOPS_CONFIG.forwardGarrisonCap).toBe(500);
+  });
+});
+
+describe("mixWeight — supply-weight of a per-type breakdown", () => {
+  test("thunder counts double, everything else single", () => {
+    expect(mixWeight({ bulwark: 2, reaver: 0, longeye: 0, thunder: 0, warden: 0 })).toBe(2);
+    expect(mixWeight({ bulwark: 0, reaver: 0, longeye: 0, thunder: 3, warden: 0 })).toBe(6);
+    expect(mixWeight({ bulwark: 1, reaver: 1, longeye: 1, thunder: 1, warden: 1 })).toBe(6);
+  });
+});
+
+describe("takeWeightAsTroops — troops are indivisible", () => {
+  const zero = { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+  test("exact whole-troop take", () => {
+    const { taken, weight } = takeWeightAsTroops({ ...zero, bulwark: 3 }, 2);
+    expect(taken.bulwark).toBe(2);
+    expect(weight).toBe(2);
+  });
+  test("never takes more than available", () => {
+    const { taken, weight } = takeWeightAsTroops({ ...zero, bulwark: 1 }, 99);
+    expect(taken.bulwark).toBe(1);
+    expect(weight).toBe(1);
+  });
+  test("a fractional thunder request takes the whole thunder — never half, never nothing", () => {
+    // The old scaleTypes path floored this to an empty take: 1 weight left
+    // the mirror while zero troops deserted (an empty mercenary band and
+    // weight that vanished between the mirror and the band).
+    const { taken, weight } = takeWeightAsTroops({ ...zero, thunder: 1 }, 1);
+    expect(taken.thunder).toBe(1);
+    expect(weight).toBe(2);
+  });
+  test("empty source or zero request takes nothing", () => {
+    expect(takeWeightAsTroops(zero, 5).weight).toBe(0);
+    expect(takeWeightAsTroops({ ...zero, bulwark: 5 }, 0).weight).toBe(0);
+  });
+});
+
+describe("guest upkeep — thunder eats double", () => {
+  const NOW = 1_800_000_000_000;
+  const zero = { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+  function guestUpkeepFor(guests: { id: string; weight: number; troopsByType: Record<string, number> }[]): number {
+    const { home, stock } = stockedHome(NOW - HOUR, 10_000);
+    const before = stock.supplies;
+    advanceTroopHome(home, NOW, stock, { sourceColony: "Host", serverId: "0", guests: guests as never });
+    return before - stock.supplies;
+  }
+  test("one thunder (weight 2) costs the same as two bulwarks", () => {
+    const thunderCost = guestUpkeepFor([{ id: "g1", weight: 2, troopsByType: { ...zero, thunder: 1 } }]);
+    const twoBulwarkCost = guestUpkeepFor([{ id: "g1", weight: 2, troopsByType: { ...zero, bulwark: 2 } }]);
+    const oneBulwarkCost = guestUpkeepFor([{ id: "g1", weight: 1, troopsByType: { ...zero, bulwark: 1 } }]);
+    expect(thunderCost).toBeCloseTo(0.2, 10); // 2 weight × 0.1 supplies/weight/hour × 1h
+    expect(twoBulwarkCost).toBeCloseTo(0.2, 10);
+    expect(oneBulwarkCost).toBeCloseTo(0.1, 10);
   });
 });

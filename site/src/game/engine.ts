@@ -61,7 +61,7 @@ import {
   freshDaily,
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
-import { ensureAlliances } from "./war/alliances";
+import { ensureAlliances, guestsAt, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
 import { advanceRallies, ensureRallies } from "./war/rallies";
 import {
   advanceTroopHome,
@@ -1797,9 +1797,26 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // advanceBattles() above; battles don't draw from the roster until their
   // creator stamps a RosterCommit (Act I does; the Chorus never does).
   if (state.troops) {
+    // Stationed allied guests eat from the host's stockpile and desert
+    // BEFORE host troops (alliances.md §7). Their mirrors shrink here; the
+    // senders' locks release through the seam (idempotent per tick).
     const tick = advanceTroopHome(state.troops.home, now, state.resources, {
       sourceColony: state.playerName || "An unnamed colony",
       serverId: state.gameId ?? "0",
+      guests: guestsAt(state).map((m) => ({ id: m.id, weight: m.weight, troopsByType: m.troopsByType })),
+      onGuestDesertion: (deserted) => {
+        for (const s of shrinkGuestMirrors(state, deserted)) {
+          if (s.desertedWeight <= 0) continue;
+          queueAllianceFx(state, {
+            kind: "release-troop-lock",
+            colonyId: s.fromColonyId,
+            reinforcementId: s.id,
+            weight: s.desertedWeight,
+            key: `unmirror:${s.id}:deserted:${now}`,
+            mark: s.gone ? "deserted" : undefined,
+          });
+        }
+      },
     });
     for (const band of tick.bands) state.troops.bands.push(band);
     for (const line of tick.log) log(state, line);

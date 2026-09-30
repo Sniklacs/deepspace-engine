@@ -52,11 +52,12 @@ import {
   sideHomeFor,
   stampRosterSegment,
 } from "./war/roster-commit";
-import { availableWeight } from "./war/troops";
+import { availableWeight, releaseWeight } from "./war/troops";
 import type { BattlePlan } from "./war/maneuvers";
 import type { PlannedManeuver } from "./war/maneuvers";
 import {
   acceptMembership,
+  allianceById,
   allianceOf,
   applyToAlliance,
   createAlliance,
@@ -66,17 +67,26 @@ import {
   giveHelp,
   inviteToAlliance,
   kickMember,
-  leaveAlliance,
+  leaveAllianceLocal,
   promoteMember,
+  queueAllianceFx,
+  removeAllianceMemberRecord,
+  removeAllianceMirror,
   transferLeadership,
+  unlockRallyHeroes,
 } from "./war/alliances";
 import {
+  addRemotePledge,
   cancelRally,
   createRally,
+  departRalliesFor,
   launchRally,
-  pledgeToRally,
+  lockPledgeLocal,
+  rallyAudience,
+  rallyOf,
+  removeRemotePledge,
   setRallyPlan,
-  unpledgeFromRally,
+  unpledgeLocal,
 } from "./war/rallies";
 import {
   dismissReinforcement,
@@ -126,6 +136,16 @@ import {
   verifyPassword as authVerifyPassword,
   revokeAllSessions,
 } from "./auth";
+import {
+  AccountBusyError,
+  ColonyNotFoundError,
+  commitOutbox,
+  runWithAccountSaves,
+  scanAllianceDirectory,
+  transactColony,
+  withAccountLock,
+} from "./alliance-transact";
+import type { AllianceDirectoryEntry } from "./alliance-transact";
 
 /** Lightweight summary of a game — never full state. */
 export interface GameSummary {
@@ -186,8 +206,8 @@ export function publicState(st: GameState): GameState {
   // V11 prologue spine: the player's OWN story (stage, sealed height records,
   // squad, final stand, History Book + ash echoes) ships whole — nothing here
   // is server-secret, so the block rides `rest` into the payload untouched.
-  const { revelationCounters: _rc, revelationChoice: _rch, revelationFirstOpenAt: _rfo, revelationCorruptionGainMult: _rcm, revelationDrainPerMin: _rdp, revelationChorusMult: _rm, revelationsResolved: _rr, acknowledgedOnce: _ao, currency: _cur, entitlements: _ent, battlePass: _bp, daily: _daily, warReserve: _wr, timeTokenLedger: _ttl, ...rest } = st;
-  void _rc; void _rch; void _rfo; void _rcm; void _rdp; void _rm; void _rr; void _ao; void _cur; void _ent; void _bp; void _daily; void _wr; void _ttl;
+  const { revelationCounters: _rc, revelationChoice: _rch, revelationFirstOpenAt: _rfo, revelationCorruptionGainMult: _rcm, revelationDrainPerMin: _rdp, revelationChorusMult: _rm, revelationsResolved: _rr, acknowledgedOnce: _ao, currency: _cur, entitlements: _ent, battlePass: _bp, daily: _daily, warReserve: _wr, timeTokenLedger: _ttl, allianceFx: _afx, allianceFxDone: _afxd, ...rest } = st;
+  void _rc; void _rch; void _rfo; void _rcm; void _rdp; void _rm; void _rr; void _ao; void _cur; void _ent; void _bp; void _daily; void _wr; void _ttl; void _afx; void _afxd;
   const vis = new Set(engine.visibleRevelations(st));
   const w = walletView(st);
   return {
@@ -1118,23 +1138,24 @@ const battleScreenFn = createServerFn({ method: "POST" }).validator(
     vector: z.enum(["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR", "RESERVE"]),
   })
 ).handler(async ({ data }): Promise<GameResult> => {
-  const accountId = await accountForToken(data.token);
-  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
-  const saves = await loadAccountSaves(accountId);
-  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
-    return { ok: false, error: "Start a colony first." };
-  }
-  const st = engine.advance(saves.games[saves.activeGameId], Date.now());
-  const battle = st.battles?.find((b) => b.id === data.battleId);
-  if (!battle || battle.status !== "active") return { ok: false, error: "That battle isn't running." };
-  const reserves = battleReservesFor(st, [], battle, data.side);
-  const res = screenVector(battle, data.side, data.vector as ManeuverVector, Date.now(), reserves);
-  if (!res.ok) return { ok: false, error: res.error };
-  if (!res.duplicate) {
-    st.warReserve.energy = Math.max(0, st.warReserve.energy - res.energySpent);
-  }
-  await saveAccountSaves(accountId, saves);
-  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+  // `data.token` infers as `string | undefined` through the validator types on
+  // this route (a TanStack inference quirk — zod still requires it at
+  // runtime), so narrow before entering the serialized mutation path.
+  const token = data.token;
+  if (!token) return { ok: false, signedOut: true, error: "Not signed in." };
+  // Serialized like every other mutation: screens spend war energy, and two
+  // concurrent posts must not double-spend it.
+  return withColony(token, (st, ctx) => {
+    const battle = st.battles?.find((b) => b.id === data.battleId);
+    if (!battle || battle.status !== "active") return { ok: false, error: "That battle isn't running." };
+    const reserves = battleReservesFor(st, [], battle, data.side);
+    const res = screenVector(battle, data.side, data.vector as ManeuverVector, ctx.now, reserves);
+    if (!res.ok) return { ok: false, error: res.error };
+    if (!res.duplicate) {
+      st.warReserve.energy = Math.max(0, st.warReserve.energy - res.energySpent);
+    }
+    return { ok: true as const, value: res.duplicate ? "already" : "posted" };
+  });
 });
 
 /** Attach a rally battle plan to a live battle (maneuvers). Validated
@@ -1450,27 +1471,95 @@ const hireServerBandFn = createServerFn({ method: "POST" }).validator(
 // ALLIANCES + RALLIES (design/alliances.md) — the war band's server surface.
 // ---------------------------------------------------------------------------
 
-/** Shared boilerplate: token → account → advanced colony → work → persist. */
+/** Shared boilerplate: account → advanced colony → work → drain fx → persist.
+ *  Serialized per account: no two requests interleave a load-modify-save. */
 async function withColony(
   token: string,
   work: (
     st: GameState,
     ctx: { colonyId: string; colonyName: string; now: number },
-  ) => { ok: true; value?: unknown } | { ok: false; error: string },
+  ) =>
+    | { ok: true; value?: unknown }
+    | { ok: false; error: string }
+    | Promise<{ ok: true; value?: unknown } | { ok: false; error: string }>,
 ): Promise<GameResult> {
   const accountId = await accountForToken(token);
   if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
-  const saves = await loadAccountSaves(accountId);
-  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
-    return { ok: false, error: "Start a colony first." };
+  try {
+    return await withAccountLock(accountId, async () => {
+      const saves = await loadAccountSaves(accountId);
+      // Hoist into a const: narrowing on `saves.activeGameId` doesn't cross
+      // the request-scope closure below, so capture the proven value once.
+      const activeGameId = saves?.activeGameId;
+      if (!saves || !activeGameId || !saves.games[activeGameId]) {
+        return { ok: false, error: "Start a colony first." };
+      }
+      // Register this account's saves on the request scope: cross-account
+      // fx chains that come back here (A→B→A) resolve in-memory instead of
+      // re-entering the lock we already hold.
+      return await runWithAccountSaves(accountId, saves, async () => {
+        const now = Date.now();
+        const st = engine.advance(saves.games[activeGameId], now);
+        if (!st.race) return { ok: false, error: "Found your colony first." };
+        const res = await work(st, { colonyId: activeGameId, colonyName: st.playerName, now });
+        if (!res.ok) return { ok: false, error: res.error };
+        // Cross-account alliance effects queued by work (help ticks, guest
+        // mirrors, casualty bills, lock releases) deliver through the outbox:
+        // persist first, then deliver, then persist the cleared outbox.
+        await commitOutbox(saves, accountId);
+        return { ok: true, state: publicState(engine.advance(saves.games[activeGameId], Date.now())), activeGameId };
+      });
+    });
+  } catch (e) {
+    if (e instanceof AccountBusyError) {
+      return { ok: false, error: "The colony ledger is busy — try again in a moment." };
+    }
+    throw e;
   }
-  const now = Date.now();
-  const st = engine.advance(saves.games[saves.activeGameId], now);
-  if (!st.race) return { ok: false, error: "Found your colony first." };
-  const res = work(st, { colonyId: saves.activeGameId, colonyName: st.playerName, now });
-  if (!res.ok) return { ok: false, error: res.error };
-  await saveAccountSaves(accountId, saves);
-  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+}
+
+/**
+ * Run a mutation against an alliance's canonical record — the copy on the
+ * founder's account. Reads the local mirror for the founder id; falls back
+ * to the directory when the caller holds no mirror yet (applicants).
+ * Foreign accounts go through the lock/load/save seam (their outbox drains
+ * inside the transact); same-account targets resolve in-memory on the
+ * request scope and drain with the outer outbox.
+ */
+async function canonicalAllianceTx<T>(
+  st: GameState,
+  allianceId: string,
+  fn: (fst: GameState) => T | Promise<T>,
+): Promise<T | { ok: false; error: string }> {
+  const mirror = allianceById(st, allianceId);
+  let founderId = mirror?.founderId ?? null;
+  if (!founderId) {
+    const entry = (await scanAllianceDirectory()).find((e) => e.id === allianceId);
+    founderId = entry?.founderId ?? null;
+  }
+  if (!founderId) return { ok: false, error: "That alliance doesn't exist." };
+  try {
+    return await transactColony(founderId, fn);
+  } catch (e) {
+    if (e instanceof ColonyNotFoundError) return { ok: false, error: "That alliance doesn't exist." };
+    throw e;
+  }
+}
+
+/** Same idea for rallies: the canonical record lives on the caller's account. */
+async function canonicalRallyTx<T>(
+  st: GameState,
+  rallyId: string,
+  fn: (fst: GameState) => T | Promise<T>,
+): Promise<T | { ok: false; error: string }> {
+  const mirror = rallyOf(st, rallyId);
+  if (!mirror) return { ok: false, error: "That rally doesn't exist." };
+  try {
+    return await transactColony(mirror.callerId, fn);
+  } catch (e) {
+    if (e instanceof ColonyNotFoundError) return { ok: false, error: "That rally doesn't exist." };
+    throw e;
+  }
 }
 
 const allianceCreateFn = createServerFn({ method: "POST" }).validator(
@@ -1495,8 +1584,10 @@ const allianceCreateFn = createServerFn({ method: "POST" }).validator(
 const allianceApplyFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), allianceId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) =>
-    applyToAlliance(st, data.allianceId, { id: ctx.colonyId, name: ctx.colonyName }, ctx.now),
+  withColony(data.token, async (st, ctx) =>
+    canonicalAllianceTx(st, data.allianceId, (fst) =>
+      applyToAlliance(fst, data.allianceId, { id: ctx.colonyId, name: ctx.colonyName }, ctx.now),
+    ),
   ),
 );
 
@@ -1508,8 +1599,10 @@ const allianceInviteFn = createServerFn({ method: "POST" }).validator(
     targetName: z.string().min(1).max(60),
   })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) =>
-    inviteToAlliance(st, data.allianceId, ctx.colonyId, { id: data.targetId, name: data.targetName }, ctx.now),
+  withColony(data.token, async (st, ctx) =>
+    canonicalAllianceTx(st, data.allianceId, (fst) =>
+      inviteToAlliance(fst, data.allianceId, ctx.colonyId, { id: data.targetId, name: data.targetName }, ctx.now),
+    ),
   ),
 );
 
@@ -1521,47 +1614,100 @@ const allianceAnswerFn = createServerFn({ method: "POST" }).validator(
     accept: z.boolean(),
   })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) =>
-    data.accept
-      ? acceptMembership(st, data.allianceId, ctx.colonyId, data.colonyId, ctx.now)
-      : declineMembership(st, data.allianceId, ctx.colonyId, data.colonyId),
+  withColony(data.token, async (st, ctx) =>
+    canonicalAllianceTx(st, data.allianceId, (fst) =>
+      data.accept
+        ? acceptMembership(fst, data.allianceId, ctx.colonyId, data.colonyId, ctx.now)
+        : declineMembership(fst, data.allianceId, ctx.colonyId, data.colonyId),
+    ),
   ),
 );
 
 const allianceLeaveFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) => leaveAlliance(st, ctx.colonyId, ctx.now)),
+  withColony(data.token, async (st, ctx) => {
+    const a = allianceOf(st, ctx.colonyId);
+    if (!a) return { ok: false, error: "You're not in an alliance." };
+    const allianceId = a.id;
+    const founderId = a.founderId;
+    const members = a.members.map((m) => m.colonyId);
+    // 1. Our troops, our save: rally pledges return, own rallies cancel,
+    //    reinforcements recall, mirrors drop.
+    departRalliesFor(st, ctx.colonyId, allianceId, members);
+    leaveAllianceLocal(st, ctx.colonyId);
+    removeAllianceMirror(st, allianceId);
+    // 2. The canonical member roll lives on the founder's account.
+    try {
+      const res = await transactColony(founderId, (fst) =>
+        removeAllianceMemberRecord(fst, allianceId, ctx.colonyId),
+      );
+      if (!res.ok) return res;
+    } catch (e) {
+      if (e instanceof ColonyNotFoundError) return { ok: false, error: "That alliance doesn't exist." };
+      throw e;
+    }
+    return { ok: true, value: undefined };
+  }),
 );
 
 const allianceKickFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), allianceId: z.string(), targetId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) => kickMember(st, data.allianceId, ctx.colonyId, data.targetId, ctx.now)),
+  withColony(data.token, async (st, ctx) =>
+    canonicalAllianceTx(st, data.allianceId, (fst) =>
+      kickMember(fst, data.allianceId, ctx.colonyId, data.targetId, ctx.now),
+    ),
+  ),
 );
 
 const alliancePromoteFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), allianceId: z.string(), targetId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) => promoteMember(st, data.allianceId, ctx.colonyId, data.targetId)),
+  withColony(data.token, async (st, ctx) =>
+    canonicalAllianceTx(st, data.allianceId, (fst) =>
+      promoteMember(fst, data.allianceId, ctx.colonyId, data.targetId),
+    ),
+  ),
 );
 
 const allianceDemoteFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), allianceId: z.string(), targetId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) => demoteMember(st, data.allianceId, ctx.colonyId, data.targetId)),
+  withColony(data.token, async (st, ctx) =>
+    canonicalAllianceTx(st, data.allianceId, (fst) =>
+      demoteMember(fst, data.allianceId, ctx.colonyId, data.targetId),
+    ),
+  ),
 );
 
 const allianceTransferFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), allianceId: z.string(), targetId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) => transferLeadership(st, data.allianceId, ctx.colonyId, data.targetId)),
+  withColony(data.token, async (st, ctx) =>
+    canonicalAllianceTx(st, data.allianceId, (fst) =>
+      transferLeadership(fst, data.allianceId, ctx.colonyId, data.targetId),
+    ),
+  ),
 );
 
 const allianceDisbandFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), allianceId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) => disbandAlliance(st, data.allianceId, ctx.colonyId)),
+  withColony(data.token, async (st, ctx) => {
+    const res = await canonicalAllianceTx(st, data.allianceId, (fst) =>
+      disbandAlliance(fst, data.allianceId, ctx.colonyId),
+    );
+    // Our own mirrors drop too — the depart-alliance fx covers troops, but
+    // the local alliance/rally mirrors are ours to forget.
+    if (res.ok) {
+      const a = allianceOf(st, ctx.colonyId);
+      const members = a && a.id === data.allianceId ? a.members.map((m) => m.colonyId) : [];
+      departRalliesFor(st, ctx.colonyId, data.allianceId, members);
+      removeAllianceMirror(st, data.allianceId);
+    }
+    return res;
+  }),
 );
 
 const rallyCreateFn = createServerFn({ method: "POST" }).validator(
@@ -1599,22 +1745,67 @@ const rallyPledgeFn = createServerFn({ method: "POST" }).validator(
     heroes: z.array(battleHeroSchema).optional(),
   })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) =>
-    pledgeToRally(
-      st,
-      data.rallyId,
+  withColony(data.token, async (st, ctx) => {
+    const r = rallyOf(st, data.rallyId);
+    if (!r) return { ok: false, error: "That rally doesn't exist." };
+    const heroes = (data.heroes ?? []) as unknown as BattleHeroSnapshot[];
+    // Our troops, our save: lock them here.
+    const locked = lockPledgeLocal(
+      st, r,
       { id: ctx.colonyId, name: ctx.colonyName },
-      data.troops,
-      (data.heroes ?? []) as unknown as BattleHeroSnapshot[],
-      ctx.now,
-    ),
-  ),
+      data.troops, heroes, ctx.now,
+    );
+    if (!locked.ok) return locked;
+    if (r.callerId === ctx.colonyId) {
+      // We hold the canonical record — mirror it straight in.
+      const a = allianceOf(st, ctx.colonyId);
+      const rec = addRemotePledge(st, data.rallyId, locked.value, a ? rallyAudience(st, r) : []);
+      if (!rec.ok) {
+        // Unwind the local lock (same as the applier's unwind path).
+        const roster = rosterForCommit(st, { kind: "home" });
+        if (roster && locked.value.troops > 0) releaseWeight(roster, locked.value.troops);
+        unlockRallyHeroes(st, data.rallyId, locked.value.heroes);
+        return { ok: false, error: rec.error };
+      }
+    } else {
+      // The caller's account holds the canonical record — the outbox carries
+      // the locked pledge there; their sync fans it back to everyone.
+      queueAllianceFx(st, {
+        kind: "mirror-rally-pledge",
+        colonyId: r.callerId,
+        rallyId: r.id,
+        pledge: locked.value,
+        key: `pledge:${r.id}:${locked.value.id}`,
+      });
+    }
+    return { ok: true, value: locked.value };
+  }),
 );
 
 const rallyUnpledgeFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), rallyId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) => unpledgeFromRally(st, data.rallyId, ctx.colonyId)),
+  withColony(data.token, async (st, ctx) => {
+    const r = rallyOf(st, data.rallyId);
+    if (!r) return { ok: false, error: "That rally doesn't exist." };
+    // Our lock, our save: release it here.
+    const local = unpledgeLocal(st, data.rallyId, ctx.colonyId);
+    if (!local.ok) return local;
+    if (r.callerId === ctx.colonyId) {
+      const a = allianceOf(st, ctx.colonyId);
+      return removeRemotePledge(st, data.rallyId, ctx.colonyId, local.value.id, a ? rallyAudience(st, r) : []);
+    }
+    // Tell the canonical record.
+    queueAllianceFx(st, {
+      kind: "mirror-rally-unpledge",
+      colonyId: r.callerId,
+      rallyId: r.id,
+      pledgerId: ctx.colonyId,
+      pledgeId: local.value.id,
+      key: `unpledge:${r.id}:${local.value.id}`,
+    });
+    return { ok: true, value: undefined };
+  }),
 );
 
 const rallyPlanSchema = z.object({
@@ -1630,30 +1821,47 @@ const rallyPlanSchema = z.object({
 const rallyPlanFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), rallyId: z.string(), plan: rallyPlanSchema })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) =>
-    setRallyPlan(st, data.rallyId, ctx.colonyId, {
-      id: data.plan.id,
-      maneuvers: data.plan.maneuvers.map((m) => ({
-        id: m.id,
-        vector: m.vector,
-        enterAtMin: m.enterAtMin,
-        composition: (m.composition ?? {}) as PlannedManeuver["composition"],
-      })),
-    }),
+  withColony(data.token, async (st, ctx) =>
+    canonicalRallyTx(st, data.rallyId, (fst) =>
+      setRallyPlan(fst, data.rallyId, ctx.colonyId, {
+        id: data.plan.id,
+        maneuvers: data.plan.maneuvers.map((m) => ({
+          id: m.id,
+          vector: m.vector,
+          enterAtMin: m.enterAtMin,
+          composition: (m.composition ?? {}) as PlannedManeuver["composition"],
+        })),
+      }),
+    ),
   ),
 );
 
 const rallyLaunchFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), rallyId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) => launchRally(st, data.rallyId, ctx.colonyId, ctx.now)),
+  withColony(data.token, async (st, ctx) =>
+    canonicalRallyTx(st, data.rallyId, (fst) => launchRally(fst, data.rallyId, ctx.colonyId, ctx.now)),
+  ),
 );
 
 const rallyCancelFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), rallyId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) => cancelRally(st, data.rallyId, ctx.colonyId)),
+  withColony(data.token, async (st, ctx) =>
+    canonicalRallyTx(st, data.rallyId, (fst) => cancelRally(fst, data.rallyId, ctx.colonyId)),
+  ),
 );
+
+/** Alliance directory: every war band flying a flag, so colonies can find
+ *  one worth applying to. Public info only — no members, no applications. */
+const allianceDirectoryFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string() })
+).handler(async ({ data }): Promise<GameResult & { entries?: AllianceDirectoryEntry[] }> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const entries = await scanAllianceDirectory();
+  return { ok: true, entries };
+});
 
 const helpTickFn = createServerFn({ method: "POST" }).validator(
   z.object({
@@ -1704,7 +1912,9 @@ const reinforceRecallFn = createServerFn({ method: "POST" }).validator(
 const reinforceDismissFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), reinforcementId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, (st, ctx) => dismissReinforcement(st, ctx.colonyId, data.reinforcementId)),
+  // Host-side: dismisses the guest mirror (the mirror shares the
+  // reinforcement's id); the sender's lock releases through the seam.
+  withColony(data.token, (st) => dismissReinforcement(st, data.reinforcementId)),
 );
 
 export {
@@ -1760,6 +1970,7 @@ export {
   allianceDemoteFn,
   allianceTransferFn,
   allianceDisbandFn,
+  allianceDirectoryFn,
   rallyCreateFn,
   rallyPledgeFn,
   rallyUnpledgeFn,

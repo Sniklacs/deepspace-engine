@@ -126,6 +126,32 @@ export function addCohort(r: TroopRoster, type: TroopType, count: number, now: n
   return cohort;
 }
 
+/** Remove by SUPPLY-WEIGHT, newest-first (the hunger path's unit — mirrors,
+ *  locks, and commits are all weight, so desertion is too). Takes whole
+ *  troops; the last troop may overshoot the target slightly. */
+export function removeWeightNewestFirst(
+  r: TroopRoster,
+  weight: number,
+): Record<TroopType, number> {
+  const removed: Record<TroopType, number> = { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+  let left = Math.max(0, Math.trunc(weight));
+  const ordered = [...r.cohorts]
+    .filter((c) => c.count > 0)
+    .sort((a, b) => b.musteredAt - a.musteredAt || (parseInt(a.id.split("-").pop()!, 10) - parseInt(b.id.split("-").pop()!, 10)) * -1);
+  for (const c of ordered) {
+    if (left <= 0) break;
+    const w = supplyWeight(c.type);
+    const take = Math.min(c.count, Math.ceil(left / w));
+    c.count -= take;
+    const vetLoss = Math.min(c.veterans, take);
+    c.veterans -= vetLoss;
+    removed[c.type] += take;
+    left -= take * w;
+  }
+  r.cohorts = r.cohorts.filter((c) => c.count > 0);
+  return removed;
+}
+
 /**
  * Remove `count` troops, newest cohorts first (the invested survive longest —
  * muster-troops.md §§3/5). Optionally restricted to one type.
@@ -353,10 +379,112 @@ export interface HungerTick {
   log: string[];
 }
 
+/** A stationed allied guest the host feeds (alliances.md §7). The host's
+ *  hunger tick counts them for upkeep; they desert BEFORE host troops. */
+export interface GuestMouth {
+  id: string;
+  weight: number;
+  troopsByType: Record<TroopType, number>;
+}
+
+/** Preview the newest-first take of `weight` supply-weight WITHOUT removing
+ *  anything — the reinforcement record snapshots the type mix at send time
+ *  so a later desertion can spawn a faithful mercenary band. */
+export function previewTakeNewestFirst(
+  r: TroopRoster,
+  weight: number,
+): Record<TroopType, number> {
+  const take: Record<TroopType, number> = { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+  let left = Math.max(0, Math.trunc(weight));
+  const ordered = [...r.cohorts]
+    .filter((c) => c.count > 0)
+    .sort((a, b) => b.musteredAt - a.musteredAt);
+  for (const c of ordered) {
+    if (left <= 0) break;
+    const w = supplyWeight(c.type);
+    const n = Math.min(c.count, Math.ceil(left / w));
+    take[c.type] += n;
+    left -= n * w;
+  }
+  return take;
+}
+
+/** Supply-weight of a per-type troop breakdown (snapshot mixes, band
+ *  compositions — anything shaped like Record<TroopType, number>). */
+export function mixWeight(byType: Record<TroopType, number>): number {
+  return (Object.keys(byType) as TroopType[]).reduce((s, t) => s + Math.max(0, Math.trunc(byType[t])) * supplyWeight(t), 0);
+}
+
+/** Take whole troops for `weight` supply-weight from a per-type breakdown
+ *  (guest desertion) — troops are indivisible, so thunder (weight 2) can only
+ *  desert whole. Returns the troops taken and their ACTUAL weight, which may
+ *  overshoot the request by less than one troop's weight.
+ *
+ *  Guarantees: a positive request against a non-empty breakdown always takes
+ *  at least one troop — no empty mercenary bands, no weight that vanishes
+ *  between the mirror shrink and the band spawn. */
+export function takeWeightAsTroops(
+  byType: Record<TroopType, number>,
+  weight: number,
+): { taken: Record<TroopType, number>; weight: number } {
+  const taken: Record<TroopType, number> = { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+  let want = Math.max(0, Math.trunc(weight));
+  const types = (Object.keys(byType) as TroopType[]).filter((t) => Math.trunc(byType[t]) > 0);
+  if (want <= 0 || types.length === 0) return { taken, weight: 0 };
+  for (const t of types) {
+    if (want <= 0) break;
+    const w = supplyWeight(t);
+    const n = Math.min(Math.trunc(byType[t]), Math.floor(want / w));
+    if (n > 0) {
+      taken[t] = n;
+      want -= n * w;
+    }
+  }
+  let actual = (Object.keys(taken) as TroopType[]).reduce((s, t) => s + taken[t] * supplyWeight(t), 0);
+  if (actual === 0) {
+    // Nothing fit whole (e.g. 1 weight asked of thunder-only troops): one
+    // troop walks anyway — the lightest available, for minimal overshoot.
+    let pick: TroopType | null = null;
+    for (const t of types) {
+      if (!pick || supplyWeight(t) < supplyWeight(pick)) pick = t;
+    }
+    if (pick) {
+      taken[pick] = 1;
+      actual = supplyWeight(pick);
+    }
+  }
+  return { taken, weight: actual };
+}
+
+/** Scale a per-type breakdown to a smaller weight (partial desertion of one
+ *  guest group keeps the mix honest). */
+export function scaleTypes(
+  byType: Record<TroopType, number>,
+  weight: number,
+): Record<TroopType, number> {
+  const out: Record<TroopType, number> = { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+  const totalW = (Object.keys(byType) as TroopType[]).reduce((s, t) => s + byType[t] * supplyWeight(t), 0);
+  if (totalW <= 0) return out;
+  let assignedW = 0;
+  let biggest: TroopType = "bulwark";
+  for (const t of Object.keys(byType) as TroopType[]) {
+    if (byType[t] * supplyWeight(t) > byType[biggest] * supplyWeight(biggest)) biggest = t;
+    out[t] = Math.floor((byType[t] * weight) / totalW);
+    assignedW += out[t] * supplyWeight(t);
+  }
+  // Rounding dust goes to the biggest cohort — troops don't vanish.
+  let dust = weight - assignedW;
+  while (dust >= supplyWeight(biggest) && out[biggest] < byType[biggest]) {
+    out[biggest] += 1;
+    dust -= supplyWeight(biggest);
+  }
+  return out;
+}
+
 /**
  * Advance one troop home over (lastUpkeepAt → now):
  *   1. complete finished muster orders → cohorts
- *   2. charge upkeep from the stockpile (1 supply / 10 troops / hour)
+ *   2. charge upkeep from the stockpile (1 supply / 10 supply-weight / hour)
  *   3. track hunger: grace 24h → 5%/hr desertion, newest-first
  *   4. deserters become mercenary bands (muster-troops.md §10)
  * Pure except for the stockpile object it deducts through.
@@ -365,7 +493,15 @@ export function advanceTroopHome(
   home: TroopHome,
   now: number,
   stock: { supplies: number },
-  opts: { sourceColony: string; serverId: string },
+  opts: {
+    sourceColony: string;
+    serverId: string;
+    /** Stationed allied guests (oldest first) — the host feeds them, and
+     *  they desert BEFORE host troops (alliances.md §7). */
+    guests?: GuestMouth[];
+    /** Called with the guest groups (or partial weights) that deserted. */
+    onGuestDesertion?: (deserted: { id: string; weight: number; troopsByType: Record<TroopType, number> }[]) => void;
+  },
 ): HungerTick {
   const tick: HungerTick = { bands: [], log: [] };
   if (now <= home.lastUpkeepAt) return tick;
@@ -380,8 +516,13 @@ export function advanceTroopHome(
     tick.log.push(`${o.count} ${label(o.type)}${o.count === 1 ? "" : "s"} mustered.`);
   }
 
-  // 2. Upkeep.
-  const troops = rosterCount(home.roster);
+  // 2. Upkeep — the host feeds its own garrison AND every stationed guest.
+  // Everything here is SUPPLY-WEIGHT (the war layer's canonical unit —
+  // mirror weights, reinforcement locks, and battle commits are all weight;
+  // thunder eats double because it weighs double).
+  const guests = opts.guests ?? [];
+  const guestWeight = guests.reduce((s, g) => s + Math.max(0, g.weight), 0);
+  const troops = rosterWeight(home.roster) + guestWeight;
   const upkeep = (troops * TROOPS_CONFIG.upkeepSuppliesPerTroopPerHour * elapsedMs) / 3600_000;
   let paid = 0;
   if (upkeep > 0 && stock.supplies > 0) {
@@ -408,15 +549,44 @@ export function advanceTroopHome(
       const desertFrac = Math.min(0.95, 1 - Math.pow(1 - TROOPS_CONFIG.desertionFracPerHour, starvingHours));
       const deserters = Math.floor(troops * desertFrac);
       if (deserters > 0) {
-        const lost = removeTroopsNewestFirst(home.roster, deserters);
-        const band = spawnBand(lost, now, home.seq++, opts);
-        tick.bands.push(band);
-        const parts = TROOP_TYPES.filter((t) => lost[t] > 0)
-          .map((t) => `${lost[t]} ${label(t)}`)
-          .join(", ");
-        tick.log.push(
-          `Starvation! ${deserters} troops desert (${parts}) — they form a mercenary band in the wild.`,
-        );
+        // Guests desert FIRST (oldest stationed first) — family eats last.
+        let left = deserters;
+        const guestDeserted: { id: string; weight: number; troopsByType: Record<TroopType, number> }[] = [];
+        for (const g of guests) {
+          if (left <= 0) break;
+          const avail = Math.max(0, g.weight);
+          if (avail <= 0) continue;
+          // Whole troops only — indivisible thunder can't half-desert (and a
+          // fractional take would spawn an empty band while the weight still
+          // left the mirror). Accounting uses the ACTUAL troop weight.
+          const { taken, weight: actualW } = takeWeightAsTroops(g.troopsByType, Math.min(avail, left));
+          if (actualW <= 0) continue;
+          left -= actualW;
+          guestDeserted.push({ id: g.id, weight: actualW, troopsByType: taken });
+        }
+        if (guestDeserted.length > 0) {
+          for (const gd of guestDeserted) {
+            const band = spawnBand(gd.troopsByType, now, home.seq++, opts);
+            tick.bands.push(band);
+          }
+          const gw = guestDeserted.reduce((s, d) => s + d.weight, 0);
+          tick.log.push(`Starvation! ${gw} allied guest troops desert (${guestDeserted.length} war band${guestDeserted.length === 1 ? "" : "s"} abandoned) — they form mercenary bands in the wild.`);
+          opts.onGuestDesertion?.(guestDeserted);
+        }
+        // Whatever hunger remains falls on the host's own garrison.
+        const hostDeserters = left;
+        if (hostDeserters > 0) {
+          const lost = removeWeightNewestFirst(home.roster, hostDeserters);
+          const band = spawnBand(lost, now, home.seq++, opts);
+          tick.bands.push(band);
+          const lostW = (Object.keys(lost) as TroopType[]).reduce((s, t) => s + lost[t] * supplyWeight(t), 0);
+          const parts = TROOP_TYPES.filter((t) => lost[t] > 0)
+            .map((t) => `${lost[t]} ${label(t)}`)
+            .join(", ");
+          tick.log.push(
+            `Starvation! ${lostW} troop weight deserts (${parts}) — they form a mercenary band in the wild.`,
+          );
+        }
       }
     }
   } else if (home.hungerSince !== null) {
@@ -508,6 +678,10 @@ export interface CasualtyRecord {
   factions: [string, string];
   lossesByType: Record<TroopType, number>;
   fallenHeroes: string[];
+  /** Alliance attribution: the war band whose banner these bodies fell under. */
+  allianceName?: string;
+  /** Per-colony attribution: whose troops these were (the plaques name names). */
+  colonyName?: string;
   at: number;
 }
 

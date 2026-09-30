@@ -12,8 +12,26 @@
 // touches the alliance store (alliances.md §9).
 
 import type { GameState } from "../types";
-import { commitRosterWeight, rosterForCommit } from "./roster-commit";
-import { availableWeight, releaseWeight } from "./troops";
+import { commitRosterWeight, rosterForCommit, stampRosterSegment } from "./roster-commit";
+import type { Battle, BattleSide } from "./war-types";
+import type { Rally, RallyPledge } from "./rallies";
+import {
+  applyCommittedCasualties,
+  availableWeight,
+  commitWeight,
+  mixWeight,
+  previewTakeNewestFirst,
+  recordCasualties,
+  releaseWeight,
+} from "./troops";
+
+/** Local activity-log line (mirrors engine.log's shape). */
+function alog(state: GameState, msg: string): void {
+  if (!Array.isArray((state as unknown as { log?: unknown }).log)) return;
+  const l = (state as unknown as { log: string[] }).log;
+  l.unshift(msg);
+  (state as unknown as { log: string[] }).log = l.slice(0, 60);
+}
 
 export const ALLIANCE_CONFIG = {
   /** Owner-confirmed: big enough for a war band, small enough to know names. */
@@ -67,6 +85,10 @@ export interface Alliance {
   founderId: string;
   /** Which server's war band this is (one race per server). */
   homeServerId: string;
+  /** Monotonic mutation counter. Every write goes through the canonical
+   *  record on the founder's account; mirrors converge by taking the
+   *  highest-version copy (sync-alliance). */
+  version: number;
 }
 
 /** A standing reinforcement: the sender's bodies stationed with an ally.
@@ -83,9 +105,271 @@ export interface Reinforcement {
   toFobServerId?: string;
   /** Supply-weight locked out of the sender's garrison. */
   troops: number;
+  /** Per-type snapshot of the locked troops (newest-first at send time) —
+   *  feeds mercenary-band spawning if the guests desert at the host. */
+  troopsByType?: Record<string, number>;
   heroes: string[];
   sentAt: number;
-  state: "stationed" | "recalled" | "dismissed";
+  state: "stationed" | "recalled" | "dismissed" | "deserted" | "destroyed";
+}
+
+/** The host's mirror of a stationed reinforcement. The authoritative
+ *  Reinforcement record lives on the SENDER's save (their lock, their
+ *  recall); this mirror lives on the HOST's save and drives host-side
+ *  upkeep, guest-first desertion, and battle commits. The server keeps the
+ *  two in sync (alliances.md §7). */
+export interface GuestMirror {
+  /** Reinforcement id (shared with the sender's record). */
+  id: string;
+  fromColonyId: string;
+  fromColonyName: string;
+  /** Supply-weight currently stationed (shrinks on partial desertion). */
+  weight: number;
+  troopsByType: Record<string, number>;
+  heroes: string[];
+  sentAt: number;
+}
+
+/** Cross-account side effects the domain layer cannot apply itself: the
+ *  engine queues them on the local state; the server drains the queue and
+ *  applies each to its target colony's save (alliance-transact.ts).
+ *  `colonyId` is ALWAYS the target colony. Every applier is idempotent —
+ *  crash-replays and re-drains can never double-apply. */
+export type AllianceFx =
+  | { kind: "apply-help-tick"; colonyId: string; tick: HelpTick }
+  | { kind: "create-guest-mirror"; colonyId: string; mirror: GuestMirror }
+  | { kind: "remove-guest-mirror"; colonyId: string; mirrorId: string; key: string }
+  | {
+      kind: "release-troop-lock";
+      colonyId: string;
+      /** Reinforcement whose lock releases; absent for generic (rally-pledge) locks. */
+      reinforcementId?: string;
+      weight: number;
+      /** Dedupe key, set by the queuer (stable across re-drains). */
+      key: string;
+      /** Terminal transition for the reinforcement record, if still stationed. */
+      mark?: "deserted" | "dismissed" | "recalled" | "destroyed";
+    }
+  | {
+      kind: "bill-foreign-casualties";
+      colonyId: string;
+      segmentId: string;
+      /** Set for reinforcement guests (their Reinforcement record shrinks);
+       *  absent for rally pledgers (generic lock: survivors march home). */
+      reinforcementId?: string;
+      /** Absolute supply-weight to kill (mid-battle tolls). */
+      weight?: number;
+      /** Fraction of the segment's weight to kill (final resolve). */
+      fraction?: number;
+      segmentWeight: number;
+      /** Dedupe key override (tolls); defaults to casualty:{battleId}:{segmentId}. */
+      key?: string;
+      battleId: string;
+      site: string;
+      season: string;
+      factions: [string, string];
+      allianceName?: string;
+    }
+  | {
+      kind: "shrink-guest-mirror";
+      colonyId: string;
+      mirrorId: string;
+      /** Monotonic sync: the mirror's weight becomes min(current, weight). */
+      weight: number;
+      key: string;
+    }
+  | {
+      kind: "sync-alliance";
+      colonyId: string;
+      /** Full canonical record snapshot (deep-cloned on apply). The
+       *  applier replaces the local copy iff snapshot.version is newer. */
+      alliance: Alliance;
+      key: string;
+    }
+  | {
+      kind: "depart-alliance";
+      colonyId: string;
+      allianceId: string;
+      /** Release the colony's pledges, recall its reinforcements, cancel
+       *  rallies it called, and drop its local mirrors. Idempotent. */
+      key: string;
+    }
+  | {
+      kind: "sync-rally";
+      colonyId: string;
+      /** Full canonical record snapshot (deep-cloned on apply). The
+       *  applier replaces the local copy iff snapshot.version is newer.
+       *  Pledges carry each colony's troops+heroes but NEVER touch the
+       *  target's garrison — the target only commits what it itself pledged
+       *  through the pledge lock fx. */
+      rally: Rally;
+      key: string;
+    }
+  | {
+      kind: "mirror-rally-pledge";
+      /** The CALLER's colony — canonical record holder. */
+      colonyId: string;
+      rallyId: string;
+      /** The pledger's locked pledge (troops already committed on their
+       *  save). The caller's applier mirrors it into the canonical record
+       *  and fans out a sync. Idempotent on pledge.id. */
+      pledge: RallyPledge;
+      key: string;
+    }
+  | {
+      kind: "mirror-rally-unpledge";
+      /** The CALLER's colony — canonical record holder. */
+      colonyId: string;
+      rallyId: string;
+      pledgerId: string;
+      pledgeId: string;
+      key: string;
+    }
+  | {
+      kind: "release-rally-pledge";
+      colonyId: string;
+      /** Idempotent unlock of one pledge: returns pledged troops to the
+       *  target's garrison, unlocks its rally heroes. The weight and heroes
+       *  ride the fx itself — the canonical rally may have already cleared
+       *  its pledge list (cancel) by the time this delivers. */
+      rallyId: string;
+      pledgeId: string;
+      troops: number;
+      heroIds: string[];
+      key: string;
+    }
+  | {
+      kind: "deliver-rally-loot";
+      colonyId: string;
+      /** Post-resolution loot: adds supplies to the target's stockpile.
+       *  Idempotent — share is recomputed from the canonical record. */
+      rallyId: string;
+      supplies: number;
+      key: string;
+    }
+  | {
+      kind: "unlock-rally-heroes";
+      colonyId: string;
+      /** Post-resolution: the pledged heroes come home (heroes never die in
+       *  the battle engine — the lock just lifts). Idempotent. */
+      rallyId: string;
+      heroIds: string[];
+      key: string;
+    };
+
+/** Queue a cross-account effect (idempotent per caller — the server drains). */
+export function queueAllianceFx(state: GameState, fx: AllianceFx): void {
+  ensureAlliances(state);
+  state.allianceFx!.push(fx);
+}
+
+/** Drain the queued effects (returns and clears). */
+export function drainAllianceFx(state: GameState): AllianceFx[] {
+  ensureAlliances(state);
+  const out = state.allianceFx!;
+  state.allianceFx = [];
+  return out;
+}
+
+/** Idempotency ledger for applied cross-account effects (survives seasons —
+ *  effect keys embed battle/reinforcement ids, so replays stay deduped). */
+export function fxDone(state: GameState, key: string): boolean {
+  ensureAlliances(state);
+  return typeof state.allianceFxDone![key] === "number";
+}
+
+export function markFxDone(state: GameState, key: string, now = Date.now()): void {
+  ensureAlliances(state);
+  state.allianceFxDone![key] = now;
+}
+
+// ---------------------------------------------------------------------------
+// Guest mirrors (host side)
+// ---------------------------------------------------------------------------
+
+function guestMirrorStore(state: GameState): GuestMirror[] {
+  ensureAlliances(state);
+  return state.guestMirrors!;
+}
+
+/** Stationed guests, oldest first (desertion order). */
+export function guestsAt(state: GameState): GuestMirror[] {
+  return guestMirrorStore(state)
+    .filter((m) => m.weight > 0)
+    .sort((a, b) => a.sentAt - b.sentAt);
+}
+
+/** Total stationed guest supply-weight (drives host upkeep). */
+export function guestWeightAt(state: GameState): number {
+  return guestsAt(state).reduce((s, m) => s + Math.max(0, m.weight), 0);
+}
+
+/** Host-side applier: create-guest-mirror. Idempotent on the mirror id. */
+export function applyCreateGuestMirror(state: GameState, mirror: GuestMirror): boolean {
+  const ms = guestMirrorStore(state);
+  if (ms.some((m) => m.id === mirror.id)) return false;
+  ms.push({
+    id: mirror.id,
+    fromColonyId: mirror.fromColonyId,
+    fromColonyName: mirror.fromColonyName,
+    weight: Math.max(0, Math.trunc(mirror.weight) || 0),
+    troopsByType: { ...mirror.troopsByType },
+    heroes: [...(mirror.heroes ?? [])],
+    sentAt: mirror.sentAt,
+  });
+  return true;
+}
+
+/** Host-side applier: remove-guest-mirror. Idempotent on the key. */
+export function applyRemoveGuestMirror(state: GameState, mirrorId: string, key: string): boolean {
+  if (fxDone(state, key)) return false;
+  markFxDone(state, key);
+  const ms = guestMirrorStore(state);
+  const i = ms.findIndex((m) => m.id === mirrorId);
+  if (i >= 0) ms.splice(i, 1);
+  return true;
+}
+
+/** Host-side applier: shrink-guest-mirror (monotonic — battle deaths on the
+ *  sender's save sync back without clobbering newer local desertion). */
+export function applyShrinkGuestMirror(state: GameState, mirrorId: string, weight: number, key: string): boolean {
+  if (fxDone(state, key)) return false;
+  markFxDone(state, key);
+  const m = guestMirrorStore(state).find((x) => x.id === mirrorId);
+  if (!m) return false;
+  const w = Math.max(0, Math.trunc(weight) || 0);
+  if (w < m.weight) {
+    const f = m.weight > 0 ? w / m.weight : 0;
+    for (const t of Object.keys(m.troopsByType) as (keyof typeof m.troopsByType)[]) {
+      m.troopsByType[t] = Math.max(0, Math.floor(m.troopsByType[t] * f));
+    }
+    m.weight = w;
+  }
+  return true;
+}
+
+/** Shrink mirrors after host-side desertion (called from the upkeep tick).
+ *  Returns per-mirror detail so the caller can queue the sender-side
+ *  release fx. The band spawning already happened in troops.ts. */
+export function shrinkGuestMirrors(
+  state: GameState,
+  deserted: { id: string; weight: number; troopsByType: Record<string, number> }[],
+): { id: string; fromColonyId: string; fromColonyName: string; desertedWeight: number; gone: boolean }[] {
+  const out: { id: string; fromColonyId: string; fromColonyName: string; desertedWeight: number; gone: boolean }[] = [];
+  const ms = guestMirrorStore(state);
+  for (const d of deserted) {
+    const m = ms.find((x) => x.id === d.id);
+    if (!m) continue;
+    const w = Math.min(Math.max(0, Math.trunc(d.weight) || 0), m.weight);
+    for (const t of Object.keys(d.troopsByType) as (keyof typeof m.troopsByType)[]) {
+      m.troopsByType[t] = Math.max(0, (m.troopsByType[t] ?? 0) - (d.troopsByType[t] ?? 0));
+    }
+    m.weight = Math.max(0, m.weight - w);
+    const gone = m.weight <= 0;
+    if (gone) ms.splice(ms.indexOf(m), 1);
+    out.push({ id: m.id, fromColonyId: m.fromColonyId, fromColonyName: m.fromColonyName, desertedWeight: w, gone });
+  }
+  return out;
 }
 
 /** One help tick given: the ledger entry. The timer-shave itself is applied
@@ -114,15 +398,29 @@ export function ensureAlliances(state: GameState): void {
   const s = state as unknown as Record<string, unknown>;
   if (!s.alliances || typeof s.alliances !== "object") s.alliances = {};
   if (!s.reinforcements || !Array.isArray(s.reinforcements)) s.reinforcements = [];
+  if (!s.guestMirrors || !Array.isArray(s.guestMirrors)) s.guestMirrors = [];
+  if (!Array.isArray(s.allianceFx)) s.allianceFx = [];
+  if (!s.allianceFxDone || typeof s.allianceFxDone !== "object") s.allianceFxDone = {};
   if (typeof s.helpDay !== "string") s.helpDay = "";
   if (typeof s.helpUsed !== "number") s.helpUsed = 0;
   if (!Array.isArray(s.helpLedger)) s.helpLedger = [];
   if (!Array.isArray(s.helpReceived)) s.helpReceived = [];
+  // Backfill the sync version on pre-sync records.
+  for (const a of Object.values(s.alliances as Record<string, Alliance>)) {
+    if (typeof a.version !== "number") a.version = 1;
+  }
 }
 
 function allianceStore(state: GameState): Record<string, Alliance> {
   ensureAlliances(state);
   return (state as unknown as { alliances: Record<string, Alliance> }).alliances;
+}
+
+/** Drop a local alliance mirror (after leaving / being kicked / disband).
+ *  The canonical record lives on the founder's account — this only forgets
+ *  the local copy. */
+export function removeAllianceMirror(state: GameState, allianceId: string): void {
+  delete allianceStore(state)[allianceId];
 }
 
 function todayKey(now: number): string {
@@ -141,6 +439,12 @@ export function allianceOf(state: GameState, colonyId: string): Alliance | null 
     if (store[id].members.some((m) => m.colonyId === colonyId)) return store[id];
   }
   return null;
+}
+
+/** Fetch an alliance mirror by id (membership not required — invites and
+ *  applications arrive as mirrors too). */
+export function allianceById(state: GameState, allianceId: string): Alliance | null {
+  return allianceStore(state)[allianceId] ?? null;
 }
 
 export function memberRole(a: Alliance, colonyId: string): AllianceRole | null {
@@ -188,9 +492,56 @@ export function createAlliance(
     foundedAt: now,
     founderId: founder.id,
     homeServerId: input.homeServerId ?? "home",
+    version: 1,
   };
   store[a.id] = a;
   return { ok: true, value: a };
+}
+
+/** Bump the canonical record's version after a mutation. */
+export function touchAlliance(a: Alliance): void {
+  a.version = (typeof a.version === "number" ? a.version : 0) + 1;
+}
+
+/** Deep-clone an alliance record for the wire (fx cross a persistence
+ *  boundary — never share the live object). */
+export function cloneAlliance(a: Alliance): Alliance {
+  return JSON.parse(JSON.stringify(a)) as Alliance;
+}
+
+/**
+ * Fan a canonical mutation out to every colony holding a mirror. The
+ * canonical record lives on the founder's account; everyone else (members,
+ * plus any extra targets like an applicant or invitee) gets a versioned
+ * sync-alliance fx. The applier takes the highest-version copy, so fan-out
+ * is idempotent and converges.
+ */
+export function syncAllianceTo(state: GameState, a: Alliance, extraColonyIds: string[] = []): void {
+  const targets = new Set<string>();
+  for (const m of a.members) targets.add(m.colonyId);
+  for (const id of extraColonyIds) targets.add(id);
+  targets.delete(a.founderId); // the canonical holder needs no mirror
+  const snapshot = cloneAlliance(a);
+  for (const colonyId of targets) {
+    queueAllianceFx(state, {
+      kind: "sync-alliance",
+      colonyId,
+      alliance: snapshot,
+      key: `sync-alliance:${a.id}:v${a.version}`,
+    });
+  }
+}
+
+/** Target-side applier: sync-alliance. Highest version wins; stale or
+ *  duplicate deliveries are dropped. */
+export function applySyncAlliance(state: GameState, alliance: Alliance): boolean {
+  const store = allianceStore(state);
+  const cur = store[alliance.id];
+  const incoming = typeof alliance.version === "number" ? alliance.version : 0;
+  const local = cur && typeof cur.version === "number" ? cur.version : 0;
+  if (cur && incoming <= local) return false;
+  store[alliance.id] = cloneAlliance(alliance);
+  return true;
 }
 
 export function applyToAlliance(
@@ -205,6 +556,8 @@ export function applyToAlliance(
   if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "Their war band is full (50)." };
   if (a.applications.some((x) => x.colonyId === applicant.id)) return { ok: false, error: "Your application is already on their board." };
   a.applications.push({ colonyId: applicant.id, colonyName: applicant.name, appliedAt: now });
+  touchAlliance(a);
+  syncAllianceTo(state, a, [applicant.id]);
   return { ok: true, value: undefined };
 }
 
@@ -222,6 +575,8 @@ export function inviteToAlliance(
   if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "The war band is full (50)." };
   if (a.invites.some((x) => x.colonyId === target.id)) return { ok: false, error: "They're already invited." };
   a.invites.push({ colonyId: target.id, colonyName: target.name, invitedAt: now, byColonyId: actorId });
+  touchAlliance(a);
+  syncAllianceTo(state, a, [target.id]);
   return { ok: true, value: undefined };
 }
 
@@ -251,6 +606,8 @@ export function acceptMembership(
   a.invites = a.invites.filter((x) => x.colonyId !== colonyId);
   a.applications = a.applications.filter((x) => x.colonyId !== colonyId);
   a.members.push({ colonyId, colonyName: rec.colonyName, role: "member", joinedAt: now });
+  touchAlliance(a);
+  syncAllianceTo(state, a);
   return { ok: true, value: undefined };
 }
 
@@ -269,7 +626,66 @@ export function declineMembership(
   }
   a.invites = a.invites.filter((x) => x.colonyId !== colonyId);
   a.applications = a.applications.filter((x) => x.colonyId !== colonyId);
+  touchAlliance(a);
+  syncAllianceTo(state, a, [colonyId]);
   return { ok: true, value: undefined };
+}
+
+/** The leaver's own reinforcement cleanup (their troops, their save):
+ *  stationed reinforcements auto-recall and the host-side mirrors are
+ *  cleaned through the seam. Rally pledges are handled separately — they
+ *  live on the rally callers' canonical records. */
+export function leaveAllianceLocal(state: GameState, colonyId: string): void {
+  queueDepartureFx(state, colonyId);
+  autoRecallReinforcements(state, colonyId);
+}
+
+/**
+ * Canonical record removal: drop a colony from the member roll, pass
+ * leadership (oldest officer, else oldest member), dissolve when empty.
+ * Bumps the version and fans the new record out to the remaining members.
+ * No troop handling — the colony's own save does that (leaveAllianceLocal
+ * for a voluntary leave, the depart-alliance applier for kick/disband).
+ */
+export function removeAllianceMemberRecord(
+  state: GameState,
+  allianceId: string,
+  colonyId: string,
+): AllianceResult<{ dissolved: boolean }> {
+  const store = allianceStore(state);
+  const a = store[allianceId];
+  if (!a) return { ok: false, error: "That alliance doesn't exist." };
+  if (!a.members.some((m) => m.colonyId === colonyId)) {
+    return { ok: false, error: "They're not in this alliance." };
+  }
+  a.members = a.members.filter((m) => m.colonyId !== colonyId);
+  if (a.members.length === 0) {
+    delete store[allianceId];
+    return { ok: true, value: { dissolved: true } };
+  }
+  // Leadership passes: oldest officer, else oldest member.
+  const wasLeader = !a.members.some((m) => m.role === "leader");
+  if (wasLeader) {
+    const officers = a.members.filter((m) => m.role === "officer").sort((x, y) => x.joinedAt - y.joinedAt);
+    const heir = officers[0] ?? [...a.members].sort((x, y) => x.joinedAt - y.joinedAt)[0];
+    if (heir) heir.role = "leader";
+  }
+  touchAlliance(a);
+  syncAllianceTo(state, a);
+  return { ok: true, value: { dissolved: false } };
+}
+
+/** Queue the full departure cleanup for a colony on another save. The
+ *  applier (alliance-transact) releases their rally pledges, recalls
+ *  their reinforcements, cancels rallies they called, and drops their
+ *  local mirrors — idempotent. */
+export function queueDepartAlliance(state: GameState, allianceId: string, colonyId: string): void {
+  queueAllianceFx(state, {
+    kind: "depart-alliance",
+    colonyId,
+    allianceId,
+    key: `depart:${allianceId}:${colonyId}`,
+  });
 }
 
 /** Leaving is free and instant. Pledged rally troops in OPEN rallies return
@@ -280,21 +696,10 @@ export function leaveAlliance(state: GameState, colonyId: string, now: number): 
   const a = allianceOf(state, colonyId);
   if (!a) return { ok: false, error: "You're not in an alliance." };
   releaseOpenRallyPledges(state, a.id, colonyId);
-  autoRecallReinforcements(state, colonyId);
-  a.members = a.members.filter((m) => m.colonyId !== colonyId);
-  if (a.members.length === 0) {
-    delete allianceStore(state)[a.id];
-    return { ok: true, value: undefined };
-  }
-  // Leadership passes: oldest officer, else oldest member.
-  const wasLeader = !a.members.some((m) => m.role === "leader");
-  if (wasLeader) {
-    const officers = a.members.filter((m) => m.role === "officer").sort((x, y) => x.joinedAt - y.joinedAt);
-    const heir = officers[0] ?? [...a.members].sort((x, y) => x.joinedAt - y.joinedAt)[0];
-    if (heir) heir.role = "leader";
-  }
+  leaveAllianceLocal(state, colonyId);
+  const r = removeAllianceMemberRecord(state, a.id, colonyId);
   void now;
-  return { ok: true, value: undefined };
+  return r.ok ? { ok: true, value: undefined } : r;
 }
 
 export function kickMember(
@@ -316,10 +721,10 @@ export function kickMember(
   } else {
     return { ok: false, error: "Only officers can kick." };
   }
-  // Same troop handling as leaving.
-  releaseOpenRallyPledges(state, a.id, targetId);
-  autoRecallReinforcements(state, targetId);
-  a.members = a.members.filter((m) => m.colonyId !== targetId);
+  const r = removeAllianceMemberRecord(state, allianceId, targetId);
+  if (!r.ok) return r;
+  // The target's troops live on their save — the applier cleans them up.
+  queueDepartAlliance(state, allianceId, targetId);
   void now;
   return { ok: true, value: undefined };
 }
@@ -338,6 +743,8 @@ export function promoteMember(
   const officers = a.members.filter((m) => m.role === "officer").length;
   if (officers >= ALLIANCE_CONFIG.officerCap) return { ok: false, error: `The officer bench is full (${ALLIANCE_CONFIG.officerCap}).` };
   t.role = "officer";
+  touchAlliance(a);
+  syncAllianceTo(state, a);
   return { ok: true, value: undefined };
 }
 
@@ -353,6 +760,8 @@ export function demoteMember(
   const t = a.members.find((m) => m.colonyId === targetId);
   if (!t || t.role !== "officer") return { ok: false, error: "Only officers can be demoted." };
   t.role = "member";
+  touchAlliance(a);
+  syncAllianceTo(state, a);
   return { ok: true, value: undefined };
 }
 
@@ -371,6 +780,10 @@ export function transferLeadership(
   const actor = a.members.find((m) => m.colonyId === actorId)!;
   actor.role = "officer";
   t.role = "leader";
+  // The canonical record stays on the founder's account — leadership is a
+  // role, not a storage move. Every write still serializes there.
+  touchAlliance(a);
+  syncAllianceTo(state, a);
   return { ok: true, value: undefined };
 }
 
@@ -379,12 +792,159 @@ export function disbandAlliance(state: GameState, allianceId: string, actorId: s
   const a = store[allianceId];
   if (!a) return { ok: false, error: "That alliance doesn't exist." };
   if (memberRole(a, actorId) !== "leader") return { ok: false, error: "Only the leader can disband." };
-  for (const m of a.members) {
-    releaseOpenRallyPledges(state, a.id, m.colonyId);
-    autoRecallReinforcements(state, m.colonyId);
-  }
+  // Every member's troops live on their own save — each gets a
+  // depart-alliance fx; the applier does the per-colony cleanup.
+  for (const m of a.members) queueDepartAlliance(state, allianceId, m.colonyId);
   delete store[allianceId];
   return { ok: true, value: undefined };
+}
+
+/** Sender-side applier: release-troop-lock. Frees `weight` of the sender's
+ *  committed troops (desertion/dismiss/recall/rally-release) and applies the
+ *  terminal reinforcement transition. Idempotent on the fx key. */
+export function applyReleaseTroopLock(
+  state: GameState,
+  fx: { reinforcementId?: string; weight: number; key: string; mark?: "deserted" | "dismissed" | "recalled" | "destroyed" },
+): { released: number } {
+  if (fxDone(state, fx.key)) return { released: 0 };
+  markFxDone(state, fx.key);
+  const roster = rosterForCommit(state, { kind: "home" });
+  const w = Math.max(0, Math.trunc(fx.weight) || 0);
+  let released = 0;
+  const r = fx.reinforcementId
+    ? reinforcementStore(state).find((x) => x.id === fx.reinforcementId)
+    : undefined;
+  if (r) {
+    // Reinforcement lock: never release more than the record still holds.
+    const rel = Math.min(w, Math.max(0, r.troops));
+    if (roster && rel > 0) releaseWeight(roster, rel);
+    r.troops = Math.max(0, r.troops - rel);
+    released = rel;
+    if (r.state === "stationed") {
+      if (fx.mark) r.state = fx.mark;
+      else if (r.troops <= 0) r.state = "deserted";
+    }
+    if (r.state !== "stationed" && state.warReserve) {
+      for (const h of r.heroes) {
+        const lock = state.warReserve.lockedHeroes[h];
+        if (lock && lock.battleId === `reinforce-${r.sentAt}`) delete state.warReserve.lockedHeroes[h];
+      }
+    }
+    if (released > 0 || fx.mark) {
+      alog(state, fx.mark === "deserted"
+        ? `Your guests at ${r.toColonyName} deserted — ${released} weight released.`
+        : fx.mark === "dismissed"
+          ? `${r.toColonyName} sent your guests home — ${released} weight released.`
+          : `${released} troop weight released.`);
+    }
+  } else if (roster && w > 0) {
+    // Generic lock (rally pledge survivors): the pool just shrinks.
+    const before = roster.committedWeight;
+    releaseWeight(roster, w);
+    released = Math.max(0, before - roster.committedWeight);
+  }
+  return { released };
+}
+
+/** Sender-side applier: bill-foreign-casualties. Kills the dead from the
+ *  sender's committed troops (newest-first, like every casualty path),
+ *  shrinks the reinforcement record, and writes the sender's own memorial
+ *  entry with alliance attribution. Idempotent per battle+segment. */
+export function applyBillForeignCasualties(
+  state: GameState,
+  fx: {
+    segmentId: string;
+    reinforcementId?: string;
+    weight?: number;
+    fraction?: number;
+    segmentWeight: number;
+    key?: string;
+    battleId: string;
+    site: string;
+    season: string;
+    factions: [string, string];
+    allianceName?: string;
+  },
+  now = Date.now(),
+): { killed: number } {
+  const key = fx.key ?? `casualty:${fx.battleId}:${fx.segmentId}`;
+  if (fxDone(state, key)) return { killed: 0 };
+  markFxDone(state, key, now);
+  const roster = rosterForCommit(state, { kind: "home" });
+  if (!roster) return { killed: 0 };
+  const r = fx.reinforcementId
+    ? reinforcementStore(state).find((x) => x.id === fx.reinforcementId)
+    : undefined;
+  if (fx.reinforcementId && (!r || r.state !== "stationed")) return { killed: 0 };
+  const basis = r ? Math.min(fx.segmentWeight, r.troops) : fx.segmentWeight;
+  const dead = fx.weight != null
+    ? Math.min(Math.max(0, Math.trunc(fx.weight) || 0), basis)
+    : Math.round(basis * Math.min(1, Math.max(0, fx.fraction ?? 0)));
+  let killed = 0;
+  if (dead > 0) {
+    const res = applyCommittedCasualties(roster, dead);
+    killed = res.weightKilled;
+    if (killed > 0 && state.troops) {
+      recordCasualties(state.troops.history, {
+        battleId: fx.battleId,
+        site: fx.site,
+        season: fx.season,
+        factions: fx.factions,
+        lossesByType: res.losses,
+        fallenHeroes: [],
+        allianceName: fx.allianceName,
+        colonyName: state.playerName || "An unnamed colony",
+      });
+    }
+  }
+  if (r) {
+    r.troops = Math.max(0, r.troops - killed);
+    if (r.troops <= 0 && r.state === "stationed") {
+      r.state = "destroyed";
+      if (state.warReserve) {
+        for (const h of r.heroes) {
+          const lock = state.warReserve.lockedHeroes[h];
+          if (lock && lock.battleId === `reinforce-${r.sentAt}`) delete state.warReserve.lockedHeroes[h];
+        }
+      }
+    }
+    if (killed > 0) alog(state, `Your guests bled at ${fx.site} — ${killed} weight fallen.`);
+    // Sync the host's mirror back to reality (monotonic — never clobbers
+    // newer local desertion). Without this the next battle would simulate
+    // dead guests back into the line.
+    queueAllianceFx(state, {
+      kind: "shrink-guest-mirror",
+      colonyId: r.toColonyId,
+      mirrorId: r.id,
+      weight: r.troops,
+      key: `shrink:${(fx.key ?? `casualty:${fx.battleId}:${fx.segmentId}`).replace(/^casualty:/, "")}`,
+    });
+  } else {
+    // Rally pledger: survivors march home (their lock was only this battle).
+    releaseWeight(roster, Math.max(0, fx.segmentWeight - killed));
+    if (killed > 0) alog(state, `Your rally pledge bled at ${fx.site} — ${killed} weight fallen.`);
+  }
+  return { killed };
+}
+
+/** Target-side applier: apply-help-tick. Shaves the target's build/research
+ *  timers and records the tick on their "who helped you" list. Fizzles
+ *  gracefully (still consumed) when nothing is underway. */
+export function applyHelpFx(
+  state: GameState,
+  tick: HelpTick,
+  now = Date.now(),
+): { ok: true; shavedMs: number } {
+  if (fxDone(state, `help:${tick.id}`)) return { ok: true, shavedMs: 0 };
+  markFxDone(state, `help:${tick.id}`, now);
+  const r = applyHelpTick(state, tick.minutes);
+  if (r.ok) {
+    recordHelpReceived(state, tick, now);
+    alog(state, `${tick.fromColonyName} lent a hand — ${(r.shavedMs / 60000).toFixed(0)} min shaved off your work.`);
+  } else {
+    alog(state, `${tick.fromColonyName} lent a hand, but you had nothing underway.`);
+  }
+  return { ok: true, shavedMs: r.ok ? r.shavedMs : 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -442,6 +1002,9 @@ export function giveHelp(
     at: now,
   };
   s.helpLedger.push(tick);
+  // The timer-shave lands on the TARGET's save — the server drains this fx
+  // through the cross-account seam (idempotent on the tick id).
+  queueAllianceFx(state, { kind: "apply-help-tick", colonyId: target.id, tick });
   return { ok: true, value: tick };
 }
 
@@ -505,8 +1068,12 @@ export function sendReinforcement(
   now: number,
 ): AllianceResult<Reinforcement> {
   const fa = allianceOf(state, from.id);
-  const ta = allianceOf(state, to.id);
-  if (!fa || !ta || fa.id !== ta.id) return { ok: false, error: "Reinforcements march for alliance-mates only." };
+  if (!fa) return { ok: false, error: "Reinforcements march for alliance-mates only." };
+  // Cross-account: the target's own save can't be read here, so the alliance
+  // ROSTER on the sender's save is the authority for "is my ally".
+  if (!fa.members.some((m) => m.colonyId === to.id)) {
+    return { ok: false, error: "Reinforcements march for alliance-mates only." };
+  }
   const w = Math.max(0, Math.trunc(troops) || 0);
   if (w <= 0 && heroIds.length === 0) return { ok: false, error: "Send someone — troops, heroes, or both." };
   const roster = rosterForCommit(state, { kind: "home" });
@@ -522,6 +1089,16 @@ export function sendReinforcement(
   for (const h of heroIds) {
     if (state.warReserve) state.warReserve.lockedHeroes[h] = { battleId: `reinforce-${now}`, until: 0 };
   }
+  // Snapshot the type mix of the locked troops (newest-first, like the
+  // desertion order) so the host can spawn a faithful mercenary band if
+  // these guests starve at their post. Troops are indivisible: the snapshot
+  // rounds UP to whole troops (one thunder weighs 2), so top the lock up to
+  // the snapshot's actual weight — the lock, the mirror, and any future band
+  // must agree on what marched, or a 1-weight lock could spawn a 2-weight
+  // mercenary band out of nothing.
+  const mix = previewTakeNewestFirst(roster, committed);
+  const locked = Math.max(committed, mixWeight(mix));
+  if (locked > committed) commitWeight(roster, locked - committed);
   const r: Reinforcement = {
     id: `reinf-${now.toString(36)}-${from.id.slice(-4)}`,
     fromColonyId: from.id,
@@ -529,12 +1106,29 @@ export function sendReinforcement(
     toColonyId: to.id,
     toColonyName: to.name,
     toFobServerId: to.fobServerId,
-    troops: committed,
+    troops: locked,
+    troopsByType: { ...mix },
     heroes: [...heroIds],
     sentAt: now,
     state: "stationed",
   };
   reinforcementStore(state).push(r);
+  // The host learns about its guests through the seam: the mirror drives
+  // host-side upkeep, guest-first desertion, and battle commits (idempotent
+  // on the reinforcement id).
+  queueAllianceFx(state, {
+    kind: "create-guest-mirror",
+    colonyId: to.id,
+    mirror: {
+      id: r.id,
+      fromColonyId: from.id,
+      fromColonyName: from.name,
+      weight: locked,
+      troopsByType: { ...mix },
+      heroes: [...heroIds],
+      sentAt: now,
+    },
+  });
   return { ok: true, value: r };
 }
 
@@ -558,24 +1152,33 @@ export function recallReinforcement(state: GameState, colonyId: string, reinforc
   if (!r || r.fromColonyId !== colonyId) return { ok: false, error: "That's not your reinforcement to recall." };
   if (r.state !== "stationed") return { ok: false, error: "It's already on its way home." };
   releaseReinforcement(state, r);
+  // The host's mirror must go too — through the seam (idempotent).
+  queueAllianceFx(state, {
+    kind: "remove-guest-mirror",
+    colonyId: r.toColonyId,
+    mirrorId: r.id,
+    key: `unmirror:${r.id}:recalled`,
+  });
   return { ok: true, value: undefined };
 }
 
-/** The host dismisses guests at any time — the bodies march home and the
- *  sender's lock releases (server routes the release to the sender's save;
- *  locally the same save holds both sides). */
-export function dismissReinforcement(state: GameState, colonyId: string, reinforcementId: string): AllianceResult {
-  const r = reinforcementStore(state).find((x) => x.id === reinforcementId);
-  if (!r || r.toColonyId !== colonyId) return { ok: false, error: "Those aren't your guests to dismiss." };
-  if (r.state !== "stationed") return { ok: false, error: "They're already gone." };
-  releaseReinforcement(state, r);
-  r.state = "dismissed";
+/** The host dismisses guests at any time: the mirror goes locally, and the
+ *  sender's lock releases through the seam (idempotent). Takes the MIRROR id
+ *  (== the reinforcement id). */
+export function dismissReinforcement(state: GameState, mirrorId: string): AllianceResult {
+  const ms = guestMirrorStore(state);
+  const i = ms.findIndex((m) => m.id === mirrorId);
+  if (i < 0) return { ok: false, error: "Those aren't your guests to dismiss." };
+  const [m] = ms.splice(i, 1);
+  queueAllianceFx(state, {
+    kind: "release-troop-lock",
+    colonyId: m.fromColonyId,
+    reinforcementId: m.id,
+    weight: m.weight,
+    key: `unmirror:${m.id}:dismissed`,
+    mark: "dismissed",
+  });
   return { ok: true, value: undefined };
-}
-
-/** Reinforcements stationed AT a colony (its guests). */
-export function reinforcementsAt(state: GameState, colonyId: string): Reinforcement[] {
-  return reinforcementStore(state).filter((r) => r.toColonyId === colonyId && r.state === "stationed");
 }
 
 /** Reinforcements sent BY a colony (its troops abroad). */
@@ -583,7 +1186,42 @@ export function reinforcementsFrom(state: GameState, colonyId: string): Reinforc
   return reinforcementStore(state).filter((r) => r.fromColonyId === colonyId && r.state === "stationed");
 }
 
-/** Leaving/kicked: every stationed reinforcement auto-recalls. */
+/** Stamp one authoritative "aid" segment per stationed guest onto a home-
+ *  defense battle. The segments carry the sender's colonyId (+ the
+ *  reinforcement id) so casualty resolution bills the SENDER's roster
+ *  through the seam — never the host's. Returns the guest weight added;
+ *  the caller adds it to the side's CommittedForce.troops.
+ *
+ *  Deliberately NOT wired into the Act I prologue front: that battle's
+ *  §12.3 shape is pinned by the calibration harness (act1-entry-verify.ts),
+ *  and the prologue predates alliances narratively — guests can never be
+ *  stationed there in practice. This is the seam for real home-defense
+ *  battles (PvP raids, beachhead defense) when they land. */
+export function commitGuestsToDefense(
+  state: GameState,
+  battle: Battle,
+  side: BattleSide,
+  now: number,
+): number {
+  let added = 0;
+  for (const m of guestsAt(state)) {
+    if (m.weight <= 0) continue;
+    stampRosterSegment(battle, side, {
+      id: `guest-${battle.id}-${m.id}`,
+      kind: "aid",
+      home: { kind: "home" },
+      weight: m.weight,
+      tollsPaid: 0,
+      colonyId: m.fromColonyId,
+      reinforcementId: m.id,
+      committedAt: now,
+    });
+    added += m.weight;
+  }
+  return added;
+}
+
+/** Leaving/kicked/disbanded: every stationed reinforcement auto-recalls. */
 export function autoRecallReinforcements(state: GameState, colonyId: string): number {
   let n = 0;
   for (const r of reinforcementStore(state)) {
@@ -593,6 +1231,36 @@ export function autoRecallReinforcements(state: GameState, colonyId: string): nu
     }
   }
   return n;
+}
+
+/** Queue the cross-account half of a departure: the leaver's troops abroad
+ *  lose their host mirrors, and guests stationed with the leaver are sent
+ *  home (their senders' locks release through the seam). Must run BEFORE
+ *  autoRecallReinforcements marks the local records. */
+export function queueDepartureFx(state: GameState, colonyId: string): void {
+  for (const r of reinforcementStore(state)) {
+    if (r.fromColonyId === colonyId && r.state === "stationed") {
+      queueAllianceFx(state, {
+        kind: "remove-guest-mirror",
+        colonyId: r.toColonyId,
+        mirrorId: r.id,
+        key: `unmirror:${r.id}:departed`,
+      });
+    }
+  }
+  const ms = guestMirrorStore(state);
+  for (let i = ms.length - 1; i >= 0; i--) {
+    const m = ms[i];
+    ms.splice(i, 1);
+    queueAllianceFx(state, {
+      kind: "release-troop-lock",
+      colonyId: m.fromColonyId,
+      reinforcementId: m.id,
+      weight: m.weight,
+      key: `unmirror:${m.id}:host-departed`,
+      mark: "dismissed",
+    });
+  }
 }
 
 /** Host-side upkeep: feeding stationed guests costs the HOST this much

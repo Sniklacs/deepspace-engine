@@ -5,6 +5,9 @@ import { describe, expect, test } from "bun:test";
 import {
   acceptMembership,
   allianceOf,
+  applyCreateGuestMirror,
+  applyReleaseTroopLock,
+  applyRemoveGuestMirror,
   applyToAlliance,
   applyHelpTick,
   autoRecallReinforcements,
@@ -12,20 +15,24 @@ import {
   demoteMember,
   disbandAlliance,
   dismissReinforcement,
+  drainAllianceFx,
   ensureAlliances,
   giveHelp,
+  guestsAt,
   helpTickMinutes,
   inviteToAlliance,
   kickMember,
   leaveAlliance,
   promoteMember,
   recallReinforcement,
-  reinforcementsAt,
+  reinforcementsFrom,
   reinforcementUpkeepPerHour,
   sendReinforcement,
+  shrinkGuestMirrors,
   transferLeadership,
+  type AllianceFx,
 } from "./alliances";
-import { addCohort, availableWeight, emptyTroopHome } from "./troops";
+import { addCohort, advanceTroopHome, availableWeight, bandWeight, emptyTroopHome, rosterWeight } from "./troops";
 import type { GameState } from "../types";
 
 const NOW = 1_800_000_000_000;
@@ -46,6 +53,36 @@ function withAlliance(tier = 3) {
   expect(r.ok).toBe(true);
   const aid = allianceOf(st, "col-a")!.id;
   return { st, aid };
+}
+
+/** Mini seam: drain one save's fx queue and apply each effect to the other
+ *  save with the real appliers (idempotent — safe to call repeatedly). */
+function deliverFx(from: GameState, to: GameState): AllianceFx[] {
+  const fxs = drainAllianceFx(from);
+  for (const fx of fxs) {
+    switch (fx.kind) {
+      case "create-guest-mirror": applyCreateGuestMirror(to, fx.mirror); break;
+      case "remove-guest-mirror": applyRemoveGuestMirror(to, fx.mirrorId, fx.key); break;
+      case "release-troop-lock": applyReleaseTroopLock(to, fx); break;
+      default: break; // help ticks / casualty bills have their own suites
+    }
+  }
+  return fxs;
+}
+
+/** Two allied saves: Alpha (sender) and Beta (host), same alliance record.
+ *  Mirrors how each account's own membership writes maintain the roster. */
+function twoAlliedSaves() {
+  const sender = fakeState();
+  const host = fakeState(1000);
+  const r = createAlliance(sender, { id: "col-a", name: "Alpha" }, 3, { name: "War Band" }, NOW);
+  expect(r.ok).toBe(true);
+  const alliance = r.ok && r.value;
+  const aid = (alliance as { id: string }).id;
+  const beta = { colonyId: "col-b", colonyName: "Beta", role: "member" as const, joinedAt: NOW };
+  sender.alliances![aid].members.push(beta);
+  host.alliances = { [aid]: JSON.parse(JSON.stringify(sender.alliances![aid])) };
+  return { sender, host, aid };
 }
 
 describe("ensureAlliances", () => {
@@ -238,65 +275,180 @@ describe("help ticks", () => {
 });
 
 describe("reinforcements", () => {
-  test("send locks real troops; recall returns them; dismiss sends them home", () => {
-    const { st, aid } = withAlliance();
-    applyToAlliance(st, aid, { id: "col-b", name: "Beta" }, NOW);
-    acceptMembership(st, aid, "col-a", "col-b", NOW);
-    addCohort(st.troops!.home.roster, "bulwark", 200, NOW);
-    const r = sendReinforcement(st, { id: "col-a", name: "Alpha" }, { id: "col-b", name: "Beta" }, 150, [], NOW);
+  test("send locks real troops; the host gets a mirror; recall returns them", () => {
+    const { sender, host } = twoAlliedSaves();
+    addCohort(sender.troops!.home.roster, "bulwark", 200, NOW);
+    const r = sendReinforcement(sender, { id: "col-a", name: "Alpha" }, { id: "col-b", name: "Beta" }, 150, [], NOW);
     expect(r.ok).toBe(true);
-    expect(availableWeight(st.troops!.home.roster)).toBe(50);
+    expect(availableWeight(sender.troops!.home.roster)).toBe(50);
+    // The sender's save holds the authoritative record; the host learns via
+    // the seam.
     const rf = r.ok && r.value;
-    expect(rf && reinforcementsAt(st, "col-b")).toHaveLength(1);
-    // recall by sender
-    expect(recallReinforcement(st, "col-a", (rf as { id: string }).id).ok).toBe(true);
-    expect(availableWeight(st.troops!.home.roster)).toBe(200);
-    expect(reinforcementsAt(st, "col-b")).toHaveLength(0);
+    expect(rf && reinforcementsFrom(sender, "col-a")).toHaveLength(1);
+    expect(guestsAt(host)).toHaveLength(0);
+    deliverFx(sender, host);
+    expect(guestsAt(host)).toHaveLength(1);
+    expect(guestsAt(host)[0].fromColonyId).toBe("col-a");
+    expect(guestsAt(host)[0].weight).toBe(150);
+    // Recall by sender: the lock releases locally, the mirror goes via fx.
+    expect(recallReinforcement(sender, "col-a", (rf as { id: string }).id).ok).toBe(true);
+    expect(availableWeight(sender.troops!.home.roster)).toBe(200);
+    expect(guestsAt(host)).toHaveLength(1); // not yet delivered
+    deliverFx(sender, host);
+    expect(guestsAt(host)).toHaveLength(0);
   });
 
-  test("host dismisses a reinforcement (marches home)", () => {
-    const { st, aid } = withAlliance();
-    applyToAlliance(st, aid, { id: "col-b", name: "Beta" }, NOW);
-    acceptMembership(st, aid, "col-a", "col-b", NOW);
-    addCohort(st.troops!.home.roster, "bulwark", 200, NOW);
-    const r = sendReinforcement(st, { id: "col-a", name: "Alpha" }, { id: "col-b", name: "Beta" }, 100, [], NOW);
-    const rf = r.ok && r.value as { id: string };
-    expect(dismissReinforcement(st, "col-b", (rf as { id: string }).id).ok).toBe(true);
-    expect(availableWeight(st.troops!.home.roster)).toBe(200);
+  test("host dismisses a mirror; the sender's lock releases through the seam", () => {
+    const { sender, host } = twoAlliedSaves();
+    addCohort(sender.troops!.home.roster, "bulwark", 200, NOW);
+    const r = sendReinforcement(sender, { id: "col-a", name: "Alpha" }, { id: "col-b", name: "Beta" }, 100, [], NOW);
+    expect(r.ok).toBe(true);
+    deliverFx(sender, host);
+    const mirrorId = guestsAt(host)[0].id;
+    expect(dismissReinforcement(host, mirrorId).ok).toBe(true);
+    expect(guestsAt(host)).toHaveLength(0);
+    // The sender still holds the lock until the fx lands.
+    expect(availableWeight(sender.troops!.home.roster)).toBe(100);
+    deliverFx(host, sender);
+    expect(availableWeight(sender.troops!.home.roster)).toBe(200);
+    expect(sender.reinforcements!.find((x) => x.id === mirrorId)!.state).toBe("dismissed");
+    // Idempotent: re-delivery changes nothing.
+    const before = availableWeight(sender.troops!.home.roster);
+    applyReleaseTroopLock(sender, { reinforcementId: mirrorId, weight: 100, key: `unmirror:${mirrorId}:dismissed`, mark: "dismissed" });
+    expect(availableWeight(sender.troops!.home.roster)).toBe(before);
   });
 
   test("stationed guests stay locked until recalled; host pays upkeep", () => {
-    const { st, aid } = withAlliance();
-    applyToAlliance(st, aid, { id: "col-b", name: "Beta" }, NOW);
-    acceptMembership(st, aid, "col-a", "col-b", NOW);
-    addCohort(st.troops!.home.roster, "bulwark", 200, NOW);
-    const r = sendReinforcement(st, { id: "col-a", name: "Alpha" }, { id: "col-b", name: "Beta" }, 100, [], NOW);
+    const { sender } = twoAlliedSaves();
+    addCohort(sender.troops!.home.roster, "bulwark", 200, NOW);
+    const r = sendReinforcement(sender, { id: "col-a", name: "Alpha" }, { id: "col-b", name: "Beta" }, 100, [], NOW);
     const rf = (r.ok && r.value) as { id: string; troops: number };
     // the lock holds while stationed — the sender can't spend those bodies twice
-    expect(availableWeight(st.troops!.home.roster)).toBe(100);
+    expect(availableWeight(sender.troops!.home.roster)).toBe(100);
     expect(reinforcementUpkeepPerHour(rf as unknown as Parameters<typeof reinforcementUpkeepPerHour>[0])).toBe(10);
     // cross-account casualty routing (guests dying in the host's battles) rides
     // the server seam — locally the lock simply holds until recall/dismiss.
-    expect(recallReinforcement(st, "col-a", rf.id).ok).toBe(true);
-    expect(availableWeight(st.troops!.home.roster)).toBe(200);
+    expect(recallReinforcement(sender, "col-a", rf.id).ok).toBe(true);
+    expect(availableWeight(sender.troops!.home.roster)).toBe(200);
   });
 
-  test("leaving auto-recalls your reinforcements", () => {
-    const { st, aid } = withAlliance();
-    applyToAlliance(st, aid, { id: "col-b", name: "Beta" }, NOW);
-    acceptMembership(st, aid, "col-a", "col-b", NOW);
-    addCohort(st.troops!.home.roster, "bulwark", 200, NOW);
-    sendReinforcement(st, { id: "col-a", name: "Alpha" }, { id: "col-b", name: "Beta" }, 100, [], NOW);
-    leaveAlliance(st, "col-a", NOW);
+  test("leaving auto-recalls your reinforcements and queues mirror cleanup", () => {
+    const { sender, host } = twoAlliedSaves();
+    addCohort(sender.troops!.home.roster, "bulwark", 200, NOW);
+    const r = sendReinforcement(sender, { id: "col-a", name: "Alpha" }, { id: "col-b", name: "Beta" }, 100, [], NOW);
+    expect(r.ok).toBe(true);
+    deliverFx(sender, host);
+    expect(guestsAt(host)).toHaveLength(1);
+    leaveAlliance(sender, "col-a", NOW);
     // the record stays as history, but the bodies are home and the lock is gone
-    expect(st.reinforcements!.find((x) => x.fromColonyId === "col-a")!.state).toBe("recalled");
-    expect(availableWeight(st.troops!.home.roster)).toBe(200);
-    expect(autoRecallReinforcements(st, "col-b")).toBe(0);
+    expect(sender.reinforcements!.find((x) => x.fromColonyId === "col-a")!.state).toBe("recalled");
+    expect(availableWeight(sender.troops!.home.roster)).toBe(200);
+    expect(autoRecallReinforcements(sender, "col-b")).toBe(0);
+    // the host's mirror is cleaned through the seam
+    deliverFx(sender, host);
+    expect(guestsAt(host)).toHaveLength(0);
   });
 
   test("cross-alliance reinforcement refused", () => {
     const { st } = withAlliance();
     const r = sendReinforcement(st, { id: "col-a", name: "Alpha" }, { id: "col-x", name: "Stranger" }, 10, [], NOW);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("guest upkeep & desertion", () => {
+  const HOUR = 3600_000;
+  const ZERO_MIX = { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+
+  /** Drive one starvation tick on the host exactly the way engine.advance does:
+   *  24h grace + 14h starving on an empty stockpile. */
+  function starveHost(host: ReturnType<typeof fakeState>) {
+    const home = host.troops!.home;
+    home.lastUpkeepAt = NOW - 38 * HOUR;
+    host.resources.supplies = 0;
+    const deserted: { id: string; weight: number }[] = [];
+    const tick = advanceTroopHome(home, NOW, host.resources, {
+      sourceColony: "Beta",
+      serverId: "0",
+      guests: guestsAt(host).map((m) => ({ id: m.id, weight: m.weight, troopsByType: m.troopsByType })),
+      onGuestDesertion: (d) => {
+        shrinkGuestMirrors(host, d);
+        for (const x of d) deserted.push(x);
+      },
+    });
+    return { tick, deserted };
+  }
+
+  test("guests desert before host troops, oldest mirror first", () => {
+    const { host } = twoAlliedSaves();
+    addCohort(host.troops!.home.roster, "bulwark", 100, NOW - 1000);
+    applyCreateGuestMirror(host, {
+      id: "m-old", fromColonyId: "col-a", fromColonyName: "Alpha", weight: 10,
+      troopsByType: { ...ZERO_MIX, bulwark: 10 }, heroes: [], sentAt: NOW - 2000,
+    });
+    applyCreateGuestMirror(host, {
+      id: "m-new", fromColonyId: "col-c", fromColonyName: "Gamma", weight: 10,
+      troopsByType: { ...ZERO_MIX, bulwark: 10 }, heroes: [], sentAt: NOW - 1000,
+    });
+    // 120 weight × (1 − 0.95^14) ≈ 61 deserters: both guests fully (10+10),
+    // then 41 from the host's own garrison.
+    const { tick, deserted } = starveHost(host);
+    expect(deserted.map((d) => d.id)).toEqual(["m-old", "m-new"]);
+    expect(deserted.map((d) => d.weight)).toEqual([10, 10]);
+    expect(guestsAt(host)).toHaveLength(0);
+    expect(rosterWeight(host.troops!.home.roster)).toBe(59);
+    // Two guest bands + one host band, none empty.
+    expect(tick.bands).toHaveLength(3);
+    for (const b of tick.bands) expect(bandWeight(b)).toBeGreaterThan(0);
+  });
+
+  test("a fractional thunder desertion takes the whole thunder — the band is never empty", () => {
+    const { host } = twoAlliedSaves();
+    applyCreateGuestMirror(host, {
+      id: "m-th", fromColonyId: "col-a", fromColonyName: "Alpha", weight: 2,
+      troopsByType: { ...ZERO_MIX, thunder: 1 }, heroes: [], sentAt: NOW,
+    });
+    // 2 weight × (1 − 0.95^14) ≈ 1 deserter: the lone thunder walks whole.
+    const { tick } = starveHost(host);
+    expect(guestsAt(host)).toHaveLength(0);
+    expect(tick.bands).toHaveLength(1);
+    expect(bandWeight(tick.bands[0])).toBe(2);
+  });
+
+  test("sending troops rounds the lock up to whole troops (one thunder = two weight)", () => {
+    const { sender, host } = twoAlliedSaves();
+    addCohort(sender.troops!.home.roster, "thunder", 1, NOW);
+    const r = sendReinforcement(sender, { id: "col-a", name: "Alpha" }, { id: "col-b", name: "Beta" }, 1, [], NOW);
+    expect(r.ok).toBe(true);
+    const rf = r.ok && r.value;
+    // Asked for 1 weight; a whole thunder marched, so the lock covers 2.
+    expect(rf && rf.troops).toBe(2);
+    expect(availableWeight(sender.troops!.home.roster)).toBe(0);
+    deliverFx(sender, host);
+    expect(guestsAt(host)[0].weight).toBe(2);
+    expect(guestsAt(host)[0].troopsByType.thunder).toBe(1);
+  });
+
+  test("desertion releases the sender's lock by actual troop weight", () => {
+    const { sender, host } = twoAlliedSaves();
+    addCohort(sender.troops!.home.roster, "thunder", 1, NOW);
+    const r = sendReinforcement(sender, { id: "col-a", name: "Alpha" }, { id: "col-b", name: "Beta" }, 1, [], NOW);
+    expect(r.ok).toBe(true);
+    deliverFx(sender, host);
+    // The host starves the guest completely: the whole thunder walks.
+    const m = guestsAt(host)[0];
+    const out = shrinkGuestMirrors(host, [{ id: m.id, weight: 2, troopsByType: { ...ZERO_MIX, thunder: 1 } }]);
+    expect(out[0].desertedWeight).toBe(2);
+    expect(out[0].gone).toBe(true);
+    // The release fx frees the full 2-weight lock on the sender and marks
+    // the reinforcement deserted.
+    applyReleaseTroopLock(sender, {
+      reinforcementId: m.id,
+      weight: out[0].desertedWeight,
+      key: `unmirror:${m.id}:deserted`,
+      mark: "deserted",
+    });
+    expect(availableWeight(sender.troops!.home.roster)).toBe(2);
+    expect(sender.reinforcements!.find((x) => x.id === m.id)!.state).toBe("deserted");
   });
 });

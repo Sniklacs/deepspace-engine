@@ -407,6 +407,13 @@ export interface GameState {
   alliances?: Record<string, import("./war/alliances").Alliance>;
   rallies?: Record<string, import("./war/rallies").Rally>;
   reinforcements?: import("./war/alliances").Reinforcement[];
+  /** Guest mirrors: foreign troops stationed AT this colony (their bodies
+   *  live on the sender's save; this is the host's shadow copy). */
+  guestMirrors?: import("./war/alliances").GuestMirror[];
+  /** Outbound cross-account effect queue — drained by alliance-transact. */
+  allianceFx?: import("./war/alliances").AllianceFx[];
+  /** Idempotency ledger for applied effects (dedupe key → applied at). */
+  allianceFxDone?: Record<string, number>;
   /** Help-tick daily budget (server day key + spent count). */
   helpDay?: string;
   helpUsed?: number;

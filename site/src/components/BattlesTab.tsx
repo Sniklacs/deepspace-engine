@@ -16,11 +16,12 @@
 // the clean minimal shell with the design-system tokens.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameState } from "../game/types";
-import type { Battle, BattleReport, BattleSide, CommittedForce } from "../game/war/war-types";
+import type { Battle, BattleReport, BattleSide, CommittedForce, ManeuverVector } from "../game/war/war-types";
+import { BATTLES_CONFIG } from "../game/war/war-types";
 import { battleMoment, battleEndAt } from "../game/war/battle-engine";
 import BattleReplay from "./BattleReplay";
 import { availableWeight } from "../game/war/troops";
-import { battleIssueFn, battleRespondFn } from "../game/api";
+import { battleIssueFn, battleRespondFn, battleScreenFn } from "../game/api";
 import type { GameResult } from "../game/api";
 import {
   CONFIRM_CANCEL_LABEL,
@@ -898,6 +899,95 @@ export function DecisionPanel({
 }
 
 /** The detail pane — composition both sides, ticking casualties, the line. */
+// ============================================================================
+// SCREENS — the defender's blind answer to a planned attack (maneuvers).
+//
+// When the enemy fields a battle plan (a rally with timed entries), their
+// vectors stay hidden until they march in — but you can post pickets first.
+// A screened vector loses its surprise window when it enters. One screen per
+// vector, each costs war energy; posted pickets are physical facts on the
+// field, so both sides see them (battle.replayIntel.screens).
+//
+// Renders only when there is something to screen: a live battle, our side
+// known, a plan attached, and the plan isn't ours.
+// ============================================================================
+const SCREEN_VECTORS: { v: ManeuverVector; label: string }[] = [
+  { v: "MAIN", label: "Main" },
+  { v: "FLANK_LEFT", label: "Left flank" },
+  { v: "FLANK_RIGHT", label: "Right flank" },
+  { v: "REAR", label: "Rear" },
+  { v: "RESERVE", label: "Reserve" },
+];
+
+function ScreenPanel({ state, battle, side, token }: {
+  state: GameState;
+  battle: Battle;
+  side: BattleSide;
+  token?: string;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const intel = battle.replayIntel;
+  if (battle.status !== "active" || !intel || intel.side === side) return null;
+  const screens = intel.screens ?? {};
+  const energy = state.warReserve?.energy ?? 0;
+  const cost = BATTLES_CONFIG.screenEnergyCost;
+  const canAfford = energy >= cost;
+
+  async function post(vector: ManeuverVector) {
+    if (!token || busy) return;
+    setBusy(vector);
+    setError(null);
+    try {
+      const res = await battleScreenFn({ data: { token, battleId: battle.id, side, vector } });
+      if (!res.ok) setError(res.error ?? "The order was refused.");
+    } catch {
+      setError("The order didn't go through — try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-line bg-surf-1 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-text-2">Screen the approach</h4>
+        <span className="text-[11px] text-text-3">⚡ {energy} energy</span>
+      </div>
+      <p className="mt-1 text-[11px] text-text-3">
+        The enemy is marching to a plan you can't see. Post pickets on an entry vector ({cost} energy each) —
+        a screened vector loses its surprise when it enters.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {SCREEN_VECTORS.map(({ v, label }) => {
+          const posted = !!screens[v];
+          const disabled = posted || !canAfford || busy !== null;
+          return (
+            <button
+              key={v}
+              onClick={() => post(v)}
+              disabled={disabled}
+              aria-pressed={posted}
+              title={posted ? `Pickets posted on the ${label.toLowerCase()}` : `Post pickets on the ${label.toLowerCase()} (${cost} energy)`}
+              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                posted
+                  ? "border-ember/50 bg-ember/10 text-ember-soft"
+                  : canAfford
+                    ? "border-surf-3 text-text-2 hover:border-ember/40 hover:text-text-1"
+                    : "border-surf-3 text-text-3 opacity-50"
+              }`}
+            >
+              {posted ? `✓ ${label}` : busy === v ? "…" : label}
+            </button>
+          );
+        })}
+      </div>
+      {!canAfford && <p className="mt-1.5 text-[11px] text-text-3">Not enough war energy to post pickets.</p>}
+      {error && <p className="mt-1.5 text-[11px] text-hazard-soft">{error}</p>}
+    </div>
+  );
+}
+
 function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled = true, muted = false }: {
   state: GameState;
   battle: Battle;
@@ -981,6 +1071,8 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
         <span>Casualties are counted every minute</span>
         <span className="text-end">Ends by {new Date(end).toLocaleTimeString()}</span>
       </div>
+
+      {side && <ScreenPanel state={state} battle={battle} side={side} token={token} />}
 
       {/* the shifting line */}
       <div data-tutorial-target="battle-line" className={tutorialRing(tutorial.target, "battle-line")}>

@@ -193,7 +193,7 @@ feel alive.
 
 ---
 
-## 9. Across seasons — the family stays together
+## 7. Across seasons — the family stays together
 
 (owner decision 2026-09-30)
 
@@ -215,7 +215,7 @@ feel alive.
 
 ---
 
-## 10. Tunables (all numbers proposed, none locked)
+## 8. Tunables (all numbers proposed, none locked)
 
 | Knob | Proposed | Notes |
 |---|---|---|
@@ -232,7 +232,7 @@ feel alive.
 
 ---
 
-## 11. Open questions for the owner — ALL RESOLVED 2026-09-30
+## 9. Open questions for the owner — ALL RESOLVED 2026-09-30
 
 1. ~~**Cross-server alliance identity:** when members jump to raid, does the
    alliance *exist* on the target server (shared chat, shared rally board) or
@@ -264,7 +264,7 @@ feel alive.
 
 ---
 
-## 9. Build seams (for the engineer, later)
+## 10. Build seams (for the engineer, later)
 
 - `Alliance`: `{ id, name, banner, motto, leaderId, officerIds, memberIds,
   foundedAt, homeServerId }`. One alliance per colony — enforce at the
@@ -288,7 +288,7 @@ feel alive.
 
 ---
 
-## 10. Implementation status (Sep 30 2026, branch `xsolla-paystation`, local only)
+## 11. Implementation status (Sep 30 2026, branch `xsolla-paystation`, local only)
 
 **Rally maneuvers — engine layer: SHIPPED.** (unchanged from earlier in the day;
 see git history for the full engine notes.)
@@ -325,19 +325,76 @@ troops abroad, send form), help board (5/day budget, lend-a-hand per
 member). All posts ride the play route's `act()` (busy gate + state
 refresh + refusal surfacing).
 
-**Still missing (no pretending):**
+**Cross-account transaction seam — SHIPPED.** `site/src/game/alliance-transact.ts`:
+per-account async mutexes (`withAccountLock`) serialize all API mutations;
+`runWithAccountSaves()` puts the caller's saves on an `AsyncLocalStorage`
+request scope so A→B→A effect chains resolve in-memory instead of
+deadlocking; `transactColony()` resolves a colony from explicit local saves,
+then the request scope, then a foreign account lock/load/mutate/commit
+(gameId-keyed lookup, negative cache eviction); effects ride a persistent
+outbox (`allianceFx`) with an idempotency ledger (`allianceFxDone`); delivery
+is **save → drain → re-save** (the cleared outbox is persisted after
+delivery, never before). Colony-not-found drops with a log line;
+account-busy requeues, and effects parked while their target is busy are
+restored to the origin outbox rather than lost. All `withColony` API
+mutations (alliance, rally, help, reinforcements, battle screens) run inside
+the scope. `alliance-transact.test.ts`: 14 green, including per-account
+serialization, scope nesting, parked-fx survival, and idempotent redelivery.
+Known limit: the seam cannot detect swallowed storage-write failures (the
+save path logs rather than throws).
 
-- No true cross-account shared store: `withColony` reads/writes only the
-  caller's active save. Tests model multiple colonies in one local
-  `GameState`; they do NOT prove cross-account membership, pledges, troop
-  locks, casualty attribution, loot delivery, or reinforcement deaths.
-- `helpTickFn` records the helper action and spends the budget locally but
-  does not yet open and reduce the TARGET player's authoritative save.
-- Reinforcement guest deaths / sender-roster casualty attribution still
-  need the cross-account transaction seam (host upkeep + guest-first
-  desertion helpers exist locally; authoritative ticking does not).
-- Rally memorial/plaque attribution not yet deliberately addressed.
-- No battle-plan launch/attach UI beyond the rally presets; no
-  screen-posting UI.
-- Defender battle plans stay v2 (screens + response window only, per the
-  ratified spec).
+**Help ticks — cross-account: SHIPPED.** `giveHelp` queues `apply-help-tick`
+to the target's save; the target shaves the tick off active build/research
+timers on its own save via the seam (buildings/research only, never
+troops/muster/forge).
+
+**Reinforcement guest lifecycle — cross-account: SHIPPED.** Sender locks
+real troops (whole-troop accounting: a 1-weight thunder request locks the
+full 2-weight thunder — `mixWeight`/`takeWeightAsTroops`, troops are
+indivisible). Host receives a `create-guest-mirror` fx → `GuestMirror`
+drives host-side upkeep (thunder eats double) and battles via the
+`commitGuestsToDefense` seam. Guest-first desertion (oldest mirror first)
+shrink mirrors and queue `release-troop-lock` back to the sender's real
+roster; foreign casualties in battle queue `bill-foreign-casualties` to the
+sender (kills land in the sender's cohort + sender's memorial feed) and
+`shrink-guest-mirror` on the host. Recall/dismiss/leave/kick/disband queue
+`remove-guest-mirror` + lock release. Guest defense is DELIBERATELY excluded
+from Act I (prologue predates alliances; act1-entry-verify calibration
+pinned) — the seam stands ready for real PvP/home/beachhead defense.
+
+**Alliance membership sync — cross-account: SHIPPED.** Alliance records are
+versioned (`Alliance.version`, migration backfill); every mutation bumps the
+version and fans a `sync-alliance` snapshot to every member's account via the
+seam (stale mirrors lose — highest version wins). Membership writes are
+canonical on the founder's account: apply/invite route through
+`transactColony(founderId, …)` from any account, accept/kick/promote/demote/
+transfer/disband likewise. Leave is two-phase by design: the leaver's save
+runs rally departure + reinforcement cleanup + mirror removal locally, then
+the founder's save drops the member record. Kick/disband fan
+`depart-alliance` fx so every target save cleans itself up. Guest mirrors,
+rally departures, and troop locks are all unwound on the way out. Directory
+discovery: `scanAllianceDirectory()` walks every account's saves (read-only,
+no locks — eventually consistent by design) and the NoAlliance panel renders
+it as "Across the void" with apply buttons. 5 membership integration tests
+green across two accounts (`alliance-sync.test.ts`).
+
+**Rally sync — cross-account: SHIPPED.** Rally records are versioned
+(`Rally.version`, stable `RallyPledge.id`); `sync-rally` fans snapshots to the
+audience after every mutation. Pledge is split: `lockPledgeLocal` locks real
+troops/heroes on the pledger's save, then `mirror-rally-pledge` inserts the
+pledge into the canonical rally on the caller's account (idempotent on
+pledge id; a canonical rejection queues a self-contained release fx that
+unwinds the pledger's lock). Unpledge releases locally and mirrors the
+removal. Plan/launch/cancel route to the canonical caller record; cancel and
+departure queue self-contained `release-rally-pledge` fx (weight + hero ids
+ride the fx — the canonical record clears its pledge list first, so the
+pledge itself is not a reliable source). Launch resolves casualties through
+the roster seam, then queues contribution-locked loot (`deliver-rally-loot`)
+and hero unlocks to each participant's account — each exactly once via the
+idempotency ledger. The old `resolveRally` survivor-release path was fixed:
+heroes unlock on resolution now (they were locked and never freed). 7 rally
+integration tests green across two accounts, including cancel-releases-all,
+launch-resolve-loot-exactly-once, and departure-mid-rally.
+
+**Still missing (no pretending):**
+  hygiene only — outbox delivery happens server-side through `commitOutbox`.

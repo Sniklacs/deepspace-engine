@@ -15,9 +15,11 @@ declare module "bun:test" {
     toMatch(expected: string | RegExp): void;
     toEqual(expected: unknown): void;
     toHaveLength(expected: number): void;
+    toBeInstanceOf(expected: unknown): void;
     not: Matchers;
   }
   export function expect(actual: unknown): Matchers;
   export function describe(name: string, fn: () => void): void;
   export function test(name: string, fn: () => void): void;
+  export function beforeEach(fn: () => void | Promise<void>): void;
 }

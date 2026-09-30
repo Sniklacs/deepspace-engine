@@ -5,10 +5,11 @@
 // send and host reinforcements, and spend help ticks on alliance-mates.
 // All gating math lives in game/war/{alliances,rallies}.ts (pure, tested) —
 // this file only renders rows and posts through the api.ts server fns.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { GameState } from "../game/types";
 import type { GameResult } from "../game/api";
-import type { Alliance, AllianceRole, Reinforcement } from "../game/war/alliances";
+import type { Alliance, AllianceRole, GuestMirror, Reinforcement } from "../game/war/alliances";
+import type { AllianceDirectoryEntry } from "../game/alliance-transact";
 import { allianceOf, helpRemaining, memberRole } from "../game/war/alliances";
 import type { BattlePlan, PlannedManeuver } from "../game/war/maneuvers";
 import type { Rally } from "../game/war/rallies";
@@ -19,6 +20,7 @@ import {
   allianceApplyFn,
   allianceCreateFn,
   allianceDemoteFn,
+  allianceDirectoryFn,
   allianceDisbandFn,
   allianceInviteFn,
   allianceKickFn,
@@ -189,6 +191,7 @@ function NoAlliance({ state, me, token, onAction }: { state: GameState; me: stri
         </div>
       )}
       <KnownAlliances state={state} me={me} token={token} onAction={onAction} />
+      <DirectorySection state={state} token={token} onAction={onAction} />
     </section>
   );
 }
@@ -224,6 +227,62 @@ function KnownAlliances({ state, me, token, onAction }: { state: GameState; me: 
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+// War bands flying on other accounts — the directory scans every account's
+// saves, so this is how you find a flag you have no mirror of yet. Applying
+// routes to the canonical founder's account; the mirror arrives on your save.
+function DirectorySection({ state, token, onAction }: { state: GameState; token?: string; onAction: Act }) {
+  const [entries, setEntries] = useState<AllianceDirectoryEntry[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!token || entries !== null) return;
+    let live = true;
+    setLoading(true);
+    allianceDirectoryFn({ data: { token } })
+      .then((res) => {
+        if (live && res.ok) setEntries(res.entries ?? []);
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [token, entries]);
+  const fresh = useMemo(() => {
+    if (!entries) return [];
+    const knownIds = new Set(Object.keys(state.alliances ?? {}));
+    return entries.filter((e) => !knownIds.has(e.id));
+  }, [entries, state]);
+  if (!token) return null;
+  return (
+    <div>
+      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Across the void</h4>
+      {loading && entries === null ? (
+        <p className="text-xs text-text-2">Scanning the void for war bands…</p>
+      ) : fresh.length === 0 ? (
+        <p className="text-xs text-text-2">No distant war bands flying right now.</p>
+      ) : (
+        <ul className="space-y-1">
+          {fresh.map((e) => (
+            <li key={e.id} className="flex items-center justify-between rounded-lg border border-line bg-surf-1 px-3 py-1.5">
+              <span className="text-sm text-text-1">
+                {e.banner} {e.name} <span className="text-xs text-text-2">· {e.memberCount}/50</span>
+                {e.motto ? <span className="block text-xs text-text-2">“{e.motto}”</span> : null}
+              </span>
+              <button
+                className="rounded border border-line px-2 py-0.5 text-[11px] text-text-2"
+                onClick={() => token && onAction(() => allianceApplyFn({ data: { token: token!, allianceId: e.id } }), "apply")}
+              >
+                Apply
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -508,21 +567,24 @@ function Reinforcements({ state, me, alliance, token, onAction }: {
   const [troops, setTroops] = useState("");
   const post = (fn: () => Promise<GameResult>, label: string) => { if (token) onAction(fn, label); };
   const all = state.reinforcements ?? [];
-  const guests = all.filter((r: Reinforcement) => r.toColonyId === me && r.state === "stationed");
+  // Stationed guests live on the HOST's save as mirrors (the sender's
+  // Reinforcement records live on the sender's save — filtering those by
+  // toColonyId would miss every cross-account guest).
+  const mirrors: GuestMirror[] = (state.guestMirrors ?? []).filter((m) => m.weight > 0);
   const abroad = all.filter((r: Reinforcement) => r.fromColonyId === me && r.state === "stationed");
   const spare = state.troops ? availableWeight(state.troops.home.roster) : 0;
   const mates = alliance.members.filter((m) => m.colonyId !== me);
   return (
     <div>
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Reinforcements</h4>
-      {guests.length > 0 && (
+      {mirrors.length > 0 && (
         <div className="mb-2">
           <p className="mb-1 text-[11px] text-text-2">Stationed with you (you feed them — 1 supply per 10 troops/hr):</p>
           <ul className="space-y-1">
-            {guests.map((r) => (
-              <li key={r.id} className="flex items-center justify-between rounded-lg border border-line bg-surf-1 px-3 py-1.5">
-                <span className="text-sm text-text-1">{r.fromColonyName}: {r.troops} troops</span>
-                <button className="rounded border border-line px-2 py-0.5 text-[11px] text-text-2" onClick={() => post(() => reinforceDismissFn({ data: { token: token!, reinforcementId: r.id } }), "dismiss")}>Send home</button>
+            {mirrors.map((m) => (
+              <li key={m.id} className="flex items-center justify-between rounded-lg border border-line bg-surf-1 px-3 py-1.5">
+                <span className="text-sm text-text-1">{m.fromColonyName}: {m.weight} troops</span>
+                <button className="rounded border border-line px-2 py-0.5 text-[11px] text-text-2" onClick={() => post(() => reinforceDismissFn({ data: { token: token!, reinforcementId: m.id } }), "dismiss")}>Send home</button>
               </li>
             ))}
           </ul>
@@ -561,7 +623,7 @@ function Reinforcements({ state, me, alliance, token, onAction }: {
           </button>
         </div>
       )}
-      {guests.length === 0 && abroad.length === 0 && mates.length === 0 && (
+      {mirrors.length === 0 && abroad.length === 0 && mates.length === 0 && (
         <p className="text-xs text-text-2">No allies to reinforce yet.</p>
       )}
     </div>

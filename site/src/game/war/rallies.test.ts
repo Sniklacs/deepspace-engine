@@ -29,16 +29,47 @@ function must<T>(r: { ok: true; value: T } | { ok: false; error: string }): T {
 }
 import type { BattlePlan } from "./maneuvers";
 import type { GameState } from "../types";
+import {
+  applyAllianceFx,
+  clearColonyAccountCache,
+  type ColonyStore,
+} from "../alliance-transact";
+import type { AccountSaves } from "../store";
 
 const NOW = 1_800_000_000_000;
+
+/** Drain the alliance outbox against the single test state — in production
+ *  this happens inside the same request (commitOutbox), so tests do it
+ *  explicitly after cancel/resolve. */
+async function drainFx(st: GameState): Promise<void> {
+  clearColonyAccountCache();
+  const saves = { games: { "col-a": st } } as unknown as AccountSaves;
+  const store: ColonyStore = {
+    async loadAccountSaves() { return saves; },
+    async saveAccountSaves() {},
+    async loadAllSaves() { return [{ accountId: "test", saves }]; },
+  };
+  await applyAllianceFx(saves, { store });
+}
 
 function fakeState(supplies = 5000): GameState {
   return {
     gameId: "col-a",
-    resources: { supplies },
-    troops: { home: emptyTroopHome(0), bands: [], history: [] },
-    battles: [],
     seasonId: "s1",
+    resources: { supplies },
+    leaders: [],
+    techsResearched: [],
+    // The drain path runs engine.advance(Date.now()) — pin the clocks to real
+    // time so upkeep/hunger math sees a ~0 delta instead of 56 years.
+    lastTick: Date.now(),
+    log: [],
+    allianceFx: [],
+    battles: [],
+    deployedDomains: {},
+    studies: [],
+    expeditions: [],
+    researchJobs: [],
+    troops: { home: emptyTroopHome(Date.now()), bands: [], history: [] },
   } as unknown as GameState;
 }
 
@@ -158,13 +189,15 @@ describe("pledgeToRally", () => {
     expect(st.troops!.home.roster.committedWeight).toBe(200);
   });
 
-  test("cancel releases every pledge", () => {
+  test("cancel releases every pledge", async () => {
     const { st, aid } = withRallySetup();
     const rc = createRally(st, { id: "col-a", name: "Alpha" }, aid,
       { name: "Rally", target: { kind: "chorus-site", label: "H", zoneId: "z" }, launchAt: NOW + 3_600_000 }, NOW);
     const rid = (rc.ok && rc.value.id) as string;
     pledgeToRally(st, rid, { id: "col-a", name: "Alpha" }, 300, [], NOW);
     expect(cancelRally(st, rid, "col-a").ok).toBe(true);
+    // The release rides the outbox (same-request drain in production).
+    await drainFx(st);
     expect(availableWeight(st.troops!.home.roster)).toBe(600);
     expect(rallyOf(st, rid)!.state).toBe("cancelled");
   });
@@ -302,7 +335,7 @@ describe("launchRally", () => {
 });
 
 describe("resolveRally", () => {
-  test("victory: loot splits strictly by contribution; losses recorded per colony", () => {
+  test("victory: loot splits strictly by contribution; losses recorded per colony", async () => {
     const st = fakeState();
     createAlliance(st, { id: "col-a", name: "Alpha" }, 3, { name: "War Band" }, NOW);
     const aid = allianceOf(st, "col-a")!.id;
@@ -334,9 +367,14 @@ describe("resolveRally", () => {
     // losses: 10% of each pledger's weight
     expect(r.outcome!.losses["col-a"]).toBe(40);
     expect(r.outcome!.losses["col-b"]).toBe(20);
+    // Loot rides the outbox to each participant's account (same-request
+    // drain in production); col-b has no game in this single-state world,
+    // so only col-a's share lands here.
+    await drainFx(st);
     // the local colony's share lands in its own stockpile (gameId col-a):
-    // 5000 − 500 (founding) + 200 (loot share) = 4700
-    expect(st.resources.supplies).toBe(4700);
+    // 5000 − 500 (founding) + 200 (loot share) = 4700 (rounded — the drain
+    // runs a real engine tick, so a few ms of upkeep dust accrues)
+    expect(Math.round(st.resources.supplies)).toBe(4700);
   });
 
   test("splitRallyLoot is strictly proportional — favor is impossible", () => {
