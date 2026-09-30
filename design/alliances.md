@@ -209,29 +209,35 @@ feel alive.
 
 ---
 
-## 8. Open questions for the owner
+## 8. Open questions for the owner — ALL RESOLVED 2026-09-30
 
-1. **Cross-server alliance identity:** when members jump to raid, does the
+1. ~~**Cross-server alliance identity:** when members jump to raid, does the
    alliance *exist* on the target server (shared chat, shared rally board) or
    is coordination home-server-only? (Proposed: the alliance's chat and rally
-   board follow members everywhere — the war band is the war band.)
-2. **Diplomacy:** war pacts between alliances of *different* races — v1 or
+   board follow members everywhere — the war band is the war band.)~~ —
+   CONFIRMED: alliance chat, rally board, and battle plans follow members
+   everywhere, including foreign servers. Critical for cross-server raids.
+2. ~~**Diplomacy:** war pacts between alliances of *different* races — v1 or
    v2? (Proposed: v2. v1 is race-loyal; treachery across racial lines is a
-   whole expansion's worth of design.)
-3. **Help tick targets:** buildings + research only, or also forge queues
+   whole expansion's worth of design.)~~ — CONFIRMED: **v2.**
+3. ~~**Help tick targets:** buildings + research only, or also forge queues
    and healing? (Proposed: buildings + research only. The forge is the
-   *individual* grind — keep it sacred.)
-4. **Rally ownership of loot:** a victorious rally's cargo — split by
+   *individual* grind — keep it sacred.)~~ — CONFIRMED: **buildings and
+   research only.** The forge stays sacred.
+4. ~~**Rally ownership of loot:** a victorious rally's cargo — split by
    contribution, or caller's discretion? (Proposed: split by committed
-   supply-weight. Math, not favoritism.)
-5. **Maneuver intel depth:** composition visible at launch, plan hidden —
+   supply-weight. Math, not favoritism.)~~ — CONFIRMED, LOCKED: **split by
+   contribution (committed supply-weight).** No favoritism, no caller's
+   cut — "we don't even want to introduce that bullshit."
+5. ~~**Maneuver intel depth:** composition visible at launch, plan hidden —
    or should scouting be a real mechanic (send scouts, get the plan)?
    (Proposed: v1 is automatic intel as specced; scouting as a counter-play
-   system is v2.)
-6. **Defender battle plans:** can defenders set their own vectors and
+   system is v2.)~~ — CONFIRMED: v1 automatic as specced; scouting v2.
+6. ~~**Defender battle plans:** can defenders set their own vectors and
    timing, or only screens + reserve response? (Proposed: v1 defenders get
    screens and the response window; full defensive planning is v2. Attackers
-   plan, defenders react — that's the genre.)
+   plan, defenders react — that's the genre.)~~ — CONFIRMED: v1 defenders
+   get screens + response window only.
 
 ---
 
