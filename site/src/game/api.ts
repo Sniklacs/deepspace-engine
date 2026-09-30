@@ -59,6 +59,11 @@ import {
   musterCost,
 } from "./war/troops";
 import {
+  hireBandAtBase,
+  musterAtBase,
+  plantForwardBase,
+} from "./war/forward-bases";
+import {
   loadAccountSaves,
   saveAccountSaves,
   loadAllSaves,
@@ -1180,6 +1185,110 @@ const hireMercenariesFn = createServerFn({ method: "POST" }).validator(
   return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
 });
 
+/** FORWARD BASES (design/forward-base.md §2–§3): plant a beachhead on a
+ *  foreign server. Validated server action: never home, one base per foreign
+ *  server, 24h jump cooldown, beachhead kit + jump charge deducted from HOME
+ *  supplies up front. The stockpile starts at zero — it only grows by raiding. */
+const plantForwardBaseFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    serverId: z.string().min(1).max(64),
+    label: z.string().max(48).optional(),
+    forceWeight: z.number().nonnegative().max(200000).default(0),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const now = Date.now();
+  const st = engine.advance(saves.games[saves.activeGameId], now);
+  if (!st.race) return { ok: false, error: "Found your colony first." };
+  engine.ensureForwardBases(st, now);
+  const req = plantForwardBase({
+    serverId: data.serverId,
+    homeServerId: st.gameId ?? "home",
+    label: data.label ?? "",
+    forceWeight: data.forceWeight,
+    lastJumpAt: st.lastJumpAt ?? null,
+    existingServers: Object.keys(st.forwardBases!),
+    now,
+    seq: Object.keys(st.forwardBases!).length,
+  });
+  if (!req.ok || !req.base) return { ok: false, error: req.error ?? "Planting refused." };
+  const charge = req.chargeSupplies ?? 0;
+  if (st.resources.supplies < charge) {
+    return { ok: false, error: `The jump needs ${charge} home supplies (beachhead kit + jump charge) — you hold ${Math.floor(st.resources.supplies)}.` };
+  }
+  // NOTE(forge): the kit's forged anchor component (war-plate-anchor) is
+  // charged here once the forge exposes an inventory seam. Supplies-only
+  // until then — plantForwardBase reports anchorCharged for the UI.
+  st.resources.supplies -= charge;
+  st.forwardBases![req.base.serverId] = req.base;
+  st.lastJumpAt = now;
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
+/** Muster troops AT a forward base (forward-base.md §4): the only production
+ *  a beachhead has. Same linear queues, same costs — paid from the RAIDED
+ *  stockpile. No home convoys, no alliance help, 500-cap. */
+const musterForwardTroopsFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    serverId: z.string().min(1).max(64),
+    type: z.string(),
+    count: z.number().int().positive().max(500),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const now = Date.now();
+  const st = engine.advance(saves.games[saves.activeGameId], now);
+  if (!st.race) return { ok: false, error: "Found your colony first." };
+  engine.ensureForwardBases(st, now);
+  const base = st.forwardBases![data.serverId];
+  if (!base) return { ok: false, error: "No forward base on that server." };
+  const res = musterAtBase(base, data.type, data.count, now);
+  if (!res.ok) return { ok: false, error: res.error ?? "Muster refused." };
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
+/** Hire a deserter band on foreign soil (forward-base.md §5): the band must
+ *  be in the SHARED pool for the base's server — starving a beachhead stocks
+ *  your enemy's recruitment pool. Paid from raided supplies, 500-cap. */
+const hireServerBandFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    serverId: z.string().min(1).max(64),
+    bandId: z.string(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const now = Date.now();
+  const st = engine.advance(saves.games[saves.activeGameId], now);
+  if (!st.race) return { ok: false, error: "Found your colony first." };
+  engine.ensureForwardBases(st, now);
+  const base = st.forwardBases![data.serverId];
+  if (!base) return { ok: false, error: "No forward base on that server." };
+  const res = hireBandAtBase(base, st.serverBands!, data.bandId, now);
+  if (!res.ok) return { ok: false, error: res.error ?? "Hire refused." };
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
 export {
   getState,
   createGameFn,
@@ -1218,6 +1327,9 @@ export {
   battleRespondFn,
   musterTroopsFn,
   hireMercenariesFn,
+  plantForwardBaseFn,
+  musterForwardTroopsFn,
+  hireServerBandFn,
   enterActOneFn,
   leaveActOneFn,
   // ---- chat + mail (slice A1) — their own module, the same zod-validated shape

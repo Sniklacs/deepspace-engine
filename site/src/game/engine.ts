@@ -65,6 +65,12 @@ import {
   advanceTroopHome,
   emptyTroopHome,
 } from "./war/troops";
+import {
+  abandonAllForwardBases,
+  advanceForwardBase,
+  depositBands,
+  emptyServerBandPool,
+} from "./war/forward-bases";
 import { ensurePrologue, freshPrologue } from "./prologue/prologue-state";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
@@ -768,6 +774,35 @@ export function ensureTroops(state: GameState, now: number): void {
   if (!state.troops.home) state.troops.home = emptyTroopHome(now);
   if (!Array.isArray(state.troops.bands)) state.troops.bands = [];
   if (!Array.isArray(state.troops.history)) state.troops.history = [];
+}
+
+export function ensureForwardBases(state: GameState, now: number): void {
+  if (!state.forwardBases) state.forwardBases = {};
+  if (!state.serverBands) state.serverBands = emptyServerBandPool();
+  if (state.lastJumpAt === undefined) state.lastJumpAt = null;
+  // Backfill safety: every base owns a complete TroopHome + wall state.
+  for (const base of Object.values(state.forwardBases)) {
+    if (!base.home) base.home = emptyTroopHome(now);
+    if (!Array.isArray(base.home.musterQueue)) base.home.musterQueue = [];
+    if (typeof base.supplies !== "number") base.supplies = 0;
+    if (typeof base.wallHp !== "number") base.wallHp = base.maxWallHp ?? 1200;
+  }
+  void now;
+}
+
+/**
+ * FORWARD BASES — season rollover recall (design/forward-base.md §9).
+ * The board wipes: every beachhead is abandoned, everything stationed is
+ * lost. The home colony is untouched. The future season engine calls this
+ * at rollover; plaques were already written by the battle layer.
+ */
+export function abandonForwardBasesForSeason(state: GameState, seasonId: string): number {
+  ensureForwardBases(state, Date.now());
+  const removed = abandonAllForwardBases(state.forwardBases!);
+  if (removed.length > 0) {
+    log(state, `Season ${seasonId}: ${removed.length} forward base${removed.length === 1 ? "" : "s"} abandoned — the board resets.`);
+  }
+  return removed.length;
 }
 
 export function effectiveScientists(state: GameState): number {
@@ -1639,6 +1674,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   //                          old save (the owner's 2026-09-27 direction; earned only)
   ensureBattles(state); // V9: real-time battle entities + report ledger (no-op on new saves)
   ensureTroops(state, now); // MUSTER: garrison + queues + hunger clock (additive on old saves)
+  ensureForwardBases(state, now); // BEACHHEADS: forward bases + shared server band pools (additive)
   ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
   ensureReTime(state, now); // RE-TIME: energy pool + deploy slot (no-op on a fresh save)
   // V7 daily rollover: when the UTC day turned since the last advance, finalize
@@ -1750,6 +1786,20 @@ export function advance(state: GameState, now = Date.now()): GameState {
     });
     for (const band of tick.bands) state.troops.bands.push(band);
     for (const line of tick.log) log(state, line);
+  }
+
+  // FORWARD BASES (design/forward-base.md §5): each beachhead advances its
+  // own TroopHome off its RAIDED stockpile — the same hunger math, foreign
+  // soil. Deserters land in the SHARED server pool (serverBands), not in any
+  // colony's private list: starving a beachhead stocks the enemy's
+  // recruitment pool. Lazy and idempotent like the muster tick above.
+  if (state.forwardBases && state.serverBands) {
+    const colonyName = state.playerName || "An unnamed colony";
+    for (const base of Object.values(state.forwardBases)) {
+      const btick = advanceForwardBase(base, now, { sourceColony: colonyName });
+      depositBands(state.serverBands, btick.bands);
+      for (const line of btick.log) log(state, `[${base.label}] ${line}`);
+    }
   }
 
   // Silent track bookkeeping: the untouched-day streak, the stage1 reveal, the

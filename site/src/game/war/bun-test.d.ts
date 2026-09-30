@@ -7,9 +7,14 @@ declare module "bun:test" {
   export interface Matchers {
     toBe(expected: unknown): void;
     toBeNull(): void;
+    toBeUndefined(): void;
+    toBeDefined(): void;
     toBeGreaterThan(expected: number): void;
+    toBeLessThan(expected: number): void;
     toBeCloseTo(expected: number, precision?: number): void;
     toMatch(expected: string | RegExp): void;
+    toEqual(expected: unknown): void;
+    toHaveLength(expected: number): void;
     not: Matchers;
   }
   export function expect(actual: unknown): Matchers;

@@ -2,6 +2,7 @@
 
 import type { Battle, BattleReport, WarReserve } from "./war/war-types";
 import type { CasualtyRecord, MercenaryBand, TroopHome } from "./war/troops";
+import type { ForwardBase } from "./war/forward-bases";
 import type { PrologueBlock } from "./prologue/prologue-state";
 import type { ForgeItem } from "./forge";
 import type { TimeTokenLedgerEntry } from "./time-tokens";
@@ -388,6 +389,16 @@ export interface GameState {
     bands: MercenaryBand[];
     history: CasualtyRecord[];
   };
+  /** FORWARD BASES (design/forward-base.md) — beachheads on foreign servers.
+   *  Optional for migration: pre-beachhead saves initialize empty on first
+   *  advance (ensureForwardBases). Keyed by foreign serverId — max one base
+   *  per key, enforced by plantForwardBase. `serverBands` is the SHARED
+   *  server-level mercenary pool: deserters from any starving base (or
+   *  garrison) land in their server's list, hireable by anyone there —
+   *  including the enemy. `lastJumpAt` gates the 24h jump cooldown. */
+  forwardBases?: Record<string, ForwardBase>;
+  serverBands?: Record<string, MercenaryBand[]>;
+  lastJumpAt?: number | null;
   // ---- Prologue state spine (V11, opening-prologue-spec §4–§8 — The Fall) ----
   // The per-colony ledger for the voiced opening: stage, sealed height
   // records, the final stand, the History Book + ash echoes. The player's own
