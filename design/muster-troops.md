@@ -87,6 +87,11 @@
 - **Hunger stages (shared):** stockpile empty → 24h foraging grace → 5%
   desertion per hour until fed or gone. Desertion hits the *newest* troops
   first (the least invested — veterans desert last).
+- **Deserters don't vanish — they become mercenaries** (owner decision
+  2026-09-30, see §10). A desertion event spawns a mercenary band in the wild
+  on that server: real troops, no master, waiting for whoever shows up with
+  food. Neglect has a price beyond losing troops — you're arming the
+  neighborhood.
 - The design intent: army size is a *liability* as well as an asset. A huge
   idle garrison is a mouth to feed. This is what keeps the economy honest and
   makes raiding necessary rather than decorative.
@@ -141,7 +146,37 @@ wants. All references are to `site/src/game/war/war-types.ts`:
 
 ---
 
-## 7. Tunables (all numbers proposed, none locked)
+## 10. Mercenaries — the deserters' market (owner decision 2026-09-30)
+
+Yes, troops can be bought — but never from a shop. The only mercenaries in
+the game are **deserters**: soldiers who walked away from a starving army
+(§3) and now sell their spears for supper.
+
+- **Supply:** every desertion event spawns a mercenary band in the wild on
+  that server — composition mirrors the deserters (types and counts as they
+  were). Bands drift; they don't vanish at season's end until hired or the
+  season wipes them.
+- **Hiring:** offer supplies. The band joins your roster at your current
+  location (home garrison or forward base — wherever you feed them). No
+  auction, no bidding war: first supplies on the table takes them.
+- **The cap is your stomach:** you can hire whatever you can *supply* —
+  garrison cap and upkeep ability are the only limits. Bring a mountain of
+  supplies to a foreign server and you can raise an army off other colonies'
+  neglect. Travel light and the bands walk past you.
+- **Quality:** deserters join as regular troops of their type — no veterancy
+  discount, no penalty. A deserter with veteran stripes keeps them (the
+  cohort data travels with the band), which makes veteran-heavy bands the
+  real prizes.
+- **The strategic shape:** this closes the hunger loop into a weapon. Starve
+  a beachhead and you're not just losing troops — you're stocking a
+  recruitment pool your enemies can shop from. Raiding near a starving rival
+  beachhead is now doubly profitable: their weakness, your reinforcements.
+  And the jump-loadout choice gets teeth: supplies are heavy, but supplies
+  are *options*.
+
+---
+
+## 11. Tunables (all numbers proposed, none locked)
 
 | Knob | Proposed | Notes |
 |---|---|---|
@@ -155,26 +190,34 @@ wants. All references are to `site/src/game/war/war-types.ts`:
 
 ---
 
-## 8. Open questions for the owner
+## 12. Open questions for the owner
 
-1. **Mercenaries:** can troops ever be bought — a sellsword market — or is
+1. ~~**Mercenaries:** can troops ever be bought — a sellsword market — or is
    the muster the only door? (Leaning: muster-only. Selling soldiers smells
-   like the sell-everything clone we're avoiding.)
-2. **Veterancy in v1 or v2?** It needs cohorts tracked through casualties.
-   Cheap to reserve, expensive to retrofit — call it now.
+   like the sell-everything clone we're avoiding.)~~ — ANSWERED 2026-09-30:
+   YES, but only deserters (§10). No shop, no mint — the supply is other
+   players' starvation. Hire cap = whatever you can supply.
+2. ~~**Veterancy in v1 or v2?** It needs cohorts tracked through casualties.
+   Cheap to reserve, expensive to retrofit — call it now.~~ — ANSWERED
+   2026-09-30: **v2.** Reserve cohort tracking in the casualty feed now
+   (§5, §9); ship the stat bumps later.
 3. **Troop type stat spreads:** beyond supply weight, do types differ in
    power per troop, or is weight the only lever? (Proposed: weight is the
    only lever in v1; heroes/modules provide the texture.)
-4. **Muster time curve:** linear per troop, or batch discounts for big
+4. ~~**Muster time curve:** linear per troop, or batch discounts for big
    musters? (Proposed: linear — big armies should feel expensive in *time*
    too, which is what makes the alliance help-tick rule bite on buildings
-   but not here.)
-5. **Desertion vs. mutiny:** at deep starvation, do deserters just leave —
-   or do some defect to the Chorus/other players? (Flavor with teeth. v2.)
+   but not here.)~~ — ANSWERED 2026-09-30: **linear.** Big armies cost big
+   time. That's the point.
+5. ~~**Desertion vs. mutiny:** at deep starvation, do deserters just leave —
+   or do some defect to the Chorus/other players? (Flavor with teeth. v2.)~~ —
+   ANSWERED 2026-09-30: they leave and become **mercenaries** (§10) —
+   hireable by anyone with supplies, including your enemies. Better than
+   mutiny: it's a market.
 
 ---
 
-## 9. Build seams (for the engineer, later)
+## 13. Build seams (for the engineer, later)
 
 - `TroopRoster`: `{ [type]: { count, veterans, committed } }` on the colony
   and on the forward base. Committed vs. reserve is the field the battle
