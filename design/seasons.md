@@ -152,10 +152,14 @@ The last two weeks are not normal play. Deliberately:
 1. **Season length:** 12 weeks feels right for the arc — shorter and bloodier,
    or is twelve the one? (Proposed: twelve. The cross-server game needs the
    room.)
-2. **Alliance persistence:** does alliance membership cross the season line,
+2. ~~**Alliance persistence:** does alliance membership cross the season line,
    or does everyone re-form? (Proposed: membership persists — the war band
    is the war band — but all *power* resets. Re-forming every 12 weeks is
-   admin nobody wants.)
+   admin nobody wants.)~~ — ANSWERED, LOCKED 2026-09-30: **membership
+   persists.** The alliance is family — name, chat, history cross the line;
+   only power resets. Roster politics (who sits out, who rotates) are the
+   alliance's own business; the game doesn't adjudicate. 50-member cap
+   owner-confirmed.
 3. **New-season head start:** do veterans' persisted artifacts/favor apply
    from day one of the new season, or is there a "Landing grace" (e.g.,
    artifacts stay vaulted for weeks 1–2)? (Proposed: day one. The risk

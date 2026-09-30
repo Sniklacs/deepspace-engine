@@ -37,7 +37,8 @@
 
 - **Founding:** any colony at Cradle Tier 2+ may found an alliance (proposed
   cost: 500 supplies — enough to mean it, cheap enough to not gate it).
-- **Size cap:** proposed 50 colonies. Big enough for a real war band, small
+- **Size cap:** 50 colonies (owner-confirmed 2026-09-30). Big enough for a
+  real war band, small
   enough that members know each other's names. (The memorial plaques,
   `forward-base.md` §9, will read better when the fallen are *known*.)
 - **Ranks:** Leader (1) → Officers (proposed: up to 5) → Members. Leader can
@@ -192,11 +193,33 @@ feel alive.
 
 ---
 
-## 7. Tunables (all numbers proposed, none locked)
+## 9. Across seasons — the family stays together
+
+(owner decision 2026-09-30)
+
+- **Membership crosses the season line.** The alliance — its name, chat,
+  rally board, history, battle plans — persists into the next season. All
+  *power* resets (troops, bases, stockpiles per `seasons.md` §3), but the war
+  band is the war band. Nobody re-applies to their own family.
+- **Roster politics are the alliance's business, not the game's.** With 50
+  spots and no re-shuffle, the alliance manages its own seats: who sits out
+  a season, who rotates in, who's earned their place. Leadership tools (kick,
+  invite, officer roles) handle it; the game doesn't adjudicate family
+  arguments.
+- **Sitting out is allowed.** A member may sit out a season — marked inactive,
+  contributing nothing — and return to their seat if the alliance kept it.
+  Whether the seat is kept is between the player and their officers.
+- **Why:** people don't want to fight for a spot in their own alliance every
+  12 weeks. Persistence of the *people* is the other half of "the board
+  resets, the soul doesn't" — the alliance is a soul-level structure.
+
+---
+
+## 10. Tunables (all numbers proposed, none locked)
 
 | Knob | Proposed | Notes |
 |---|---|---|
-| Alliance size cap | 50 colonies | Knowable names |
+| Alliance size cap | 50 colonies | Owner-confirmed; knowable names |
 | Founding cost | 500 supplies, Cradle T2+ | Meaningful, not gating |
 | Officers | up to 5 | — |
 | Rally timer | 15 min – 24h | Coordination window |
@@ -209,7 +232,7 @@ feel alive.
 
 ---
 
-## 8. Open questions for the owner — ALL RESOLVED 2026-09-30
+## 11. Open questions for the owner — ALL RESOLVED 2026-09-30
 
 1. ~~**Cross-server alliance identity:** when members jump to raid, does the
    alliance *exist* on the target server (shared chat, shared rally board) or
