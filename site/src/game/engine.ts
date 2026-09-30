@@ -51,6 +51,7 @@ import {
   meltRefund,
   rollForgeItem,
   type ForgeItem,
+  type LoadoutSlot as ForgeLoadoutSlot,
 } from "./forge";
 import {
   ensureDaily,
@@ -498,6 +499,20 @@ export function batteryNeed(zone: Zone): number {
 /** Skilled mechanics needed for heavier machinery (higher-risk sites). */
 export function skmechNeed(zone: Zone): number {
   return zone.risk >= MECH_RISK_THRESH ? 1 + Math.floor((zone.risk - MECH_RISK_THRESH) / 20) : 0;
+}
+
+/** Convoy stores a zone needs AFTER the colony's research discounts — the same
+ *  figures `launchExpedition` enforces (l1 Long-Haul Chassis, i3 Battery Fab,
+ *  l2 Silent Drives, i2 Machine Shop). The exploration page's per-site
+ *  material breakdown reads these, so the card and the gate can never disagree. */
+export function convoyNeeds(state: GameState, zone: Zone): { gas: number; battery: number; skmech: number } {
+  return {
+    gas: Math.ceil(gasNeed(zone) * (hasTech(state, "l1") ? 0.5 : 1)),
+    battery: Math.ceil(
+      batteryNeed(zone) * (hasTech(state, "i3") ? 0.5 : 1) * (hasTech(state, "l2") ? 0.6 : 1),
+    ),
+    skmech: Math.ceil(skmechNeed(zone) * (hasTech(state, "i2") ? 0.5 : 1)),
+  };
 }
 
 /** Tier 0 present? Without all three a colony cannot field any expedition. */
@@ -1646,6 +1661,17 @@ function ensureForge(state: GameState) {
     if (it.location !== "transit") it.transit = undefined;
     if (!it.ownerName) it.ownerName = state.playerName;
     if (typeof it.ownerId !== "string") it.ownerId = "";
+    // LOADOUT (2026-09-30): old saves predate equippedBy — everything starts
+    // on the racks. Validate the shape; anything malformed is unequipped.
+    const eb = (it as { equippedBy?: unknown }).equippedBy;
+    if (
+      !eb || typeof eb !== "object" ||
+      ((eb as { kind?: unknown }).kind !== "hero" && (eb as { kind?: unknown }).kind !== "leader") ||
+      typeof (eb as { id?: unknown }).id !== "string" ||
+      !["weapon", "armor", "module1", "module2", "relic"].includes((eb as { slot?: unknown }).slot as string)
+    ) {
+      it.equippedBy = null;
+    }
   }
   if (!state.forgeRolls || typeof state.forgeRolls !== "object") state.forgeRolls = {};
   if (typeof state.forgeSeq !== "number" || !isFinite(state.forgeSeq) || state.forgeSeq < 0) state.forgeSeq = 0;
@@ -2421,7 +2447,7 @@ export function launchExpedition(state: GameState, zoneId: string, assignedScien
 
 // ------- Workshop crafting (radiation gear & the forged alloy) -------
 
-export function craftItem(state: GameState, kind: CraftKind, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+export function craftItem(state: GameState, kind: CraftKind, now = Date.now(), quiet = false): { ok: boolean; error?: string; state: GameState } {
   advance(state, now);
   if (!state.race) return fail("Choose a race first.");
   const def = CRAFT[kind];
@@ -2444,13 +2470,37 @@ export function craftItem(state: GameState, kind: CraftKind, now = Date.now()): 
       : kind === "gas" || kind === "battery"
         ? " — the convoy's logistics stores grow"
         : "";
-  log(state, `The Workshop forged a ${def.label}${note}.`);
+  // The batch path passes quiet and writes ONE summary line itself, so a
+  // 20-kit forge doesn't push the colony's history off the 60-line log.
+  if (!quiet) log(state, `The Workshop forged a ${def.label}${note}.`);
   recordSeasonEvent(state, "craft_item", now); // Season 0 daily objective
   // V7 daily to-do: any craft completes craft_item; gas/battery also complete
   // the refuel_convoy item.
   noteDailyEvent(state, "craft_item", now);
   if (kind === "gas" || kind === "battery") noteDailyEvent(state, "refuel_convoy", now);
   return { ok: true, state };
+}
+
+/** BULK FORGE (owner 2026-09-30): one tap, up to `count` kits. Loops the
+ *  single-item `craftItem` so every charge, recipe check and daily note runs
+ *  exactly as it would for one-at-a-time taps — the loop simply stops at the
+ *  first failure (supplies run dry, alloy recipe incomplete) instead of
+ *  pretending the rest landed. `crafted` is the honest count; `ok` is true
+ *  whenever at least one kit landed, and `error` carries the first failure's
+ *  reason so the UI can say "forged 7, then supplies ran out". */
+export function craftItemBatch(state: GameState, kind: CraftKind, count: number, now = Date.now()): { ok: boolean; crafted: number; error?: string; state: GameState } {
+  const n = Math.max(1, Math.min(99, Math.floor(count) || 1));
+  let crafted = 0;
+  let error: string | undefined;
+  for (let i = 0; i < n; i++) {
+    const res = craftItem(state, kind, now, true);
+    if (!res.ok) { error = res.error; break; }
+    crafted++;
+  }
+  // ONE chronicle line for the whole batch — the per-kit lines are suppressed
+  // above so a bulk forge never floods the 60-line log.
+  if (crafted > 0) log(state, `The Workshop forged ${crafted} × ${CRAFT[kind].label}.`);
+  return { ok: crafted > 0, crafted, error, state };
 }
 
 export function beginStudy(state: GameState, kind: "ember" | "chipset", now = Date.now()): { ok: boolean; error?: string; state: GameState } {
@@ -3080,6 +3130,9 @@ export function meltForgeItem(
   if (item.location === "transit") {
     return fail("That piece is on a supply run — a convoy in transit cannot be recalled into the furnace.");
   }
+  if (item.equippedBy) {
+    return fail("That piece is worn — take it off its bearer before melting it down.");
+  }
   const refund = meltRefund(item);
   state.resources.warplate = Math.floor(state.resources.warplate ?? 0) + refund.warplate;
   state.resources.supplies += refund.supplies;
@@ -3087,6 +3140,127 @@ export function meltForgeItem(
   state.forgeMelts = (state.forgeMelts ?? 0) + 1;
   log(state, `♻️ ${item.name} (${forgeGrade(item.grade).id}) goes back into the crucible: +${refund.warplate} Warplate, +${refund.supplies} supplies.`);
   return { ok: true, state, refund };
+}
+
+/* ---------------- LOADOUT — dressing heroes & leaders --------------------
+ *  One body, one item per slot. Equipped pieces stay location "cradle"
+ *  (worn at home, not in transit). Server-authoritative: the UI never
+ *  invents equipped state, and battle snapshots carry RESOLVED deltas
+ *  (resolveHeroEquipment) so the engine never reaches back into the loadout
+ *  mid-battle. Cargo stays cargo: equipped pieces are never lootable. */
+
+export type LoadoutSlot = "weapon" | "armor" | "module1" | "module2" | "relic";
+export interface LoadoutBearer { kind: "hero" | "leader"; id: string; }
+
+/** Which forged kind fits which slot. Module/relic slots have no item model
+ *  yet — they stay locked until the module / artifact models land. */
+function loadoutSlotFit(slot: LoadoutSlot, kind: string): boolean {
+  if (slot === "weapon") return kind === "assault";
+  if (slot === "armor") return kind === "defence";
+  return false;
+}
+
+function bearerExists(state: GameState, bearer: LoadoutBearer): boolean {
+  if (bearer.kind === "hero") return (state.prologue?.heroes ?? []).some((h) => h.id === bearer.id);
+  return (state.leaders ?? []).some((l) => l.id === bearer.id);
+}
+
+function bearerName(state: GameState, bearer: LoadoutBearer): string {
+  const list = bearer.kind === "hero" ? (state.prologue?.heroes ?? []) : (state.leaders ?? []);
+  return list.find((x) => x.id === bearer.id)?.name ?? "the bearer";
+}
+
+/** The derived loadout view: slot -> worn ForgeItem (or undefined). */
+export function loadoutOf(
+  state: GameState,
+  bearer: LoadoutBearer,
+): Partial<Record<ForgeLoadoutSlot, ForgeItem>> {
+  const out: Partial<Record<ForgeLoadoutSlot, ForgeItem>> = {};
+  for (const it of state.forgeItems ?? []) {
+    const eb = it.equippedBy;
+    if (eb && eb.kind === bearer.kind && eb.id === bearer.id) out[eb.slot] = it;
+  }
+  return out;
+}
+
+export function equipForgeItem(
+  state: GameState,
+  itemId: string,
+  bearer: LoadoutBearer,
+  slot: LoadoutSlot,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; swappedId?: string } {
+  advance(state, now);
+  const item = (state.forgeItems ?? []).find((i) => i.id === itemId);
+  if (!item) return fail("That piece is not in the Cradle's racks.");
+  if (!bearerExists(state, bearer)) return fail("That hero or leader is not with the colony.");
+  if (slot === "module1" || slot === "module2") {
+    return fail("Module slots are not open yet — the module model hasn't landed.");
+  }
+  if (slot === "relic") {
+    return fail("The relic slot waits on true artifacts — exploration finds and Chorus spoils, not forge work.");
+  }
+  if (!loadoutSlotFit(slot, item.kind)) {
+    return fail(`That piece doesn't fit the ${slot} slot — ${item.kind === "assault" ? "assault pieces are weapons" : "defence pieces are armor"}.`);
+  }
+  if (item.location !== "cradle") {
+    return fail("That piece isn't on the racks — only stored pieces can be worn.");
+  }
+  if (item.equippedBy && item.equippedBy.kind === bearer.kind && item.equippedBy.id === bearer.id && item.equippedBy.slot === slot) {
+    return { ok: true, state }; // already worn there — idempotent
+  }
+  if (item.equippedBy) {
+    return fail("That piece is already worn by someone else — one body, one item.");
+  }
+  // The swap: whatever was in the slot goes back to the racks, atomically.
+  const worn = loadoutOf(state, bearer)[slot];
+  if (worn) worn.equippedBy = null;
+  item.equippedBy = { kind: bearer.kind, id: bearer.id, slot };
+  const who = bearerName(state, bearer);
+  log(state, `🛡️ ${who} takes up ${item.name} (${forgeGrade(item.grade).id})${worn ? ` — ${worn.name} goes back to the racks` : ""}.`);
+  return { ok: true, state, swappedId: worn?.id };
+}
+
+export function unequipForgeItem(
+  state: GameState,
+  itemId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const item = (state.forgeItems ?? []).find((i) => i.id === itemId);
+  if (!item) return fail("That piece is not in the Cradle's racks.");
+  if (!item.equippedBy) return { ok: true, state }; // already on the racks — idempotent
+  const who = bearerName(state, { kind: item.equippedBy.kind, id: item.equippedBy.id });
+  item.equippedBy = null;
+  log(state, `🛡️ ${item.name} comes off ${who} and goes back to the racks.`);
+  return { ok: true, state };
+}
+
+/** The battle seam: resolve a bearer's worn pieces into the snapshot block.
+ *  Carries RESOLVED stat deltas in HERO-attribute space (power/guard — the two
+ *  axes the forge and hero stat systems share by meaning) plus item identity
+ *  for the battle report. Never live references: the snapshot is the lock;
+ *  editing the loadout later can't rewrite a battle already joined. */
+export function resolveHeroEquipment(
+  state: GameState,
+  bearer: LoadoutBearer,
+): {
+  weapon?: { itemId: string; name: string; grade: string };
+  armor?: { itemId: string; name: string; grade: string };
+  attrs: { power: number; guard: number };
+} | undefined {
+  const worn = loadoutOf(state, bearer);
+  const w = worn.weapon;
+  const a = worn.armor;
+  if (!w && !a) return undefined;
+  return {
+    ...(w ? { weapon: { itemId: w.id, name: w.name, grade: w.grade } } : {}),
+    ...(a ? { armor: { itemId: a.id, name: a.name, grade: a.grade } } : {}),
+    attrs: {
+      power: (w?.stats.power ?? 0) + (a?.stats.power ?? 0),
+      guard: (w?.stats.guard ?? 0) + (a?.stats.guard ?? 0),
+    },
+  };
 }
 
 /** SUPPLY RUN — move a piece between the Cradle's racks and the field.
@@ -3106,6 +3280,9 @@ export function beginSupplyRun(
   if (!item) return fail("That piece is not in the Cradle's racks.");
   if (item.location === "transit") return fail("That piece is already on a supply run.");
   if (item.location === to) return fail(`That piece is already ${to === "field" ? "in the field" : "in the Cradle's racks"}.`);
+  if (item.equippedBy) {
+    return fail("That piece is worn — take it off its bearer before sending it to the field.");
+  }
   const arriveAt = now + FORGE_CONFIG.supplyRunMs;
   item.transit = { from: item.location, to, departAt: now, arriveAt };
   item.location = "transit";

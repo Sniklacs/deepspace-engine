@@ -8,7 +8,9 @@ import {
   submitFeedbackFn, listMyFeedbackFn, dismissNoticeFn,
   weaponBuildFn, refinePlasmaFn,
   forgeRollFn, forgeMeltFn,
+  equipForgeItemFn, unequipForgeItemFn,
   claimDailyRewardFn,
+  applyTimeTokenFn,
   leaveActOneFn,
 } from "../game/api";
 import type { GameSummary } from "../game/api";
@@ -25,9 +27,11 @@ import { fmtDuration, formatTime } from "../game/i18n/format";
 import { domainDescription } from "../game/i18n";
 import {
   DEEP, isDeepZone, hazmatPerScientist,
-  requiredGear,
+  requiredGear, convoyNeeds,
   hasStepOutGear,
 } from "../game/engine";
+import type { CraftKind } from "../game/engine";
+import WorkshopShelf from "../components/WorkshopShelf";
 import {
   raceFamilies, ARMORY_FAMILY_TECH, weaponStats, weaponCost, weaponTimeMs, modelName, STAT_LABELS,
   ARMORY_CONFIG, ARMORY_BUILD_SLOTS,
@@ -57,6 +61,7 @@ import { ForgedRack } from "../components/ForgeViews";
 import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
 import BattlesTab from "../components/BattlesTab";
+import LoadoutTab from "../components/LoadoutTab";
 import { diffResolvedEvents } from "../game/report-events";
 import { tip, RESOURCE_TIPS, DOMAIN_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
 import type { GameState, RaceId, DomainId, Zone, FeedbackRecord, FeedbackCategory, FeedbackSeverity } from "../game/types";
@@ -579,8 +584,11 @@ function PlayPage() {
       {tab === "colony" && (
         <CradleScreen
           state={state}
+          now={now}
+          timeTokens={state.timeTokens ?? {}}
           onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")}
-          onCraft={(k) => act(() => craftFn({ data: { token: token!, kind: k } }), "success")}
+          onSpeedup={(kind, id, sizeId) => act(() => applyTimeTokenFn({ data: { token: token!, sizeId, requestId: crypto.randomUUID(), kind, id } }), "success")}
+          onOpenAlliance={() => switchTab("battles")}
           tokenGrant={claimTokens}
           onClaim={async () => {
             const r = await act(() => claimDailyRewardFn({ data: { token: token! } }), "success");
@@ -596,8 +604,9 @@ function PlayPage() {
           canLeaveHeight={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
         />
       )}
-      {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onPrepare={() => { setTab("colony"); sound.tab(); }} />}
+      {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onCraft={(k, n) => act(() => craftFn({ data: { token: token!, kind: k, count: n } }), "success")} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} busy={busy} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} onForgeMelt={(itemId) => act(() => forgeMeltFn({ data: { token: token!, itemId } }), "success")} />}
+      {tab === "loadout" && <LoadoutTab state={state} busy={busy} onEquip={(itemId, bearer, slot) => act(() => equipForgeItemFn({ data: { token: token!, itemId, bearer, slot } }), "success")} onUnequip={(itemId) => act(() => unequipForgeItemFn({ data: { token: token!, itemId } }), "success")} />}
       {tab === "battles" && (
         <BattlesTab
           state={state}
@@ -1371,9 +1380,51 @@ function TrashConfirm({ username, onCancel, onConfirm, flash }: { username: stri
 
 /* ---------------- Expeditions tab ---------------- */
 
-function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
+/** Per-site material breakdown (owner 2026-09-30): what a run to THIS site
+ *  needs from the stores, have-vs-need, on the site's own card. Radiation gear
+ *  scales with the planned team size; convoy stores (fuel, battery, mechanics)
+ *  are the zone's own after the colony's research discounts — the same figures
+ *  the launch gate enforces, so the card and the gate never disagree. What is
+ *  shown is the need; the WHY behind each figure stays the player's discovery. */
+function SiteNeeds({ state, zone, scientists }: { state: GameState; zone: Zone; scientists: number }) {
+  const r = state.resources;
+  const gear = requiredGear(zone, scientists);
+  const convoy = convoyNeeds(state, zone);
+  const rows = [
+    gear.hazmat > 0 ? { icon: "🧥", label: "Hazmat suits", have: Math.floor(r.hazmat), need: gear.hazmat } : null,
+    gear.shots > 0 ? { icon: "💉", label: "Radiation shots", have: Math.floor(r.shots), need: gear.shots } : null,
+    gear.alloys > 0 ? { icon: "⚙️", label: "Alloy diggers", have: Math.floor(r.alloys), need: gear.alloys } : null,
+    convoy.gas > 0 ? { icon: "⛽", label: "Vehicle fuel", have: Math.floor(r.gas), need: convoy.gas } : null,
+    convoy.battery > 0 ? { icon: "🔋", label: "Battery packs", have: Math.floor(r.battery), need: convoy.battery } : null,
+    convoy.skmech > 0 ? { icon: "🔧", label: "Skilled mechanics", have: Math.floor(r.skmech), need: convoy.skmech } : null,
+  ].filter((x): x is { icon: string; label: string; have: number; need: number } => x !== null);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wider text-text-3">
+        To field — team of {scientists}
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {rows.map((row) => {
+          const ok = row.have >= row.need;
+          return (
+            <li key={row.label} className="flex items-center justify-between text-[11px]">
+              <span className="text-gray-300">{row.icon} {row.label}</span>
+              <span className={ok ? "text-ember-soft" : "text-red-300"}>
+                <Bdi dir="ltr">{row.have}/{row.need}</Bdi>
+                {!ok && <span className="text-text-3"> — short</span>}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
   state: GameState; now: number; onLaunch: (zone: string, sci: number) => void;
-  onFlash: (m?: string) => void; onPrepare: () => void;
+  onFlash: (m?: string) => void; onCraft: (k: CraftKind, count: number) => void;
 }) {
   const t = useT();
   const [sel, setSel] = useState("outer-ruins");
@@ -1383,6 +1434,12 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
   const maxSlots = 1 + state.deployedDomains.logistics;
   const canLaunch = active.length < maxSlots;
   const stepOut = hasStepOutGear(state); // Tier 0 — gates fielding ANY expedition
+  // The workshop lives on THIS page now (owner 2026-09-30) — "go back and
+  // prepare" scrolls to it instead of leaving for the Cradle.
+  const scrollToWorkshop = () => {
+    document.getElementById("exp-workshop")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    sound.tab();
+  };
 
   // Deep zones are visited through the hangar: they are visible-but-locked until
   // the colony owns enough hazmat for a single-scientist recon team (suits =
@@ -1396,7 +1453,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
     const zone = getZone(sel);
     // Tier 0 stepping-out gear gates fielding ANY expedition.
     if (!stepOut) {
-      onFlash("The Cradle hasn't stepped out yet. Forge a Medical kit, a Mechanics kit, and an Armor kit in the 🏭 Workshop (Colony tab) before any team leaves.");
+      onFlash("The Cradle hasn't stepped out yet. Forge a Medical kit, a Mechanics kit, and an Armor kit in the 🏭 Workshop below before any team leaves.");
       sound.error();
       return;
     }
@@ -1453,7 +1510,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
         <h3 className="font-semibold text-white">{t("exp.plan")} <span className="text-xs font-normal text-gray-400">{t("exp.planSub")}</span></h3>
         {!stepOut && (
           <div className="mt-3 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-            🏗️ <b>The Cradle hasn't stepped out yet.</b> Fielding any exploration requires everyday logistics gear forged in the <b className="text-amber-200">🏭 Workshop</b> (Colony tab): a <b>Medical kit</b> 🩺, a <b>Mechanics kit</b> 🔧, and an <b>Armor kit</b> 🛡️ (Tier 0, ~18 📦 total). Forge all three before you Commit.
+            🏗️ <b>The Cradle hasn't stepped out yet.</b> Fielding any exploration requires everyday logistics gear forged in the <b className="text-amber-200">🏭 Workshop</b> below: a <b>Medical kit</b> 🩺, a <b>Mechanics kit</b> 🔧, and an <b>Armor kit</b> 🛡️ (Tier 0, ~18 📦 total). Forge all three before you Commit.
           </div>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1469,6 +1526,13 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
             </button>
           </Tooltip>
         </div>
+      </div>
+
+      {/* the workshop — the page's own forge (owner 2026-09-30: most of it is
+          built FOR exploration, so it lives here now, with a value box per kit
+          instead of the old one-at-a-time sheet) */}
+      <div id="exp-workshop" className="mt-6 scroll-mt-24">
+        <WorkshopShelf state={state} onCraft={onCraft} />
       </div>
 
       {/* zone list — mild zones */}
@@ -1501,6 +1565,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
                 <Tooltip content={tip(EXPEDITION_TIPS.chipset)}><span className="rounded bg-white/5 px-2 py-0.5 text-cyan-300">Chipset {Math.round(stats.chipsetChance * 100)}%</span></Tooltip>
                 <Tooltip content={tip(EXPEDITION_TIPS.cost)}><span className="rounded bg-white/5 px-2 py-0.5 text-lime-300">Cost {cost} 📦</span></Tooltip>
               </div>
+              <SiteNeeds state={state} zone={z} scientists={sci} />
             </div>
           );
         })}
@@ -1526,8 +1591,9 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
               </div>
               <p className="mt-1 text-xs text-gray-400">{z.flavor}</p>
               {locked ? (
-                <p className="mt-2 text-xs text-amber-300/90">🔒 Hangared — needs <b className="text-amber-200">{Math.max(1, hazmatPerScientist(z.radiationLevel))} hazmat suit(s)</b> for a suited recon team before this deep site is reachable. Forge them in the 🏭 Workshop (Colony tab).</p>
+                <p className="mt-2 text-xs text-amber-300/90">🔒 Hangared — needs <b className="text-amber-200">{Math.max(1, hazmatPerScientist(z.radiationLevel))} hazmat suit(s)</b> for a suited recon team before this deep site is reachable. Forge them in the 🏭 Workshop below.</p>
               ) : (
+                <>
                 <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
                   <Tooltip content={tip(EXPEDITION_TIPS.risk)}><span className="rounded bg-white/5 px-2 py-0.5 text-red-300">Risk {z.risk}</span></Tooltip>
                   <Tooltip content={tip(EXPEDITION_TIPS.radiation)}><span className="rounded bg-red-400/10 px-2 py-0.5 text-red-300">☢️ {z.radiationLevel} deep radiation</span></Tooltip>
@@ -1540,6 +1606,8 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
                   </span>
                 </Tooltip>
               </div>
+              <SiteNeeds state={state} zone={z} scientists={sci} />
+              </>
             )}
               {!locked && (
                 <button onClick={() => { setSel(z.id); sound.tab(); setRiskZone(null); }} disabled={sel === z.id} className="mt-2 rounded border border-white/15 px-3 py-1 text-xs text-gray-300 hover:bg-white/10 disabled:opacity-40">
@@ -1558,7 +1626,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onPrepare }: {
           zone={riskZone}
           scientists={sci}
           onGo={goAnyway}
-          onPrepare={() => { setRiskZone(null); onPrepare(); }}
+          onPrepare={() => { setRiskZone(null); scrollToWorkshop(); onFlash("The Workshop is just below — forge what's missing, then Commit."); }}
           onSafer={() => {
             setRiskZone(null);
             const safe = mildZones.find((z) => z.radiationLevel === 0) || mildZones[0];
@@ -1588,14 +1656,12 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
     { icon: "💉", label: "Radiation shots", have: r.shots, need: need.shots },
     { icon: "⚙️", label: "Alloy-armed diggers", have: r.alloys, need: need.alloys },
   ];
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
-    window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
-  }, [onCancel]);
+  // OWNER 2026-09-30: this pop-up explains what's missing — it stays open until
+  // the player clicks it shut. No backdrop-click dismiss, no Escape dismiss; the
+  // ✕ and the three choice buttons below are the only ways out.
   return (
-    <div className="fixed inset-0 z-[90] modal-wrap bg-black/75" onClick={onCancel}>
-      <div className="my-auto w-full max-w-lg rounded-2xl border border-red-400/40 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[90] modal-wrap bg-black/75">
+      <div className="my-auto w-full max-w-lg rounded-2xl border border-red-400/40 bg-[#0b0e16] p-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-red-300">☢️ High radiation: {zone.name}</h3>
           <button onClick={onCancel} className="rounded border border-white/15 px-2.5 py-2 text-xs text-gray-400 hover:bg-white/10">✕</button>

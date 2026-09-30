@@ -1,14 +1,14 @@
 // NAV — the shell's slot table (game-ui-shell-spec §1.3, amendment A1).
 //
 // Pure data: id + label + icon. The Battles slot is the conditional WAR slot;
-// the other five are fixed (the rung-1 §E consolidation: Cradle · Expeditions ·
-// Lab · Armory · Circuit). The label is the accessible name verbatim.
+// the other six are fixed (the rung-1 §E consolidation: Cradle · Expeditions ·
+// Lab · Armory · Loadout · Circuit). The label is the accessible name verbatim.
 //
 // A10 (vocabulary): every label here is a ratified noun — no new player-facing
 // word is coined by the nav.
 import type { IconName } from "../components/icons";
 
-export const NAV_IDS = ["colony", "expeditions", "lab", "armory", "battles", "circuit"] as const;
+export const NAV_IDS = ["colony", "expeditions", "lab", "armory", "loadout", "battles", "circuit"] as const;
 export type NavTabId = (typeof NAV_IDS)[number];
 /** The Tab union the router/screens use — derived, so no screen can be orphaned. */
 export type Tab = NavTabId;
@@ -26,6 +26,7 @@ export const NAV: readonly NavSlot[] = [
   { id: "expeditions", label: "Exploration", icon: "march" },
   { id: "lab", label: "Lab", icon: "flask" },
   { id: "armory", label: "Armory", icon: "armor" },
+  { id: "loadout", label: "Loadout", icon: "shield" },
   { id: "battles", label: "Battles", icon: "sword", war: true },
   { id: "circuit", label: "Circuit", icon: "map" },
 ];

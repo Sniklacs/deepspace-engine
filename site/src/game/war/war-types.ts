@@ -177,6 +177,11 @@ export interface BattleHeroSnapshot {
   level: number;
   attributes: { power: number; guard: number; craft: number; presence: number };
   specialization: "vanguard" | "hearthward" | "courser" | null;
+  /** LOADOUT (2026-09-30): the bearer's worn weapon/armor, RESOLVED at
+   *  snapshot time by the server (engine.resolveHeroEquipment) — deltas in
+   *  hero-attribute space plus item identity for the report. The snapshot is
+   *  the lock: later loadout edits can't rewrite a joined battle. */
+  equipped?: BattleHeroEquipment;
   /** The squad skills that fire this battle (decision-window action mapping —
    *  B12 — arrives later; v1 commits every skill's published numbers). */
   skills: {
@@ -191,6 +196,15 @@ export interface BattleHeroSnapshot {
     /** Scoring-only skills (capture/haul) — no combat power in v1. */
     scoring?: number;
   }[];
+}
+
+/** A hero's worn weapon/armor at battle time — resolved deltas, never live refs. */
+export interface BattleHeroEquipment {
+  weapon?: { itemId: string; name: string; grade: string };
+  armor?: { itemId: string; name: string; grade: string };
+  /** power/guard deltas in hero-attribute space (the axes forge and hero
+   *  stats share by meaning). heroUnitPower folds these into attributes. */
+  attrs: { power: number; guard: number };
 }
 
 /** One committed weapon KIT: a war-role family at a tier, × how many fielded. */

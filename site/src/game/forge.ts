@@ -229,6 +229,18 @@ export function forgeDropAmount(tier: number, rand: () => number = Math.random):
 // ----------------------------------------------------------------------
 export type ForgeLocation = "cradle" | "transit" | "field";
 
+/** LOADOUT slots — the five places a hero or leader can wear gear. Weapon and
+ *  armor take forged pieces; the module slots wait on the module model and
+ *  the relic slot waits on the artifact inventory model (both render locked
+ *  until then — never faked). */
+export type LoadoutSlot = "weapon" | "armor" | "module1" | "module2" | "relic";
+
+/** Who is wearing a forged piece. */
+export interface LoadoutBearer {
+  kind: "hero" | "leader";
+  id: string;
+}
+
 export interface ForgeItem {
   /** unique identity — trade, seizure and supply runs all move THIS. */
   id: string;
@@ -257,6 +269,9 @@ export interface ForgeItem {
   /** LOCATION: main colony stores · in transit · deployed in the field */
   location: ForgeLocation;
   locationSince: number;
+  /** LOADOUT: the hero/leader wearing this piece, or null on the racks.
+   *  Equipped pieces stay location "cradle" — they're worn at home. */
+  equippedBy: { kind: "hero" | "leader"; id: string; slot: LoadoutSlot } | null;
   /** set while location === "transit" (the ~24h supply run) */
   transit?: { from: ForgeLocation; to: ForgeLocation; departAt: number; arriveAt: number };
   provenance: { rolledAt: number; gameId: string | null; race: RaceId | null; seq: number };
@@ -374,6 +389,7 @@ export function rollForgeItem(args: {
     ownerName: args.ownerName,
     location: "cradle",
     locationSince: args.now,
+    equippedBy: null,
     provenance: { rolledAt: args.now, gameId: args.gameId, race: args.race, seq: args.seq },
   };
 }

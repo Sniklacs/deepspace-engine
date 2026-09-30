@@ -640,15 +640,19 @@ const applyTimeTokenFn = createServerFn({ method: "POST" }).validator(
 });
 
 // Workshop: craft gear — everyday (Tier 0), fuel/logistics (Tier 1), radiation
-// gear + forged alloy (Tier 2).
+// gear + forged alloy (Tier 2). `count` is the BULK door (owner 2026-09-30: the
+// workshop's one-at-a-time dialog was redundant and annoying): the handler
+// loops `craftItemBatch` so one tap forges up to `count`, stopping at the first
+// failure (supplies run dry, alloy recipe incomplete) and reporting how many
+// actually landed.
 const craftFn = createServerFn({ method: "POST" }).validator(
-  z.object({ token: z.string(), kind: z.enum(["medkit", "mechkit", "armorkit", "skmech", "gas", "battery", "hazmat", "shots", "alloy"]) })
+  z.object({ token: z.string(), kind: z.enum(["medkit", "mechkit", "armorkit", "skmech", "gas", "battery", "hazmat", "shots", "alloy"]), count: z.number().int().min(1).max(99).optional().default(1) })
 ).handler(async ({ data }): Promise<GameResult> => {
   const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
-  const res = engine.craftItem(st, data.kind, Date.now());
+  const res = engine.craftItemBatch(st, data.kind, data.count ?? 1, Date.now());
   if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
@@ -716,6 +720,32 @@ const forgeMeltFn = createServerFn({ method: "POST" }).validator(
   const res = engine.meltForgeItem(st, data.itemId, Date.now());
   if (res.ok && res.state) await saveActiveState(accountId, res.state);
   return { ok: res.ok, error: res.error, refund: res.refund, state: res.state ? publicState(res.state) : undefined };
+});
+// LOADOUT — dress a hero/leader: equip a forged piece into a slot (swap is
+// atomic; the displaced piece returns to the racks), or take one off.
+// Server-authoritative: the UI never invents equipped state.
+const loadoutBearerSchema = z.object({ kind: z.enum(["hero", "leader"]), id: z.string() });
+const equipForgeItemFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), itemId: z.string(), bearer: loadoutBearerSchema, slot: z.enum(["weapon", "armor", "module1", "module2", "relic"]) })
+).handler(async ({ data }): Promise<GameResult & { swappedId?: string }> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.equipForgeItem(st, data.itemId, data.bearer, data.slot, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, swappedId: res.swappedId, state: res.state ? publicState(res.state) : undefined };
+});
+const unequipForgeItemFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), itemId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.unequipForgeItem(st, data.itemId, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 // Research tree: appoint a Leader to research a tech (costs Codices + time).
 const beginResearchFn = createServerFn({ method: "POST" }).validator(
@@ -966,6 +996,13 @@ const battleHeroSchema = z.object({
     damageReduction: z.number().optional(),
     scoring: z.number().optional(),
   })),
+  // LOADOUT: accepted but never trusted — the server re-resolves equipped
+  // from its own loadout state at pledge/commit time (resolveHeroEquipment).
+  equipped: z.object({
+    weapon: z.object({ itemId: z.string(), name: z.string(), grade: z.string() }).optional(),
+    armor: z.object({ itemId: z.string(), name: z.string(), grade: z.string() }).optional(),
+    attrs: z.object({ power: z.number(), guard: z.number() }),
+  }).optional(),
 });
 
 /** Build the engine-facing reserve view for the caller's colony: heroes not
@@ -1024,6 +1061,10 @@ const battleIssueFn = createServerFn({ method: "POST" }).validator(
   const battle = st.battles?.find((b) => b.id === data.battleId);
   if (!battle || battle.status !== "active") return { ok: false, error: "That battle isn't running." };
   const heroes = (data.heroes ?? []) as unknown as BattleHeroSnapshot[];
+  for (const h of heroes) {
+    const eq = engine.resolveHeroEquipment(st, { kind: "hero", id: h.id });
+    if (eq) h.equipped = eq; else delete h.equipped;
+  }
   const reserves = battleReservesFor(st, heroes.map((h) => h.id), battle, data.side);
   const res = issueDecision(battle, data.side, data.windowId, data.action, Date.now(), reserves, {
     heroes,
@@ -1089,6 +1130,10 @@ const battleRespondFn = createServerFn({ method: "POST" }).validator(
   const battle = st.battles?.find((b) => b.id === data.battleId);
   if (!battle || battle.status !== "active") return { ok: false, error: "That battle isn't running." };
   const heroes = data.heroes as unknown as BattleHeroSnapshot[];
+  for (const h of heroes) {
+    const eq = engine.resolveHeroEquipment(st, { kind: "hero", id: h.id });
+    if (eq) h.equipped = eq; else delete h.equipped;
+  }
   // Affordability is the RESPONDER's home: their bodies march even when they
   // fight on the caller's side. The aid call itself is found here (not after)
   // so the engine and the API bill the same roster.
@@ -1749,6 +1794,12 @@ const rallyPledgeFn = createServerFn({ method: "POST" }).validator(
     const r = rallyOf(st, data.rallyId);
     if (!r) return { ok: false, error: "That rally doesn't exist." };
     const heroes = (data.heroes ?? []) as unknown as BattleHeroSnapshot[];
+    // LOADOUT, server-authoritative: re-resolve each pledged hero's worn gear
+    // from OUR loadout state — the client's equipped block is never trusted.
+    for (const h of heroes) {
+      const eq = engine.resolveHeroEquipment(st, { kind: "hero", id: h.id });
+      if (eq) h.equipped = eq; else delete h.equipped;
+    }
     // Our troops, our save: lock them here.
     const locked = lockPledgeLocal(
       st, r,
@@ -1934,6 +1985,8 @@ export {
   refinePlasmaFn,
   forgeRollFn,
   forgeMeltFn,
+  equipForgeItemFn,
+  unequipForgeItemFn,
   beginResearchFn,
   chooseRevelationFn,
   allocateLeaderPointFn,

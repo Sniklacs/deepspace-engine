@@ -27,7 +27,7 @@ import { Tooltip } from "../Tooltip";
 import { JournalButton } from "../JournalButton";
 import { engineHelpers } from "../../game/client-utils";
 import { CRADLE_SLOTS, CRADLE_SLOT_BY_ID, kitsHeld } from "../../game/cradle-slots";
-import { CRAFT, CRAFT_RESOURCE_KEY, canForgeAlloy, alloyRecipeRaces } from "../../game/engine";
+import { canForgeAlloy, alloyRecipeRaces } from "../../game/engine";
 import { DOMAIN_BY_ID, MAX_DOMAIN_LEVEL } from "../../game/zones";
 import { RACES, getRace } from "../../game/races";
 import { domainDescription, slotLabel } from "../../game/i18n";
@@ -39,6 +39,8 @@ import { formatDate } from "../../game/i18n/format";
 // `title=`), where there is no element to wrap.
 import { joinValue } from "../../game/i18n/split";
 import { ForgeDoor, ForgeRoom } from "../ForgeViews";
+import CradleOverview, { type SpeedupKind } from "../CradleOverview";
+import type { EarnedTimeTokenSizeId } from "../../game/time-tokens";
 import { sound } from "../../game/sound";
 import { useT } from "../i18n/I18n";
 import { SplitValue } from "../i18n/SplitValue";
@@ -49,30 +51,9 @@ import { heroLevel, heroXpForLevel } from "../../game/hero-xp";
 import {
   tip, DOMAIN_TIPS, METER_TIPS, LAB_TIPS, RESOURCE_TIPS,
 } from "../../game/tooltips";
-import type { CraftKind } from "../../game/engine";
 import type { CradleSlotId } from "../../game/cradle-slots";
 import type { GameState, DomainId } from "../../game/types";
-import type { IconName } from "../icons";
 import { Bdi } from "../ui/Bdi";
-
-/** The kit glyph map — the CRAFT catalog's emoji never reach the chrome (§1.7). */
-const KIT_ICON: Record<CraftKind, IconName> = {
-  medkit: "aegis",
-  mechkit: "gear",
-  armorkit: "armor",
-  skmech: "person",
-  gas: "fuel",
-  battery: "spark",
-  hazmat: "shield",
-  shots: "beacon",
-  alloy: "crate",
-};
-
-const KIT_TIERS: { note: string; kinds: CraftKind[] }[] = [
-  { note: "Tier 0 · Step Out — gates fielding ANY exploration", kinds: ["medkit", "mechkit", "armorkit"] },
-  { note: "Tier 1 · Outer & mild zones — radiation shots, skilled mechanics, fuel & battery", kinds: ["skmech", "gas", "battery", "shots"] },
-  { note: "Tier 2 · Deep zones — suits let you EXPLORE, alloys let you EXTRACT", kinds: ["hazmat", "alloy"] },
-];
 
 const HERO_ROLE_WORD: Record<string, string> = {
   tank: "Tank",
@@ -98,8 +79,11 @@ function nextAdvance(state: GameState) {
 
 export default function CradleScreen({
   state,
+  now,
+  timeTokens,
   onPurify,
-  onCraft,
+  onSpeedup,
+  onOpenAlliance,
   onClaim,
   tokenGrant,
   onDeploy,
@@ -112,8 +96,12 @@ export default function CradleScreen({
   canLeaveHeight,
 }: {
   state: GameState;
+  now: number;
+  /** public time-token holdings (sizeId -> count) for the overview's speedups */
+  timeTokens: Record<string, number>;
   onPurify: (n: number) => void;
-  onCraft: (k: CraftKind) => void;
+  onSpeedup: (kind: SpeedupKind, id: string, sizeId: EarnedTimeTokenSizeId) => void;
+  onOpenAlliance: () => void;
   onClaim: () => void;
   /** TIME TOKENS received by the claim that just landed (owner 2026-09-27). */
   tokenGrant?: Record<string, number> | null;
@@ -137,7 +125,6 @@ export default function CradleScreen({
   const close = () => setSheet(null);
   const adv = nextAdvance(state);
   const recipe = alloyRecipeRaces(state);
-  const ownMat = state.race ? r.mats[state.race] : 0;
   const atHeight = state.prologue?.stage === "height";
   const squad = state.prologue?.squad ?? [];
   const heroes = (state.prologue?.heroes ?? []).filter((h) => squad.includes(h.id));
@@ -336,50 +323,22 @@ export default function CradleScreen({
             </div>
           </Panel>
 
-          {/* ---- B7 · the workshop shelf ---------------------------------- */}
-          <Panel testid="workshop-shelf" className="space-y-2">
+          {/* ---- B7 · the Cradle overview --------------------------------- */}
+          {/* the workshop shelf moved to the Exploration page (owner 2026-09-30):
+              the kits are expedition gear, so they live where expeditions launch. */}
+          <CradleOverview
+            state={state}
+            now={now}
+            timeTokens={timeTokens}
+            onSpeedup={onSpeedup}
+            onOpenAlliance={onOpenAlliance}
+          />
+
+          {/* ---- B7b · the inventory stores --------------------------------- */}
+          <Panel testid="inventory-stores" className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
-              <h3 className="text-[15px] font-semibold text-text-1">{t("cradle.workshop")}</h3>
-              <span className="text-[11px] text-text-3">{t("cradle.workshopSub")}</span>
-            </div>
-            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-              {(Object.keys(CRAFT) as CraftKind[]).map((k) => {
-                const def = CRAFT[k];
-                const held = r[CRAFT_RESOURCE_KEY[k]] ?? 0;
-                // THE PRICE SHOWN IS THE PRICE CHARGED: `craftCost` is the engine's
-                // own figure (0.85x with Auto-Forge, 0.9x under a Quartermaster),
-                // never the raw catalogue price the engine would not take.
-                const cost = engineHelpers.craftCost(state, k);
-                const can = r.supplies >= cost && (k !== "alloy" || canForgeAlloy(state));
-                return (
-                  <button
-                    key={k}
-                    type="button"
-                    data-testid={`kit-${k}`}
-                    aria-haspopup="dialog"
-                    aria-label={t("cradle.kitAria", { label: def.label, held, supplies: cost })}
-                    onClick={() => setSheet({ kind: "slot", id: "workshop" })}
-                    className="relative flex min-h-[84px] w-[92px] flex-none flex-col items-center justify-center gap-1 rounded-tile border border-line bg-surf-3/85 px-1 py-2 text-center"
-                  >
-                    <Icon name={KIT_ICON[k]} size={20} className="text-text-2" aria-hidden="true" />
-                    <span className="text-[11px] font-medium leading-tight text-text-1">{def.label}</span>
-                    <span className="text-[11px] text-ember-soft">
-                      <Bdi dir="ltr" className="num">{held}</Bdi> {t("cradle.heldUnit")}
-                    </span>
-                    <span className="text-[11px] text-text-3">
-                      <Bdi dir="ltr" className="num">{cost}</Bdi> {t("cradle.supUnit")}
-                    </span>
-                    {can ? (
-                      <span
-                        role="img"
-                        aria-label={t("cradle.kitReady", { label: def.label })}
-                        data-ready="true"
-                        className="absolute end-1.5 top-1.5 h-2 w-2 rounded-full bg-ember"
-                      />
-                    ) : null}
-                  </button>
-                );
-              })}
+              <h3 className="text-[15px] font-semibold text-text-1">{t("cradle.stores")}</h3>
+              <span className="text-[11px] text-text-3">{t("cradle.storesSub")}</span>
             </div>
             {/* THE HOLDINGS (owner 2026-09-27: "we're missing an embers inventory I
                 don't see how many embers I have"): the colony's OWN stock, in the same
@@ -419,6 +378,32 @@ export default function CradleScreen({
                   : <Bdi dir="ltr" className="num">{`${1 + recipe.filter((id) => id !== state.race).length}/5`}</Bdi>}
               </b>
             </div>
+            {/* FORGED GEAR (owner 2026-09-30): the colony's legend shelf — forged
+                pieces are earn-only, never sold. The row counts every forged
+                piece in the stores and breaks out the prewar-grade legendaries.
+                TRUE ARTIFACTS (exploration rare drops, Chorus raids) have no
+                inventory model yet — when it lands, they get their own row
+                here; until then nothing here is called an artifact. Tapping
+                opens the Forge room where the pieces live. */}
+            <button
+              type="button"
+              onClick={() => { setSheet({ kind: "forge", id: "forge" }); sound.tab(); }}
+              className="flex min-h-tap w-full items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2 text-left"
+              aria-label={t("cradle.forgedGearAria", { n: (state.forgeItems ?? []).length })}
+            >
+              <Icon name="star" size={16} className="shrink-0 text-amber-300" aria-hidden="true" />
+              <span className="min-w-0 flex-1 text-[12px] text-text-2">
+                {t("cradle.forgedGear")}
+                {(state.forgeItems ?? []).some((it) => it.grade === "prewar") && (
+                  <span className="ml-2 rounded-full border border-amber-300/40 px-1.5 py-0.5 text-[10px] text-amber-200">
+                    {t("cradle.prewar", { n: (state.forgeItems ?? []).filter((it) => it.grade === "prewar").length })}
+                  </span>
+                )}
+              </span>
+              <b className="shrink-0 text-[12px] text-text-1">
+                <Bdi dir="ltr" className="num">{(state.forgeItems ?? []).length}</Bdi>
+              </b>
+            </button>
           </Panel>
 
           {/* ---- B8 · the stores band ------------------------------------- */}
@@ -497,9 +482,6 @@ export default function CradleScreen({
         slot={sheet?.kind === "slot" ? (sheet.id as CradleSlotId) : null}
         onClose={close}
         onDeploy={(d) => { close(); onDeploy(d); }}
-        onCraft={(k) => { close(); onCraft(k); }}
-        recipe={recipe}
-        ownMat={ownMat}
       />
 
       {/* ---------------- the Leader sheet ---------------- */}
@@ -770,129 +752,30 @@ function SlotSheet({
   slot,
   onClose,
   onDeploy,
-  onCraft,
-  recipe,
-  ownMat,
 }: {
   state: GameState;
   slot: CradleSlotId | null;
   onClose: () => void;
   onDeploy: (d: DomainId) => void;
-  onCraft: (k: CraftKind) => void;
-  recipe: string[];
-  ownMat: number;
 }) {
   const t = useT();
   if (!slot) return null;
   const def = CRADLE_SLOT_BY_ID[slot];
-  const isWorkshop = slot === "workshop";
   return (
     <Sheet
       open
       onClose={onClose}
       labelledBy="cradle-slot-title"
-      title={isWorkshop ? t("cradle.workshop") : slotLabel(t, def)}
+      title={slotLabel(t, def)}
     >
       <SheetHeader
         id="cradle-slot-title"
-        title={isWorkshop ? t("cradle.workshop") : slotLabel(t, def)}
-        subtitle={
-          isWorkshop ? t("cradle.workshopSub") : t("cradle.levelN", { n: def.level(state) })
-        }
+        title={slotLabel(t, def)}
+        subtitle={t("cradle.levelN", { n: def.level(state) })}
         onClose={onClose}
       />
       <div className="sheet-body space-y-3 px-4 py-3 md:px-5">
-        {isWorkshop ? (
-          <>
-            <p className="text-[12px] text-text-3">
-              {t("cradle.kitsHeld")}: <b className="text-text-1"><Bdi dir="ltr" className="num">{kitsHeld(state)}</Bdi></b>{" "}
-              {t("cradle.kitsHeldOf", { total: Object.keys(CRAFT).length })}
-            </p>
-            {KIT_TIERS.map((tier, ti) => (
-              <section key={ti} className="space-y-2">
-                <h3 className="eyebrow">{tier.note}</h3>
-                {tier.kinds.map((k) => {
-                  const kit = CRAFT[k];
-                  // The sheet quotes `craftCost` (the engine's charge), not the raw
-                  // catalogue price: under Auto-Forge or a Quartermaster the two differ.
-                  const cost = engineHelpers.craftCost(state, k);
-                  const held = state.resources[CRAFT_RESOURCE_KEY[k]] ?? 0;
-                  const can = state.resources.supplies >= cost && (k !== "alloy" || canForgeAlloy(state));
-                  const desc =
-                    k === "alloy" && !canForgeAlloy(state)
-                      ? `Missing the recipe — need ${ownMat >= 1 ? "your own material ✓" : "your own material"} plus ${4 - (recipe.length ? recipe.filter((rid) => rid !== state.race).length : 0)} more race material${4 - (recipe.length ? recipe.filter((rid) => rid !== state.race).length : 0) === 1 ? "" : "s"}.`
-                      : kit.description;
-                  return (
-                    <div key={k} className="rounded-xl border border-line bg-surf-3/40 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <Icon name={KIT_ICON[k]} size={16} className="shrink-0 text-ember-soft" aria-hidden="true" />
-                          <span className="truncate text-[13px] font-semibold text-text-1">{kit.label}</span>
-                        </span>
-                        <span className="shrink-0 text-[11px] text-text-3">
-                          <Bdi dir="ltr" className="num">{held}</Bdi> {t("cradle.heldUnit")}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[11px] leading-tight text-text-3">{desc}</p>
-                      <ActionButton
-                        className="mt-2"
-                        full
-                        size="md"
-                        label={t("cradle.forgeKit", { label: kit.label })}
-                        sub={<><Bdi dir="ltr" className="num">{cost}</Bdi> {t("resource.supplies")}</>}
-                        locked={!can}
-                        reason={
-                          k === "alloy" && !canForgeAlloy(state)
-                            ? t("cradle.alloyLockedReason")
-                            : // TWO numerals in ONE sentence, each its own isolated
-                              // run: `{cost}` is the engine's charge and `{held}`
-                              // is the stores figure — both come out of the
-                              // splitter's formatter, neither out of a weld.
-                              (
-                                <SplitValue
-                                  k="cradle.needSupplies"
-                                  params={{ cost, held: Math.floor(state.resources.supplies) }}
-                                />
-                              )
-                        }
-                        onClick={() => onCraft(k)}
-                      />
-                    </div>
-                  );
-                })}
-              </section>
-            ))}
-            {/* the alloy recipe strip — cross-race territory materials */}
-            <section>
-              <h3 className="eyebrow">Alloy recipe — 5 unique race materials</h3>
-              <p className="mt-1 text-[11px] text-text-3">your own + any 4 other races.</p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {RACES.map((race) => {
-                  const count = state.resources.mats[race.id] ?? 0;
-                  const isOwn = state.race === race.id;
-                  const inRecipe = recipe.includes(race.id);
-                  return (
-                    <span
-                      key={race.id}
-                      className={`chip border ${
-                        inRecipe
-                          ? "border-ember/50 bg-ember/10 text-ember-soft"
-                          : count > 0
-                            ? "border-line-strong bg-surf-3 text-text-1"
-                            : "border-line bg-surf-2 text-text-3"
-                      }`}
-                    >
-                      {race.name.replace("The ", "")}
-                      {isOwn ? " (own)" : ""} <Bdi dir="ltr" className="num">&times;{count}</Bdi>
-                    </span>
-                  );
-                })}
-              </div>
-              <p className="mt-2 text-[11px] text-text-3">{RESOURCE_TIPS.mats.what}</p>
-            </section>
-          </>
-        ) : (
-          (() => {
+          {(() => {
             const domain = slot as DomainId;
             const info = DOMAIN_BY_ID[domain];
             const level = state.deployedDomains[domain];
@@ -940,8 +823,7 @@ function SlotSheet({
                 )}
               </>
             );
-          })()
-        )}
+          })()}
       </div>
     </Sheet>
   );

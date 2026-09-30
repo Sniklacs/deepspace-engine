@@ -110,9 +110,12 @@ export function kitPower(family: keyof typeof WEAPON_BASE_STATS, tier: number): 
  *  the decision windows arriving with B12). */
 export function heroUnitPower(hero: BattleHeroSnapshot): number {
   const a = hero.attributes ?? { power: 0, guard: 0, craft: 0, presence: 0 };
+  // LOADOUT: worn weapon/armor fold into power/guard before weighting —
+  // the snapshot's resolved deltas, never the live loadout.
+  const eq = hero.equipped?.attrs;
   const weights = BATTLES_CONFIG.heroAttrWeights;
-  const base = Math.max(0, a.power ?? 0) * weights.power
-    + Math.max(0, a.guard ?? 0) * weights.guard
+  const base = Math.max(0, (a.power ?? 0) + (eq?.power ?? 0)) * weights.power
+    + Math.max(0, (a.guard ?? 0) + (eq?.guard ?? 0)) * weights.guard
     + Math.max(0, a.presence ?? 0) * weights.presence
     + Math.max(0, a.craft ?? 0) * weights.craft;
   const level = Math.max(1, Math.trunc(hero.level) || 1);
