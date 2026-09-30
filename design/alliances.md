@@ -69,6 +69,57 @@ The rally is how an alliance turns fifty garrisons into one army.
   rally arrives as one force; an aid call arrives as a second force. Both
   exist; they stack.
 
+### Rally maneuvers — the battle plan
+
+A rally isn't a pile of troops — it's a **plan**. When the caller launches,
+they set how the pledged force enters the fight: from where, and when. PvP
+battles are timed, not number-crunching, so logistics is a weapon. This is
+the mechanic most games in this format don't have.
+
+**Entry vectors:**
+- **MAIN** — the frontal force. Engages at T+0. Holds the enemy's attention
+  and their facing.
+- **FLANK** (left/right) — side attacks, entering at a timed offset.
+- **REAR** — the sweep: circles behind the enemy. Requires a logistics tail —
+  at least 20% of the maneuver's weight must be Wardens (proposed). Long
+  moves starve without escorts.
+- **RESERVE** — held back, committed at the caller's chosen time (or thrown
+  in mid-battle through a decision window).
+
+**Why five troop types exist** — each has a job in the plan:
+- **Bulwark → MAIN.** Holds the line, absorbs the enemy's facing.
+- **Reaver → FLANK/REAR.** Fast shock — the sweepers.
+- **Longeye → FLANK.** Zone denial — cuts off the enemy's response and
+  retreat.
+- **Thunder → MAIN/RESERVE only.** Too heavy to sweep; softens the line or
+  answers late.
+- **Warden → escort.** Every FLANK/REAR maneuver needs its logistics tail;
+  Wardens shield the approach and keep the sweep fed.
+
+**Timing:** each maneuver carries an entry time (minutes from battle start),
+set by the caller. The battle engine consumes the plan as scheduled entry
+events — the force doesn't all arrive at once unless the plan says so.
+
+**Surprise:** FLANK/REAR maneuvers are hidden until they enter. On entry
+they get a surprise window (proposed: 5 minutes) — +25% power, and the
+defender cannot reassign facing during it. After the window closes, it's a
+straight fight.
+
+**Counter-play:** the defender isn't helpless —
+- *Intel:* the rally's composition is visible at launch (scouts report the
+  muster), but the **plan** stays hidden until each maneuver enters. You know
+  they brought Reavers; you don't know where they're going.
+- *Screens:* the defender may post pickets on a vector (assign a share of
+  their force); a screened vector halves the surprise bonus.
+- *Response window:* a revealed maneuver opens a decision window for the
+  defender (hooks into the engine's existing window system, `war-types.ts`
+  B12) — commit the reserve to meet it, or hold.
+
+**The point:** most games resolve a rally as one number hitting another
+number. Here the rally is vectors, timing, and logistics — and the Warden
+isn't "the shield guy," it's the reason your sweep doesn't starve halfway
+around the enemy.
+
 ---
 
 ## 3. Reinforcement — standing in someone else's walls
@@ -152,6 +203,9 @@ feel alive.
 | Help actions | 5 / colony / day | Scarcity with fairness |
 | Help tick size | T1 5 min → T5 60 min | Helper's tier sets it |
 | Reinforcement travel | same-server fast; FOB via your jump | No teleporting soldiers |
+| Maneuver surprise window | 5 min, +25% power | Hidden until entry |
+| REAR escort requirement | ≥20% Warden weight | No logistics, no sweep |
+| Max maneuvers per rally | 4 (MAIN + 3) | Plans stay legible |
 
 ---
 
@@ -170,6 +224,14 @@ feel alive.
 4. **Rally ownership of loot:** a victorious rally's cargo — split by
    contribution, or caller's discretion? (Proposed: split by committed
    supply-weight. Math, not favoritism.)
+5. **Maneuver intel depth:** composition visible at launch, plan hidden —
+   or should scouting be a real mechanic (send scouts, get the plan)?
+   (Proposed: v1 is automatic intel as specced; scouting as a counter-play
+   system is v2.)
+6. **Defender battle plans:** can defenders set their own vectors and
+   timing, or only screens + reserve response? (Proposed: v1 defenders get
+   screens and the response window; full defensive planning is v2. Attackers
+   plan, defenders react — that's the genre.)
 
 ---
 
@@ -188,3 +250,9 @@ feel alive.
   tier. Same authority rule as everything else: server is truth.
 - Battle feed records `allianceId` per contributing colony — the memorial
   plaques read this.
+- `BattlePlan`: `{ maneuvers: [{ troops, vector, enterAtMin }] }` on the
+  Rally. The battle engine consumes it as scheduled entry events; FLANK/REAR
+  entries carry the surprise-window modifier until it expires. Pledged troop
+  *types* are validated against vector rules at plan time (Thunder can't
+  flank, REAR needs its Wardens) — illegal plans are rejected before launch,
+  not mid-battle.
