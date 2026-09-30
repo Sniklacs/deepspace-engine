@@ -354,7 +354,7 @@ check("~100 Votives ≈ $1", cfg.votivesPerUsd === 100);
 check("no conversion locked", cfg.allowScripVotiveConversion === false);
 check("no randomized purchases locked", cfg.allowRandomizedPurchases === false);
 check("passes never expire locked", cfg.passesNeverExpire === true);
-check("Season 0 duration = 6 weeks", cfg.season0DurationMs === 6 * 7 * 24 * 60 * 60 * 1000);
+check("Season 0 duration = 12 weeks (synchronized season model)", cfg.season0DurationMs === 12 * 7 * 24 * 60 * 60 * 1000);
 check("Scrip-in-pack cap = 200", cfg.maxScripPerPack === 200);
 check("storefront disabled in beta", cfg.storefrontEnabled === false);
 check("deed display flag on", cfg.deedDisplayInShop === true);

@@ -62,14 +62,17 @@ import { xsollaSkuFor } from "./payments/xsolla-catalog";
 // These live ABOVE MONETIZATION_CONFIG on purpose: the season's pacing is a
 // CONSEQUENCE of them, never a hand-set number. A tier used to cost a flat 1,000
 // XP — 28,000 XP for the ladder, against the ~3,450 XP the objective tables can
-// actually grant inside a 42-day season (82 XP/day at most, measured
+// actually grant inside an 84-day season (82 XP/day at most, measured
 // 2026-09-26). A pass that cannot be completed inside its own season is not a
 // tuning choice but a broken promise, so the tier price below is arithmetic over
 // the season's own length and its own earnable rate. Change the objective XP,
 // the weekly targets, or the season's length, and the pass follows automatically.
 // ======================================================================
-/** Season 0's length (§4.1/§8.5: the PvE-loop season, 6 weeks — owner may prefer 8). */
-export const SEASON0_DURATION_MS = 6 * 7 * 24 * 60 * 60 * 1000;
+/** Season 0's length (§4.1/§8.5: the PvE-loop season, 12 weeks — the
+ *  synchronized season model, seasons.md). The battle-pass tier price below
+ *  derives from this, so lengthening the season lengthens the ladder's XP
+ *  cost proportionally — the pass stays completable inside its own season. */
+export const SEASON0_DURATION_MS = 12 * 7 * 24 * 60 * 60 * 1000;
 /** §4.1 — weekly objective targets (spec names "N expeditions / M Codices").
  *  Named once, read by the objective descriptions below and by the config. */
 const WEEKLY_EXPEDITION_TARGET = 10;
@@ -134,7 +137,7 @@ const SEASON_WEEKLY_XP = WEEKLY_OBJECTIVES.reduce((sum, o) => sum + o.xp, 0);
  * re-measured if a pacing change alters what a day of play can earn.
  */
 export const SEASON_EARNABLE_XP_PER_DAY = SEASON_DAILY_XP + SEASON_WEEKLY_XP / 7;
-/** The season expressed in days, read from its own declared length (42 today). */
+/** The season expressed in days, read from its own declared length (84 today). */
 export const SEASON_DURATION_DAYS = SEASON0_DURATION_MS / 86_400_000;
 /**
  * Headroom policy — deliberately a SHARE, not an XP number: the whole ladder
@@ -176,8 +179,9 @@ export const MONETIZATION_CONFIG = {
   // §4.1/§8.4 — purchased passes never expire (Halo principle); unclaimed
   // season items return (DRG). No expiry field exists on pass entitlements.
   passesNeverExpire: true,
-  // §4.1/§8.5 — Season 0 runs the PvE loop. 6 weeks (owner may prefer 8) —
-  // named once above, because the season's LENGTH is an input to the tier price.
+  // §4.1/§8.5 — Season 0 runs the PvE loop. 12 weeks, the synchronized
+  // season model — named once above, because the season's LENGTH is an input
+  // to the tier price.
   season0Id: "s0_the_shattering",
   season0DurationMs: SEASON0_DURATION_MS,
   // §3.3/§8.6 — the single gray area: packs may carry at most ~2 days of casual

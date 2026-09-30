@@ -1,5 +1,6 @@
 // armory-tests/armory-value-curve-verify.ts — THE ARMORY TIERS (owner-ratified
-// 2026-09-27), measured against the economy the re-time just shipped.
+// 2026-09-27, RE-TIMED 2026-09-30 for the 12-week season model), measured
+// against the economy the re-time just shipped.
 //
 // WHAT THIS SUITE IS FOR. The armory's tier ladder is a PACING object: four
 // build times, a stat multiplier per tier, and a bounded build concurrency. It
@@ -12,13 +13,13 @@
 //   1. THE LADDER — tierMult is exactly [1, 1.8, 3.2, 16] and T4 === 5 × T3;
 //      every family's stats at every tier are the base × the multiplier, on all
 //      four axes (a hand-edited stat table cannot pass).
-//   2. THE TIMES + THE SLOTS — 12h / 3d / 12d / 45d, exactly; 2 build slots;
-//      one family 60.5 d, five families 302.5 d serial / 151.25 d at two slots
+//   2. THE TIMES + THE SLOTS — 8h / 2d / 8d / 28d, exactly; 2 build slots;
+//      one family 38.33 d, five families 191.67 d serial / 95.83 d at two slots
 //      (the numbers the pacing brief priced). Every timer's floor is
 //      MIN_TIMER_FRACTION of its own base, and a MAXIMUM legal 3.5× compression
 //      (the monetization ceiling) is asserted to land at the floor, not through
 //      it — this is the speed-up tripwire path, asserted before anything is sold.
-//   3. ONE FORMATTER — 12d and 45d render through `fmtDuration` (day-scale, all
+//   3. ONE FORMATTER — 8d and 28d render through `fmtDuration` (day-scale, all
 //      five languages), never as minutes; exactly one duration formatter is
 //      defined in src/; no player-facing file carries a hand-written tier-time
 //      table (the check has a negative control: it is asserted to CATCH the
@@ -35,7 +36,7 @@
 //   6. THE GUARDRAILS — earn-only tripwire, the season standing rule, the costs
 //      and the research gates all unchanged.
 //   7. THE ENGINE RUNS IT — the slot cap enforced in play, two families in
-//      parallel, a third refused, and the T4 commitment lasting exactly 45 days.
+//      parallel, a third refused, and the T4 commitment lasting exactly 28 days.
 //
 // Run: cd /home/team/shared/armory-tests && env -u DATABASE_URL bun run armory-value-curve-verify.ts
 import * as engine from "/home/team/shared/site/src/game/engine.ts";
@@ -84,25 +85,25 @@ console.log("— 1 · THE LADDER: [1, 1.8, 3.2, 16], T4 = 5 × T3 —");
   }
 }
 
-console.log("— 2 · THE TIMES: 12h · 3d · 12d · 45d, and 2 build slots —");
+console.log("— 2 · THE TIMES: 8h · 2d · 8d · 28d, and 2 build slots —");
 {
-  const WANT = [12 * HOUR, 3 * DAY, 12 * DAY, 45 * DAY];
+  const WANT = [8 * HOUR, 2 * DAY, 8 * DAY, 28 * DAY];
   const got = TIERS.map((t) => weapons.weaponTimeMs(t));
-  check("T1 build = 12h (43,200,000 ms)", got[0] === 12 * HOUR, `${got[0]}`);
-  check("T2 upgrade = 3d (259,200,000 ms)", got[1] === 3 * DAY, `${got[1]}`);
-  check("T3 upgrade = 12d (1,036,800,000 ms)", got[2] === 12 * DAY, `${got[2]}`);
-  check("T4 upgrade = 45d (3,888,000,000 ms)", got[3] === 45 * DAY, `${got[3]}`);
+  check("T1 build = 8h (28,800,000 ms)", got[0] === 8 * HOUR, `${got[0]}`);
+  check("T2 upgrade = 2d (172,800,000 ms)", got[1] === 2 * DAY, `${got[1]}`);
+  check("T3 upgrade = 8d (691,200,000 ms)", got[2] === 8 * DAY, `${got[2]}`);
+  check("T4 upgrade = 28d (2,419,200,000 ms)", got[3] === 28 * DAY, `${got[3]}`);
   check("the four times are exactly the ratified table", JSON.stringify(got) === JSON.stringify(WANT), JSON.stringify(got));
   check("times strictly increase (no cheap shortcut to T4)", got.every((v, i) => i === 0 || v > got[i - 1]));
   check("each tier's time IS its table entry (no modifier stack touches an armory build today)", TIERS.every((t) => weapons.weaponTimeMs(t) === weapons.ARMORY_TIER_COSTS[t].timeMs));
 
   const familyDays = got.reduce((n, ms) => n + ms, 0) / DAY;
-  check("one family T1→T4 = 60.5 days of build", familyDays === 60.5, `${familyDays}`);
+  check("one family T1→T4 = 38.33 days of build", near(familyDays, 38.33, 0.01), `${familyDays}`);
   check("ARMORY_BUILD_SLOTS === 2", weapons.ARMORY_BUILD_SLOTS === 2, `${weapons.ARMORY_BUILD_SLOTS}`);
   check("…and it is the ONE number (ARMORY_CONFIG.buildSlots)", weapons.ARMORY_CONFIG.buildSlots === weapons.ARMORY_BUILD_SLOTS);
   const serial = 5 * familyDays;
-  check("five families serialise to 302.5 days", serial === 302.5, `${serial}`);
-  check("…and ~151.25 days at two slots (the brief's ~151)", serial / weapons.ARMORY_BUILD_SLOTS === 151.25, `${serial / weapons.ARMORY_BUILD_SLOTS}`);
+  check("five families serialise to 191.67 days", near(serial, 191.67, 0.01), `${serial}`);
+  check("…and ~95.83 days at two slots", near(serial / weapons.ARMORY_BUILD_SLOTS, 95.83, 0.01), `${serial / weapons.ARMORY_BUILD_SLOTS}`);
 
   // THE FLOOR — the speed-up tripwire path. MIN_TIMER_FRACTION is the same
   // constant as the 3.5× monetization ceiling; nothing purchasable touches time
@@ -121,25 +122,25 @@ console.log("— 2 · THE TIMES: 12h · 3d · 12d · 45d, and 2 build slots —"
     check(`T${t}: a MAXIMUM legal 3.5× grant lands at the floor, not through it`, maximallyCompressed === Math.round(base * floor) && base / 3.5 <= maximallyCompressed, `${maximallyCompressed} vs ${Math.round(base * floor)}`);
   }
   check("the floor passes an unmodified timer through untouched", engine.timerFloor(12 * HOUR, 12 * HOUR) === 12 * HOUR);
-  check("…and clamps a timer that a modifier genuinely collapsed", engine.timerFloor(45 * DAY, 1000) === Math.round(45 * DAY * floor), `${engine.timerFloor(45 * DAY, 1000)}`);
+  check("…and clamps a timer that a modifier genuinely collapsed", engine.timerFloor(28 * DAY, 1000) === Math.round(28 * DAY * floor), `${engine.timerFloor(28 * DAY, 1000)}`);
 }
 
-console.log("— 3 · ONE FORMATTER: 12d and 45d read as days in all five languages —");
+console.log("— 3 · ONE FORMATTER: 8d and 28d read as days in all five languages —");
 {
   const en = makeT("en");
   const t1 = fmtDuration(en, weapons.weaponTimeMs(1));
   const t3 = fmtDuration(en, weapons.weaponTimeMs(3));
   const t4 = fmtDuration(en, weapons.weaponTimeMs(4));
-  check("T1 (12h) still reads hours-and-minutes", t1 === "12h 0m", t1);
-  check("T3 (12d) reads DAYS, never `17280m`", t3 === "12d 0h", t3);
-  check("T4 (45d) reads DAYS, never `64800m`", t4 === "45d 0h", t4);
+  check("T1 (8h) still reads hours-and-minutes", t1 === "8h 0m", t1);
+  check("T3 (8d) reads DAYS, never `11520m`", t3 === "8d 0h", t3);
+  check("T4 (28d) reads DAYS, never `40320m`", t4 === "28d 0h", t4);
   check("neither day-scale timer renders as a bare minute count", !/^\d+m/.test(t3) && !/^\d+m/.test(t4), `${t3} | ${t4}`);
   const langs = ["en", "es", "pt-BR", "ru", "fa"];
   const rendered = langs.map((l) => fmtDuration(makeT(l), weapons.weaponTimeMs(4)));
-  check("all five languages render the 45-day build, none falls back to a raw key", rendered.every((r) => r.length > 2 && !r.includes("{d}") && r.includes("45")), rendered.join(" | "));
+  check("all five languages render the 28-day build, none falls back to a raw key", rendered.every((r) => r.length > 2 && !r.includes("{d}") && r.includes("28")), rendered.join(" | "));
   check("…and Persian says it in Persian", (rendered[4] ?? "").includes("روز"), rendered[4]);
   const rendered3 = langs.map((l) => fmtDuration(makeT(l), weapons.weaponTimeMs(3)));
-  check("all five languages render the 12-day build with the day unit", rendered3.every((r) => r.includes("12") && (r.includes("d") || r.includes("روز") || r.includes("dia") || r.includes("д") || r.includes("дней"))), rendered3.join(" | "));
+  check("all five languages render the 8-day build with the day unit", rendered3.every((r) => r.includes("8") && (r.includes("d") || r.includes("روز") || r.includes("dia") || r.includes("д") || r.includes("дней"))), rendered3.join(" | "));
 
   const fs = await import("node:fs");
   const { readdirSync, readFileSync, statSync } = fs;
@@ -163,7 +164,7 @@ console.log("— 3 · ONE FORMATTER: 12d and 45d read as days in all five langua
   check("no file in src/ hand-codes a tier-time table beside the ladder", offenders.length === 0, offenders.join(","));
   const plantedOld = 'function weaponTimeFor(tier: 1 | 2 | 3 | 4): string {\n  return tier === 1 ? "45m" : tier === 2 ? "3h" : tier === 3 ? "12h" : "2d";\n}';
   check("NEGATIVE CONTROL: the net CATCHES the deleted `weaponTimeFor()` copy", HARDCODED_TIER_TIME.test(plantedOld));
-  const plantedNew = 'const times = tier === 4 ? "45d" : "12h";';
+  const plantedNew = 'const times = tier === 4 ? "28d" : "8h";';
   check("NEGATIVE CONTROL: it also catches a NEW hand-written table with the ratified times", HARDCODED_TIER_TIME.test(plantedNew));
   check("…and it does not fire on the module's own ladder (weaponTimeMs reads the table)", !HARDCODED_TIER_TIME.test(readFileSync("/home/team/shared/site/src/game/armory.ts", "utf-8")));
 }
@@ -184,11 +185,11 @@ console.log("— 4 · THE VALUE CURVE: power per day of build (T4 must not be th
   check("T4 power is at least 5× T3 power (the brute)", power[3] >= 5 * power[2], `${power[3]} vs ${power[2]}`);
   check("value/day falls first, then RISES at T4 (the curve bends back up)", perDay[0] > perDay[1] && perDay[1] > perDay[2] && perDay[3] > perDay[2], perDay.map((v) => r2(v)).join(" → "));
   check("T4 is NOT the worst return in the ladder (this was the defect)", perDay[3] > Math.min(...perDay), perDay.map((v) => r2(v)).join(" / "));
-  check("the worst return is T3 (21.58/day), not T4", Math.min(...perDay) === perDay[2] && near(perDay[2], 21.58, 0.01), `${r2(perDay[2])}`);
-  check("T4's marginal step (31.42/day) beats T3's (12.56/day)", marginal[3] > marginal[2] && near(marginal[3], 31.42, 0.01) && near(marginal[2], 12.56, 0.01), `${r2(marginal[3])} vs ${r2(marginal[2])}`);
-  check("T4's marginal step also beats T2's (26.00/day)", marginal[3] > marginal[1], `${r2(marginal[3])} vs ${r2(marginal[1])}`);
+  check("the worst return is T3 (32.38/day), not T4", Math.min(...perDay) === perDay[2] && near(perDay[2], 32.38, 0.01), `${r2(perDay[2])}`);
+  check("T4's marginal step (51.85/day) beats T3's (18.83/day)", marginal[3] > marginal[2] && near(marginal[3], 51.85, 0.01) && near(marginal[2], 18.83, 0.01), `${r2(marginal[3])} vs ${r2(marginal[2])}`);
+  check("T4's marginal step also beats T2's (39.00/day)", marginal[3] > marginal[1], `${r2(marginal[3])} vs ${r2(marginal[1])}`);
   check("T4's marginal step is not the worst step in the ladder", marginal[3] > Math.min(...marginal.slice(1)), marginal.map((v) => r2(v)).join(" / "));
-  check("the pinned value/day row is 162.00 / 48.67 / 21.58 / 28.80", perDay.every((v, i) => near(v, [162, 48.67, 21.58, 28.8][i], 0.01)), perDay.map((v) => r2(v)).join(" / "));
+  check("the pinned value/day row is 243.00 / 73.00 / 32.38 / 46.29", perDay.every((v, i) => near(v, [243, 73, 32.38, 46.29][i], 0.01)), perDay.map((v) => r2(v)).join(" / "));
 
   // NEGATIVE CONTROL — the ladder this slice replaced is run through the SAME
   // test and must FAIL it. Without this, the checks above could be passing by
@@ -305,27 +306,27 @@ console.log("— 7 · THE ENGINE RUNS IT: 2 slots in play, a 45-day T4 commitmen
   check("a THIRD concurrent build is refused (the ratified 2-slot cap)", third.ok === false, third.error ?? "accepted!");
   check("…and the refusal names the cap, not a resource", (third.error ?? "").includes("2") || (third.error ?? "").includes("slots"), third.error ?? "");
   check("a family already under construction is still refused (no queue)", engine.startWeaponBuild(st, a.id, now).ok === false);
-  check("the T1 commitment is exactly 12h", st.armoryBuilds[a.id]!.doneAt - st.armoryBuilds[a.id]!.startedAt === 12 * HOUR);
+  check("the T1 commitment is exactly 8h", st.armoryBuilds[a.id]!.doneAt - st.armoryBuilds[a.id]!.startedAt === 8 * HOUR);
   engine.advance(st, now + 12 * HOUR + 1000);
-  check("after 12h both T1 builds resolved offline", engine.armoryFamilyState(st, a.id).tier === 1 && engine.armoryFamilyState(st, b.id).tier === 1);
+  check("after 8h both T1 builds resolved offline", engine.armoryFamilyState(st, a.id).tier === 1 && engine.armoryFamilyState(st, b.id).tier === 1);
   check("…and both slots are free again", engine.armorySlotsFree(st) === 2);
-  check("the third family now builds (the slot really was the blocker)", engine.startWeaponBuild(st, c.id, now + 12 * HOUR + 1000).ok === true);
-  check("T2 needs 3d and 3 plasma — the upgrade commits", engine.startWeaponBuild(st, a.id, now + 12 * HOUR + 2000).ok === true);
-  check("a T2 upgrade is exactly 3d", st.armoryBuilds[a.id]!.doneAt - st.armoryBuilds[a.id]!.startedAt === 3 * DAY);
-  engine.advance(st, now + 12 * HOUR + 3 * DAY + 2000);
-  check("after 3d the family stands at T2", engine.armoryFamilyState(st, a.id).tier === 2);
+  check("the third family now builds (the slot really was the blocker)", engine.startWeaponBuild(st, c.id, now + 8 * HOUR + 1000).ok === true);
+  check("T2 needs 2d and 3 plasma — the upgrade commits", engine.startWeaponBuild(st, a.id, now + 8 * HOUR + 2000).ok === true);
+  check("a T2 upgrade is exactly 2d", st.armoryBuilds[a.id]!.doneAt - st.armoryBuilds[a.id]!.startedAt === 2 * DAY);
+  engine.advance(st, now + 8 * HOUR + 2 * DAY + 2000);
+  check("after 2d the family stands at T2", engine.armoryFamilyState(st, a.id).tier === 2);
 
-  // The headline time: a T4 commitment lasts 45 days and resolves offline.
+  // The headline time: a T4 commitment lasts 28 days and resolves offline.
   const st4 = ready("Brute", 100);
   st4.armory[a.id] = { tier: 3, everBuilt: true };
   const t4 = engine.startWeaponBuild(st4, a.id, now);
   check("a T4 upgrade commits", t4.ok === true, t4.error ?? "");
-  check("…and it lasts exactly 45 days (3,888,000,000 ms)", st4.armoryBuilds[a.id]!.doneAt - now === 45 * DAY, `${st4.armoryBuilds[a.id]!.doneAt - now}`);
-  check("publicState carries the in-flight build (the client can render the 45-day timer)", (publicState(st4) as unknown as { armoryBuilds: Record<string, { targetTier: number; doneAt: number }> }).armoryBuilds[a.id]?.targetTier === 4);
-  engine.advance(st4, now + 45 * DAY - 1000);
+  check("…and it lasts exactly 28 days (2,419,200,000 ms)", st4.armoryBuilds[a.id]!.doneAt - now === 28 * DAY, `${st4.armoryBuilds[a.id]!.doneAt - now}`);
+  check("publicState carries the in-flight build (the client can render the 28-day timer)", (publicState(st4) as unknown as { armoryBuilds: Record<string, { targetTier: number; doneAt: number }> }).armoryBuilds[a.id]?.targetTier === 4);
+  engine.advance(st4, now + 28 * DAY - 1000);
   check("it has NOT resolved one second early", engine.armoryFamilyState(st4, a.id).tier === 3);
-  engine.advance(st4, now + 45 * DAY + 1000);
-  check("45 days later the T4 stands — resolved offline, no client involvement", engine.armoryFamilyState(st4, a.id).tier === 4);
+  engine.advance(st4, now + 28 * DAY + 1000);
+  check("28 days later the T4 stands — resolved offline, no client involvement", engine.armoryFamilyState(st4, a.id).tier === 4);
   check("…and the consumed record is gone (resolved exactly once)", st4.armoryBuilds[a.id] === undefined);
   check("…and the T4's stats are the brute (weaponStats T4 > 5× T3 power on the assault family)", weapons.weaponStats("assault", 4).power >= 5 * weapons.weaponStats("assault", 3).power, `${weapons.weaponStats("assault", 4).power} vs ${weapons.weaponStats("assault", 3).power}`);
 }

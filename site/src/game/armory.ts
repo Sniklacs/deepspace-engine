@@ -65,10 +65,11 @@ export const ARMORY_CONFIG = {
   // see `game/forge.ts` `forgeCeilingPower()`).
   tierMult: [1, 1.8, 3.2, 16.0] as const, // T2/T3/T4 multipliers over T1
   // §6 how many families may be under construction AT ONCE — owner-ratified
-  // 2026-09-27 with the four times. One family is 12h + 3d + 12d + 45d = 60.5 d;
-  // five families are 302.5 d serially and ~151 d at two slots, which is the
-  // ladder the pacing brief priced. Per-family exclusivity still holds (there is
-  // no queue on one family) — the slot is the colony's, not the family's.
+  // 2026-09-27 with the four times, re-timed 2026-09-30 for 12-week seasons.
+  // One family is 8h + 2d + 8d + 28d = 38.33 d; five families are 191.67 d
+  // serially and ~95.8 d at two slots, which is the ladder the pacing brief
+  // priced. Per-family exclusivity still holds (there is no queue on one
+  // family) — the slot is the colony's, not the family's.
   buildSlots: 2,
   // §2 plasma: the lab refines 25 embers → 1 plasma (research-gated).
   plasmaRefineEmbers: 25,
@@ -89,16 +90,21 @@ export const WEAPON_BASE_STATS: Record<WeaponType, WeaponStats> = {
 };
 
 /** §6 costs & build/upgrade times by tier (same for every family). The TIMES
- *  are owner-ratified 2026-09-27: T1 12h · T2 3d · T3 12d · T4 45d (the old
- *  45m/3h/12h/2d table predated the re-time and made a T4 a weekend's work).
- *  Day-scale on purpose: 12d and 45d are rendered by the ONE duration
- *  formatter, `fmtDuration` in `game/i18n/format.ts` — never by a minutes-only
- *  private copy. Costs are unchanged. */
+ *  are owner-ratified 2026-09-30 for the 12-week season model: T1 8h · T2 2d ·
+ *  T3 8d · T4 28d. Same curve SHAPE as the old 12h/3d/12d/45d table (×6, ×4,
+ *  ×3.5 per tier — that table was tuned for the retired 2-year/7-year model
+ *  and a lone T4 ate half a season). Compressed so a full T1→T4 line lands in
+ *  ~38 days: T3 fields for the Expansion phase, T4 for the War phase and the
+ *  Storm. A focused free player completes one line per season; a second line
+ *  is the grinder/payer's stretch goal. Costs are unchanged. Day-scale on
+ *  purpose: 8d and 28d are rendered by the ONE duration formatter,
+ *  `fmtDuration` in `game/i18n/format.ts` — never by a minutes-only private
+ *  copy. */
 export const ARMORY_TIER_COSTS: Record<WeaponTier, WeaponCost & { timeMs: number }> = {
-  1: { supplies: 40, embers: 20, fuel: 6, plasma: 0, timeMs: 12 * 60 * 60_000 },
-  2: { supplies: 120, embers: 60, fuel: 18, plasma: 3, timeMs: 3 * 24 * 60 * 60_000 },
-  3: { supplies: 320, embers: 160, fuel: 45, plasma: 12, timeMs: 12 * 24 * 60 * 60_000 },
-  4: { supplies: 900, embers: 420, fuel: 120, plasma: 30, timeMs: 45 * 24 * 60 * 60_000 },
+  1: { supplies: 40, embers: 20, fuel: 6, plasma: 0, timeMs: 8 * 60 * 60_000 },
+  2: { supplies: 120, embers: 60, fuel: 18, plasma: 3, timeMs: 2 * 24 * 60 * 60_000 },
+  3: { supplies: 320, embers: 160, fuel: 45, plasma: 12, timeMs: 8 * 24 * 60 * 60_000 },
+  4: { supplies: 900, embers: 420, fuel: 120, plasma: 30, timeMs: 28 * 24 * 60 * 60_000 },
 };
 
 /** How many families a colony may have under construction at once (owner-

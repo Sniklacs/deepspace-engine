@@ -1,11 +1,13 @@
 // V6 colony-side Armory verification (weapons-system design 2026-09-12).
 // RE-POINTED 2026-09-27 (the armory-tiers slice): the tier ladder is
-// 1 / 1.8 / 3.2 / 16 (T4 = 5 × T3), the four build times are 12h / 3d / 12d / 45d
-// and the colony holds 2 concurrent armory builds. Four pins in this file moved
-// by design (§2 stats, §3 times) and the slot cap added two more checks — no
-// assertion was deleted and the executed count went UP. The pacing side of the
-// same change (value curve, forge band, floors) is pinned in
-// `armory-value-curve-verify.ts`.
+// 1 / 1.8 / 3.2 / 16 (T4 = 5 × T3), and RE-TIMED 2026-09-30 for the 12-week
+// season model: the four build times are 8h / 2d / 8d / 28d (same curve shape
+// as the old 12h / 3d / 12d / 45d — that table was tuned for the retired
+// 2-year/7-year model and a lone T4 ate half a season). The colony holds 2
+// concurrent armory builds. Four pins in this file moved by design (§2 stats,
+// §3 times) and the slot cap added two more checks — no assertion was deleted
+// and the executed count went UP. The pacing side of the same change (value
+// curve, forge band, floors) is pinned in `armory-value-curve-verify.ts`.
 // Coverage: catalog integrity for ALL SIX races (5 families × 4 tiers each,
 // per design/weapons-catalogs-all-races.md); tier stat scaling (×1.8/×3.2/×16,
 // rounded per the module contract — strictly increasing); §6 costs & build times; research gates (hub + 5 family forges +
@@ -92,14 +94,14 @@ console.log("— 2 · stats: multipliers ×1.8/×3.2/×16 over T1 (rounded), all
   check("T4 ≥ T3 ≥ T2 ≥ T1 on every axis", t1.power <= t2.power && t2.power <= t3.power && t3.power <= t4.power && t1.logistics <= t2.logistics && t2.logistics <= t3.logistics && t3.logistics <= t4.logistics);
   check("five families have distinct stat identities", new Set(weapons.raceFamilies("watchers").map((x) => JSON.stringify(weapons.weaponStats(x.id, 1)))).size === 5);
 }
-console.log("— 3 · costs & build times per §6 table (owner-ratified 2026-09-27) —");
+console.log("— 3 · costs & build times per §6 table (owner-ratified 2026-09-30, 12-week seasons) —");
 {
   check("T1: 40 supplies + 20 embers + 6 fuel, 0 plasma", JSON.stringify(weapons.weaponCost(1)) === JSON.stringify({ supplies: 40, embers: 20, fuel: 6, plasma: 0 }));
   check("T2: 120 supplies + 60 embers + 18 fuel + 3 plasma", JSON.stringify(weapons.weaponCost(2)) === JSON.stringify({ supplies: 120, embers: 60, fuel: 18, plasma: 3 }));
   check("T3: 320/160/45 + 12 plasma", JSON.stringify(weapons.weaponCost(3)) === JSON.stringify({ supplies: 320, embers: 160, fuel: 45, plasma: 12 }));
   check("T4: 900/420/120 + 30 plasma", JSON.stringify(weapons.weaponCost(4)) === JSON.stringify({ supplies: 900, embers: 420, fuel: 120, plasma: 30 }));
   check("costs strictly increase across tiers", [1, 2, 3].every((t) => weapons.weaponCost(t + 1).supplies > weapons.weaponCost(t).supplies && weapons.weaponCost(t + 1).plasma > weapons.weaponCost(t).plasma));
-  check("times 12h/3d/12d/45d", JSON.stringify([weapons.weaponTimeMs(1), weapons.weaponTimeMs(2), weapons.weaponTimeMs(3), weapons.weaponTimeMs(4)]) === JSON.stringify([12 * 3600000, 3 * 86400000, 12 * 86400000, 45 * 86400000]));
+  check("times 8h/2d/8d/28d", JSON.stringify([weapons.weaponTimeMs(1), weapons.weaponTimeMs(2), weapons.weaponTimeMs(3), weapons.weaponTimeMs(4)]) === JSON.stringify([8 * 3600000, 2 * 86400000, 8 * 86400000, 28 * 86400000]));
   check("build times strictly increase (no shortcut up the ladder)", [1, 2, 3].every((t) => weapons.weaponTimeMs((t + 1) as 1 | 2 | 3 | 4) > weapons.weaponTimeMs(t as 1 | 2 | 3 | 4)));
   check("ARMORY_BUILD_SLOTS = 2 (two families at once)", weapons.ARMORY_BUILD_SLOTS === 2 && weapons.ARMORY_CONFIG.buildSlots === 2, `${weapons.ARMORY_BUILD_SLOTS}`);
   check("every tier's time is floored by MIN_TIMER_FRACTION (the speed-up tripwire path)", [1, 2, 3, 4].every((t) => engine.timerFloor(weapons.weaponTimeMs(t as 1 | 2 | 3 | 4), 0) === Math.round(weapons.weaponTimeMs(t as 1 | 2 | 3 | 4) * engine.MIN_TIMER_FRACTION)));
@@ -135,7 +137,7 @@ console.log("— 5 · build loop: gating, plasma, one-at-a-time, offline resolve
   check("T1 build OK (no plasma needed)", res.ok === true, res.error ?? "");
   check("resources deducted (40/20/6 per §6)", st.resources.supplies === 1460 && st.resources.embers === 1180 && st.resources.gas === 394, `${st.resources.supplies}/${st.resources.embers}/${st.resources.gas}`);
   check("second build while in-flight rejected (no queue)", !engine.startWeaponBuild(st, fam.id, now + 1).ok);
-  engine.advance(st, now + 12 * 3600000 + 1000);
+  engine.advance(st, now + 8 * 3600000 + 1000);
   check("build resolved offline → tier 1", engine.armoryFamilyState(st, fam.id).tier === 1);
   check("everBuilt latched", engine.armoryFamilyState(st, fam.id).everBuilt === true);
   check("record consumed after resolve", !(fam.id in (st.armoryBuilds ?? {})));
@@ -147,18 +149,18 @@ console.log("— 5 · build loop: gating, plasma, one-at-a-time, offline resolve
   st.resources.plasma = 3;
   res = engine.startWeaponBuild(st, fam.id, now);
   check("T2 upgrade OK with 3 plasma", res.ok === true, res.error ?? "");
-  engine.advance(st, now + 3 * 86400000 + 1000);
+  engine.advance(st, now + 2 * 86400000 + 1000);
   check("T2 resolved", engine.armoryFamilyState(st, fam.id).tier === 2);
   const scor = engine.contributionScore(st);
   st.resources.plasma = 50; st.resources.supplies = 1500; st.resources.embers = 1200; st.resources.gas = 400;
-  engine.startWeaponBuild(st, fam.id, now); engine.advance(st, now + 12 * 86400000 + 1000);
-  engine.startWeaponBuild(st, fam.id, now); engine.advance(st, now + 45 * 86400000 + 1000);
+  engine.startWeaponBuild(st, fam.id, now); engine.advance(st, now + 8 * 86400000 + 1000);
+  engine.startWeaponBuild(st, fam.id, now); engine.advance(st, now + 28 * 86400000 + 1000);
   check("T3 then T4 reached", engine.armoryFamilyState(st, fam.id).tier === 4, `${engine.armoryFamilyState(st, fam.id).tier}`);
   check("weaponsBuilt = 4", st.weaponsBuilt === 4);
   check("weapon_tier4 deed awarded", st.deedsCompleted.includes("weapon_tier4"));
   check("contribution: both deeds +10 each + their codices (+15 net from 42 = 57)", engine.contributionScore(st) === 57, `${engine.contributionScore(st)} (was ${scor})`);
   check("T4 final — no further upgrade", !engine.startWeaponBuild(st, fam.id, now).ok);
-  // THE SLOT CAP (owner-ratified 2026-09-27): 2 families at once, checked on a
+  // THE SLOT CAP (owner-ratified 2026-09-27, re-timed 2026-09-30): 2 families
   // FRESH colony so the assertions above are untouched.
   {
     const slots = readyColony(50, "Slots");
@@ -169,9 +171,9 @@ console.log("— 5 · build loop: gating, plasma, one-at-a-time, offline resolve
     const cap = engine.startWeaponBuild(slots, s3.id, now);
     check("third concurrent build REFUSED by the cap", !cap.ok && (cap.error ?? "").includes("slots"), cap.error ?? "");
     check("the refusal lists what holds the slots", (cap.error ?? "").includes(s1.name), cap.error ?? "");
-    engine.advance(slots, now + 12 * 3600000 + 1000);
-    check("both resolve at 12h and the slots free up", engine.armoryFamilyState(slots, s1.id).tier === 1 && engine.armoryFamilyState(slots, s2.id).tier === 1 && engine.armorySlotsFree(slots) === 2);
-    check("the third family now builds (the slot was the only blocker)", engine.startWeaponBuild(slots, s3.id, now + 12 * 3600000 + 1000).ok === true);
+    engine.advance(slots, now + 8 * 3600000 + 1000);
+    check("both resolve at 8h and the slots free up", engine.armoryFamilyState(slots, s1.id).tier === 1 && engine.armoryFamilyState(slots, s2.id).tier === 1 && engine.armorySlotsFree(slots) === 2);
+    check("the third family now builds (the slot was the only blocker)", engine.startWeaponBuild(slots, s3.id, now + 8 * 3600000 + 1000).ok === true);
   }
   const beforeIdem = { wb: st.weaponsBuilt, deeds: st.deedsCompleted.length, builds: Object.keys(st.armoryBuilds ?? {}).length };
   engine.resolveArmoryBuilds(st, now + 9e12);

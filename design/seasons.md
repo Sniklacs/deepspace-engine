@@ -31,7 +31,7 @@
 
 ---
 
-## 1. Season structure (proposed: 12 weeks)
+## 1. Season structure (ratified 2026-09-30: 12 weeks, synchronized)
 
 | Phase | Weeks | What's happening |
 |---|---|---|

@@ -321,7 +321,7 @@ console.log("— 7 · THE COMPANIONS — deploy timer, the objective swap, the t
   check("the daily ceiling is unchanged at 55 XP (so the pass cannot silently shrink)", DAILY_OBJECTIVES.reduce((sum, o) => sum + o.xp, 0) === 55);
   check("the standing rule: NO objective requires completing a timed build", timedBuildObjectiveViolations().length === 0, timedBuildObjectiveViolations().join(","));
   check("the earnable rate is still 55 + 190/7 = 82.1 XP/day", Math.abs(SEASON_EARNABLE_XP_PER_DAY - 82.142) < 0.01, `${SEASON_EARNABLE_XP_PER_DAY.toFixed(3)}`);
-  check("the DERIVED tier price absorbed the re-time: 63 XP/tier", SEASON_XP_PER_TIER === 63, `${SEASON_XP_PER_TIER}`);
+  check("the DERIVED tier price absorbed the re-time: 127 XP/tier", SEASON_XP_PER_TIER === 127, `${SEASON_XP_PER_TIER}`);
   check("the full ladder fits inside the season by construction", SEASON_XP_PER_TIER * (SEASON_TIER_COUNT - 1) <= SEASON_FULL_LADDER_XP, `${SEASON_XP_PER_TIER * 27} <= ${SEASON_FULL_LADDER_XP}`);
 }
 
