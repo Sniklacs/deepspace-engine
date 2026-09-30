@@ -68,6 +68,22 @@ When a legendary roll lands:
    stat card fades in, and the forge-master speaks a generated line that
    includes the name. The moment is screenshottable by design.
 
+### The forge waits (naming paralysis is the point)
+
+- **No timer.** You may walk away from the ceremony. The weapon rests in your
+  inventory as an **Unnamed Legend** — fully usable, stats as rolled — but its
+  reverb stays dormant: nothing is discovered by blood, no Oracle will read
+  it, and no deed-weight accrues toward artifact-hood until it has a name.
+  The naming can be done from the weapon card at any time; the ceremony
+  replays in full when you return.
+- The forge-master's parting line: *"It will wait. Legends are patient. The
+  question is whether you are."*
+- Owner-observed truth: players will freeze at the naming field, terrified of
+  what the name will produce. The fear is theater — and theater is the point.
+  There is **no bad reverb** in the table (§4): every outcome is an edge,
+  never a curse. The salt means no one can game it; the permanence means
+  everyone feels it. Let them sweat.
+
 ### Name rules
 
 - **Length:** 3–24 characters. Letters, spaces, apostrophes, hyphens.

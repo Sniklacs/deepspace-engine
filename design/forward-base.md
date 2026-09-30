@@ -254,6 +254,40 @@ Two tiers, never mixed:
   auto-generated from the battle record; the victorious side (if any) may add
   an epitaph line, subject to the profanity/name filters.
 
+### 9.1 Site naming — the land remembers
+
+- Every forward-base site (server + coordinates) has a **name**. A fresh
+  planting starts generic: "Beachhead \<phonetic designation\>" (e.g.
+  "Beachhead Kestrel").
+- After the first battle resolves at the site, the site is **named for the
+  biggest battle fought there — in honor of that battle's biggest
+  contributor.**
+- **Biggest battle:** by total supply-weight committed, both sides combined.
+  Only battles at this site count.
+- **Biggest contributor:** highest contribution score in that battle, where
+  contribution = supply-weight committed + 10 × kills (troop kills plus kills
+  credited to the player's heroes). Knob, tunable in playtesting.
+- **Either side can win the honor.** Attacker or defender — whoever bled most
+  meaningfully. Your beachhead can end up named after the enemy commander who
+  broke your siege. That is not a bug; it is the history layer working.
+- **Name format:** "\<PlayerName\>'s \<epithet\>". The epithet follows the
+  battle's outcome at the site:
+  - Attacker planted or held the site → **Landing** ("Drakkar's Landing")
+  - Defender held → **Stand** ("Drakkar's Stand")
+  - The base was destroyed in that battle → **Fall** ("Drakkar's Fall")
+  - The honored player may rename the epithet once (free text, filtered).
+- **Renaming:** a later, *bigger* battle at the same site re-names it. Names
+  can change hands across seasons — history gets rewritten by bigger deeds.
+- **Announcement:** server-wide, over the world speaker: *"The beachhead at
+  \<coords\> is now DRAKKAR'S STAND."*
+- **Persistence:** site names are per server+coordinates and persist across
+  seasons in the Chronicle. A new base planted at a named site inherits the
+  historic name until a bigger battle renames it. A destroyed base keeps its
+  name on the memorial plaque.
+- This is the loyalty engine made geography: players don't just remember
+  their weapons — they remember *where they bled*, and the map remembers
+  them back.
+
 ---
 
 ## 10. Tunables (all numbers proposed, none locked)
