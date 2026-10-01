@@ -60,6 +60,7 @@
 // translated in all five languages in the same commit), because a silent
 // "unknown kind" would read as a bug rather than as a rule.
 import type { GameState } from "./types";
+import { isSatelliteTech } from "./satellites";
 
 // ======================================================================
 // §1 THE TYPE — one explicit definition: size id -> duration ms.
@@ -468,6 +469,19 @@ export function applyTimeToken(
   // 3 · idempotency BEFORE the timer is read: a repeat is a no-op whatever the
   //     timer has done since (it may already have resolved — still a no-op).
   if (eventIdUsed(state, requestId)) return { ok: true, idempotent: true, compressedMs: 0 };
+  // 3b · ORBITAL WATCH (design/satellites.md §0.3): satellite restoration is
+  //      NEVER accelerable — the sky opens on research time alone. This is
+  //      checked by name before the timer is read so the refusal the player
+  //      sees is the rule, not a generic "no such timer".
+  if (target.kind === "research" && target.id) {
+    const satJob = (state.researchJobs ?? []).find((j) => j.id === target.id && j.status === "researching");
+    if (satJob && isSatelliteTech(satJob.techId)) {
+      return refuse(
+        "time.refusedSatellite",
+        "The satellites wake on research time alone — a time token cannot hasten the sky.",
+      );
+    }
+  }
   // 4 · the timer.
   const ref = timerRef(state, target);
   if (!ref) return refuse("time.refusedNoTimer", `No running ${target.kind} timer to compress.`);

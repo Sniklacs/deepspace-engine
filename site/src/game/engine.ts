@@ -76,6 +76,15 @@ import {
 } from "./war/forward-bases";
 import { resolveRosterCasualties } from "./war/roster-commit";
 import { ensurePrologue, freshPrologue } from "./prologue/prologue-state";
+import { WORLD_CONFIG_PUBLIC } from "./world-config";
+import {
+  ensureSatellites,
+  freshSatellites,
+  isSatelliteTech,
+  parseSatelliteTech,
+  satelliteTechFor,
+  setSatelliteStage,
+} from "./satellites";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
@@ -612,6 +621,10 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
     deedsCompleted: [],
     totalBreakthroughs: 0,
     leaderXpCaps: {},
+    // Season identity (the sky rolls against it — design/satellites.md §0.4).
+    seasonId: MONETIZATION_CONFIG.season0Id,
+    // Orbital Watch: the constellation over this world (~50% awake, seeded).
+    satellites: freshSatellites(WORLD_CONFIG_PUBLIC.worldId, MONETIZATION_CONFIG.season0Id),
     // ---- Hidden Unbound revelation track (V4): zeroed, silent ----
     revelationCounters: freshRevelationCounters(),
     revelations: [],
@@ -703,6 +716,8 @@ export function blankColony(now = Date.now()): GameState {
     deedsCompleted: [],
     totalBreakthroughs: 0,
     leaderXpCaps: {},
+    seasonId: MONETIZATION_CONFIG.season0Id,
+    satellites: freshSatellites(WORLD_CONFIG_PUBLIC.worldId, MONETIZATION_CONFIG.season0Id),
     // ---- Hidden Unbound revelation track (V4): zeroed, silent ----
     revelationCounters: freshRevelationCounters(),
     revelations: [],
@@ -1566,6 +1581,13 @@ function ensureKnowledge(state: GameState) {
   if (!Array.isArray(state.leaders) || state.leaders.length === 0) {
     state.leaders = starterLeaders(Date.now());
   }
+  // ---- Orbital Watch (design/satellites.md) ----
+  // Legacy saves predate the sky: roll the constellation for the current
+  // season. ensureSatellites (in advance()) keeps this true forever after.
+  if (typeof s.seasonId !== "string") s.seasonId = MONETIZATION_CONFIG.season0Id;
+  if (typeof s.satellites !== "object" || s.satellites === null) {
+    s.satellites = freshSatellites(WORLD_CONFIG_PUBLIC.worldId, s.seasonId as string);
+  }
   // ---- Leader XP / leveling / specialization (V3) ----
   // Idempotent per-leader defaults: missing fields behave like "level 1, no XP
   // earned today, no specialization, no unspent points" — old saves load clean.
@@ -1740,6 +1762,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureAlliances(state); // WAR BAND: alliance store + help budget + reinforcements (additive; never wiped by seasons)
   ensureRallies(state); // RALLIES: rally board (additive)
   ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
+  ensureSatellites(state, (m) => log(state, m)); // ORBITAL WATCH: constellation init + season re-roll
   ensureReTime(state, now); // RE-TIME: energy pool + deploy slot (no-op on a fresh save)
   // V7 daily rollover: when the UTC day turned since the last advance, finalize
   // yesterday (streak exactly-once + TD3 banked-forever claims), roll the fresh
@@ -1949,6 +1972,10 @@ function resolveResearch(state: GameState, j: ResearchJob, now: number) {
   }
   if (isArmoryTech(j.techId)) {
     resolveArmoryTech(state, j, now);
+    return;
+  }
+  if (isSatelliteTech(j.techId)) {
+    resolveSatelliteTech(state, j, now);
     return;
   }
   const tech = getTech(j.techId);
@@ -2612,6 +2639,7 @@ export function beginResearch(state: GameState, techId: string, leaderId: string
   // domain, no deployedDomains key), gated by silent thresholds only.
   if (isRevelationId(techId)) return beginRevelation(state, techId, leaderId, now);
   if (isArmoryTech(techId)) return beginArmoryResearch(state, techId, leaderId, now);
+  if (isSatelliteTech(techId)) return beginSatelliteResearch(state, techId, leaderId, now);
   const tech = getTech(techId);
   if (!tech) return fail("Unknown research project.");
   if (state.techsResearched.includes(techId)) return fail(`${tech.name} is already researched.`);
@@ -2670,6 +2698,10 @@ export function beginRevelation(state: GameState, revId: string, leaderId: strin
 function getTechSafe(techId: string): string {
   if (isRevelationId(techId)) return getRevelation(techId).name;
   if (isArmoryTech(techId)) return getArmoryTech(techId).name;
+  if (isSatelliteTech(techId)) {
+    const p = parseSatelliteTech(techId)!;
+    return `🛰️ ${p.nodeId} satellite — stage ${p.stage}`;
+  }
   const t = TECH_TREE.find((x) => x.id === techId);
   return t ? t.name : techId;
 }
@@ -2789,6 +2821,90 @@ function resolveArmoryTech(state: GameState, j: ResearchJob, now: number) {
   // RE-TIME: same retirement as `resolveResearch` above — a completed armory
   // node is a TIMED BUILD, and no season objective may depend on one.
   // V7 daily to-do: an Armory node is a completed research project.
+  noteDailyEvent(state, "research_complete", now);
+}
+
+// ------- Orbital Watch research (design/satellites.md) -------
+//
+// A Lab research line brings dormant satellites online ONE BY ONE, then
+// climbs each through stages 1 → 2 → 3. NEVER ACCELERABLE: no time-token
+// path may touch these jobs (enforced in time-tokens.ts + the Lab UI hides
+// the speedup affordance). Completions land in `satellites.restored`, NOT
+// techsResearched — the sky never inflates research counts.
+
+/** Research duration for a satellite climb: the Leader's research attribute,
+ *  Scholar path and study speed still apply — but there is NO specialty
+ *  alignment (the sky is no domain's line). */
+export function satelliteResearchDurationMs(state: GameState, techId: string, leader: Leader): number {
+  const parsed = parseSatelliteTech(techId);
+  const base = satelliteTechFor(parsed?.nodeId ?? "", (parsed?.stage ?? 1) as 1 | 2 | 3).durationMs;
+  const skill = 1 - leader.attributes.research * 0.04;
+  const scholar = scholarResearchMult(leader);
+  return timerFloor(base, base * skill * scholar * studySpeedMult(state));
+}
+
+/** A satellite climb is available when the node's stage is exactly one below. */
+export function satelliteTechAvailable(state: GameState, techId: string): boolean {
+  const p = parseSatelliteTech(techId);
+  if (!p) return false;
+  const cur = state.satellites?.stages?.[p.nodeId];
+  return cur === p.stage - 1;
+}
+
+export function satelliteTechInProgress(state: GameState, techId: string): boolean {
+  return state.researchJobs.some((j) => j.techId === techId && j.status === "researching");
+}
+
+/** Appoint a Leader to wake a satellite (or climb it a stage). Costs Codices
+ *  only; flows through the same job shape as the tree. */
+export function beginSatelliteResearch(state: GameState, techId: string, leaderId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  ensureSatellites(state);
+  const p = parseSatelliteTech(techId);
+  if (!p) return fail("Unknown research project.");
+  const node = satelliteTechFor(p.nodeId, p.stage);
+  const cur = state.satellites!.stages[p.nodeId];
+  if (cur === undefined) return fail("That ground has no satellite — sanctioned land needs no watch.");
+  if (cur >= p.stage) return fail(`That satellite is already at stage ${cur}.`);
+  if (cur !== p.stage - 1) return fail("Satellites climb one stage at a time — bring it online first.");
+  if (satelliteTechInProgress(state, techId)) return fail("That climb is already underway.");
+  if (state.codices < node.codicesCost) return fail(`The climb needs ${node.codicesCost} 📜 Codices. You have ${state.codices} — earn more through clean recoveries and deeds.`);
+  const leader = state.leaders.find((l) => l.id === leaderId);
+  if (!leader) return fail("That Leader isn't in your Council.");
+  if (leader.status !== "active") return fail(leader.status === "lost" ? `${leader.name} is lost.` : `${leader.name} is recovering and cannot watch the sky.`);
+  if (leader.assignment) return fail(`${leader.name} is already overseeing ${getTechSafe(leader.assignment)}.`);
+  const durationMs = satelliteResearchDurationMs(state, techId, leader);
+  state.codices -= node.codicesCost;
+  const id = "rs-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+  state.researchJobs.push({ id, techId, leaderId, startedAt: now, durationMs, status: "researching" });
+  leader.assignment = techId;
+  leader.history.push(`Appointed to wake the ${p.nodeId} satellite (stage ${p.stage})`);
+  log(state, `🛰️ ${leader.name} appointed to ${p.stage === 1 ? "bring the satellite online" : `climb the satellite to stage ${p.stage}`} over ${p.nodeId} (${node.codicesCost} 📜). The sky opens on research time alone — no token can hasten it.`);
+  pruneCompleted(state);
+  return { ok: true, state };
+}
+
+/** Resolve a completed satellite climb: set the stage, free the Leader, award
+ *  the standard research XP. No breakthrough roll — the sky has no specialty
+ *  to align (same carve-out as the soul path and the forge line). */
+function resolveSatelliteTech(state: GameState, j: ResearchJob, now: number) {
+  const p = parseSatelliteTech(j.techId)!;
+  const leader = state.leaders.find((l) => l.id === j.leaderId)!;
+  if (leader) {
+    leader.assignment = null;
+    leader.history.push(`Woke the ${p.nodeId} satellite — stage ${p.stage}`);
+  }
+  ensureSatellites(state);
+  setSatelliteStage(state, p.nodeId, p.stage);
+  if (!state.satellites!.restored.includes(j.techId)) {
+    state.satellites!.restored.push(j.techId);
+  }
+  const what = p.stage === 1
+    ? "it is ONLINE — arrivals here will sound the alarm"
+    : p.stage === 2
+      ? "it is TRACKING — the alarm now names who, and roughly how many"
+      : "the FULL PICTURE is in — amounts and troop types on every arrival";
+  log(state, `🛰️ ${leader ? leader.name : "A leader"} woke the satellite over ${p.nodeId} — stage ${p.stage}: ${what}.`);
+  if (leader) researchXp(state, leader, false, now);
   noteDailyEvent(state, "research_complete", now);
 }
 /**

@@ -55,6 +55,7 @@ import type { T } from "./i18n/types";
 import { keyifySegment } from "./i18n/keyify";
 import { REVELATION_TREE, getRevelation } from "./research";
 import { ARMORY_TREE, getArmoryTech } from "./research";
+import { isSatelliteTech, parseSatelliteTech } from "./satellites";
 import {
   isRevelationId,
   hasRevelation,
@@ -67,6 +68,8 @@ import {
   armoryTechInProgress,
   armoryResearchDurationMs as armoryDur,
   armoryFamilyState,
+  satelliteTechAvailable,
+  satelliteTechInProgress,
 } from "./engine";
 
 export const engineHelpers = {
@@ -149,6 +152,11 @@ export const engineHelpers = {
   researching(state: GameState) { return state.researchJobs.filter((j) => j.status === "researching"); },
   techName(techId: string) {
     if (isRevelationId(techId)) return getRevelation(techId).name;
+    if (isArmoryTech(techId)) return getArmoryTech(techId).name;
+    if (isSatelliteTech(techId)) {
+      const p = parseSatelliteTech(techId)!;
+      return `🛰️ ${p.nodeId} satellite — stage ${p.stage}`;
+    }
     return getTech(techId).name;
   },
   researchSecs(state: GameState, techId: string, leader: Leader) {
@@ -176,6 +184,10 @@ export const engineHelpers = {
   armoryName(techId: string) { return getArmoryTech(techId).name; },
   armoryAvailable(state: GameState, techId: string) { return armoryTechAvailable(state, techId); },
   armoryInProgress(state: GameState, techId: string) { return armoryTechInProgress(state, techId); },
+  // ORBITAL WATCH: single-source satellite availability / in-progress checks
+  // for the Lab's Orbital Watch section.
+  satelliteAvailable(state: GameState, techId: string) { return satelliteTechAvailable(state, techId); },
+  satelliteInProgress(state: GameState, techId: string) { return satelliteTechInProgress(state, techId); },
   armorySecs(state: GameState, techId: string, leader: Leader) {
     return Math.round(armoryDur(state, techId, leader) / 1000);
   },

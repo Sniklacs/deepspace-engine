@@ -254,6 +254,20 @@ export interface GameState {
   leaders: Leader[];
   deedsCompleted: string[];
   totalBreakthroughs: number;
+  // ---- Orbital Watch (design/satellites.md) ----
+  // Season identity the constellation rolls against (§0.4). Set at founding;
+  // when the season system advances it, advance() re-rolls the sky.
+  seasonId: string;
+  // The constellation over this world: per-node satellite stages (0 dormant …
+  // 3 full picture), rolled ~50% awake and re-randomized every season. Satellite
+  // completions are tracked in `restored`, NOT techsResearched — the sky never
+  // inflates research counts. Initialized/migrated by the engine; never null
+  // after ensureSatellites runs in advance().
+  satellites: {
+    seasonId: string;
+    stages: Record<string, 0 | 1 | 2 | 3>;
+    restored: string[];
+  };
   // ---- Leader XP day-cap ledger (shared colony-wide cap per UTC day) ----
   // dayKey -> XP already taken from the shared cap today, so back-to-back
   // research cannot grind past the daily budget. Persisted so offline runs

@@ -17,6 +17,7 @@ import { helpRemaining, allianceOf } from "../game/war/alliances";
 import { raceFamilies } from "../game/armory";
 import { EARNED_TIME_TOKEN_SIZES } from "../game/time-tokens";
 import type { EarnedTimeTokenSizeId } from "../game/time-tokens";
+import { isSatelliteTech } from "../game/satellites";
 import { useT } from "./i18n/I18n";
 import { Panel } from "./ui/Panel";
 import CradleBanner from "./CradleBanner";
@@ -118,6 +119,9 @@ export default function CradleOverview({
         <Section title={t("overview.research")}>
           {research.map((j) => {
             const leader = state.leaders.find((l) => l.id === j.leaderId);
+            // ORBITAL WATCH (design/satellites.md §0.3): satellite restoration
+            // is NEVER accelerable — no speedup affordance on these timers.
+            const satLocked = isSatelliteTech(j.techId);
             return (
               <TimerRow
                 key={j.id}
@@ -128,7 +132,7 @@ export default function CradleOverview({
                 startedAt={j.startedAt}
                 baseMs={j.durationMs}
                 tokenMs={j.timeTokenMs ?? 0}
-                speedup={{ kind: "research", id: j.id, heldSizes }}
+                speedup={satLocked ? undefined : { kind: "research", id: j.id, heldSizes }}
                 onSpeedup={onSpeedup}
               />
             );

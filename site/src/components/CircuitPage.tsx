@@ -39,6 +39,12 @@ import { Sheet, SheetHeader } from "./Sheet";
 import { Icon } from "./icons";
 import { Tooltip } from "./Tooltip";
 import {
+  coveredNodeIds,
+  satelliteStage,
+  satelliteIntelFor,
+  satelliteTechFor,
+} from "../game/satellites";
+import {
   DISPLAY_NAMES,
   LABEL_DY,
   LABEL_NODE_RADIUS,
@@ -63,6 +69,8 @@ import {
   SIGIL_COLORS,
   RIM_FALLBACK_FILL,
   WAR_SWATCH_COLORS,
+  SATELLITE_COLORS,
+  WORLD_BG,
 } from "../game/circuit-tokens";
 
 export interface CircuitPageProps {
@@ -78,6 +86,9 @@ export interface CircuitPageProps {
   onLedger: () => void;
   unread: number;
   onReports: () => void;
+  /** ORBITAL WATCH: open the Lab (Research) tab so the player can appoint a
+   *  Leader to a satellite climb. play.tsx wires this to setTab("lab"). */
+  onOpenLab?: () => void;
 }
 
 type Seg = "map" | "world";
@@ -93,6 +104,7 @@ export function CircuitPage({
   onLedger,
   unread,
   onReports,
+  onOpenLab,
 }: CircuitPageProps) {
   const t = useT();
   const circuit: AtlasGraph = useMemo(
@@ -100,6 +112,12 @@ export function CircuitPage({
     [],
   );
   const race = getRace(state.race!);
+  // ORBITAL WATCH (design/satellites.md §0.1): the covered set is geography —
+  // rim + heart nodes carry dishes; Near ring / Cradle are sanctioned land.
+  const satCovered = useMemo(() => new Set(coveredNodeIds(WORLD_CONFIG_PUBLIC.worldId)), []);
+  // The satellite ring: the same covered set, in atlas order, for the orbit
+  // ring drawn around the map (one marker per bird, state-colored).
+  const satRingIds = useMemo(() => coveredNodeIds(WORLD_CONFIG_PUBLIC.worldId), []);
 
   // Rung 1a §E — Contribution is the Circuit's "World" segment. §6.4: a
   // third Battles option joins only in war phases — the SegmentedControl
@@ -368,7 +386,17 @@ export function CircuitPage({
                 <div
                   ref={innerRef}
                   className="circuit-map-inner m-auto flex-none"
-                  style={{ width: canvas.w * scale, height: canvas.h * scale }}
+                  // ORBITAL WATCH / land-survey presentation: the original world
+                  // art sits under the SVG behind a surf-0 veil — the geography
+                  // shows through, the halo'd labels keep their contrast. The
+                  // image scales with the zoom because it lives on the zoomed div.
+                  style={{
+                    width: canvas.w * scale,
+                    height: canvas.h * scale,
+                    backgroundImage: `linear-gradient(to bottom, ${WORLD_BG.veil}, ${WORLD_BG.veil}), url(${WORLD_BG.image})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                  }}
                 >
                   <svg
                     viewBox={`0 0 ${canvas.w} ${canvas.h}`}
@@ -376,6 +404,46 @@ export function CircuitPage({
                     role="img"
                     aria-label={t("circuit.mapSvgAria", "The Circuit — world map: territories, traces, and the Chorus-held heart")}
                   >
+                    {/* LAYER 0 — the satellite ring. One marker per covered node
+                        (the constellation, in atlas order), state-colored:
+                        hollow red = dormant, filled green = awake. Shape +
+                        color, never color alone. Decorative redundancy — the
+                        dish beside each node is the information channel — so
+                        this group is aria-hidden with the other underlays and
+                        the hit circles own every tap. */}
+                    <g aria-hidden="true" style={{ pointerEvents: "none" }}>
+                      <ellipse
+                        cx={canvas.w / 2} cy={canvas.h / 2}
+                        rx={canvas.w / 2 - 28} ry={canvas.h / 2 - 38}
+                        fill="none"
+                        stroke={TRACE_COLORS.road}
+                        strokeOpacity={0.22}
+                        strokeWidth={1}
+                      />
+                      {satRingIds.map((id, i) => {
+                        const a = ((-90 + (i * 360) / satRingIds.length) * Math.PI) / 180;
+                        const mx = canvas.w / 2 + (canvas.w / 2 - 28) * Math.cos(a);
+                        const my = canvas.h / 2 + (canvas.h / 2 - 38) * Math.sin(a);
+                        const awake = satelliteStage(state, id) > 0;
+                        return awake ? (
+                          <circle
+                            key={id}
+                            cx={mx} cy={my} r={5}
+                            fill={SATELLITE_COLORS.activeFill}
+                            stroke={SATELLITE_COLORS.activeRing}
+                            strokeWidth={1}
+                          />
+                        ) : (
+                          <circle
+                            key={id}
+                            cx={mx} cy={my} r={5}
+                            fill="none"
+                            stroke={SATELLITE_COLORS.dormantFill}
+                            strokeWidth={1.5}
+                          />
+                        );
+                      })}
+                    </g>
                     {/* LAYER 0+1 — severed-trace breaks, then road / ruin-pass traces.
                         x goes through the §3.2 canvas map; y, radii and stroke widths
                         stay authored. */}
@@ -449,6 +517,32 @@ export function CircuitPage({
                             {n.kind === "rim" && n.id === "shattered-academies" && (
                               <text x={nx} y={n.y - 14} textAnchor="middle" fontSize="11" fill={SIGIL_COLORS.heartZoneStar}>★</text>
                             )}
+                            {/* ORBITAL WATCH dishes (design/satellites.md §0.5) —
+                                status + stage numeral, never color alone. Red =
+                                dormant, green + numeral = awake at that stage.
+                                Lives in this pointer-events:none group — the hit
+                                circles own every tap; the NodeSheet is the
+                                research surface. Upper-left so it never meets
+                                the tier pips (upper-right). */}
+                            {satCovered.has(n.id) && (() => {
+                              const stage = satelliteStage(state, n.id);
+                              const awake = stage > 0;
+                              return (
+                                <g key={`sat-${n.id}`} transform={`translate(${nx - r - 14},${n.y - r - 10})`}>
+                                  <circle
+                                    r={7}
+                                    fill={awake ? SATELLITE_COLORS.activeFill : SATELLITE_COLORS.dormantFill}
+                                    stroke={awake ? SATELLITE_COLORS.activeRing : SATELLITE_COLORS.dormantRing}
+                                    strokeWidth={1.5}
+                                  />
+                                  {awake && (
+                                    <text textAnchor="middle" dy="3.2" fontSize="9" fontWeight="bold" fill={SATELLITE_COLORS.activeInk}>
+                                      {stage}
+                                    </text>
+                                  )}
+                                </g>
+                              );
+                            })()}
                             {/* labels (layer 6, §2.1 ladder) — a node with no room
                                 keeps its circle, ring, pip and aria-label and simply
                                 renders no name. Nothing below 11px, ever. */}
@@ -586,7 +680,7 @@ export function CircuitPage({
       </Sheet>
 
       {/* node Sheet — the territory's story + published ground data (no war state) */}
-      <NodeSheet node={selNode} onClose={() => { setSel(null); }} />
+      <NodeSheet node={selNode} state={state} satCovered={satCovered} onOpenLab={onOpenLab} onClose={() => { setSel(null); }} />
     </div>
   );
 
@@ -840,7 +934,13 @@ function ColonySheet({ row, total, onClose }: { row: ContributionRow | null; tot
 }
 
 /* ---------------- node Sheet (the territory's story — no war state) ---------------- */
-function NodeSheet({ node, onClose }: { node?: AtlasNode; onClose: () => void }) {
+function NodeSheet({ node, state, satCovered, onOpenLab, onClose }: {
+  node?: AtlasNode;
+  state: GameState;
+  satCovered: Set<string>;
+  onOpenLab?: () => void;
+  onClose: () => void;
+}) {
   const t = useT();
   return (
     <Sheet open={!!node} onClose={onClose} labelledBy="circuit-node-sheet-title" title={node?.name ?? t("circuit.titleFallback", "The Circuit")}>
@@ -901,10 +1001,77 @@ function NodeSheet({ node, onClose }: { node?: AtlasNode; onClose: () => void })
             {node.kind === "cradle" && (
               <p className="text-xs text-text-3">{t("circuit.cradleNote", "The supply lanes run Cradle → Near Ring → Rim along the traces you see here.")}</p>
             )}
+            {/* ORBITAL WATCH (design/satellites.md) — the research surface entry
+                point: dish status, what this ground's sky reveals today, and the
+                next climb. Sanctioned land carries no watch. */}
+            {node && (satCovered.has(node.id)
+              ? <SatelliteSheetSection state={state} nodeId={node.id} onOpenLab={onOpenLab} />
+              : <p className="text-xs text-text-3">{t("circuit.satSanctioned", "Sanctioned land — no satellite watch. The sky does not need to look here.")}</p>
+            )}
           </div>
         )}
       </div>
     </Sheet>
+  );
+}
+
+/* ============================================================================
+   ORBITAL WATCH — the NodeSheet's satellite section (design/satellites.md).
+   The dish on the map is the marker; THIS is the research surface's front
+   door: dish status, what the sky over this ground reveals today, and the
+   next climb. The Lab (onOpenLab) holds the actual research line.
+   ========================================================================== */
+function SatelliteSheetSection({ state, nodeId, onOpenLab }: {
+  state: GameState;
+  nodeId: string;
+  onOpenLab?: () => void;
+}) {
+  const t = useT();
+  const stage = satelliteStage(state, nodeId);
+  const intel = satelliteIntelFor(state, nodeId);
+  const next = stage < 3 ? satelliteTechFor(nodeId, (stage + 1) as 1 | 2 | 3) : null;
+  return (
+    <div className="space-y-1.5 rounded-xl border border-white/10 bg-black/30 p-3 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold text-text-1">{t("circuit.satTitle", "🛰️ Orbital watch")}</span>
+        {stage === 0 ? (
+          <span className="chip border border-red-500/40 bg-red-500/10 font-semibold text-red-300">
+            {t("circuit.satDormantChip", "DORMANT")}
+          </span>
+        ) : (
+          <span
+            className="chip inline-flex items-center gap-1 border font-semibold"
+            style={{ borderColor: SATELLITE_COLORS.activeRing, background: SATELLITE_COLORS.activeFill, color: SATELLITE_COLORS.activeInk }}
+          >
+            {t("circuit.satStageChip", "AWAKE · STAGE {stage}", { stage })}
+          </span>
+        )}
+      </div>
+      <p className="leading-relaxed text-gray-300">
+        <b className="text-white">{t("circuit.satRevealsNow", "The sky reveals:")}</b>{" "}
+        {intel === "none"
+          ? t("circuit.satRevealNone", "nothing — arrivals are fully invisible: no alarm, no ping.")
+          : intel === "presence"
+            ? t("circuit.satRevealPresence", "an alarm when someone arrives here — but not who.")
+            : intel === "identity"
+              ? t("circuit.satRevealIdentity", "an alarm that names who arrived, and roughly how many — but not what they bring.")
+              : t("circuit.satRevealFull", "the full picture: amounts and troop types on every arrival.")}
+      </p>
+      {next && (
+        <p className="leading-relaxed text-gray-400">
+          <b className="text-white">{t("circuit.satNext", "Next climb — stage {stage}:", { stage: stage + 1 })}</b>{" "}
+          {t("circuit.satNextCost", "{codices} 📜 Codices, research time alone — no token can hasten the sky.", { codices: next.codicesCost })}
+        </p>
+      )}
+      {next && onOpenLab && (
+        <button
+          onClick={onOpenLab}
+          className="mt-1 w-full rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20"
+        >
+          {t("circuit.satOpenLab", "Open the Lab — restore this satellite")}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -920,7 +1087,7 @@ function tierWord(t: ReturnType<typeof useT>, tier: number): string {
    LEGEND — VERBATIM copy from circuit-fullscreen-page.md §4.1 (full) / §4.2
    (compact rail). Swatches are the canon §5 recipes; never color alone.
    ========================================================================== */
-type SwatchKind = "t1" | "t2" | "t3" | "heart" | "rim" | "near" | "cradle" | "road" | "ruin" | "severed" | "corrupted" | "contested" | "purified";
+type SwatchKind = "t1" | "t2" | "t3" | "heart" | "rim" | "near" | "cradle" | "road" | "ruin" | "severed" | "corrupted" | "contested" | "purified" | "satDormant" | "satActive" | "satRing";
 
 function Swatch({ kind }: { kind: SwatchKind }) {
   const base = "inline-block h-4 w-4 flex-none rounded-sm border border-line-strong";
@@ -942,6 +1109,11 @@ function Swatch({ kind }: { kind: SwatchKind }) {
   if (kind === "corrupted") return <span className={base} style={{ background: WAR_SWATCH_COLORS.corruptedFill, boxShadow: `inset 0 0 0 1px ${WAR_SWATCH_COLORS.corruptedRing}` }} />;
   if (kind === "contested") return <span className={base} style={{ background: WAR_SWATCH_COLORS.contestedFill, boxShadow: `inset 0 0 0 1.5px ${WAR_SWATCH_COLORS.contestedRing}` }} />;
   if (kind === "purified") return <span className={`${base} flex items-center justify-center text-[10px] leading-none`} style={{ background: WAR_SWATCH_COLORS.purified, color: WAR_SWATCH_COLORS.purifiedInk }}>★</span>;
+  if (kind === "satDormant") return <span className={`${base} flex items-center justify-center`} style={{ background: SATELLITE_COLORS.dormantFill, boxShadow: `inset 0 0 0 1.5px ${SATELLITE_COLORS.dormantRing}`, borderRadius: "9999px" }} />;
+  if (kind === "satActive") return <span className={`${base} flex items-center justify-center text-[10px] font-bold leading-none`} style={{ background: SATELLITE_COLORS.activeFill, boxShadow: `inset 0 0 0 1.5px ${SATELLITE_COLORS.activeRing}`, color: SATELLITE_COLORS.activeInk, borderRadius: "9999px" }}>2</span>;
+  if (kind === "satRing") return (
+    <span className={base} style={{ borderRadius: "9999px", borderColor: TRACE_COLORS.road, background: "transparent" }} />
+  );
   return <span className={base} />;
 }
 
@@ -1004,6 +1176,15 @@ function CircuitLegend() {
         <LegendEntry kind="contested" title={t("circuit.legendContested", "CONTESTED")} caption={t("circuit.legendContestedCap", "A side holds it; score ticks to them. Flag = the holder's world.")} />
         <LegendEntry kind="purified" title={t("circuit.legendPurified", "PURIFIED")} caption={t("circuit.legendPurifiedCap", "Oracle-cleaned ground. The brightest node on the map — and the rarest.")} />
       </LegendSection>
+
+      <LegendSection title={t("circuit.legendSecSat", "Orbital watch — the sky over contestable ground")}>
+        <LegendEntry kind="satDormant" title={t("circuit.legendSatDormant", "SATELLITE DORMANT")} caption={t("circuit.legendSatDormantCap", "Asleep — no coverage. Blind-spot arrivals are fully invisible: no alarm, no ping.")} />
+        <LegendEntry kind="satActive" title={t("circuit.legendSatActive", "SATELLITE AWAKE · STAGE 1–3")} caption={t("circuit.legendSatActiveCap", "Online = an alarm on arrival. Tracking = who, roughly how many. Full picture = amounts and troop types. Restoration is a Lab research line — never accelerable.")} />
+        <LegendEntry kind="satRing" title={t("circuit.legendSatRing", "THE SATELLITE RING")} caption={t("circuit.legendSatRingCap", "The constellation at a glance — one marker per bird: hollow red sleeps, filled green is awake.")} />
+      </LegendSection>
+      <p className="mt-2 text-xs text-text-3">
+        {t("circuit.legendSatRule", "Every season the constellation resets to ~50% functional, randomized per world — last season's coverage map is worthless. The Near Ring and the Cradle are sanctioned land: no satellites there.")}
+      </p>
 
       <p className="mt-4 text-xs italic leading-relaxed text-text-3">
         {t("circuit.legendClosing", "Every state is also a shape or a label — rings, chips, stars, sigils. If a color alone is doing the talking, that is a bug.")}
