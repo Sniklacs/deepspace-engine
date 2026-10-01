@@ -507,7 +507,7 @@ function PlayPage() {
     if (!games || games.length === 0) {
       return (
         <div className="min-h-screen bg-[#070910] text-gray-200">
-          <RaceSelect busy={busy} username={username} onStart={(name, race) => { if (!token) return; doCreate(name, race); }} />
+          <RaceSelect busy={busy} onStart={(name, race) => { if (!token) return; doCreate(name, race); }} />
           {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
         </div>
       );
@@ -539,7 +539,7 @@ function PlayPage() {
     return (
       <div className="min-h-screen bg-[#070910] text-gray-200">
         {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
-        <RaceSelect busy={busy} username={null} resetNote
+        <RaceSelect busy={busy} resetNote
           onStart={(name, race) => { if (!token) return; doCreate(name, race); }} />
         {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
       </div>
@@ -949,9 +949,12 @@ function FeedbackModal({ token, colonyName, onClose, flash }: {
 
 /* ---------------- Race selection (first colony / full-screen) ---------------- */
 
-function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; username: string | null; onStart: (name: string, race: RaceId) => void; resetNote?: boolean }) {
+function RaceSelect({ busy, onStart, resetNote }: { busy: boolean; onStart: (name: string, race: RaceId) => void; resetNote?: boolean }) {
   const t = useT();
-  const [name, setName] = useState(username ? t("play.races.colonyNameFor", "{username}'s Colony", { username }) : t("play.races.defaultName", "The Emberhold"));
+  // Owner 2026-10-01: NO pre-filled default — every player must name their own
+  // Cradle. The Found button stays disabled until a real name is typed.
+  const [name, setName] = useState("");
+  const nameOk = name.trim().length > 0;
   const [selected, setSelected] = useState<RaceId>(worldAllowedRaces()[0] ?? "watchers");
   const race = getRace(selected);
   return (
@@ -1062,12 +1065,17 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                maxLength={40}
+                placeholder={t("play.races.namePlaceholder", "Give your Cradle its name")}
                 className="w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white outline-none focus:border-amber-400"
               />
+              {!nameOk && (
+                <p className="mt-1 text-xs text-amber-200/80">{t("play.races.nameRequired", "A Cradle needs a name before it can be founded.")}</p>
+              )}
             </label>
             <button
-              onClick={() => onStart(name, selected)}
-              disabled={busy}
+              onClick={() => onStart(name.trim(), selected)}
+              disabled={busy || !nameOk}
               className="rounded-lg bg-ember px-6 py-2.5 font-semibold text-black hover:brightness-110 disabled:opacity-40"
             >
               {t("play.races.foundCradle", "Found The Cradle")}

@@ -393,7 +393,7 @@ const getState = createServerFn({ method: "POST" }).validator(
 const createGameFn = createServerFn({ method: "POST" }).validator(
   z.object({
     token: z.string(),
-    name: z.string().max(40).default("Unnamed Colony"),
+    name: z.string().trim().min(1, "A Cradle needs a name before it can be founded.").max(40),
     race: z.string(),
   })
 ).handler(async ({ data }): Promise<GameResult & { username?: string }> => {
