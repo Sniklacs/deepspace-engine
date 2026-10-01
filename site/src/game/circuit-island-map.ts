@@ -109,9 +109,10 @@ export const ISLAND_SAT_RING = {
   markerR: 8,
 } as const;
 
-/** Rim node fill on terrain: a light wash so the survey art reads through —
- *  the tier pip beside each marker carries the tier identity. */
-export const ISLAND_RIM_FILL_OPACITY = 0.3;
+/** Rim node fill on terrain: FULL color — Hans's rule is that every site must
+ *  read clearly at the full-map view, no translucency. The dark ink ring
+ *  keeps the markers reading as survey pins rather than decals. */
+export const ISLAND_RIM_FILL_OPACITY = 1;
 
 /** Island marker ring: dark ink instead of the pale circuit-web ring, so
  *  markers read as survey pins on the artwork rather than bright decals. */

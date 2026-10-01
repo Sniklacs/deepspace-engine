@@ -45,9 +45,9 @@ import {
   satelliteTechFor,
 } from "../game/satellites";
 import {
-  labelTier,
-  labelFontUnits,
   resolveLabels,
+  DISPLAY_NAMES,
+  LABEL_DY,
 } from "../game/circuit-labels";
 import {
   TIER_COLORS,
@@ -227,12 +227,12 @@ export function CircuitPage({
     }
   }, [scale]);
 
-  // §1.4 label zoom tiers — the tier sets the TYPE SIZE and VISIBILITY; the
-  // NAME STRING comes from the display-name table (§2.3 amendment). Nothing is
-  // ever rendered below 11px: at mid the font is `11/scale` units (= 11px CSS),
-  // and below scale 0.55 the tier is `low` and the labels HIDE.
-  const tier = labelTier(scale);
-  const fontUnits = labelFontUnits(tier, scale);
+  // §1.4 label zoom tiers — on the island, names are ALWAYS on: the tier
+  // never drops to "low" (which hides labels), and the type size keeps the
+  // 11px CSS floor at any zoom (fontUnits = 11/scale). Hans's rule: every
+  // site gets its name on the map for quick reference — no tap needed.
+  const tier = scale >= 1 ? "full" : "mid";
+  const fontUnits = tier === "full" ? 11 : 11 / Math.max(scale, 1e-6);
   // §2.1 — the deterministic collision ladder (full → compact → hidden). The
   // ladder's geometry helper (canvasX) maps authored x as x + 280 at kx 1, so
   // island positions are shifted by −280 on the way in; the returned
@@ -517,7 +517,6 @@ export function CircuitPage({
                         pointer-events: none so the hit circles (layer 8) own every tap. */}
                     <g aria-hidden="true" style={{ pointerEvents: "none" }}>
                       {circuit.nodes.map((n) => {
-                        const dim = n.kind === "near";
                         const r = nodeRadius(n);
                         const ip = islandPos(n.id);
                         const nx = ip.x;
@@ -532,7 +531,7 @@ export function CircuitPage({
                           strokeLinejoin: "round" as const,
                         };
                         return (
-                          <g key={n.id} style={{ opacity: dim ? 0.6 : 1 }}>
+                          <g key={n.id}>
                             {/* zone fill — tier wash over terrain (denser than
                                 the old 22%-over-surf-0 recipe, which vanishes
                                 over ice and farmland) */}
@@ -581,20 +580,32 @@ export function CircuitPage({
                                 </g>
                               );
                             })()}
-                            {/* labels (layer 6, §2.1 ladder) — a node with no room
-                                keeps its circle, ring, pip and aria-label and simply
-                                renders no name. Nothing below 11px, ever. */}
-                            {place && (
-                              <text
-                                className="cl-full"
-                                x={place.cx} y={place.cy} textAnchor="middle" fontSize={fontUnits}
-                                fill={n.kind === "heart" ? LABEL_COLORS.heart : n.kind === "cradle" ? LABEL_COLORS.cradle : LABEL_COLORS.node}
-                                fontWeight={500} fontFamily="'Segoe UI',system-ui,sans-serif"
-                                {...halo}
-                              >
-                                {place.text}
-                              </text>
-                            )}
+                            {/* labels (layer 6, §2.1 ladder) — every site is named:
+                                the ladder places without overlap, and a node it
+                                can't place falls back to its compact name below
+                                the marker. Nothing below 11px, ever. */}
+                            {(() => {
+                              // Every site gets its name on the map — the ladder
+                              // places 29 of 30 without overlap; a node it hides
+                              // falls back to its compact name at the default
+                              // drop, so nothing is ever nameless.
+                              const names = DISPLAY_NAMES[n.id];
+                              const lx = place ? place.cx : nx;
+                              const ly = place ? place.cy : ny + LABEL_DY[n.kind] - 0.375 * fontUnits;
+                              const ltext = place ? place.text : names?.compact;
+                              if (!ltext) return null;
+                              return (
+                                <text
+                                  className="cl-full"
+                                  x={lx} y={ly} textAnchor="middle" fontSize={fontUnits}
+                                  fill={n.kind === "heart" ? LABEL_COLORS.heart : n.kind === "cradle" ? LABEL_COLORS.cradle : LABEL_COLORS.node}
+                                  fontWeight={500} fontFamily="'Segoe UI',system-ui,sans-serif"
+                                  {...halo}
+                                >
+                                  {ltext}
+                                </text>
+                              );
+                            })()}
                             {/* the heart's "THE PRIZE · THE THREAT" line now lives
                                 on the 3.2% seam band above — no duplicate. */}
                           </g>
