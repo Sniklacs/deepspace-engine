@@ -115,7 +115,7 @@ export const ru: Catalogue = {
   "cradle.claimed": "получено",
   "cradle.devotionQuiet": "Сегодня Колыбель ничего от вас не просит.",
   "cradle.devotionDone": "Служение дня завершено — бонус +80.",
-  "cradle.claimWith": "Получить — {scrip} скрипа · {devotion} служения",
+  "cradle.claimWith": "Получить — {scrip} скрипа · {devotion} служения · {supplies} 📦",
   "cradle.claim": "Получить",
   "cradle.claimSub": "накоплено за уже сделанную работу",
   "cradle.claimLocked": "Работа идёт — пока нечего накапливать.",

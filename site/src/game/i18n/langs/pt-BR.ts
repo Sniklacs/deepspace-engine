@@ -115,7 +115,7 @@ export const ptBR: Catalogue = {
   "cradle.claimed": "resgatado",
   "cradle.devotionQuiet": "O Berço não pede nada de você hoje.",
   "cradle.devotionDone": "A devoção do dia está completa — +80 de bônus.",
-  "cradle.claimWith": "Resgatar — {scrip} Scrip · {devotion} Devoção",
+  "cradle.claimWith": "Resgatar — {scrip} Scrip · {devotion} Devoção · {supplies} 📦",
   "cradle.claim": "Resgatar",
   "cradle.claimSub": "acumulado pelo trabalho já feito",
   "cradle.claimLocked": "Trabalho em andamento — ainda não há nada para acumular.",

@@ -106,6 +106,11 @@ export { applyTimeToken, grantTimeToken, heldTimeTokens, TIME_TOKEN_SIZES } from
 // and accruing passive income. This is what makes the world persist while logged out.
 
 export const VERSION = 11;
+/** Owner order 2026-10-01: every colony starts out with 10,000 supplies so
+ *  new players get into the action immediately — no turtle start, no
+ *  day-one money-trap feeling. New colonies are born with it; pre-change
+ *  saves get a one-time top-up in ensureResources. */
+export const STARTING_SUPPLIES = 10000;
 // V2: multi-game saves (account file wrapper; GameState version bumped to match).
 // V3: Leader XP/leveling/specialization (xp, unspentPoints, specialization, day,
 //     dayXp per Leader; colony-wide day-cap ledger state.leaderXpCaps).
@@ -593,7 +598,7 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
     resources: {
       embers: 8,
       chipsets: 0,
-      supplies: 60,
+      supplies: STARTING_SUPPLIES,
       hazmat: 0,
       shots: 0,
       alloys: 0,
@@ -636,6 +641,8 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
     revelationDrainPerMin: 0,
     revelationChorusMult: 1,
     acknowledgedOnce: false,
+    // Born with the founding stockpile — no top-up needed.
+    startingSuppliesGranted: true,
     expeditions: [],
     studies: [],
     completedExpeditions: 0,
@@ -1567,6 +1574,21 @@ function ensureResources(state: GameState) {
   if (typeof r.plasma !== "number" || !isFinite(r.plasma as number) || (r.plasma as number) < 0) r.plasma = 0;
   // THE FORGE's ingredient: a legacy save starts with an empty crucible.
   if (typeof r.warplate !== "number" || !isFinite(r.warplate as number) || (r.warplate as number) < 0) r.warplate = 0;
+  // Owner order 2026-10-01: every colony starts out with 10,000 supplies.
+  // Pre-change saves get a ONE-TIME top-up to the founding stockpile the
+  // next time they advance (idempotent via the flag; blank wiped colonies
+  // with no race yet are skipped — they'll be born fresh via newGame).
+  const s = state as unknown as Record<string, unknown>;
+  if (
+    state.raceLocked &&
+    typeof r.supplies === "number" &&
+    (r.supplies as number) < STARTING_SUPPLIES &&
+    s.startingSuppliesGranted !== true
+  ) {
+    r.supplies = STARTING_SUPPLIES;
+    s.startingSuppliesGranted = true;
+    log(state, `📦 The Cradle issues a founding stockpile: ${STARTING_SUPPLIES.toLocaleString()} supplies. Get moving — the Shatterlands won't explore itself.`);
+  }
 }
 
 /** Brings legacy saves up to the research-tree / leaders / codices shape. */

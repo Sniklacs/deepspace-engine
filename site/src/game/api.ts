@@ -618,7 +618,7 @@ const purifyFn = createServerFn({ method: "POST" }).validator(
 // rolled list is current when claim resolves.
 const claimDailyRewardFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
-).handler(async ({ data }): Promise<GameResult & { granted?: { scrip: number; devotion: number; bonus: boolean; timeTokens: Record<string, number> } }> => {
+).handler(async ({ data }): Promise<GameResult & { granted?: { scrip: number; devotion: number; bonus: boolean; supplies: number; timeTokens: Record<string, number> } }> => {
   const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
   const st = await loadActiveState(accountId);

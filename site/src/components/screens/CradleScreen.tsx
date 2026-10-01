@@ -85,6 +85,7 @@ export default function CradleScreen({
   onOpenAlliance,
   onClaim,
   tokenGrant,
+  supplyGrant,
   onDeploy,
   onOpenCodex,
   onForgeRoll,
@@ -104,6 +105,9 @@ export default function CradleScreen({
   onClaim: () => void;
   /** TIME TOKENS received by the claim that just landed (owner 2026-09-27). */
   tokenGrant?: Record<string, number> | null;
+  /** SUPPLIES received by the claim that just landed (owner 2026-10-01) —
+   *  the daily login boost. */
+  supplyGrant?: number | null;
   onDeploy: (d: DomainId) => void;
   onOpenCodex: () => void;
   /** THE FORGE (owner 2026-09-26): the roll is a server operation — the room
@@ -244,7 +248,7 @@ export default function CradleScreen({
 
         <div className="space-y-3">
           {/* ---- B5 · Today's Devotion ------------------------------------- */}
-          <DevotionSection state={state} onClaim={onClaim} tokenGrant={tokenGrant} />
+          <DevotionSection state={state} onClaim={onClaim} tokenGrant={tokenGrant} supplyGrant={supplyGrant} />
 
           {/* ---- B6 · the roster strip ------------------------------------ */}
           <Panel testid="roster-strip" className="space-y-2">
@@ -601,7 +605,7 @@ export function timeTokenRefusalText(t: ReturnType<typeof useT>, key: string): s
   }
 }
 
-function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onClaim: () => void; tokenGrant?: Record<string, number> | null }) {
+function DevotionSection({ state, onClaim, tokenGrant, supplyGrant }: { state: GameState; onClaim: () => void; tokenGrant?: Record<string, number> | null; supplyGrant?: number | null }) {
   const t = useT();
   const daily = state.daily;
   const list = daily?.list ?? [];
@@ -614,6 +618,8 @@ function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onC
   const allDone = list.length >= 1 && completed.length >= list.length;
   const pendingScrip = pending.length * 30 + (allDone && !daily?.bonusClaimed ? 80 : 0);
   const pendingDevotion = pending.length * 1 + (allDone && !daily?.bonusClaimed ? 3 : 0);
+  // SUPPLY BONUS (owner 2026-10-01): +250 per item claim, +1000 completion bonus.
+  const pendingSupplies = pending.length * 250 + (allDone && !daily?.bonusClaimed ? 1000 : 0);
   return (
     <Panel testid="devotion-panel" className="space-y-3" labelledBy="cradle-devotion">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
@@ -665,7 +671,7 @@ function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onC
                       </span>
                     ) : null}
                   </span>
-                  <Bdi dir="ltr" className="num ms-auto text-[11px] text-text-3">+30 · +1</Bdi>
+                  <Bdi dir="ltr" className="num ms-auto text-[11px] text-text-3">+30 · +1 · +250 📦</Bdi>
                 </li>
               );
             })}
@@ -677,7 +683,7 @@ function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onC
             variant="secondary"
             label={
               pendingScrip > 0
-                ? t("cradle.claimWith", { scrip: pendingScrip, devotion: pendingDevotion })
+                ? t("cradle.claimWith", { scrip: pendingScrip, devotion: pendingDevotion, supplies: pendingSupplies.toLocaleString() })
                 : t("cradle.claim")
             }
             sub={pendingScrip > 0 ? t("cradle.claimSub") : t("cradle.claimLocked")}
@@ -701,6 +707,18 @@ function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onC
                 <Bdi dir="ltr" className="num">{`${tokenGrant["5m"]} ×`}</Bdi>
               ) : null}
               {tokenGrant["5m"] > 0 ? <span>{t("time.token5m")}</span> : null}
+            </p>
+          ) : null}
+          {/* What the claim just paid in SUPPLIES (owner direction 2026-10-01):
+              the daily login boost. The figure is the grant's own number, read
+              from the server reply — never derived by subtraction. The numeral
+              rides in its own <bdi dir="ltr"> so a right-to-left line cannot
+              reorder it against the words around it. */}
+          {supplyGrant != null && supplyGrant > 0 ? (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-purity" data-testid="devotion-supply-grant">
+              <Bdi dir="ltr" className="num">+{supplyGrant.toLocaleString()}</Bdi>
+              <span>{t("resource.supplies")}</span>
+              <span>{t("cradle.supplyGrantWords", "claimed")}</span>
             </p>
           ) : null}
           <p className="text-[11px] text-text-3">

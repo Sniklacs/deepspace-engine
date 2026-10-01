@@ -131,7 +131,7 @@ export const fa: Catalogue = {
   "cradle.claimed": "دریافت شد",
   "cradle.devotionQuiet": "امروز گهواره چیزی از شما نمی‌خواهد.",
   "cradle.devotionDone": "نیایش امروز کامل شد — پاداش 80+.",
-  "cradle.claimWith": "دریافت — {scrip} اسکریپ · {devotion} نیایش",
+  "cradle.claimWith": "دریافت — {scrip} اسکریپ · {devotion} نیایش · {supplies} 📦",
   "cradle.claim": "دریافت",
   "cradle.claimSub": "اندوخته از کار انجام‌شده",
   "cradle.claimLocked": "کار در جریان است — هنوز چیزی برای اندوختن نیست.",

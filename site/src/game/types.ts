@@ -298,6 +298,11 @@ export interface GameState {
   // beta threshold). Required IN ADDITION to stage3 before rv3 opens. The
   // client never learns of this field — publicState (api.ts) strips it.
   acknowledgedOnce: boolean;
+  // Owner order 2026-10-01: every colony starts out with 10,000 supplies
+  // (new players were turtling on 60 and reading the early game as a money
+  // trap). New colonies are born with it; pre-change saves get a one-time
+  // top-up via ensureResources. Once granted, never again.
+  startingSuppliesGranted?: boolean;
   // revelations[] ships as the VISIBLE set only (resolved + currently available
   // — exactly the glyphs the Lab may render). revelationsResolved ships the
   // resolved subset so the client can tell done from available. Raw counters,

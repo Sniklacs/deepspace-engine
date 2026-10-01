@@ -318,6 +318,9 @@ function PlayPage() {
   // granted, straight off the server reply's own figures — the panel lists them
   // back to the player rather than deriving a count.
   const [claimTokens, setClaimTokens] = useState<Record<string, number> | null>(null);
+  // SUPPLY BONUS (owner direction 2026-10-01): the supplies the last Devotion
+  // claim paid — the daily login boost, listed back the same way.
+  const [claimSupplies, setClaimSupplies] = useState<number | null>(null);
   const act = async (fn: () => Promise<any>, okSfx = "success") => {
     if (busy) return;
     setBusy(true);
@@ -594,9 +597,11 @@ function PlayPage() {
           onSpeedup={(kind, id, sizeId) => act(() => applyTimeTokenFn({ data: { token: token!, sizeId, requestId: crypto.randomUUID(), kind, id } }), "success")}
           onOpenAlliance={() => switchTab("battles")}
           tokenGrant={claimTokens}
+          supplyGrant={claimSupplies}
           onClaim={async () => {
             const r = await act(() => claimDailyRewardFn({ data: { token: token! } }), "success");
             setClaimTokens(r && r.ok && r.granted ? (r.granted.timeTokens ?? null) : null);
+            setClaimSupplies(r && r.ok && r.granted && typeof r.granted.supplies === "number" ? r.granted.supplies : null);
           }}
           onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")}
           onOpenCodex={() => { setCodexOpen(true); sound.tab(); }}

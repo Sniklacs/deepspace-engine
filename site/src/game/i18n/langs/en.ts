@@ -182,11 +182,12 @@ export const en: Catalogue = {
   "cradle.claimed": "claimed",
   "cradle.devotionQuiet": "The Cradle asks nothing of you today.",
   "cradle.devotionDone": "The day's devotion is complete — +80 bonus.",
-  "cradle.claimWith": "Claim — {scrip} Scrip · {devotion} Devotion",
+  "cradle.claimWith": "Claim — {scrip} Scrip · {devotion} Devotion · {supplies} 📦",
   "cradle.claim": "Claim",
   "cradle.claimSub": "banked from the work already done",
   "cradle.claimLocked": "Work in progress — nothing to bank yet.",
   "cradle.devotionNote": "Daily devotion, long-term trust — the Oracle watches what you do, not what you buy.",
+  "cradle.supplyGrantWords": "claimed",
 
   // ---- building tiles (names/descriptions live in zones.ts DOMAINS) --------
   "tile.workshop": "Workshop",

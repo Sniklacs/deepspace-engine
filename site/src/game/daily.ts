@@ -88,6 +88,19 @@ export const DAILY_CONFIG = {
   // sizes are not defined in the build at all while the sell-side ruling is
   // unsigned, and 1m/5m are earned-only by the owner's own ruling.
   timeTokensPerClaim: ["1m", "5m"] as const,
+  // SUPPLY BONUS (owner direction 2026-10-01, verbatim): "why don't we put
+  // supply bonuses in there too not just the speed UPS let's add supplies so
+  // that every day people login and they can get a boost of supplies it's
+  // going to help a lot maintaining people". Every devotion reward claim pays
+  // supplies alongside the Scrip — the daily login boost. A cleared day pays
+  // 4×250 + 1000 = 2,000 supplies: real exploration fuel (a mid-risk run costs
+  // ~50), meaningful without replacing the economy the 10,000 founding
+  // stockpile starts. EARNED here, never sold, idempotent the same way the
+  // Scrip is (rides the currency grant's own idempotency — see claimDaily).
+  suppliesPerItem: 250,
+  bonusSupplies: 1000,
+  // The "daily max" — the schedule IS the cap: 4×250+1000 = 2,000.
+  maxSuppliesPerDay: 2000,
 } as const;
 
 /** §3.2 favor formula weights (TD6 placeholders — calibrate later, aligned to
@@ -465,6 +478,9 @@ export interface ClaimGrant {
   scrip: number;
   devotion: number;
   bonus: boolean;
+  /** SUPPLIES received in THIS claim (owner direction 2026-10-01): the daily
+   *  login boost, read from the grant itself for the Devotion panel. */
+  supplies: number;
   /** TIME TOKENS received in THIS claim, keyed by size id (owner direction
    *  2026-09-27): one of each earned size per reward claim. This is what the
    *  Devotion panel lists back to the player — the figure is the count granted,
@@ -474,7 +490,7 @@ export interface ClaimGrant {
 
 export function claimDaily(state: GameState, now: number): { ok: boolean; error?: string; granted?: ClaimGrant; state: GameState } {
   ensureDaily(state);
-  const granted: ClaimGrant = { scrip: 0, devotion: 0, bonus: false, timeTokens: {} };
+  const granted: ClaimGrant = { scrip: 0, devotion: 0, bonus: false, supplies: 0, timeTokens: {} };
   if (!state.race) return { ok: true, granted, state }; // blank colony: nothing to claim
   const d = state.daily;
   if (d.dayKey !== utcDayKey(now)) {
@@ -510,6 +526,14 @@ export function claimDaily(state: GameState, now: number): { ok: boolean; error?
       state.devotion += DAILY_CONFIG.devotionPerItem;
       granted.scrip += DAILY_CONFIG.scripPerItem;
       granted.devotion += DAILY_CONFIG.devotionPerItem;
+      // SUPPLY BONUS (owner 2026-10-01): rides the Scrip grant's own
+      // idempotency — a re-claim, banked day or retried request pays supplies
+      // exactly when the Scrip was fresh, never twice.
+      const r = state.resources;
+      if (typeof r.supplies === "number" && isFinite(r.supplies)) {
+        r.supplies += DAILY_CONFIG.suppliesPerItem;
+        granted.supplies += DAILY_CONFIG.suppliesPerItem;
+      }
     }
     // Guarded by its OWN eventId, so this is safe to run even when the Scrip was
     // already paid (a re-claim, a banked day, a retried request).
@@ -523,6 +547,11 @@ export function claimDaily(state: GameState, now: number): { ok: boolean; error?
       granted.scrip += DAILY_CONFIG.bonusScrip;
       granted.devotion += DAILY_CONFIG.bonusDevotion;
       granted.bonus = true;
+      const r = state.resources;
+      if (typeof r.supplies === "number" && isFinite(r.supplies)) {
+        r.supplies += DAILY_CONFIG.bonusSupplies;
+        granted.supplies += DAILY_CONFIG.bonusSupplies;
+      }
     }
     claimTokens(dayKey, "bonus", reason);
   };

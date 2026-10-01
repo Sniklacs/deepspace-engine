@@ -120,7 +120,7 @@ export const es: Catalogue = {
   "cradle.claimed": "cobrado",
   "cradle.devotionQuiet": "La Cuna no te pide nada hoy.",
   "cradle.devotionDone": "La devoción del día está completa — +80 de bonificación.",
-  "cradle.claimWith": "Cobrar — {scrip} Scrip · {devotion} Devoción",
+  "cradle.claimWith": "Cobrar — {scrip} Scrip · {devotion} Devoción · {supplies} 📦",
   "cradle.claim": "Cobrar",
   "cradle.claimSub": "acumulado del trabajo ya hecho",
   "cradle.claimLocked": "Trabajo en curso — todavía no hay nada que acumular.",
