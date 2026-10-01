@@ -33,6 +33,7 @@ import { getContributionFn } from "../game/api";
 import type { ContributionView, ContributionRow } from "../game/api";
 import { sound } from "../game/sound";
 import { SegmentedControl } from "./SegmentedControl";
+import PageBanner from "./PageBanner";
 import { LedgerButton } from "./LedgerButton";
 import { Sheet, SheetHeader } from "./Sheet";
 import { Icon } from "./icons";
@@ -699,12 +700,14 @@ function ContributionTab({ state, token }: { state: GameState; token: string }) 
   const rows = view?.leaders ?? [];
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      <h2 className="text-2xl font-bold text-white">{t("circuit.worldContribution", "World Contribution")}</h2>
-      <p className="mt-1 text-xs text-gray-400">
-        {t("circuit.worldSub", "World notice follows the dent you make — measured objectively, never by spend or votes.")}
-      </p>
-
-      {/* Own standing — always visible */}
+      {/* shattered-world vista behind the page header (owner 2026-10-01: every
+          page gets a background picture) */}
+      <PageBanner
+        image="/art/pages/exploration-banner.webp"
+        title={t("circuit.worldContribution", "World Contribution")}
+        sub={t("circuit.worldSub", "World notice follows the dent you make — measured objectively, never by spend or votes.")}
+        focal="center 60%"
+      />
       <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/5 p-5">
         {failed && !me ? (
           <p className="text-sm text-gray-400">{t("circuit.ledgerQuietRetry", "The world's ledger is quiet right now — look again in a moment.")}</p>

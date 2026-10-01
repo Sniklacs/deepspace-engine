@@ -39,6 +39,7 @@ import {
   reinforceSendFn,
 } from "../game/api";
 import { Icon } from "./icons";
+import PageBanner from "./PageBanner";
 
 type Act = (fn: () => Promise<GameResult>, label: string) => void;
 
@@ -121,12 +122,16 @@ function NoAlliance({ state, me, token, onAction }: { state: GameState; me: stri
   };
   return (
     <section className="rounded-xl border border-line bg-surf-2/40 p-4">
-      <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-text-1">
-        <Icon name="shield" size={16} /> War band
-      </h3>
-      <p className="mb-3 text-xs text-text-2">
-        No colony stands alone. Found a war band — or answer an invite — and rallies, reinforcements, and help ticks unlock.
-      </p>
+      {/* war council hall behind the header (owner 2026-10-01: every page gets
+          a background picture) */}
+      <PageBanner
+        image="/art/pages/alliance-banner.webp"
+        title={<span className="flex items-center gap-2"><Icon name="shield" size={16} /> War band</span>}
+        sub="No colony stands alone. Found a war band — or answer an invite — and rallies, reinforcements, and help ticks unlock."
+        className="-m-4 mb-4 rounded-t-xl"
+        titleClassName="text-sm font-semibold text-white drop-shadow"
+        focal="center 60%"
+      />
       <div className="mb-4 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
         <input
           className="rounded-lg border border-line bg-surf-1 px-3 py-2 text-sm text-text-1"
@@ -321,13 +326,19 @@ function AllianceHome({
   );
   return (
     <section className="space-y-4 rounded-xl border border-line bg-surf-2/40 p-4">
+      {/* war council hall behind the header (owner 2026-10-01: every page gets
+          a background picture) */}
+      <PageBanner
+        image="/art/pages/alliance-banner.webp"
+        title={<><span aria-hidden>{alliance.banner || "⚔️"}</span> {alliance.name}</>}
+        sub={alliance.motto ? <>“{alliance.motto}”</> : undefined}
+        className="-m-4 rounded-t-xl"
+        titleClassName="text-sm font-semibold text-white drop-shadow"
+        focal="center 60%"
+      />
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-text-1">
-            <span aria-hidden>{alliance.banner || "⚔️"}</span> {alliance.name}
-            <span className="rounded-full border border-line px-2 py-0.5 text-[10px] font-normal text-text-2">{ROLE_LABEL[role ?? "member"]}</span>
-          </h3>
-          {alliance.motto && <p className="text-xs italic text-text-2">“{alliance.motto}”</p>}
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-line px-2 py-0.5 text-[10px] font-normal text-text-2">{ROLE_LABEL[role ?? "member"]}</span>
           <p className="text-xs text-text-2">{alliance.members.length}/50 sworn</p>
         </div>
         <div className="flex gap-2">

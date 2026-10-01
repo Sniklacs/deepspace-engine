@@ -58,6 +58,7 @@ import { navBadges } from "../game/nav-badges";
 import type { Tab } from "../game/nav-slots";
 import CradleScreen from "../components/screens/CradleScreen";
 import CradlePlate from "../components/CradlePlate";
+import PageBanner from "../components/PageBanner";
 import { ForgedRack } from "../components/ForgeViews";
 import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
@@ -1502,8 +1503,15 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft, onDeploy }: {
       {/* the Cradle name plate + domain tiles (owner 2026-10-01: moved here from
           the top of the Cradle page — the colony's home now greets expeditions) */}
       <CradlePlate state={state} onDeploy={onDeploy} />
-      <div className="mt-6 flex flex-wrap items-baseline justify-between">
-        <h2 className="text-2xl font-bold text-white">{t("exp.title")}</h2>
+      {/* exploration vista behind the page header (owner 2026-10-01: every page
+          gets a background picture) */}
+      <PageBanner
+        image="/art/pages/exploration-banner.webp"
+        title={t("exp.title")}
+        focal="center 60%"
+        className="mt-6 rounded-xl"
+      />
+      <div className="mt-3">
         <p className="text-sm text-gray-400">{t("play.exp.teamsAway", "Teams away:")} <b className="text-white">{active.length}/{maxSlots}</b> {!canLaunch && <span className="text-amber-300">{t("play.exp.moreSlots", " — deploy Logistics AI for more slots")}</span>}</p>
       </div>
 
@@ -1761,8 +1769,17 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
   const leaderCount = state.leaders.filter((l) => l.status === "active").length;
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      <h2 className="text-2xl font-bold text-white">{t("lab.title")}</h2>
-      <p className="mt-1 text-sm text-gray-400">{t("play.lab.twoTracks", "Two tracks:")} <b className="text-amber-200">{t("play.lab.trackRecovered", "Recovered AI")}</b> {t("play.lab.trackRecoveredSub", "(study Embers & Chipsets → Deploy) and")} <b className="text-purple-300">{t("play.lab.trackHuman", "Human knowledge")}</b> {t("play.lab.trackHumanSub", "(spend 📜 Codices on the Research Tree, run by your Leaders).")}</p>
+      {/* lab interior behind the page header (owner 2026-10-01: every page gets
+          a background picture — Hans's own lab photo wasn't in the media
+          library, so this one was generated to match the game's art) */}
+      <PageBanner
+        image="/art/pages/lab-banner.webp"
+        title={t("lab.title")}
+        sub={
+          <>{t("play.lab.twoTracks", "Two tracks:")} <b className="text-amber-200">{t("play.lab.trackRecovered", "Recovered AI")}</b> {t("play.lab.trackRecoveredSub", "(study Embers & Chipsets → Deploy) and")} <b className="text-purple-300">{t("play.lab.trackHuman", "Human knowledge")}</b> {t("play.lab.trackHumanSub", "(spend 📜 Codices on the Research Tree, run by your Leaders).")}</>
+        }
+        focal="center 45%"
+      />
 
       <div className="mt-4 flex flex-wrap gap-2">
         {([["deploy", t("lab.tabDeploy")], ["research", t("lab.tabResearch")], ["leaders", t("lab.tabLeaders", { n: leaderCount, cap: engineHelpers.leaderSlots(state) })]] as [typeof view, string][]).map(([id, label]) => (
@@ -1893,18 +1910,22 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
   const hubDone = engineHelpers.hasTech(state, "armory_hub");
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-white">{t("play.armory.title", "🏛️ The Armory")}</h2>
-          <p className="mt-1 text-sm text-gray-400">
+      {/* armory interior behind the page header (owner 2026-10-01: every page
+          gets a background picture) */}
+      <PageBanner
+        image="/art/pages/armory-banner.webp"
+        title={t("play.armory.title", "🏛️ The Armory")}
+        sub={
+          <>
             {race ? <><span style={{ color: race.accentText }}>{race.name}</span>{t("play.armory.raceIntro", "'s mustered war hardware — built at the Cradle from supplies, embers, fuel and refined ")}<b className="text-fuchsia-300">{t("play.armory.plasmaWord", "plasma")}</b>{t("play.armory.raceIntroTail", ".")}</> : t("play.armory.genericIntro", "War hardware, built at the Cradle.")} {t("play.armory.earnedOnly", "Earned only — nothing here is ever bought.")}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <Tooltip content={tipT(t, "armory", "plasma", ARMORY_TIPS.plasma)}>
-            <span className="rounded-lg bg-fuchsia-400/10 border border-fuchsia-400/30 px-3 py-1.5 text-fuchsia-200">{t("play.armory.plasma", "🔮 Plasma: {n}", { n: Math.floor(r.plasma) })}</span>
-          </Tooltip>
-        </div>
+          </>
+        }
+        focal="center 55%"
+      />
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+        <Tooltip content={tipT(t, "armory", "plasma", ARMORY_TIPS.plasma)}>
+          <span className="rounded-lg bg-fuchsia-400/10 border border-fuchsia-400/30 px-3 py-1.5 text-fuchsia-200">{t("play.armory.plasma", "🔮 Plasma: {n}", { n: Math.floor(r.plasma) })}</span>
+        </Tooltip>
       </div>
       {!hubDone ? (
         <div className="mt-6 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-6 text-sm text-gray-300">

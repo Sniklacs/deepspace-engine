@@ -19,7 +19,7 @@ export default function PageBanner({
   raceArtDir,
   focal = "center 35%",
   titleClassName = "text-2xl font-bold text-white drop-shadow",
-  className = "",
+  className = "rounded-xl",
 }: {
   /** default art, e.g. "/art/pages/armory-banner.webp" */
   image: string;
@@ -33,6 +33,7 @@ export default function PageBanner({
   /** object-position focal point for phone crops */
   focal?: string;
   titleClassName?: string;
+  /** wrapper classes — rounding/bleed live here (default rounded-xl) */
   className?: string;
 }) {
   const raceSrc =
@@ -51,7 +52,7 @@ export default function PageBanner({
   }, [image, raceArtDir, raceId]);
 
   return (
-    <div className={`relative overflow-hidden rounded-xl ${className}`}>
+    <div className={`relative overflow-hidden ${className}`}>
       <img
         src={src}
         alt=""

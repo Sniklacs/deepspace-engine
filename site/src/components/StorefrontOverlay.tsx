@@ -27,6 +27,7 @@
 //   · wallet renders server state only; .num on every balance/value
 import { Icon, type IconName } from "./icons";
 import { Sheet, SheetHeader } from "./Sheet";
+import PageBanner from "./PageBanner";
 import { Bdi } from "./ui/Bdi";
 import { useLang, useT } from "./i18n/I18n";
 import { formatNumber, formatUsd } from "../game/i18n/format";
@@ -475,6 +476,11 @@ export function StorefrontOverlay({
         onClose={onClose}
       />
       <div className="sheet-body px-4 pb-8 md:px-5">
+        {/* market vault art behind the ledger (owner 2026-10-01: every page
+            gets a background picture) */}
+        <div className="-mx-4 md:-mx-5">
+          <PageBanner image="/art/pages/store-banner.webp" className="rounded-none" focal="center 40%" />
+        </div>
         {/* ---- Wallet (server state only; .num everywhere) ---- */}
         <div className="flex flex-wrap items-center gap-2 pt-4">
           <span className="chip gap-1 bg-surf-2 text-text-2">
