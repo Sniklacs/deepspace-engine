@@ -62,8 +62,8 @@ import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
 import BattlesTab from "../components/BattlesTab";
 import LoadoutTab from "../components/LoadoutTab";
-import { diffResolvedEvents } from "../game/report-events";
-import { tip, RESOURCE_TIPS, DOMAIN_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
+import { diffResolvedEventsT } from "../game/report-events";
+import { tip, tipT, RESOURCE_TIPS, DOMAIN_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
 import type { GameState, RaceId, DomainId, Zone, FeedbackRecord, FeedbackCategory, FeedbackSeverity } from "../game/types";
 import { timeTokenRefusalText } from "../components/screens/CradleScreen";
 import { ResearchTreeView, LeadersView } from "../components/ResearchViews";
@@ -150,7 +150,7 @@ function PlayPage() {
   const applyState = useCallback((next: GameState | null) => {
     const prev = prevStateRef.current;
     if (next && prev && prev.gameId === next.gameId) {
-      const fresh = diffResolvedEvents(prev, next);
+      const fresh = diffResolvedEventsT(t, prev, next);
       if (fresh.length > 0) {
         const ts = Date.now();
         setReports((rs) => [
@@ -339,7 +339,7 @@ function PlayPage() {
       }
       return res;
     } catch (e: any) {
-      flash(e?.message || "Something broke in the Cradle.");
+      flash(e?.message || t("play.errors.cradleBroke", "Something broke in the Cradle."));
       sound.error();
     } finally {
       setBusy(false);
@@ -377,7 +377,7 @@ function PlayPage() {
       setState(null);
       return null;
     }
-    return res.error || "Sign up failed.";
+    return res.error || t("play.auth.signupFailed", "Sign up failed.");
   };
 
   const doLogin = async (username: string, password: string): Promise<string | null> => {
@@ -389,7 +389,7 @@ function PlayPage() {
       setState(null);
       return null;
     }
-    return res.error || "Log in failed.";
+    return res.error || t("play.auth.loginFailed", "Log in failed.");
   };
 
   // ---- THE FALL: leaving the height (opening-prologue-spec §3) ----
@@ -399,24 +399,24 @@ function PlayPage() {
   const doLeaveAct1 = async (): Promise<void> => {
     sound.click();
     const res = await leaveActOneFn({ data: { token: token! } }).catch(() => null);
-    if (!res) { flash("Failed to reach the server."); return; }
+    if (!res) { flash(t("play.errors.serverUnreachable", "Failed to reach the server.")); return; }
     if (res.signedOut) { localLogout(); return; }
     if (res.ok && res.state) {
       setState(res.state);
       setActiveGameId(res.activeGameId ?? null);
       setTab("colony");
       sound.success();
-      flash("Back at your colony.");
+      flash(t("play.games.backAtColony", "Back at your colony."));
       return;
     }
-    flash(res.error || "Could not leave the field.");
+    flash(res.error || t("play.errors.leaveField", "Could not leave the field."));
   };
   // ---- Games modal actions (return server-side error string or null = ok) ----
 
   const doCreate = async (name: string, race: RaceId): Promise<string | null> => {
     sound.click();
     const res = await createGameFn({ data: { token: token!, name, race } }).catch(() => null);
-    if (!res) return "Failed to reach the server.";
+    if (!res) return t("play.errors.serverUnreachable", "Failed to reach the server.");
     if (res.signedOut) { localLogout(); return null; }
     if (res.ok && res.state) {
       setState(res.state);
@@ -425,13 +425,13 @@ function PlayPage() {
       sound.success();
       return null;
     }
-    return res.error || "Could not found the colony.";
+    return res.error || t("play.errors.foundColony", "Could not found the colony.");
   };
 
   const doSwitch = async (gameId: string): Promise<string | null> => {
     sound.click();
     const res = await switchGameFn({ data: { token: token!, gameId } }).catch(() => null);
-    if (!res) return "Failed to reach the server.";
+    if (!res) return t("play.errors.serverUnreachable", "Failed to reach the server.");
     if (res.signedOut) { localLogout(); return null; }
     if (res.ok && res.state) {
       setState(res.state);
@@ -440,12 +440,12 @@ function PlayPage() {
       sound.success();
       return null;
     }
-    return res.error || "Could not switch colonies.";
+    return res.error || t("play.errors.switchColonies", "Could not switch colonies.");
   };
 
   const doReset = async (gameId: string): Promise<string | null> => {
     const res = await resetGameFn({ data: { token: token!, gameId } }).catch(() => null);
-    if (!res) return "Failed to reach the server.";
+    if (!res) return t("play.errors.serverUnreachable", "Failed to reach the server.");
     if (res.signedOut) { localLogout(); return null; }
     if (res.ok && res.state) {
       prevStateRef.current = null;
@@ -453,41 +453,41 @@ function PlayPage() {
       setActiveGameId(gameId);
       setGamesOpen(false);
       sound.success();
-      flash(`Colony wiped. Choose a new legend and name to found it again.`);
+      flash(t("play.games.colonyWiped", "Colony wiped. Choose a new legend and name to found it again."));
       return null;
     }
-    return res.error || "Could not reset the colony.";
+    return res.error || t("play.errors.resetColony", "Could not reset the colony.");
   };
 
   const doDelete = async (gameId: string): Promise<string | null> => {
     const res = await deleteGameFn({ data: { token: token!, gameId } }).catch(() => null);
-    if (!res) return "Failed to reach the server.";
+    if (!res) return t("play.errors.serverUnreachable", "Failed to reach the server.");
     if (res.signedOut) { localLogout(); return null; }
     if (res.ok) {
       sound.success();
       await refresh();
       return null;
     }
-    return res.error || "Could not delete the colony.";
+    return res.error || t("play.errors.deleteColony", "Could not delete the colony.");
   };
 
   const doTrash = async (u: string, p: string): Promise<string | null> => {
     const res = await trashAccountFn({ data: { token: token!, username: u, password: p } }).catch(() => null);
-    if (!res) return "Failed to reach the server.";
+    if (!res) return t("play.errors.serverUnreachable", "Failed to reach the server.");
     // Success always signs out.
     if (res.ok && res.signedOut) {
       localLogout();
       return null;
     }
     if (res.signedOut) { localLogout(); return null; }
-    return res.error || "Could not delete the account.";
+    return res.error || t("play.errors.deleteAccount", "Could not delete the account.");
   };
 
   // Not yet resolved a persisted session.
   if (signedIn === null) {
     return (
       <div className="min-h-screen bg-[#070910] text-gray-200 flex items-center justify-center">
-        <div className="animate-pulse text-xl">Waking the Cradle…</div>
+        <div className="animate-pulse text-xl">{t("play.app.waking", "Waking the Cradle…")}</div>
       </div>
     );
   }
@@ -731,7 +731,7 @@ function AuthScreen({ busy, onSignup, onLogin }: {
             onChange={(e) => setUsername(e.target.value)}
             autoComplete="username"
             className="w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white outline-none focus:border-amber-400"
-            placeholder="e.g. The Emberhold"
+            placeholder={t("play.auth.namePlaceholder", "e.g. The Emberhold")}
           />
         </label>
         <label className="mt-3 block">
@@ -758,7 +758,7 @@ function AuthScreen({ busy, onSignup, onLogin }: {
         </button>
 
         <p className="mt-4 text-center text-[11px] text-text-3">
-          Your password is hashed (scrypt) and never stored in plain text. This is a lightweight MVP — use a password you don't reuse elsewhere.
+          {t("play.auth.passwordNote", "Your password is hashed (scrypt) and never stored in plain text. This is a lightweight MVP — use a password you don't reuse elsewhere.")}
         </p>
       </div>
     </div>
@@ -782,13 +782,13 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("help.close")}</button>
         </div>
         <div className="mt-3 space-y-3 text-sm text-gray-300">
-          <p><b className="text-amber-200">1 · Send Explorations</b> — fund teams into the Shatterlands (Exploration tab) to salvage <b className="text-amber-200">Embers</b> and rare <b className="text-cyan-300">Chipsets</b>. Exports run in real time; they keep going even logged out.</p>
-          <p><b className="text-amber-200">2 · Study in the Lab</b> — scientists study the fragments over real time to distill <b className="text-ember-soft">insight</b>.</p>
-          <p><b className="text-amber-200">3 · Deploy recovered AI</b> — spend Embers + insight to advance five domains: ⚔️ Weaponry, 🌾 Agriculture, 💰 Economy, ⚙️ Industry, 🚚 Logistics. Each grants passive bonuses.</p>
-          <p><b className="text-amber-200">4 · Push deeper</b> — growth funds riskier explorations. Watch your ☣️ taint and 🔺 Chorus — high taint dulls salvage; Purify it in the Colony tab. Hover any icon for details.</p>
-          <p><b className="text-amber-200">5 · The deep needs gear</b> — deep radiation sites sit in the ☢️ Hangar: suits let you EXPLORE, alloy-armed diggers (forged in the 🏭 Workshop from 5 race materials) let you EXTRACT. Under-geared runs show a pre-launch risk pop-up — you are always free to go, and you own what you risk.</p>
-          <p><b className="text-amber-200">Multiple colonies</b> — the <b className="text-gray-200">Games</b> button in the header lets you found new colonies, switch active ones, reset a game (all the way back to race selection, to pick a new legend and name), or delete it. The whole account (all colonies) can be removed from the Account section.</p>
-          <p className="text-xs text-text-3">This is a colony-sim MVP on a persistent world that lives on in real time — a long game, not a click-session.</p>
+          <p><b className="text-amber-200">{t("play.help.step1Title", "1 · Send Explorations")}</b> {t("play.help.step1BodyA", "— fund teams into the Shatterlands (Exploration tab) to salvage")} <b className="text-amber-200">{t("play.help.resourceEmbers", "Embers")}</b> {t("play.help.step1BodyB", "and rare")} <b className="text-cyan-300">{t("play.help.resourceChipsets", "Chipsets")}</b>{t("play.help.step1BodyC", ". Exports run in real time; they keep going even logged out.")}</p>
+          <p><b className="text-amber-200">{t("play.help.step2Title", "2 · Study in the Lab")}</b> {t("play.help.step2BodyA", "— scientists study the fragments over real time to distill")} <b className="text-ember-soft">{t("play.help.resourceInsight", "insight")}</b>{t("play.help.step2BodyB", ".")}</p>
+          <p><b className="text-amber-200">{t("play.help.step3Title", "3 · Deploy recovered AI")}</b> {t("play.help.step3Body", "— spend Embers + insight to advance five domains: ⚔️ Weaponry, 🌾 Agriculture, 💰 Economy, ⚙️ Industry, 🚚 Logistics. Each grants passive bonuses.")}</p>
+          <p><b className="text-amber-200">{t("play.help.step4Title", "4 · Push deeper")}</b> {t("play.help.step4Body", "— growth funds riskier explorations. Watch your ☣️ taint and 🔺 Chorus — high taint dulls salvage; Purify it in the Colony tab. Hover any icon for details.")}</p>
+          <p><b className="text-amber-200">{t("play.help.step5Title", "5 · The deep needs gear")}</b> {t("play.help.step5Body", "— deep radiation sites sit in the ☢️ Hangar: suits let you EXPLORE, alloy-armed diggers (forged in the 🏭 Workshop from 5 race materials) let you EXTRACT. Under-geared runs show a pre-launch risk pop-up — you are always free to go, and you own what you risk.")}</p>
+          <p><b className="text-amber-200">{t("play.help.multiTitle", "Multiple colonies")}</b> {t("play.help.multiBodyA", "— the")} <b className="text-gray-200">{t("play.help.multiGames", "Games")}</b> {t("play.help.multiBodyB", "button in the header lets you found new colonies, switch active ones, reset a game (all the way back to race selection, to pick a new legend and name), or delete it. The whole account (all colonies) can be removed from the Account section.")}</p>
+          <p className="text-xs text-text-3">{t("play.help.mvpNote", "This is a colony-sim MVP on a persistent world that lives on in real time — a long game, not a click-session.")}</p>
         </div>
       </div>
     </div>
@@ -810,17 +810,7 @@ function FirstRunNudge({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 /* ---------------- Feedback modal ---------------- */
-const FEED_CATEGORY_LABEL: Record<FeedbackCategory, string> = {
-  bug: "🐞 Bug",
-  flow_issue: "🔄 Flow issue",
-  feature_suggestion: "💡 Suggestion",
-};
-const FEED_SEVERITY_LABEL: Record<FeedbackSeverity, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  critical: "Critical",
-};
+/* Feedback category/severity labels are built with t() inside FeedbackModal (hooks can't run at module scope). */
 function FeedbackModal({ token, colonyName, onClose, flash }: {
   token: string; colonyName: string; onClose: () => void; flash: (m?: string) => void;
 }) {
@@ -843,15 +833,25 @@ function FeedbackModal({ token, colonyName, onClose, flash }: {
     return () => window.removeEventListener("keydown", esc);
   }, [loadRecords, onClose]);
   const t = useT();
+  const catLabel: Record<FeedbackCategory, string> = {
+    bug: t("play.feedback.catBug", "🐞 Bug"),
+    flow_issue: t("play.feedback.catFlow", "🔄 Flow issue"),
+    feature_suggestion: t("play.feedback.catSuggest", "💡 Suggestion"),
+  };
+  const sevLabel: Record<FeedbackSeverity, string> = {
+    low: t("play.feedback.sevLow", "Low"),
+    medium: t("play.feedback.sevMedium", "Medium"),
+    high: t("play.feedback.sevHigh", "High"),
+    critical: t("play.feedback.sevCritical", "Critical"),
+  };
   const doSubmit = async () => {
-    // NOT `t` — the lookup above owns that name in this component.
     const titleText = title.trim();
     const d = description.trim();
-    if (!titleText) { setError("Please give your report a title."); return; }
-    if (titleText.length > 80) { setError("Title must be 80 characters or fewer."); return; }
-    if (d.length < 10) { setError("Description needs at least 10 characters — a little more detail helps."); return; }
-    if (d.length > 2000) { setError("Description must be 2000 characters or fewer."); return; }
-    if (category === "bug" && !severity) { setError("Pick a severity for the bug."); return; }
+    if (!titleText) { setError(t("play.feedback.errTitle", "Please give your report a title.")); return; }
+    if (titleText.length > 80) { setError(t("play.feedback.errTitleLong", "Title must be 80 characters or fewer.")); return; }
+    if (d.length < 10) { setError(t("play.feedback.errDescShort", "Description needs at least 10 characters — a little more detail helps.")); return; }
+    if (d.length > 2000) { setError(t("play.feedback.errDescLong", "Description must be 2000 characters or fewer.")); return; }
+    if (category === "bug" && !severity) { setError(t("play.feedback.errSeverity", "Pick a severity for the bug.")); return; }
     setSubmitting(true); setError(null);
     const res = await submitFeedbackFn({
       data: {
@@ -862,11 +862,11 @@ function FeedbackModal({ token, colonyName, onClose, flash }: {
       },
     }).catch(() => null);
     setSubmitting(false);
-    if (!res) { setError("Could not reach the server — please try again."); return; }
-    if (res.signedOut) { onClose(); flash("Session expired — please log in again."); return; }
-    if (!res.ok) { setError(res.error || "Could not submit your report."); return; }
+    if (!res) { setError(t("play.feedback.errServer", "Could not reach the server — please try again.")); return; }
+    if (res.signedOut) { onClose(); flash(t("play.feedback.sessionExpired", "Session expired — please log in again.")); return; }
+    if (!res.ok) { setError(res.error || t("play.feedback.errSubmit", "Could not submit your report.")); return; }
     setTitle(""); setDescription(""); setSeverity("");
-    flash("Feedback sent — thank you. The team reads every report.");
+    flash(t("play.feedback.sent", "Feedback sent — thank you. The team reads every report."));
     sound.success();
     loadRecords();
   };
@@ -874,66 +874,66 @@ function FeedbackModal({ token, colonyName, onClose, flash }: {
     <div className="fixed inset-0 z-[80] modal-wrap bg-black/70" onClick={onClose}>
       <div className="my-auto w-full max-w-lg rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-white">💬 Feedback</h3>
+          <h3 className="text-lg font-bold text-white">{t("play.feedback.title", "💬 Feedback")}</h3>
           <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("help.close")}</button>
         </div>
-        <p className="mt-1 text-xs text-text-3">This is the first world — tell us what broke or what you'd like to see. Reports go straight to the dev team.</p>
+        <p className="mt-1 text-xs text-text-3">{t("play.feedback.sub", "This is the first world — tell us what broke or what you'd like to see. Reports go straight to the dev team.")}</p>
         <div className="mt-4 space-y-4">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Category</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">{t("play.feedback.category", "Category")}</div>
             <div className="mt-2 flex flex-wrap gap-2">
               {(["bug", "flow_issue", "feature_suggestion"] as const).map((c) => (
-                <button key={c} type="button" onClick={() => { setCategory(c); setError(null); }} className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${category === c ? "border-amber-400/60 bg-amber-400/10 text-amber-200" : "border-white/15 text-gray-300 hover:bg-white/10"}`}>{FEED_CATEGORY_LABEL[c]}</button>
+                <button key={c} type="button" onClick={() => { setCategory(c); setError(null); }} className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${category === c ? "border-amber-400/60 bg-amber-400/10 text-amber-200" : "border-white/15 text-gray-300 hover:bg-white/10"}`}>{catLabel[c]}</button>
               ))}
             </div>
           </div>
           {category === "bug" && (
             <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Severity <span className="text-text-3">(required)</span></div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">{t("play.feedback.severity", "Severity")} <span className="text-text-3">{t("play.feedback.required", "(required)")}</span></div>
               <div className="mt-2 flex flex-wrap gap-2">
                 {(["low", "medium", "high", "critical"] as const).map((s) => (
-                  <button key={s} type="button" onClick={() => { setSeverity(s); setError(null); }} className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${severity === s ? "border-red-400/60 bg-red-400/10 text-red-200" : "border-white/15 text-gray-300 hover:bg-white/10"}`}>{FEED_SEVERITY_LABEL[s]}</button>
+                  <button key={s} type="button" onClick={() => { setSeverity(s); setError(null); }} className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${severity === s ? "border-red-400/60 bg-red-400/10 text-red-200" : "border-white/15 text-gray-300 hover:bg-white/10"}`}>{sevLabel[s]}</button>
                 ))}
               </div>
             </div>
           )}
           <div>
-            <div className="flex justify-between text-xs font-semibold uppercase tracking-wide text-gray-400"><span>Title</span><span className="text-text-3">{title.length}/80</span></div>
-            <input value={title} onChange={(e) => { setTitle(e.target.value); setError(null); }} maxLength={80} placeholder="Short summary, e.g. Exploration stuck at 100%"
+            <div className="flex justify-between text-xs font-semibold uppercase tracking-wide text-gray-400"><span>{t("play.feedback.titleLabel", "Title")}</span><span className="text-text-3">{t("play.feedback.titleCount", "{n}/80", { n: title.length })}</span></div>
+            <input value={title} onChange={(e) => { setTitle(e.target.value); setError(null); }} maxLength={80} placeholder={t("play.feedback.titlePlaceholder", "Short summary, e.g. Exploration stuck at 100%")}
               className="mt-2 w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-gray-200 placeholder:text-text-3 outline-none focus:border-amber-400/50" />
           </div>
           <div>
-            <div className="flex justify-between text-xs font-semibold uppercase tracking-wide text-gray-400"><span>Description</span><span className="text-text-3">{description.length}/2000</span></div>
-            <textarea value={description} onChange={(e) => { setDescription(e.target.value); setError(null); }} rows={4} placeholder="What happened? What did you expect? (10+ characters)"
+            <div className="flex justify-between text-xs font-semibold uppercase tracking-wide text-gray-400"><span>{t("play.feedback.descLabel", "Description")}</span><span className="text-text-3">{t("play.feedback.descCount", "{n}/2000", { n: description.length })}</span></div>
+            <textarea value={description} onChange={(e) => { setDescription(e.target.value); setError(null); }} rows={4} placeholder={t("play.feedback.descPlaceholder", "What happened? What did you expect? (10+ characters)")}
               className="mt-2 w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-gray-200 placeholder:text-text-3 outline-none focus:border-amber-400/50" />
           </div>
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Player / Colony (optional)</div>
-            <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} maxLength={64} placeholder="Who filed this?"
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">{t("play.feedback.playerLabel", "Player / Colony (optional)")}</div>
+            <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} maxLength={64} placeholder={t("play.feedback.playerPlaceholder", "Who filed this?")}
               className="mt-2 w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-gray-200 placeholder:text-text-3 outline-none focus:border-amber-400/50" />
           </div>
           {error && <div className="rounded-lg border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs text-red-200">{error}</div>}
           <button onClick={doSubmit} disabled={submitting} className="w-full rounded-lg bg-ember px-4 py-2.5 text-sm font-bold text-black hover:brightness-110 disabled:opacity-50">
-            {submitting ? "Sending…" : "Send Feedback"}
+            {submitting ? t("play.feedback.sending", "Sending…") : t("play.feedback.send", "Send Feedback")}
           </button>
         </div>
         <div className="mt-6">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Your submissions</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">{t("play.feedback.yourSubmissions", "Your submissions")}</div>
           {records === null ? (
-            <p className="mt-2 text-xs text-text-3">Loading…</p>
+            <p className="mt-2 text-xs text-text-3">{t("play.feedback.loading", "Loading…")}</p>
           ) : records.length === 0 ? (
-            <p className="mt-2 text-xs text-text-3">Nothing yet. Reports you send will appear here.</p>
+            <p className="mt-2 text-xs text-text-3">{t("play.feedback.nothingYet", "Nothing yet. Reports you send will appear here.")}</p>
           ) : (
             <ul className="mt-2 space-y-2">
               {records.map((r) => (
                 <li key={r.id} className="rounded-lg border border-white/10 bg-black/30 p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-amber-200">{FEED_CATEGORY_LABEL[r.category]}{r.severity ? ` · ${FEED_SEVERITY_LABEL[r.severity]}` : ""}</span>
+                    <span className="text-xs font-semibold text-amber-200">{catLabel[r.category]}{r.severity ? ` · ${sevLabel[r.severity]}` : ""}</span>
                     <span className="text-xs text-text-3">{new Date(r.createdAt).toLocaleString()}</span>
                   </div>
                   <div className="mt-1 text-sm text-gray-200">{r.title}</div>
                   <div className="mt-0.5 whitespace-pre-wrap text-xs text-gray-400">{r.description}</div>
-                  <div className="mt-1 text-[11px] uppercase tracking-wide text-text-3">status: {r.status}</div>
+                  <div className="mt-1 text-[11px] uppercase tracking-wide text-text-3">{t("play.feedback.status", "status: {s}", { s: r.status })}</div>
                 </li>
               ))}
             </ul>
@@ -947,25 +947,26 @@ function FeedbackModal({ token, colonyName, onClose, flash }: {
 /* ---------------- Race selection (first colony / full-screen) ---------------- */
 
 function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; username: string | null; onStart: (name: string, race: RaceId) => void; resetNote?: boolean }) {
-  const [name, setName] = useState(username ? `${username}'s Colony` : "The Emberhold");
+  const t = useT();
+  const [name, setName] = useState(username ? t("play.races.colonyNameFor", "{username}'s Colony", { username }) : t("play.races.defaultName", "The Emberhold"));
   const [selected, setSelected] = useState<RaceId>(worldAllowedRaces()[0] ?? "watchers");
   const race = getRace(selected);
   return (
     <div className="min-h-screen bg-[#070910] text-gray-200">
       <div className="mx-auto max-w-5xl px-6 py-10">
-        <p className="text-center text-xs uppercase tracking-[0.3em] text-amber-300/80">{resetNote ? "A Colony Reborn" : "Founding a Colony"}</p>
-        <h1 className="mt-2 text-center text-3xl md:text-4xl font-bold text-white">Choose Your Legend</h1>
+        <p className="text-center text-xs uppercase tracking-[0.3em] text-amber-300/80">{resetNote ? t("play.races.kickerReborn", "A Colony Reborn") : t("play.races.kickerFound", "Founding a Colony")}</p>
+        <h1 className="mt-2 text-center text-3xl md:text-4xl font-bold text-white">{t("play.races.title", "Choose Your Legend")}</h1>
         {resetNote && (
           <div className="mx-auto mt-3 max-w-2xl rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-center text-sm text-amber-100">
-            This colony was <b>Reset</b>. Its progress is gone forever. Found it anew with a <b className="text-amber-200">fresh legend <em>and</em> a fresh name</b> — or close the browser to leave the slot empty.
+            {t("play.races.resetTitle", "This colony was ")}<b>{t("play.races.resetBold", "Reset")}</b>{t("play.races.resetBodyA", ". Its progress is gone forever. Found it anew with a ")}<b className="text-amber-200">{t("play.races.resetFresh", "fresh legend ")}<em>{t("play.races.resetAnd", "and")}</em>{t("play.races.resetFreshName", " a fresh name")}</b>{t("play.races.resetBodyB", " — or close the browser to leave the slot empty.")}
           </div>
         )}
         <p className="mx-auto mt-3 max-w-2xl text-center text-gray-400 text-sm">
-          Seven races are told around the ember-fires of the Shatterlands. These are <span className="text-amber-200">legends the colonies believe</span> about the world that burned — not records of fact. Each race is incomplete alone; to become whole, you will venture into the others' territories and salvage <em>their</em> AI.
+          {t("play.races.introA", "Seven races are told around the ember-fires of the Shatterlands. These are ")}<span className="text-amber-200">{t("play.races.introLegends", "legends the colonies believe")}</span>{t("play.races.introB", " about the world that burned — not records of fact. Each race is incomplete alone; to become whole, you will venture into the others' territories and salvage ")}<em>{t("play.races.introTheir", "their")}</em>{t("play.races.introC", " AI.")}
         </p>
 
         <div className="mt-2 rounded-lg border border-white/10 bg-black/40 px-4 py-2 text-center text-xs text-gray-400">
-          Codex fiction — in-game mythology only. Nothing here refers to any real-world group, religion, nationality, or person.
+          {t("play.races.codexFiction", "Codex fiction — in-game mythology only. Nothing here refers to any real-world group, religion, nationality, or person.")}
         </div>
 
         {WORLD_CONFIG_PUBLIC.raceLock && (
@@ -973,7 +974,7 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
             <p className="text-sm font-semibold text-white">
               🌍 {WORLD_CONFIG_PUBLIC.worldName}
               {WORLD_CONFIG_PUBLIC.debugWorld && (
-                <span className="ms-2 rounded bg-purple-400/20 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-purple-200">Beta Test World</span>
+                <span className="ms-2 rounded bg-purple-400/20 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-purple-200">{t("play.races.betaTestWorld", "Beta Test World")}</span>
               )}
             </p>
             <p className="mt-1 text-xs text-purple-100/80">{WORLD_CONFIG_PUBLIC.tagline}</p>
@@ -1002,13 +1003,12 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
           {/* locked Unbound preview */}
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 opacity-70">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="font-bold text-amber-200">The Unbound</span>
-              <span className="rounded bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold uppercase text-amber-200">Earned</span>
+              <span className="font-bold text-amber-200">{t("play.races.unboundName", "The Unbound")}</span>
+              <span className="rounded bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold uppercase text-amber-200">{t("play.races.unboundEarned", "Earned")}</span>
             </div>
             <p className="mt-1 text-sm text-gray-300">{UNBOUND_LEGEND.blurb}</p>
             <p className="mt-2 text-xs text-text-3">
-              Not pickable at start. The Unbound are a rare, ascended inner circle earned only through a long track of
-              special missions and badges of honor — the proof that a colony can rebuild without being rebuilt by what it used.
+              {t("play.races.unboundBlurb", "Not pickable at start. The Unbound are a rare, ascended inner circle earned only through a long track of special missions and badges of honor — the proof that a colony can rebuild without being rebuilt by what it used.")}
             </p>
           </div>
         </div>
@@ -1018,7 +1018,7 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
           <div className="flex flex-wrap items-baseline gap-3">
             <h2 className="text-2xl font-bold text-white">{race.name}</h2>
             <span className="text-sm text-gray-400">{race.title}</span>
-            <span className="ms-auto text-xs text-text-3">Home region: <span className="text-gray-300">{race.homeRegion}</span></span>
+            <span className="ms-auto text-xs text-text-3">{t("play.races.homeRegion", "Home region: ")}<span className="text-gray-300">{race.homeRegion}</span></span>
           </div>
           <p className="mt-3 leading-relaxed text-gray-300 text-sm">{race.lore}</p>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -1035,7 +1035,7 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
           </div>
           <div className="mt-4">
             <p className="mb-1.5 text-[11px] uppercase tracking-wider text-text-3">
-              Live engine bonuses <span className="normal-case tracking-normal">— wired into the current build</span>
+              {t("play.races.liveBonuses", "Live engine bonuses ")}<span className="normal-case tracking-normal">{t("play.races.wiredIn", "— wired into the current build")}</span>
             </p>
             <div className="flex flex-wrap gap-1.5">
               {raceModLines(race).map((b) => (
@@ -1048,15 +1048,14 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
               ))}
             </div>
             <p className="mt-2 text-[11px] text-text-3">
-              Sky-blue dashed pills (e.g. warfare, stealth, defense, diplomacy) arrive with the combat &amp; survival
-              layer — they are not playable in this beta build yet.
+              {t("play.races.pillsNote", "Sky-blue dashed pills (e.g. warfare, stealth, defense, diplomacy) arrive with the combat & survival layer — they are not playable in this beta build yet.")}
             </p>
           </div>
           <blockquote className="mt-4 border-s-2 border-amber-400/60 ps-4 text-amber-200/90 italic">{race.flavorQuote}</blockquote>
 
           <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-end">
             <label className="flex-1">
-              <span className="block text-xs text-gray-400 mb-1">Name your colony (The Cradle)</span>
+              <span className="block text-xs text-gray-400 mb-1">{t("play.races.nameColony", "Name your colony (The Cradle)")}</span>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -1068,7 +1067,7 @@ function RaceSelect({ busy, username, onStart, resetNote }: { busy: boolean; use
               disabled={busy}
               className="rounded-lg bg-ember px-6 py-2.5 font-semibold text-black hover:brightness-110 disabled:opacity-40"
             >
-              Found The Cradle
+              {t("play.races.foundCradle", "Found The Cradle")}
             </button>
           </div>
         </div>
@@ -1094,12 +1093,13 @@ function ReportsSheet({ open, onClose, reports }: { open: boolean; onClose: () =
   // it carries no language of its own. Formatted numerals in this file take their
   // locale from here, never from the device default.
   const lang = useLang();
+  const t = useT();
   return (
-    <Sheet open={open} onClose={onClose} labelledBy="reports-title" title="Cradle Reports">
-      <SheetHeader id="reports-title" title="Cradle Reports" subtitle="what came home while you watched — newest first" onClose={onClose} />
+    <Sheet open={open} onClose={onClose} labelledBy="reports-title" title={t("play.reports.title", "Cradle Reports")}>
+      <SheetHeader id="reports-title" title={t("play.reports.title", "Cradle Reports")} subtitle={t("play.reports.subtitle", "what came home while you watched — newest first")} onClose={onClose} />
       <div className="sheet-body px-4 py-3 md:px-5">
         {reports.length === 0 ? (
-          <p className="text-sm text-text-3">Nothing new — every work the Cradle sent out is still in flight.</p>
+          <p className="text-sm text-text-3">{t("play.reports.empty", "Nothing new — every work the Cradle sent out is still in flight.")}</p>
         ) : (
           <ul className="space-y-2">
             {reports.map((r) => (
@@ -1133,7 +1133,7 @@ function GamesModal({ games, activeGameId, username, busy, onClose, onPlay, onRe
     <div className="fixed inset-0 z-[70] modal-wrap bg-black/70" onClick={onClose}>
       <div className="my-auto w-full max-w-3xl rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-white">Your Colonies</h2>
+          <h2 className="text-lg font-bold text-white">{t("play.games.title", "Your Colonies")}</h2>
           <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("help.close")}</button>
         </div>
         <GamesPanel
@@ -1163,6 +1163,7 @@ function GamesPanel({ forced, games, activeGameId, username, busy, onPlay, onRes
   const [confirmResetId, setConfirmResetId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
+  const t = useT();
 
   const neverMind = () => { setConfirmResetId(null); setConfirmDeleteId(null); setTrashOpen(false); sound.click(); };
 
@@ -1170,17 +1171,17 @@ function GamesPanel({ forced, games, activeGameId, username, busy, onPlay, onRes
     <div className={forced ? "mx-auto max-w-3xl px-6 py-10" : "mt-4"}>
       {forced && (
         <>
-          <p className="text-center text-xs uppercase tracking-[0.3em] text-amber-300/80">Your Colonies</p>
-          <h1 className="mt-1 text-center text-3xl font-bold text-white">Choose a Colony</h1>
-          <p className="mt-2 text-center text-sm text-gray-400">You have colonies, but none are active. Pick one to resume, found a new one, or manage them below.</p>
+          <p className="text-center text-xs uppercase tracking-[0.3em] text-amber-300/80">{t("play.games.title", "Your Colonies")}</p>
+          <h1 className="mt-1 text-center text-3xl font-bold text-white">{t("play.games.choose", "Choose a Colony")}</h1>
+          <p className="mt-2 text-center text-sm text-gray-400">{t("play.games.noneActive", "You have colonies, but none are active. Pick one to resume, found a new one, or manage them below.")}</p>
         </>
       )}
 
       {/* 1 · Your colonies */}
       <section className="mt-6">
-        <h3 className="font-semibold text-white">Your colonies <span className="text-xs font-normal text-text-3">({games.length}/5)</span></h3>
+        <h3 className="font-semibold text-white">{t("play.games.yourColonies", "Your colonies")} <span className="text-xs font-normal text-text-3">{t("play.games.colonyCount", "({n}/5)", { n: games.length })}</span></h3>
         {games.length === 0 ? (
-          <p className="mt-2 text-sm text-text-3">No colonies yet. Found your first below.</p>
+          <p className="mt-2 text-sm text-text-3">{t("play.games.noColonies", "No colonies yet. Found your first below.")}</p>
         ) : (
           <div className="mt-3 space-y-3">
             {games.map((g) => {
@@ -1194,19 +1195,19 @@ function GamesPanel({ forced, games, activeGameId, username, busy, onPlay, onRes
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-white truncate">{g.name}</span>
-                        {isActive && <span className="rounded bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold uppercase text-amber-200">Active</span>}
+                        {isActive && <span className="rounded bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold uppercase text-amber-200">{t("play.games.active", "Active")}</span>}
                       </div>
                       <div className="mt-0.5 text-[11px] text-gray-400">
-                        {race ? `${race.name} · ${race.homeRegion}` : "—"} · found {new Date(g.createdAt).toLocaleDateString()}
+                        {race ? `${race.name} · ${race.homeRegion}` : "—"}{t("play.games.founded", " · found {date}", { date: new Date(g.createdAt).toLocaleDateString() })}
                       </div>
                       <div className="mt-1 text-xs text-text-3">{g.summary}</div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       {!isActive && (
-                        <button onClick={() => onPlay(g.gameId)} disabled={busy} className="rounded-lg bg-ember px-3 py-2 text-xs font-semibold text-black hover:brightness-110 disabled:opacity-40">Play</button>
+                        <button onClick={() => onPlay(g.gameId)} disabled={busy} className="rounded-lg bg-ember px-3 py-2 text-xs font-semibold text-black hover:brightness-110 disabled:opacity-40">{t("play.games.play", "Play")}</button>
                       )}
-                      <button onClick={() => { setConfirmDeleteId(null); setConfirmResetId(isConfirmingReset ? null : g.gameId); sound.click(); }} disabled={busy} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-300 hover:bg-white/10">Reset</button>
-                      <button onClick={() => { setConfirmResetId(null); setConfirmDeleteId(isConfirmingDelete ? null : g.gameId); sound.click(); }} disabled={busy} className="rounded border border-red-400/30 px-3 py-2 text-xs text-red-300 hover:bg-red-400/10">Delete</button>
+                      <button onClick={() => { setConfirmDeleteId(null); setConfirmResetId(isConfirmingReset ? null : g.gameId); sound.click(); }} disabled={busy} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-300 hover:bg-white/10">{t("play.games.reset", "Reset")}</button>
+                      <button onClick={() => { setConfirmResetId(null); setConfirmDeleteId(isConfirmingDelete ? null : g.gameId); sound.click(); }} disabled={busy} className="rounded border border-red-400/30 px-3 py-2 text-xs text-red-300 hover:bg-red-400/10">{t("play.games.delete", "Delete")}</button>
                     </div>
                   </div>
                   {isConfirmingReset && (
@@ -1228,9 +1229,9 @@ function GamesPanel({ forced, games, activeGameId, username, busy, onPlay, onRes
 
       {/* 2 · Found a New Colony */}
       <section className="mt-8">
-        <h3 className="font-semibold text-white">Found a New Colony <span className="text-xs font-normal text-text-3">— a new game: one race, one colony</span></h3>
+        <h3 className="font-semibold text-white">{t("play.games.foundNew", "Found a New Colony")} <span className="text-xs font-normal text-text-3">{t("play.games.foundNewSub", "— a new game: one race, one colony")}</span></h3>
         {games.length >= 5 ? (
-          <p className="mt-2 text-sm text-amber-200/80">You've reached the maximum of 5 colonies. Delete one to found another.</p>
+          <p className="mt-2 text-sm text-amber-200/80">{t("play.games.maxColonies", "You've reached the maximum of 5 colonies. Delete one to found another.")}</p>
         ) : (
           <InlineFoundColony busy={busy} onCreate={onCreate} flash={flash} />
         )}
@@ -1238,10 +1239,10 @@ function GamesPanel({ forced, games, activeGameId, username, busy, onPlay, onRes
 
       {/* 3 · Account */}
       <section className="mt-8 rounded-xl border border-red-400/20 bg-red-400/5 p-4">
-        <h3 className="font-semibold text-red-200">Account</h3>
-        <p className="mt-1 text-xs text-gray-400">Signed in as <b className="text-gray-200">{username || "…"}</b>. Deleting your account permanently removes <b className="text-red-200">all {games.length} colon{games.length === 1 ? "y" : "ies"}</b> and the account itself. This cannot be undone.</p>
+        <h3 className="font-semibold text-red-200">{t("play.games.account", "Account")}</h3>
+        <p className="mt-1 text-xs text-gray-400">{t("play.games.signedInAs", "Signed in as ")}<b className="text-gray-200">{username || "…"}</b>{t("play.games.deleteWarnA", ". Deleting your account permanently removes ")}<b className="text-red-200">{t("play.games.deleteWarnCount", "all {n} {unit}", { n: games.length, unit: games.length === 1 ? t("play.games.colonyOne", "colony") : t("play.games.colonyMany", "colonies") })}</b>{t("play.games.deleteWarnB", " and the account itself. This cannot be undone.")}</p>
         {!trashOpen ? (
-          <button onClick={() => { setTrashOpen(true); sound.click(); }} disabled={busy} className="mt-3 rounded-lg border border-red-400/40 bg-red-400/10 px-4 py-2 text-sm font-semibold text-red-200 hover:bg-red-400/20 disabled:opacity-40">Delete entire account…</button>
+          <button onClick={() => { setTrashOpen(true); sound.click(); }} disabled={busy} className="mt-3 rounded-lg border border-red-400/40 bg-red-400/10 px-4 py-2 text-sm font-semibold text-red-200 hover:bg-red-400/20 disabled:opacity-40">{t("play.games.deleteAccount", "Delete entire account…")}</button>
         ) : (
           <TrashConfirm username={username} onCancel={neverMind} onConfirm={onTrash} flash={flash} />
         )}
@@ -1252,7 +1253,8 @@ function GamesPanel({ forced, games, activeGameId, username, busy, onPlay, onRes
 
 /* Inline "found a new colony" race picker (reuses the race-select flow). */
 function InlineFoundColony({ busy, onCreate, flash }: { busy: boolean; onCreate: (n: string, r: RaceId) => Promise<string | null>; flash: (m?: string) => void }) {
-  const [name, setName] = useState("The Emberhold");
+  const t = useT();
+  const [name, setName] = useState(t("play.races.defaultName", "The Emberhold"));
   const [selected, setSelected] = useState<RaceId>(worldAllowedRaces()[0] ?? "watchers");
   const race = getRace(selected);
   return (
@@ -1269,17 +1271,17 @@ function InlineFoundColony({ busy, onCreate, flash }: { busy: boolean; onCreate:
       </div>
       {WORLD_CONFIG_PUBLIC.raceLock && (
         <p className="mt-2 rounded border border-purple-400/30 bg-purple-400/10 px-2 py-1.5 text-xs text-purple-100/90">
-          🌍 {WORLD_CONFIG_PUBLIC.worldName} is the {worldLockPlain()} debug world — only {worldLockPlain()} colonies can be founded here.
+          {t("play.games.worldLock", "🌍 {world} is the {lock} debug world — only {lock} colonies can be founded here.", { world: WORLD_CONFIG_PUBLIC.worldName, lock: worldLockPlain() })}
         </p>
       )}
       <div className="mt-2 text-sm text-gray-400"><span className="font-semibold text-amber-200">{race.name}</span> — <span className="text-text-3">{race.blurb}</span></div>
       <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-end">
         <label className="flex-1">
-          <span className="block text-xs text-gray-400 mb-1">Name your colony</span>
+          <span className="block text-xs text-gray-400 mb-1">{t("play.games.nameColony", "Name your colony")}</span>
           <input value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white outline-none focus:border-amber-400" />
         </label>
         <button onClick={async () => { const err = await onCreate(name, selected); if (err) { flash(err); sound.error(); } }} disabled={busy} className="rounded-lg bg-ember px-5 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-          Found The Cradle
+          {t("play.races.foundCradle", "Found The Cradle")}
         </button>
       </div>
     </div>
@@ -1288,6 +1290,7 @@ function InlineFoundColony({ busy, onCreate, flash }: { busy: boolean; onCreate:
 
 /* 2-step reset confirm: checkbox + 3s countdown; extra warning when there's active content. */
 function ResetConfirm({ game, onCancel, onConfirm }: { game: GameSummary; onCancel: () => void; onConfirm: () => void }) {
+  const t = useT();
   const [checked, setChecked] = useState(false);
   const [ready, setReady] = useState(false);
   const [count, setCount] = useState(3);
@@ -1298,20 +1301,20 @@ function ResetConfirm({ game, onCancel, onConfirm }: { game: GameSummary; onCanc
   }, []);
   return (
     <div className="text-sm">
-      <p className="text-amber-200"><b>Reset “{game.name}”?</b> This wipes all progress forever and returns you to the <b>race-selection screen to pick a NEW legend AND a new name</b> for this colony slot {game.race ? `(the current legend is ${getRace(game.race).name})` : ""}.</p>
+      <p className="text-amber-200"><b>{t("play.games.resetTitle", "Reset “{name}”?", { name: game.name })}</b>{t("play.games.resetBodyA", " This wipes all progress forever and returns you to the ")}<b>{t("play.games.resetBodyB", "race-selection screen to pick a NEW legend AND a new name")}</b>{t("play.games.resetBodyC", " for this colony slot ")}{game.race ? t("play.games.resetLegend", "(the current legend is {legend})", { legend: getRace(game.race).name }) : ""}{t("play.games.resetBodyD", ".")}</p>
       {game.activeContent && (
-        <p className="mt-1 text-amber-300/90">⚠️ This colony has explorations or studies still in flight. They will be abandoned immediately.</p>
+        <p className="mt-1 text-amber-300/90">{t("play.games.resetActiveWarn", "⚠️ This colony has explorations or studies still in flight. They will be abandoned immediately.")}</p>
       )}
-      <p className="mt-1 text-xs text-text-3">There is no fresh-colony-same-race shortcut anymore — a reset takes you all the way back to the start.</p>
+      <p className="mt-1 text-xs text-text-3">{t("play.games.resetNoShortcut", "There is no fresh-colony-same-race shortcut anymore — a reset takes you all the way back to the start.")}</p>
       <label className="mt-3 flex items-start gap-2">
         <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} className="mt-0.5" />
-        <span className="text-xs text-gray-400">I understand this destroys the current colony's progress forever and cannot be undone.</span>
+        <span className="text-xs text-gray-400">{t("play.games.resetUnderstand", "I understand this destroys the current colony's progress forever and cannot be undone.")}</span>
       </label>
       <div className="mt-3 flex items-center gap-2">
         <button onClick={onConfirm} disabled={!ready || !checked} className="rounded-lg border border-red-400/40 bg-red-400/10 px-4 py-2 text-xs font-semibold text-red-200 hover:bg-red-400/20 disabled:opacity-40">
-          {ready ? "Confirm Reset" : `Hold ${count}s`}
+          {ready ? t("play.games.resetConfirm", "Confirm Reset") : t("play.games.resetHold", "Hold {n}s", { n: count })}
         </button>
-        <button onClick={onCancel} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">Cancel</button>
+        <button onClick={onCancel} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("play.common.cancel", "Cancel")}</button>
       </div>
     </div>
   );
@@ -1319,16 +1322,17 @@ function ResetConfirm({ game, onCancel, onConfirm }: { game: GameSummary; onCanc
 
 /* Delete confirm: must type the colony name to enable the red confirm. */
 function DeleteConfirm({ game, onCancel, onConfirm }: { game: GameSummary; onCancel: () => void; onConfirm: () => void }) {
+  const t = useT();
   const [typed, setTyped] = useState("");
   const canConfirm = typed.trim() === game.name;
   return (
     <div className="text-sm">
-      <p className="text-red-200"><b>Delete “{game.name}”?</b> This permanently removes this colony and its save. It cannot be recovered.</p>
-      <p className="mt-1 text-xs text-gray-400">Type the colony's name to confirm:</p>
+      <p className="text-red-200"><b>{t("play.games.deleteTitle", "Delete “{name}”?", { name: game.name })}</b>{t("play.games.deleteBody", " This permanently removes this colony and its save. It cannot be recovered.")}</p>
+      <p className="mt-1 text-xs text-gray-400">{t("play.games.deleteTypeName", "Type the colony's name to confirm:")}</p>
       <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={game.name} className="mt-2 w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white outline-none focus:border-red-400" />
       <div className="mt-3 flex items-center gap-2">
-        <button onClick={onConfirm} disabled={!canConfirm} className="rounded-lg bg-red-500 px-4 py-2 text-xs font-semibold text-white hover:bg-red-400 disabled:opacity-40">Permanently Delete</button>
-        <button onClick={onCancel} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">Cancel</button>
+        <button onClick={onConfirm} disabled={!canConfirm} className="rounded-lg bg-red-500 px-4 py-2 text-xs font-semibold text-white hover:bg-red-400 disabled:opacity-40">{t("play.games.deleteConfirm", "Permanently Delete")}</button>
+        <button onClick={onCancel} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("play.common.cancel", "Cancel")}</button>
       </div>
     </div>
   );
@@ -1336,6 +1340,7 @@ function DeleteConfirm({ game, onCancel, onConfirm }: { game: GameSummary; onCan
 
 /* Trash account confirm: username + re-entered password (server-verified) + final checkbox. */
 function TrashConfirm({ username, onCancel, onConfirm, flash }: { username: string | null; onCancel: () => void; onConfirm: (u: string, p: string) => Promise<string | null>; flash: (m?: string) => void }) {
+  const t = useT();
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [finalCk, setFinalCk] = useState(false);
@@ -1351,28 +1356,28 @@ function TrashConfirm({ username, onCancel, onConfirm, flash }: { username: stri
   };
   return (
     <div className="mt-3 text-sm">
-      <p className="text-red-200 font-semibold">This permanently deletes your account and every colony on it.</p>
-      <p className="mt-1 text-xs text-gray-400">Your password is verified on the server before anything is deleted.</p>
+      <p className="text-red-200 font-semibold">{t("play.games.trashTitle", "This permanently deletes your account and every colony on it.")}</p>
+      <p className="mt-1 text-xs text-gray-400">{t("play.games.trashVerify", "Your password is verified on the server before anything is deleted.")}</p>
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         <label className="block">
-          <span className="block text-xs text-gray-400 mb-1">Username</span>
-          <input value={u} onChange={(e) => setU(e.target.value)} autoComplete="username" placeholder={username || "your username"} className="w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white outline-none focus:border-red-400" />
+          <span className="block text-xs text-gray-400 mb-1">{t("play.games.username", "Username")}</span>
+          <input value={u} onChange={(e) => setU(e.target.value)} autoComplete="username" placeholder={username || t("play.games.usernamePlaceholder", "your username")} className="w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white outline-none focus:border-red-400" />
         </label>
         <label className="block">
-          <span className="block text-xs text-gray-400 mb-1">Re-enter password</span>
+          <span className="block text-xs text-gray-400 mb-1">{t("play.games.reenterPassword", "Re-enter password")}</span>
           <input type="password" value={p} onChange={(e) => setP(e.target.value)} autoComplete="current-password" className="w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white outline-none focus:border-red-400" />
         </label>
       </div>
-      {!nameOk && u.trim() !== "" && <p className="mt-2 text-xs text-red-400">That doesn't match this account's username.</p>}
+      {!nameOk && u.trim() !== "" && <p className="mt-2 text-xs text-red-400">{t("play.games.usernameMismatch", "That doesn't match this account's username.")}</p>}
       <label className="mt-3 flex items-start gap-2">
         <input type="checkbox" checked={finalCk} onChange={(e) => setFinalCk(e.target.checked)} className="mt-0.5" />
-        <span className="text-xs text-gray-400">I understand this is permanent — the account, password, and all colonies will be destroyed.</span>
+        <span className="text-xs text-gray-400">{t("play.games.trashUnderstand", "I understand this is permanent — the account, password, and all colonies will be destroyed.")}</span>
       </label>
       <div className="mt-3 flex items-center gap-2">
         <button onClick={submit} disabled={!canConfirm} className="rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-40">
-          {submitting ? "Deleting…" : "Delete Entire Account"}
+          {submitting ? t("play.games.deleting", "Deleting…") : t("play.games.trashConfirm", "Delete Entire Account")}
         </button>
-        <button onClick={onCancel} disabled={submitting} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">Cancel</button>
+        <button onClick={onCancel} disabled={submitting} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("play.common.cancel", "Cancel")}</button>
       </div>
     </div>
   );
@@ -1387,22 +1392,23 @@ function TrashConfirm({ username, onCancel, onConfirm, flash }: { username: stri
  *  the launch gate enforces, so the card and the gate never disagree. What is
  *  shown is the need; the WHY behind each figure stays the player's discovery. */
 function SiteNeeds({ state, zone, scientists }: { state: GameState; zone: Zone; scientists: number }) {
+  const t = useT();
   const r = state.resources;
   const gear = requiredGear(zone, scientists);
   const convoy = convoyNeeds(state, zone);
   const rows = [
-    gear.hazmat > 0 ? { icon: "🧥", label: "Hazmat suits", have: Math.floor(r.hazmat), need: gear.hazmat } : null,
-    gear.shots > 0 ? { icon: "💉", label: "Radiation shots", have: Math.floor(r.shots), need: gear.shots } : null,
-    gear.alloys > 0 ? { icon: "⚙️", label: "Alloy diggers", have: Math.floor(r.alloys), need: gear.alloys } : null,
-    convoy.gas > 0 ? { icon: "⛽", label: "Vehicle fuel", have: Math.floor(r.gas), need: convoy.gas } : null,
-    convoy.battery > 0 ? { icon: "🔋", label: "Battery packs", have: Math.floor(r.battery), need: convoy.battery } : null,
-    convoy.skmech > 0 ? { icon: "🔧", label: "Skilled mechanics", have: Math.floor(r.skmech), need: convoy.skmech } : null,
+    gear.hazmat > 0 ? { icon: "🧥", label: t("play.gear.hazmatLabel", "Hazmat suits"), have: Math.floor(r.hazmat), need: gear.hazmat } : null,
+    gear.shots > 0 ? { icon: "💉", label: t("play.gear.shotsLabel", "Radiation shots"), have: Math.floor(r.shots), need: gear.shots } : null,
+    gear.alloys > 0 ? { icon: "⚙️", label: t("play.gear.alloyLabel", "Alloy diggers"), have: Math.floor(r.alloys), need: gear.alloys } : null,
+    convoy.gas > 0 ? { icon: "⛽", label: t("play.gear.fuelLabel", "Vehicle fuel"), have: Math.floor(r.gas), need: convoy.gas } : null,
+    convoy.battery > 0 ? { icon: "🔋", label: t("play.gear.batteryLabel", "Battery packs"), have: Math.floor(r.battery), need: convoy.battery } : null,
+    convoy.skmech > 0 ? { icon: "🔧", label: t("play.gear.skmechLabel", "Skilled mechanics"), have: Math.floor(r.skmech), need: convoy.skmech } : null,
   ].filter((x): x is { icon: string; label: string; have: number; need: number } => x !== null);
   if (rows.length === 0) return null;
   return (
     <div className="mt-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2">
       <p className="text-[10px] uppercase tracking-wider text-text-3">
-        To field — team of {scientists}
+        {t("play.gear.toField", "To field — team of {n}", { n: scientists })}
       </p>
       <ul className="mt-1 space-y-0.5">
         {rows.map((row) => {
@@ -1412,7 +1418,7 @@ function SiteNeeds({ state, zone, scientists }: { state: GameState; zone: Zone; 
               <span className="text-gray-300">{row.icon} {row.label}</span>
               <span className={ok ? "text-ember-soft" : "text-red-300"}>
                 <Bdi dir="ltr">{row.have}/{row.need}</Bdi>
-                {!ok && <span className="text-text-3"> — short</span>}
+                {!ok && <span className="text-text-3">{t("play.gear.short", " — short")}</span>}
               </span>
             </li>
           );
@@ -1453,13 +1459,13 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
     const zone = getZone(sel);
     // Tier 0 stepping-out gear gates fielding ANY expedition.
     if (!stepOut) {
-      onFlash("The Cradle hasn't stepped out yet. Forge a Medical kit, a Mechanics kit, and an Armor kit in the 🏭 Workshop below before any team leaves.");
+      onFlash(t("play.exp.stepOutFlash", "The Cradle hasn't stepped out yet. Forge a Medical kit, a Mechanics kit, and an Armor kit in the 🏭 Workshop below before any team leaves."));
       sound.error();
       return;
     }
     const cost = engineHelpers.suppliesCost(state, zone);
     if (state.resources.supplies < cost) {
-      onFlash(`Not enough supplies. ${zone.name} needs ${cost} 📦, have ${Math.floor(state.resources.supplies)}.`);
+      onFlash(t("play.exp.suppliesFlash", "Not enough supplies. {zone} needs {cost} 📦, have {have}.", { zone: zone.name, cost, have: Math.floor(state.resources.supplies) }));
       sound.error();
       return;
     }
@@ -1481,7 +1487,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
     <main className="mx-auto max-w-6xl px-6 py-8">
       <div className="flex flex-wrap items-baseline justify-between">
         <h2 className="text-2xl font-bold text-white">{t("exp.title")}</h2>
-        <p className="text-sm text-gray-400">Teams away: <b className="text-white">{active.length}/{maxSlots}</b> {!canLaunch && <span className="text-amber-300"> — deploy Logistics AI for more slots</span>}</p>
+        <p className="text-sm text-gray-400">{t("play.exp.teamsAway", "Teams away:")} <b className="text-white">{active.length}/{maxSlots}</b> {!canLaunch && <span className="text-amber-300">{t("play.exp.moreSlots", " — deploy Logistics AI for more slots")}</span>}</p>
       </div>
 
       {/* active */}
@@ -1494,8 +1500,8 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
             return (
               <div key={e.id} className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-4">
                 <div className="flex items-center justify-between">
-                  <Tooltip content={tip({ what: "Active exploration — a team out in the Shatterlands.", does: "Runs in real time and resolves while you're away, returning Embers (and maybe a Chipset) to the Cradle.", how: "Returns automatically once the timer hits zero. Runs launched under-geared carry their accepted radiation loss." })}><span className="font-semibold text-amber-100">🚚 {e.label}</span></Tooltip>
-                  <span className="text-xs text-gray-400">{e.assignedScientists} scientist(s){e.lossPct ? ` · ☢️ ${e.lossPct}%` : ""}</span>
+                  <Tooltip content={tip({ what: t("play.zones.tipActiveWhat", "Active exploration — a team out in the Shatterlands."), does: t("play.zones.tipActiveDoes", "Runs in real time and resolves while you're away, returning Embers (and maybe a Chipset) to the Cradle."), how: t("play.zones.tipActiveHow", "Returns automatically once the timer hits zero. Runs launched under-geared carry their accepted radiation loss.") })}><span className="font-semibold text-amber-100">🚚 {e.label}</span></Tooltip>
+                  <span className="text-xs text-gray-400">{t("play.exp.scientistCount", "{n} scientist(s)", { n: e.assignedScientists })}{e.lossPct ? t("play.exp.lossPct", " · ☢️ {pct}%", { pct: e.lossPct }) : ""}</span>
                 </div>
                 <p className="mt-1 text-xs text-gray-400">{t("exp.returnsIn")} <b className="text-amber-200"><Bdi dir="ltr">{fmtDuration(t, msLeft)}</Bdi></b></p>
                 <div className="mt-2 h-2 rounded bg-white/10"><div className="h-2 rounded bg-ember" style={{ width: `${pct}%` }} /></div>
@@ -1510,7 +1516,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
         <h3 className="font-semibold text-white">{t("exp.plan")} <span className="text-xs font-normal text-gray-400">{t("exp.planSub")}</span></h3>
         {!stepOut && (
           <div className="mt-3 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-            🏗️ <b>The Cradle hasn't stepped out yet.</b> Fielding any exploration requires everyday logistics gear forged in the <b className="text-amber-200">🏭 Workshop</b> below: a <b>Medical kit</b> 🩺, a <b>Mechanics kit</b> 🔧, and an <b>Armor kit</b> 🛡️ (Tier 0, ~18 📦 total). Forge all three before you Commit.
+            🏗️ <b>{t("play.exp.stepOutTitle", "The Cradle hasn't stepped out yet.")}</b> {t("play.exp.stepOutBodyA", "Fielding any exploration requires everyday logistics gear forged in the")} <b className="text-amber-200">{t("play.exp.stepOutWorkshop", "🏭 Workshop")}</b> {t("play.exp.stepOutBodyB", "below: a")} <b>{t("play.exp.kitMedical", "Medical kit")}</b> {t("play.exp.stepOutSep1", "🩺, a")} <b>{t("play.exp.kitMech", "Mechanics kit")}</b> {t("play.exp.stepOutSep2", "🔧, and an")} <b>{t("play.exp.kitArmor", "Armor kit")}</b> {t("play.exp.stepOutTail", "🛡️ (Tier 0, ~18 📦 total). Forge all three before you Commit.")}
           </div>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1518,11 +1524,11 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
           <select value={sel} onChange={(e) => setSel(e.target.value)} className="rounded-lg border border-white/15 bg-black/60 px-3 py-2 text-white outline-none focus:border-amber-400">
             {accessible.map((z) => <option key={z.id} value={z.id}>{z.name}{isDeepZone(z.radiationLevel) ? " ☢️" : ""}</option>)}
           </select>
-          <Tooltip content={tip(LAB_TIPS.scientists)}><label className="text-xs text-gray-400">{t("exp.scientists")}</label></Tooltip>
+          <Tooltip content={tipT(t, "lab", "scientists", LAB_TIPS.scientists)}><label className="text-xs text-gray-400">{t("exp.scientists")}</label></Tooltip>
           <input type="number" min={1} max={state.scientists} value={sci} onChange={(e) => setSci(Math.max(1, Math.min(state.scientists, Number(e.target.value) || 1)))} className="w-20 rounded-lg border border-white/15 bg-black/60 px-2 py-2 text-white outline-none focus:border-amber-400" />
-          <Tooltip content={tip({ what: "Commit Supplies — launch this exploration.", does: "Spends the destination's Supplies cost and sends your team out in real time. Deep zones open the pre-launch risk pop-up first. Farther sites also draw on the convoy's fuel & battery stores.", how: "Requires a stepped-out Cradle (Tier 0 kits), enough Supplies, a free field slot, and enough fuel/battery for the distance. Returns Embers (and maybe a Chipset) when it completes." })}>
+          <Tooltip content={tip({ what: t("play.zones.tipCommitWhat", "Commit Supplies — launch this exploration."), does: t("play.zones.tipCommitDoes", "Spends the destination's Supplies cost and sends your team out in real time. Deep zones open the pre-launch risk pop-up first. Farther sites also draw on the convoy's fuel & battery stores."), how: t("play.zones.tipCommitHow", "Requires a stepped-out Cradle (Tier 0 kits), enough Supplies, a free field slot, and enough fuel/battery for the distance. Returns Embers (and maybe a Chipset) when it completes.") })}>
             <button onClick={commit} disabled={!canLaunch} className="ms-auto rounded-lg bg-ember px-5 py-2 font-semibold text-black hover:brightness-110 disabled:opacity-40">
-              Commit Supplies
+              {t("play.exp.commit", "Commit Supplies")}
             </button>
           </Tooltip>
         </div>
@@ -1541,29 +1547,29 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
           const cost = engineHelpers.suppliesCost(state, z);
           const stats = engineHelpers.zoneProspects(state, z);
           const ownerRace = z.owner !== "shared" && z.owner !== "special" ? getRace(z.owner) : null;
-          const owner = z.owner === "shared" ? "No race's home" : ownerRace ? `${ownerRace.name} territory` : "";
+          const owner = z.owner === "shared" ? t("play.zones.noRaceHome", "No race's home") : ownerRace ? t("play.zones.ownerTerritory", "{race} territory", { race: ownerRace.name }) : "";
           const ownerTip = z.owner === "shared"
             ? OWNER_TIPS.shared
             : ownerRace
-              ? { what: `${ownerRace.name} territory — a home region of the Shatterlands.`, does: "Rich in that race's own AI — embers, chipsets, and a UNIQUE territory material used in the alloy recipe. Every race is incomplete alone.", how: `Reach this region to loot ${ownerRace.name} embers + their territory material alongside the site's base yield.` }
+              ? { what: t("play.zones.ownerTipWhat", "{race} territory — a home region of the Shatterlands.", { race: ownerRace.name }), does: t("play.zones.ownerTipDoes", "Rich in that race's own AI — embers, chipsets, and a UNIQUE territory material used in the alloy recipe. Every race is incomplete alone."), how: t("play.zones.ownerTipHow", "Reach this region to loot {race} embers + their territory material alongside the site's base yield.", { race: ownerRace.name }) }
               : OWNER_TIPS.shared;
           return (
             <div key={z.id} className={`rounded-xl border p-4 ${sel === z.id ? "border-amber-400/50 bg-amber-400/5" : "border-white/10 bg-black/30"}`} onClick={() => { setSel(z.id); sound.tab(); }}>
               <div className="flex items-baseline justify-between gap-2">
-                <Tooltip content={tip({ what: z.name, does: z.flavor, how: "Select it above and Commit Supplies to send a team here." })}><span className="font-semibold text-white cursor-pointer">{z.name}</span></Tooltip>
+                <Tooltip content={tip({ what: z.name, does: z.flavor, how: t("play.zones.selectHow", "Select it above and Commit Supplies to send a team here.") })}><span className="font-semibold text-white cursor-pointer">{z.name}</span></Tooltip>
                 <Tooltip content={tip(ownerTip)}><span className="text-[11px] uppercase text-text-3">{owner}</span></Tooltip>
               </div>
               <p className="mt-1 text-xs text-gray-400">{z.flavor}</p>
               <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                <Tooltip content={tip(EXPEDITION_TIPS.risk)}><span className="rounded bg-white/5 px-2 py-0.5 text-red-300">Risk {z.risk}</span></Tooltip>
-                <Tooltip content={tip(EXPEDITION_TIPS.radiation)}><span className={`rounded px-2 py-0.5 ${z.radiationLevel > 0 ? "bg-amber-400/10 text-amber-300" : "bg-white/5 text-gray-400"}`}>☢️ {z.radiationLevel}</span></Tooltip>
+                <Tooltip content={tipT(t, "expedition", "risk", EXPEDITION_TIPS.risk)}><span className="rounded bg-white/5 px-2 py-0.5 text-red-300">{t("play.zones.risk", "Risk {n}", { n: z.risk })}</span></Tooltip>
+                <Tooltip content={tipT(t, "expedition", "radiation", EXPEDITION_TIPS.radiation)}><span className={`rounded px-2 py-0.5 ${z.radiationLevel > 0 ? "bg-amber-400/10 text-amber-300" : "bg-white/5 text-gray-400"}`}>{t("play.zones.radiation", "☢️ {n}", { n: z.radiationLevel })}</span></Tooltip>
                 {z.radiationLevel >= 20 && z.radiationLevel < DEEP && (
-                  <Tooltip content={tip(EXPEDITION_TIPS.radiation)}><span className="rounded bg-amber-400/10 px-2 py-0.5 text-amber-300/90">⚠️ mild radiation — recovery possible but thin without shots</span></Tooltip>
+                  <Tooltip content={tipT(t, "expedition", "radiation", EXPEDITION_TIPS.radiation)}><span className="rounded bg-amber-400/10 px-2 py-0.5 text-amber-300/90">{t("play.zones.mildRad", "⚠️ mild radiation — recovery possible but thin without shots")}</span></Tooltip>
                 )}
-                {ownerRace && <Tooltip content={tip(RESOURCE_TIPS.mats)}><span className="rounded bg-white/5 px-2 py-0.5 text-purple-300">◈ material: {ownerRace.name.replace("The ", "")}</span></Tooltip>}
-                <Tooltip content={tip(EXPEDITION_TIPS.embers)}><span className="rounded bg-white/5 px-2 py-0.5 text-amber-200">~{stats.embers} Embers</span></Tooltip>
-                <Tooltip content={tip(EXPEDITION_TIPS.chipset)}><span className="rounded bg-white/5 px-2 py-0.5 text-cyan-300">Chipset {Math.round(stats.chipsetChance * 100)}%</span></Tooltip>
-                <Tooltip content={tip(EXPEDITION_TIPS.cost)}><span className="rounded bg-white/5 px-2 py-0.5 text-lime-300">Cost {cost} 📦</span></Tooltip>
+                {ownerRace && <Tooltip content={tipT(t, "resource", "mats", RESOURCE_TIPS.mats)}><span className="rounded bg-white/5 px-2 py-0.5 text-purple-300">{t("play.zones.material", "◈ material: {m}", { m: ownerRace.name.replace("The ", "") })}</span></Tooltip>}
+                <Tooltip content={tipT(t, "expedition", "embers", EXPEDITION_TIPS.embers)}><span className="rounded bg-white/5 px-2 py-0.5 text-amber-200">{t("play.zones.embers", "~{n} Embers", { n: stats.embers })}</span></Tooltip>
+                <Tooltip content={tipT(t, "expedition", "chipset", EXPEDITION_TIPS.chipset)}><span className="rounded bg-white/5 px-2 py-0.5 text-cyan-300">{t("play.zones.chipset", "Chipset {pct}%", { pct: Math.round(stats.chipsetChance * 100) })}</span></Tooltip>
+                <Tooltip content={tipT(t, "expedition", "cost", EXPEDITION_TIPS.cost)}><span className="rounded bg-white/5 px-2 py-0.5 text-lime-300">{t("play.zones.cost", "Cost {n} 📦", { n: cost })}</span></Tooltip>
               </div>
               <SiteNeeds state={state} zone={z} scientists={sci} />
             </div>
@@ -1574,7 +1580,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
       {/* the hangar — deep radiation zones, visible but gated */}
       <div className="mt-6 rounded-2xl border border-red-400/20 bg-red-400/5 p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="font-semibold text-white">☢️ The Hangar — Deep Shatterlands <span className="text-xs font-normal text-gray-400">— visually distant, radiation-locked</span></h3>
+          <h3 className="font-semibold text-white">{t("play.zones.hangarTitle", "☢️ The Hangar — Deep Shatterlands")} <span className="text-xs font-normal text-gray-400">{t("play.zones.hangarSub", "— visually distant, radiation-locked")}</span></h3>
           <span className="text-[11px] text-gray-400">{t("exp.suits")}</span>
         </div>
         {deepZones.map((z) => {
@@ -1584,25 +1590,25 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
           return (
             <div key={z.id} className={`mt-3 rounded-xl border p-4 ${locked ? "border-white/10 bg-black/40 opacity-70" : sel === z.id ? "border-amber-400/50 bg-amber-400/5" : "border-white/10 bg-black/30"}`}>
               <div className="flex items-baseline justify-between gap-2">
-                <Tooltip content={tip({ what: `${z.name} — a hangared deep site.`, does: z.flavor, how: locked ? "Locked until you forge enough hazmat for a suited recon team. Craft suits in the Workshop." : "Selectable through the hangar. Committing opens the pre-launch risk pop-up." })}>
+                <Tooltip content={tip({ what: t("play.zones.deepTipWhat", "{zone} — a hangared deep site.", { zone: z.name }), does: z.flavor, how: locked ? t("play.zones.deepTipLocked", "Locked until you forge enough hazmat for a suited recon team. Craft suits in the Workshop.") : t("play.zones.deepTipUnlocked", "Selectable through the hangar. Committing opens the pre-launch risk pop-up.") })}>
                   <span className={`font-semibold ${locked ? "text-text-3" : "text-white"}`}>{locked ? "🔒 " : "☢️ "}{z.name}</span>
                 </Tooltip>
                 <span className="text-[11px] uppercase text-text-3">{t("exp.deepSite")}</span>
               </div>
               <p className="mt-1 text-xs text-gray-400">{z.flavor}</p>
               {locked ? (
-                <p className="mt-2 text-xs text-amber-300/90">🔒 Hangared — needs <b className="text-amber-200">{Math.max(1, hazmatPerScientist(z.radiationLevel))} hazmat suit(s)</b> for a suited recon team before this deep site is reachable. Forge them in the 🏭 Workshop below.</p>
+                <p className="mt-2 text-xs text-amber-300/90">{t("play.zones.hangaredA", "🔒 Hangared — needs ")}<b className="text-amber-200">{t("play.zones.hangaredSuits", "{n} hazmat suit(s)", { n: Math.max(1, hazmatPerScientist(z.radiationLevel)) })}</b>{t("play.zones.hangaredB", " for a suited recon team before this deep site is reachable. Forge them in the 🏭 Workshop below.")}</p>
               ) : (
                 <>
                 <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                  <Tooltip content={tip(EXPEDITION_TIPS.risk)}><span className="rounded bg-white/5 px-2 py-0.5 text-red-300">Risk {z.risk}</span></Tooltip>
-                  <Tooltip content={tip(EXPEDITION_TIPS.radiation)}><span className="rounded bg-red-400/10 px-2 py-0.5 text-red-300">☢️ {z.radiationLevel} deep radiation</span></Tooltip>
-                  <Tooltip content={tip(EXPEDITION_TIPS.embers)}><span className="rounded bg-white/5 px-2 py-0.5 text-amber-200">~{stats.embers} Embers</span></Tooltip>
-                  <Tooltip content={tip(EXPEDITION_TIPS.chipset)}><span className="rounded bg-white/5 px-2 py-0.5 text-cyan-300">Chipset {Math.round(stats.chipsetChance * 100)}%</span></Tooltip>
-                  <Tooltip content={tip(EXPEDITION_TIPS.cost)}><span className="rounded bg-white/5 px-2 py-0.5 text-lime-300">Cost {cost} 📦</span></Tooltip>
-                <Tooltip content={tip(EXPEDITION_TIPS.alloyShort)}>
+                  <Tooltip content={tipT(t, "expedition", "risk", EXPEDITION_TIPS.risk)}><span className="rounded bg-white/5 px-2 py-0.5 text-red-300">{t("play.zones.risk", "Risk {n}", { n: z.risk })}</span></Tooltip>
+                  <Tooltip content={tipT(t, "expedition", "radiation", EXPEDITION_TIPS.radiation)}><span className="rounded bg-red-400/10 px-2 py-0.5 text-red-300">{t("play.zones.deepRadiation", "☢️ {n} deep radiation", { n: z.radiationLevel })}</span></Tooltip>
+                  <Tooltip content={tipT(t, "expedition", "embers", EXPEDITION_TIPS.embers)}><span className="rounded bg-white/5 px-2 py-0.5 text-amber-200">{t("play.zones.embers", "~{n} Embers", { n: stats.embers })}</span></Tooltip>
+                  <Tooltip content={tipT(t, "expedition", "chipset", EXPEDITION_TIPS.chipset)}><span className="rounded bg-white/5 px-2 py-0.5 text-cyan-300">{t("play.zones.chipset", "Chipset {pct}%", { pct: Math.round(stats.chipsetChance * 100) })}</span></Tooltip>
+                  <Tooltip content={tipT(t, "expedition", "cost", EXPEDITION_TIPS.cost)}><span className="rounded bg-white/5 px-2 py-0.5 text-lime-300">{t("play.zones.cost", "Cost {n} 📦", { n: cost })}</span></Tooltip>
+                <Tooltip content={tipT(t, "expedition", "alloyShort", EXPEDITION_TIPS.alloyShort)}>
                   <span className={`rounded px-2 py-0.5 ${state.resources.alloys >= 1 ? "bg-ember/10 text-ember-soft" : "bg-red-400/10 text-red-300"}`}>
-                    {state.resources.alloys >= 1 ? "⚙️ extraction ready" : "⚙️ no alloy — find ≠ retrieve"}
+                    {state.resources.alloys >= 1 ? t("play.zones.extractReady", "⚙️ extraction ready") : t("play.zones.noAlloy", "⚙️ no alloy — find ≠ retrieve")}
                   </span>
                 </Tooltip>
               </div>
@@ -1611,7 +1617,7 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
             )}
               {!locked && (
                 <button onClick={() => { setSel(z.id); sound.tab(); setRiskZone(null); }} disabled={sel === z.id} className="mt-2 rounded border border-white/15 px-3 py-1 text-xs text-gray-300 hover:bg-white/10 disabled:opacity-40">
-                  {sel === z.id ? "✓ Ready — Commit Supplies above" : "Select this deep site"}
+                  {sel === z.id ? t("play.zones.readyCommit", "✓ Ready — Commit Supplies above") : t("play.zones.selectDeep", "Select this deep site")}
                 </button>
               )}
             </div>
@@ -1626,11 +1632,11 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
           zone={riskZone}
           scientists={sci}
           onGo={goAnyway}
-          onPrepare={() => { setRiskZone(null); scrollToWorkshop(); onFlash("The Workshop is just below — forge what's missing, then Commit."); }}
+          onPrepare={() => { setRiskZone(null); scrollToWorkshop(); onFlash(t("play.exp.workshopFlash", "The Workshop is just below — forge what's missing, then Commit.")); }}
           onSafer={() => {
             setRiskZone(null);
             const safe = mildZones.find((z) => z.radiationLevel === 0) || mildZones[0];
-            if (safe) { setSel(safe.id); onFlash("Selected a safer destination. The deep can wait."); }
+            if (safe) { setSel(safe.id); onFlash(t("play.exp.saferFlash", "Selected a safer destination. The deep can wait.")); }
           }}
           onCancel={() => { setRiskZone(null); sound.click(); }}
         />
@@ -1652,9 +1658,9 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
   const fullyCovered = loss === 0;
   const t = useT();
   const table: { icon: string; label: string; have: number; need: number }[] = [
-    { icon: "🧥", label: "Hazmat suits", have: r.hazmat, need: need.hazmat },
-    { icon: "💉", label: "Radiation shots", have: r.shots, need: need.shots },
-    { icon: "⚙️", label: "Alloy-armed diggers", have: r.alloys, need: need.alloys },
+    { icon: "🧥", label: t("play.gear.hazmatLabel", "Hazmat suits"), have: r.hazmat, need: need.hazmat },
+    { icon: "💉", label: t("play.gear.shotsLabel", "Radiation shots"), have: r.shots, need: need.shots },
+    { icon: "⚙️", label: t("play.gear.alloyArmedLabel", "Alloy-armed diggers"), have: r.alloys, need: need.alloys },
   ];
   // OWNER 2026-09-30: this pop-up explains what's missing — it stays open until
   // the player clicks it shut. No backdrop-click dismiss, no Escape dismiss; the
@@ -1663,17 +1669,17 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
     <div className="fixed inset-0 z-[90] modal-wrap bg-black/75">
       <div className="my-auto w-full max-w-lg rounded-2xl border border-red-400/40 bg-[#0b0e16] p-6 shadow-2xl">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-red-300">☢️ High radiation: {zone.name}</h3>
+          <h3 className="text-lg font-bold text-red-300">{t("play.risk.title", "☢️ High radiation: {zone}", { zone: zone.name })}</h3>
           <button onClick={onCancel} className="rounded border border-white/15 px-2.5 py-2 text-xs text-gray-400 hover:bg-white/10">✕</button>
         </div>
 
         <div className={`mt-4 rounded-lg border p-3 text-center ${fullyCovered ? "border-ember/30 bg-ember/5" : "border-red-400/30 bg-red-400/5"}`}>
           <div className={`text-3xl font-bold ${fullyCovered ? "text-ember-soft" : success >= 50 ? "text-amber-300" : "text-red-300"}`}>
-            Clean return: {success}%
+            {t("play.risk.cleanReturn", "Clean return: {pct}%", { pct: success })}
           </div>
           <p className="mt-1 text-xs text-gray-400">
-            Team of {scientists} into {zone.name} ({zone.radiationLevel} radiation)
-            {fullyCovered ? " — fully geared, the run should come back clean." : ` — projected loss ${loss}%: attrition, reduced loot${scientists > 1 ? ", possible scientist casualties" : ""}.`}
+            {t("play.risk.teamLine", "Team of {n} into {zone} ({rad} radiation)", { n: scientists, zone: zone.name, rad: zone.radiationLevel })}
+            {fullyCovered ? t("play.risk.fullyGeared", " — fully geared, the run should come back clean.") : t("play.risk.projectedLoss", " — projected loss {pct}%: attrition, reduced loot{cas}.", { pct: loss, cas: scientists > 1 ? t("play.risk.casualties", ", possible scientist casualties") : "" })}
           </p>
         </div>
 
@@ -1690,10 +1696,10 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
                     <td className="py-1.5 text-end">
                       {row.need > 0 ? (
                         <span className={ok ? "text-ember-soft" : "text-red-300"}>
-                          {row.have}/{row.need} <span className="text-text-3">({Math.round(cover * 100)}% cover)</span>
+                          {row.have}/{row.need} <span className="text-text-3">{t("play.risk.coverPct", "({pct}% cover)", { pct: Math.round(cover * 100) })}</span>
                         </span>
                       ) : (
-                        <span className="text-ember-soft">not needed</span>
+                        <span className="text-ember-soft">{t("play.risk.notNeeded", "not needed")}</span>
                       )}
                     </td>
                   </tr>
@@ -1702,24 +1708,24 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
             </tbody>
           </table>
           <p className="mt-2 text-xs text-gray-400">
-            Suits are the exploration key — they let you get in and look. Alloy-armed diggers are the extraction key — without them you find, but largely cannot bring it back. What you lack shapes the loss rate. Losing scientists never wipes your colony below one; corruption rises with the taint left behind.
+            {t("play.risk.gearExplainer", "Suits are the exploration key — they let you get in and look. Alloy-armed diggers are the extraction key — without them you find, but largely cannot bring it back. What you lack shapes the loss rate. Losing scientists never wipes your colony below one; corruption rises with the taint left behind.")}
           </p>
         </div>
 
-        <p className="mt-4 text-center text-xs italic text-text-3">"You are always free to go. This is what you risk."</p>
+        <p className="mt-4 text-center text-xs italic text-text-3">{t("play.risk.quote", "\"You are always free to go. This is what you risk.\"")}</p>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           <button onClick={onGo} className="rounded-lg bg-red-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-400">
-            ☢️ Go Anyway — accept {loss}% loss
+            {t("play.risk.goAnyway", "☢️ Go Anyway — accept {pct}% loss", { pct: loss })}
           </button>
           <button onClick={onPrepare} className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-2.5 text-sm font-semibold text-amber-200 hover:bg-amber-400/20">
-            🏭 Go Back & Prepare
+            {t("play.risk.goPrepare", "🏭 Go Back & Prepare")}
           </button>
           <button onClick={onSafer} className="rounded-lg border border-white/15 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/10">
-            🗺️ Safer Destination
+            {t("play.risk.safer", "🗺️ Safer Destination")}
           </button>
           <button onClick={onCancel} className="rounded-lg border border-white/15 px-4 py-2.5 text-sm text-gray-400 hover:bg-white/10">
-            Cancel
+            {t("play.common.cancel", "Cancel")}
           </button>
         </div>
       </div>
@@ -1739,7 +1745,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
       <h2 className="text-2xl font-bold text-white">{t("lab.title")}</h2>
-      <p className="mt-1 text-sm text-gray-400">Two tracks: <b className="text-amber-200">Recovered AI</b> (study Embers & Chipsets → Deploy) and <b className="text-purple-300">Human knowledge</b> (spend 📜 Codices on the Research Tree, run by your Leaders).</p>
+      <p className="mt-1 text-sm text-gray-400">{t("play.lab.twoTracks", "Two tracks:")} <b className="text-amber-200">{t("play.lab.trackRecovered", "Recovered AI")}</b> {t("play.lab.trackRecoveredSub", "(study Embers & Chipsets → Deploy) and")} <b className="text-purple-300">{t("play.lab.trackHuman", "Human knowledge")}</b> {t("play.lab.trackHumanSub", "(spend 📜 Codices on the Research Tree, run by your Leaders).")}</p>
 
       <div className="mt-4 flex flex-wrap gap-2">
         {([["deploy", t("lab.tabDeploy")], ["research", t("lab.tabResearch")], ["leaders", t("lab.tabLeaders", { n: leaderCount, cap: engineHelpers.leaderSlots(state) })]] as [typeof view, string][]).map(([id, label]) => (
@@ -1748,9 +1754,9 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3 items-center text-sm">
-        <Tooltip content={tip(RESOURCE_TIPS.insight)}><span className="rounded-lg bg-ember/10 border border-ember/30 px-3 py-1.5 text-ember-soft">Insight: {Math.round(state.insight)}</span></Tooltip>
-        <Tooltip content={tip(RESOURCE_TIPS.codices)}><span className="rounded-lg bg-purple-400/10 border border-purple-400/30 px-3 py-1.5 text-purple-200">📜 Codices: {state.codices}</span></Tooltip>
-        <Tooltip content={tip(LAB_TIPS.scientists)}><span className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-gray-300">Scientists: {state.scientists} <span className="text-text-3">({studying.length} busy / {engineHelpers.scientistCap(state)} cap)</span></span></Tooltip>
+        <Tooltip content={tipT(t, "resource", "insight", RESOURCE_TIPS.insight)}><span className="rounded-lg bg-ember/10 border border-ember/30 px-3 py-1.5 text-ember-soft">{t("play.lab.insight", "Insight: {n}", { n: Math.round(state.insight) })}</span></Tooltip>
+        <Tooltip content={tipT(t, "resource", "codices", RESOURCE_TIPS.codices)}><span className="rounded-lg bg-purple-400/10 border border-purple-400/30 px-3 py-1.5 text-purple-200">{t("play.lab.codices", "📜 Codices: {n}", { n: state.codices })}</span></Tooltip>
+        <Tooltip content={tipT(t, "lab", "scientists", LAB_TIPS.scientists)}><span className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-gray-300">{t("play.lab.scientists", "Scientists: {n}", { n: state.scientists })} <span className="text-text-3">{t("play.lab.scientistsBusy", "({busy} busy / {cap} cap)", { busy: studying.length, cap: engineHelpers.scientistCap(state) })}</span></span></Tooltip>
       </div>
 
       {view === "research" && <ResearchTreeView state={state} now={now} onBeginResearch={onBeginResearch} />}
@@ -1760,26 +1766,26 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
       {view === "deploy" && (<>
       {/* study */}
       <div className="mt-6 rounded-2xl border border-white/10 bg-black/40 p-5">
-        <Tooltip content={tip(LAB_TIPS.studyEmbers)}>
+        <Tooltip content={tipT(t, "lab", "studyEmbers", LAB_TIPS.studyEmbers)}>
           <h3 className="font-semibold text-white">{t("lab.studyTitle")}</h3>
         </Tooltip>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <Tooltip content={tip(LAB_TIPS.studyEmbers)}>
-              <div className="flex items-center justify-between"><span className="font-semibold text-amber-200">{t("lab.studyEmbers")}</span><span className="text-xs text-text-3">cost: 2 🧯 · ~{engineHelpers.studySecs(state, "ember")}s</span></div>
+            <Tooltip content={tipT(t, "lab", "studyEmbers", LAB_TIPS.studyEmbers)}>
+              <div className="flex items-center justify-between"><span className="font-semibold text-amber-200">{t("lab.studyEmbers")}</span><span className="text-xs text-text-3">{t("play.lab.studyCostEmber", "cost: 2 🧯 · ~{secs}s", { secs: engineHelpers.studySecs(state, "ember") })}</span></div>
             </Tooltip>
-            <p className="mt-1 text-xs text-gray-400">Consumes 2 Embers, yields ~{engineHelpers.insightFor(state, "ember")} insight, over real time.</p>
+            <p className="mt-1 text-xs text-gray-400">{t("play.lab.studyEmberDesc", "Consumes 2 Embers, yields ~{n} insight, over real time.", { n: engineHelpers.insightFor(state, "ember") })}</p>
             <button onClick={() => onStudy("ember")} disabled={busy || r.embers < 2} className="mt-3 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-              {busy ? "All scientists busy" : r.embers < 2 ? "Need 2 Embers" : "Begin Study"}
+              {busy ? t("play.lab.allBusy", "All scientists busy") : r.embers < 2 ? t("play.lab.needEmbers", "Need 2 Embers") : t("play.lab.beginStudy", "Begin Study")}
             </button>
           </div>
           <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
-            <Tooltip content={tip(LAB_TIPS.studyChipset)}>
-              <div className="flex items-center justify-between"><span className="font-semibold text-cyan-300">{t("lab.studyChipset")}</span><span className="text-xs text-text-3">1 🔩 · ~{engineHelpers.studySecs(state, "chipset")}s</span></div>
+            <Tooltip content={tipT(t, "lab", "studyChipset", LAB_TIPS.studyChipset)}>
+              <div className="flex items-center justify-between"><span className="font-semibold text-cyan-300">{t("lab.studyChipset")}</span><span className="text-xs text-text-3">{t("play.lab.studyCostChipset", "1 🔩 · ~{secs}s", { secs: engineHelpers.studySecs(state, "chipset") })}</span></div>
             </Tooltip>
-            <p className="mt-1 text-xs text-gray-400">Consumes a rare Chipset, yields ~{engineHelpers.insightFor(state, "chipset")} insight. A real leap forward.</p>
+            <p className="mt-1 text-xs text-gray-400">{t("play.lab.studyChipsetDesc", "Consumes a rare Chipset, yields ~{n} insight. A real leap forward.", { n: engineHelpers.insightFor(state, "chipset") })}</p>
             <button onClick={() => onStudy("chipset")} disabled={busy || r.chipsets < 1} className="mt-3 w-full rounded-lg bg-cyan-400 px-3 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40">
-              {busy ? "All scientists busy" : r.chipsets < 1 ? "Need a Chipset" : "Begin Study"}
+              {busy ? t("play.lab.allBusy", "All scientists busy") : r.chipsets < 1 ? t("play.lab.needChipset", "Need a Chipset") : t("play.lab.beginStudy", "Begin Study")}
             </button>
           </div>
         </div>
@@ -1791,8 +1797,8 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
               return (
                 <div key={s.id} className="rounded-lg bg-white/5 p-3">
                   <div className="flex justify-between text-xs text-gray-300">
-                    <span>🔬 Studying {s.kind === "ember" ? "Embers" : "a Chipset"}</span>
-                    <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, s.startedAt + s.durationMs - now))}</Bdi> left</span>
+                    <span>{s.kind === "ember" ? t("play.lab.studyingEmbers", "🔬 Studying Embers") : t("play.lab.studyingChipset", "🔬 Studying a Chipset")}</span>
+                    <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, s.startedAt + s.durationMs - now))}</Bdi> {t("play.lab.timeLeft", "left")}</span>
                   </div>
                   <div className="mt-1 h-1.5 rounded bg-white/10"><div className="h-1.5 rounded bg-ember" style={{ width: `${pct}%` }} /></div>
                 </div>
@@ -1804,7 +1810,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
 
       {/* deploy */}
       <div className="mt-6 rounded-2xl border border-white/10 bg-black/40 p-5">
-        <Tooltip content={tip(LAB_TIPS.deploy)}>
+        <Tooltip content={tipT(t, "lab", "deploy", LAB_TIPS.deploy)}>
           <h3 className="font-semibold text-white">{t("lab.deployTitle")} <span className="text-xs font-normal text-gray-400">{t("lab.deploySub")}</span></h3>
         </Tooltip>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1814,7 +1820,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
             const can = !atMax && r.embers >= cost.embers && state.insight >= cost.insight;
             return (
               <div key={d.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <Tooltip content={tip(DOMAIN_TIPS[d.id])}>
+                <Tooltip content={tipT(t, "domain", d.id, DOMAIN_TIPS[d.id])}>
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-white">{d.icon} {t(`domain.${d.id}.name`, d.name)}</span>
                     {/* `tile.lv` keeps its own English byte-for-byte ("Lv 3") and its
@@ -1826,14 +1832,14 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
                   </div>
                 </Tooltip>
                 <p className="mt-1 text-xs text-gray-400">{domainDescription(t, d.id, d.description)}</p>
-                <Tooltip content={tip(LAB_TIPS.deployButton)}>
+                <Tooltip content={tipT(t, "lab", "deployButton", LAB_TIPS.deployButton)}>
                   {/* the Cradle's own cost line, same words, same key: "… Embers · … insight" */}
                   <p className="mt-2 text-xs text-text-3">{t("cradle.advanceSub", "{embers} Embers · {insight} insight", { embers: cost.embers.toLocaleString(), insight: cost.insight.toLocaleString() })}</p>
                 </Tooltip>
                 {atMax ? (
                   <p className="mt-2 text-xs text-text-3">{t("cradle.domainMaxReason")}</p>
                 ) : (
-                  <Tooltip content={tip(LAB_TIPS.deployButton)}>
+                  <Tooltip content={tipT(t, "lab", "deployButton", LAB_TIPS.deployButton)}>
                     <button onClick={() => onDeploy(d.id)} disabled={!can} className="mt-2 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
                       {/* the catalogue's ONE word for this action (the landing page spells it,
                           the Cradle spells it به‌کارگیری): a new `lab.deployAction` key would
@@ -1872,37 +1878,37 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
     <main className="mx-auto max-w-6xl px-6 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-white">🏛️ The Armory</h2>
+          <h2 className="text-2xl font-bold text-white">{t("play.armory.title", "🏛️ The Armory")}</h2>
           <p className="mt-1 text-sm text-gray-400">
-            {race ? <><span style={{ color: race.accentText }}>{race.name}</span>'s mustered war hardware — built at the Cradle from supplies, embers, fuel and refined <b className="text-fuchsia-300">plasma</b>.</> : "War hardware, built at the Cradle."} Earned only — nothing here is ever bought.
+            {race ? <><span style={{ color: race.accentText }}>{race.name}</span>{t("play.armory.raceIntro", "'s mustered war hardware — built at the Cradle from supplies, embers, fuel and refined ")}<b className="text-fuchsia-300">{t("play.armory.plasmaWord", "plasma")}</b>{t("play.armory.raceIntroTail", ".")}</> : t("play.armory.genericIntro", "War hardware, built at the Cradle.")} {t("play.armory.earnedOnly", "Earned only — nothing here is ever bought.")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <Tooltip content={tip(ARMORY_TIPS.plasma)}>
-            <span className="rounded-lg bg-fuchsia-400/10 border border-fuchsia-400/30 px-3 py-1.5 text-fuchsia-200">🔮 Plasma: {Math.floor(r.plasma)}</span>
+          <Tooltip content={tipT(t, "armory", "plasma", ARMORY_TIPS.plasma)}>
+            <span className="rounded-lg bg-fuchsia-400/10 border border-fuchsia-400/30 px-3 py-1.5 text-fuchsia-200">{t("play.armory.plasma", "🔮 Plasma: {n}", { n: Math.floor(r.plasma) })}</span>
           </Tooltip>
         </div>
       </div>
       {!hubDone ? (
         <div className="mt-6 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-6 text-sm text-gray-300">
-          <p className="text-amber-200 font-semibold">🔒 The Armory hasn't been opened.</p>
-          <p className="mt-1 text-xs text-gray-400">The forges answer only to the Cradle's command. Research <b className="text-purple-300">🏛️ Armory</b> in the Lab (🌳 Research — the amber section) to begin building weapon families.</p>
+          <p className="text-amber-200 font-semibold">{t("play.armory.notOpened", "🔒 The Armory hasn't been opened.")}</p>
+          <p className="mt-1 text-xs text-gray-400">{t("play.armory.forgesAnswer", "The forges answer only to the Cradle's command. Research ")}<b className="text-purple-300">{t("play.armory.armoryWord", "🏛️ Armory")}</b>{t("play.armory.forgesTail", " in the Lab (🌳 Research — the amber section) to begin building weapon families.")}</p>
         </div>
       ) : families.length === 0 ? (
         <div className="mt-6 rounded-2xl border border-white/10 bg-black/40 p-6 text-sm text-gray-400">
-          This world's race has no catalogued war families yet — the Watchers' catalog ships with the beta world; other races' catalogs arrive with their worlds.
+          {t("play.armory.noFamilies", "This world's race has no catalogued war families yet — the Watchers' catalog ships with the beta world; other races' catalogs arrive with their worlds.")}
         </div>
       ) : (
         <>
           <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-400">
-            <span className="rounded-lg bg-white/5 border border-white/10 px-2 py-1">🏛️ Armory researched</span>
-            <Tooltip content={tip(ARMORY_TIPS.plasmaRefine)}>
+            <span className="rounded-lg bg-white/5 border border-white/10 px-2 py-1">{t("play.armory.researched", "🏛️ Armory researched")}</span>
+            <Tooltip content={tipT(t, "armory", "plasmaRefine", ARMORY_TIPS.plasmaRefine)}>
               <button onClick={() => { sound.click(); onRefine(); }} disabled={!engineHelpers.hasTech(state, "plasma_refinement") || r.embers < PLASMA_REFINE_EMBERS}
                 className="rounded-lg bg-fuchsia-400/15 border border-fuchsia-400/40 px-3 py-1.5 text-fuchsia-200 hover:bg-fuchsia-400/25 disabled:opacity-40">
-                {!engineHelpers.hasTech(state, "plasma_refinement") ? "🔒 Plasma Refinement (research in Lab)" : `🔮 Refine ${PLASMA_REFINE_EMBERS} 🧯 → 1 plasma`}
+                {!engineHelpers.hasTech(state, "plasma_refinement") ? t("play.armory.refineLocked", "🔒 Plasma Refinement (research in Lab)") : t("play.armory.refine", "🔮 Refine {n} 🧯 → 1 plasma", { n: PLASMA_REFINE_EMBERS })}
               </button>
             </Tooltip>
-            <span className="text-[11px] text-text-3">Deep chipset sites also bleed raw plasma — the risk-of-depth reward.</span>
+            <span className="text-[11px] text-text-3">{t("play.armory.plasmaNote", "Deep chipset sites also bleed raw plasma — the risk-of-depth reward.")}</span>
           </div>
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {families.map((f) => {
@@ -1928,7 +1934,7 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
                     </div>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Tooltip content={tip({ what: model ?? "Not built yet", does: f.identity, how: `Researched: ${unlockTech ? unlockTech.name : ""}. Built in real time at the Cradle — upgrades require the current tier's resources.` })}>
+                        <Tooltip content={tip({ what: model ?? t("play.armory.notBuilt", "Not built yet"), does: f.identity, how: t("play.armory.familyHow", "Researched: {tech}. Built in real time at the Cradle — upgrades require the current tier's resources.", { tech: unlockTech ? unlockTech.name : "" }) })}>
                           <h3 className="font-semibold text-white">{f.name}</h3>
                         </Tooltip>
                         <span className="text-[11px] uppercase tracking-wider text-text-3">{f.role}</span>
@@ -1938,40 +1944,40 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
                   </div>
                   {/* tier pips 1-4 */}
                   <div className="mt-3 flex items-center gap-1.5">
-                    <span className="text-[11px] uppercase tracking-wider text-text-3">Tier</span>
+                    <span className="text-[11px] uppercase tracking-wider text-text-3">{t("play.armory.tier", "Tier")}</span>
                     {[1, 2, 3, 4].map((t) => (
                       <span key={t} className={`flex h-5 w-5 items-center justify-center rounded text-[11px] font-bold ${tier >= t ? "bg-ember text-black" : "bg-white/10 text-text-3"}`}>{t}</span>
                     ))}
-                    {build && <span className="ms-auto text-[11px] text-purple-300">{fmtDuration(t, leftMs)} left</span>}
+                    {build && <span className="ms-auto text-[11px] text-purple-300">{t("play.armory.timeLeft", "{dur} left", { dur: fmtDuration(t, leftMs) })}</span>}
                   </div>
                   {!unlocked ? (
                     <div className="mt-3 rounded-lg border border-purple-400/20 bg-purple-400/5 p-2.5 text-[11px] text-purple-200">
-                      🔒 Forges locked — research <b>{unlockTech ? `${unlockTech.icon} ${unlockTech.name}` : "the family's forge"}</b> in the Lab to unlock.
+                      {t("play.armory.lockedA", "🔒 Forges locked — research ")}<b>{unlockTech ? `${unlockTech.icon} ${unlockTech.name}` : t("play.armory.lockedFallback", "the family's forge")}</b>{t("play.armory.lockedB", " in the Lab to unlock.")}
                     </div>
                   ) : tier < 1 ? (
                     <div className="mt-3 space-y-2">
                       {/* T1 preview + build */}
-                      <StatsRow stats={weaponStats(f.id, 1)} label="T1 Primer Mk I" />
+                      <StatsRow stats={weaponStats(f.id, 1)} label={t("play.armory.t1Primer", "T1 Primer Mk I")} />
                       {cost && <CostRow cost={cost} r={r} />}
                       <button onClick={() => { sound.click(); onBuild(f.id); }} disabled={!canAfford || !!build}
                         className="mt-1 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-                        {build ? `Forging — ${fmtDuration(t, leftMs)}` : canAfford ? `Build (${fmtDuration(t, weaponTimeMs(1))})` : "Can't afford yet"}
+                        {build ? t("play.armory.forging", "Forging — {dur}", { dur: fmtDuration(t, leftMs) }) : canAfford ? t("play.armory.build", "Build ({dur})", { dur: fmtDuration(t, weaponTimeMs(1)) }) : t("play.armory.cantAfford", "Can't afford yet")}
                       </button>
                     </div>
                   ) : (
                     <div className="mt-3 space-y-2">
-                      <StatsRow stats={stats!} label={`Now · ${model}`} />
+                      <StatsRow stats={stats!} label={t("play.armory.nowLabel", "Now · {model}", { model: model ?? "" })} />
                       {tier < 4 && nextStats && (
                         <div className="rounded-lg border border-ember/20 bg-ember/5 p-2">
-                          <StatsRow stats={nextStats} label={`Next · ${modelName(state.race ?? "watchers", f, nextTier)}`} compare={stats!} preview />
+                          <StatsRow stats={nextStats} label={t("play.armory.nextLabel", "Next · {model}", { model: modelName(state.race ?? "watchers", f, nextTier) })} compare={stats!} preview />
                           {cost && <CostRow cost={cost} r={r} />}
                           <button onClick={() => { sound.click(); onBuild(f.id); }} disabled={!canAfford || !!build}
                             className="mt-1 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
-                            {build ? `Upgrading — ${fmtDuration(t, leftMs)}` : canAfford ? `Upgrade (${fmtDuration(t, weaponTimeMs(nextTier))})` : "Can't afford yet"}
+                            {build ? t("play.armory.upgrading", "Upgrading — {dur}", { dur: fmtDuration(t, leftMs) }) : canAfford ? t("play.armory.upgrade", "Upgrade ({dur})", { dur: fmtDuration(t, weaponTimeMs(nextTier)) }) : t("play.armory.cantAfford", "Can't afford yet")}
                           </button>
                         </div>
                       )}
-                      {tier >= 4 && <p className="rounded-lg bg-ember/5 border border-ember/20 p-2 text-[11px] text-ember-soft">Final tier — this family is complete.</p>}
+                      {tier >= 4 && <p className="rounded-lg bg-ember/5 border border-ember/20 p-2 text-[11px] text-ember-soft">{t("play.armory.finalTier", "Final tier — this family is complete.")}</p>}
                     </div>
                   )}
                   {build && (
@@ -1982,8 +1988,8 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
             })}
           </div>
           <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4 text-xs text-gray-400">
-            <p><b className="text-gray-300">How the Armory works:</b> each family is built at <b className="text-amber-200">Tier 1</b> and upgraded T1→T2→T3→T4. Every tier raises <b className="text-white">all four stats</b> <Bdi dir="ltr">{ARMORY_CONFIG.tierMult.slice(1).map((m) => `×${m}`).join(" / ")}</Bdi>, costs more, and takes real time — <Bdi dir="ltr">{([1, 2, 3, 4] as const).map((k) => fmtDuration(t, weaponTimeMs(k))).join(" · ")}</Bdi>. The Cradle holds <b className="text-amber-200">{ARMORY_BUILD_SLOTS}</b> builds at once (and never two on the same family); builds finish offline. Plasma enters at Tier 2. The battle side (later) reads these families into marches and sieges.</p>
-            <p className="mt-1 text-[11px] text-text-3">First weapon built and first Tier-4 weapon each earn a durable <b className="text-amber-300">deed</b> — the dent earns attention. Weapons never feed the contribution formula directly.</p>
+            <p><b className="text-gray-300">{t("play.armory.howTitle", "How the Armory works:")}</b> {t("play.armory.howA", "each family is built at")} <b className="text-amber-200">{t("play.armory.howTier1", "Tier 1")}</b> {t("play.armory.howB", "and upgraded T1→T2→T3→T4. Every tier raises")} <b className="text-white">{t("play.armory.howStats", "all four stats")}</b> <Bdi dir="ltr">{ARMORY_CONFIG.tierMult.slice(1).map((m) => `×${m}`).join(" / ")}</Bdi>{t("play.armory.howC", ", costs more, and takes real time —")} <Bdi dir="ltr">{([1, 2, 3, 4] as const).map((k) => fmtDuration(t, weaponTimeMs(k))).join(" · ")}</Bdi>{t("play.armory.howD", ". The Cradle holds")} <b className="text-amber-200">{ARMORY_BUILD_SLOTS}</b> {t("play.armory.howE", "builds at once (and never two on the same family); builds finish offline. Plasma enters at Tier 2. The battle side (later) reads these families into marches and sieges.")}</p>
+            <p className="mt-1 text-[11px] text-text-3">{t("play.armory.deedA", "First weapon built and first Tier-4 weapon each earn a durable ")}<b className="text-amber-300">{t("play.armory.deedWord", "deed")}</b>{t("play.armory.deedB", " — the dent earns attention. Weapons never feed the contribution formula directly.")}</p>
           </div>
         </>
       )}
@@ -2013,12 +2019,13 @@ function StatsRow({ stats, label, compare, preview }: { stats: { power: number; 
   );
 }
 function CostRow({ cost, r }: { cost: { supplies: number; embers: number; fuel: number; plasma: number }; r: GameState["resources"] }) {
+  const t = useT();
   const rows: { label: string; icon: string; have: number; need: number }[] = [
-    { label: "Supplies", icon: "📦", have: Math.floor(r.supplies), need: cost.supplies },
-    { label: "Embers", icon: "🧯", have: Math.floor(r.embers), need: cost.embers },
-    { label: "Fuel", icon: "⛽", have: Math.floor(r.gas), need: cost.fuel },
+    { label: t("play.gear.suppliesLabel", "Supplies"), icon: "📦", have: Math.floor(r.supplies), need: cost.supplies },
+    { label: t("play.gear.embersLabel", "Embers"), icon: "🧯", have: Math.floor(r.embers), need: cost.embers },
+    { label: t("play.gear.fuelLabelCost", "Fuel"), icon: "⛽", have: Math.floor(r.gas), need: cost.fuel },
   ];
-  if (cost.plasma > 0) rows.push({ label: "Plasma", icon: "🔮", have: Math.floor(r.plasma), need: cost.plasma });
+  if (cost.plasma > 0) rows.push({ label: t("play.gear.plasmaLabel", "Plasma"), icon: "🔮", have: Math.floor(r.plasma), need: cost.plasma });
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
       {rows.map((row) => (
@@ -2038,10 +2045,11 @@ const PLASMA_REFINE_EMBERS = 25;
 // and keyed in all five languages, reading the ONE time table.
 /* ---------------- Codex / lore (Rung 1a §E — folds into the Cradle as a modal) ---------------- */
 function CodexContent() {
+  const t = useT();
   return (
     <div>
       <div className="mt-2 rounded-lg border border-white/10 bg-black/40 px-4 py-2 text-xs text-gray-400">
-        Everything here is the mythology the colonies tell about the old world — never documentary fact. The races are legends worn as ways of life, not records of a real lineage. Nothing refers to any real-world group, religion, nationality, or person.
+        {t("play.codex.disclaimer", "Everything here is the mythology the colonies tell about the old world — never documentary fact. The races are legends worn as ways of life, not records of a real lineage. Nothing refers to any real-world group, religion, nationality, or person.")}
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         {RACES.map((r) => (
@@ -2058,14 +2066,14 @@ function CodexContent() {
                 }`}>{a.label}</span>
               ))}
             </div>
-            <p className="mt-3 text-xs text-text-3">Home region: <span className="text-gray-300">{r.homeRegion}</span></p>
+            <p className="mt-3 text-xs text-text-3">{t("play.races.homeRegion", "Home region: ")}<span className="text-gray-300">{r.homeRegion}</span></p>
             <blockquote className="mt-2 border-s-2 border-amber-400/50 ps-3 text-amber-200/80 italic">{r.flavorQuote}</blockquote>
           </div>
         ))}
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 p-5">
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-bold text-amber-200">{UNBOUND_LEGEND.name}</h3>
-            <span className="rounded bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold uppercase text-amber-200">Earned — locked</span>
+            <span className="rounded bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold uppercase text-amber-200">{t("play.codex.unboundEarned", "Earned — locked")}</span>
           </div>
           <p className="mt-2 text-sm text-gray-400">{UNBOUND_LEGEND.title}</p>
           <p className="mt-2 text-sm leading-relaxed text-gray-300">{UNBOUND_LEGEND.lore}</p>
@@ -2077,12 +2085,13 @@ function CodexContent() {
   );
 }
 function CodexModal({ onClose }: { onClose: () => void }) {
+  const t = useT();
   return (
     <div className="fixed inset-0 z-[80] modal-wrap bg-black/70" onClick={onClose}>
       <div className="my-auto w-full max-w-3xl rounded-2xl border border-white/15 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-bold text-white">The Codex — Legends of the Shatterlands</h2>
-          <button onClick={onClose} aria-label="Close the Codex" className="rounded border border-white/15 px-2.5 py-1.5 text-sm text-gray-400 hover:bg-white/10">✕</button>
+          <h2 className="text-xl font-bold text-white">{t("play.codex.title", "The Codex — Legends of the Shatterlands")}</h2>
+          <button onClick={onClose} aria-label={t("play.codex.close", "Close the Codex")} className="rounded border border-white/15 px-2.5 py-1.5 text-sm text-gray-400 hover:bg-white/10">✕</button>
         </div>
         <CodexContent />
       </div>
@@ -2098,21 +2107,22 @@ function CodexModal({ onClose }: { onClose: () => void }) {
 // whole choice. Mobile pattern matches the other modals (items-start,
 // overflow-y-auto) so nothing clips on short screens.
 function RevelationChoiceModal({ onPick }: { onPick: (choice: "sealed" | "open") => void }) {
+  const t = useT();
   return (
     <div className="fixed inset-0 z-[80] modal-wrap bg-black/70">
       <div className="my-auto max-w-md rounded-2xl border border-white/15 bg-[#0b0e16] p-6 shadow-2xl">
         <div className="text-center text-3xl">🌒</div>
         <p className="mt-3 text-center text-sm leading-relaxed text-gray-300">
-          A glimpse only. The path does not show itself twice. Something in the Cradle waits for an answer.
+          {t("play.research.revelationIntro", "A glimpse only. The path does not show itself twice. Something in the Cradle waits for an answer.")}
         </p>
         <div className="mt-5 space-y-2">
           <button onClick={() => { sound.click(); onPick("sealed"); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-white/40 hover:bg-white/10">
-            <div className="font-semibold text-white">Seal the Record in bone</div>
-            <p className="mt-1 text-xs text-gray-400">Keep what the Cradle knows the way marrow keeps its memory.</p>
+            <div className="font-semibold text-white">{t("play.research.sealTitle", "Seal the Record in bone")}</div>
+            <p className="mt-1 text-xs text-gray-400">{t("play.research.sealSub", "Keep what the Cradle knows the way marrow keeps its memory.")}</p>
           </button>
           <button onClick={() => { sound.click(); onPick("open"); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-white/40 hover:bg-white/10">
-            <div className="font-semibold text-white">Leave it open</div>
-            <p className="mt-1 text-xs text-gray-400">Let the pages turn in the wind no machine makes.</p>
+            <div className="font-semibold text-white">{t("play.research.openTitle", "Leave it open")}</div>
+            <p className="mt-1 text-xs text-gray-400">{t("play.research.openSub", "Let the pages turn in the wind no machine makes.")}</p>
           </button>
         </div>
       </div>

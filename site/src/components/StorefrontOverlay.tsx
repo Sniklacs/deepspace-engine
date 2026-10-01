@@ -50,10 +50,6 @@ import { savePurchaseIntent, walletSignature } from "../game/payments/purchase-i
 import type { GameState, CosmeticSlot } from "../game/types";
 
 // ---- the store's own copy -------------------------------------------------
-// The ledger's tagline for a store that is not open yet. It is a truthful
-// AVAILABILITY state (the control is disabled, and a disabled control says why),
-// not a claim about what a purchase does — the distinction the owner ruling draws.
-const LEDGER_WAIT = "The Cradle Market isn't open yet — the ledger opens when the world is ready.";
 
 /**
  * The catalogue key for one grant bullet — `store.pack.<pack>.g.<kind>.<what>`.
@@ -115,20 +111,22 @@ function SectionHeading({ children }: { children: ReactNode }) {
 
 /** ✓ EARNED — black on bg-purity, server-owned entitlement only (12.59:1). */
 function EarnedBadge() {
+  const t = useT();
   return (
     <span className="chip bg-purity font-semibold text-[#11161d]">
       <Icon name="check" size={12} className="mr-1 shrink-0" />
-      EARNED
+      {t("store.earned", "EARNED")}
     </span>
   );
 }
 
 /** DEED · LOCKED — text-2 on surf-4 (6.14:1; NEVER text-3 here — 4.3:1 < AA). */
 function DeedLockedChip() {
+  const t = useT();
   return (
     <span className="chip bg-surf-4 text-text-2">
       <Icon name="lock" size={12} className="mr-1 shrink-0" />
-      DEED · LOCKED
+      {t("store.deedLocked", "DEED · LOCKED")}
     </span>
   );
 }
@@ -207,7 +205,7 @@ function PackCard({
         >
           <Icon name="lock" size={14} className="shrink-0" />
           {!storeOpen
-            ? "The ledger opens when the world is ready"
+            ? t("store.ledgerOpens", "The ledger opens when the world is ready")
             : !signedIn
               ? t("store.signInToBuy", "Sign in to purchase")
               : t("store.notForSale", "Not for sale yet")}
@@ -456,11 +454,11 @@ export function StorefrontOverlay({
   };
 
   return (
-    <Sheet open={open} onClose={onClose} labelledBy="ledger-title" title="The Cradle Ledger">
+    <Sheet open={open} onClose={onClose} labelledBy="ledger-title" title={t("store.title", "The Cradle Ledger")}>
       <SheetHeader
         id="ledger-title"
-        title="The Cradle Ledger"
-        subtitle="earned Scrip, premium Votives, and everything the world has trusted you with"
+        title={t("store.title", "The Cradle Ledger")}
+        subtitle={t("store.subtitle", "earned Scrip, premium Votives, and everything the world has trusted you with")}
         onClose={onClose}
       />
       <div className="sheet-body px-4 pb-8 md:px-5">
@@ -468,16 +466,16 @@ export function StorefrontOverlay({
         <div className="flex flex-wrap items-center gap-2 pt-4">
           <span className="chip gap-1 bg-surf-2 text-text-2">
             <Icon name="coin" size={13} className="text-ember-soft" />
-            Scrip
+            {t("store.scrip", "Scrip")}
             <WalletNum value={hasWallet ? state.currency.scrip : 0} tone="text-ember-soft" />
           </span>
           <span className="chip gap-1 bg-surf-2 text-text-2">
             <Icon name="star" size={13} className="text-purity" />
-            Votives
+            {t("store.votivesName", "Votives")}
             <WalletNum value={hasWallet ? state.currency.votives : 0} tone="text-purity" />
           </span>
           {!enabled && (
-            <span className="ml-auto text-[11px] text-text-3">{LEDGER_WAIT}</span>
+            <span className="ml-auto text-[11px] text-text-3">{t("store.ledgerWait", "The Cradle Market isn't open yet — the ledger opens when the world is ready.")}</span>
           )}
         </div>
 
@@ -502,7 +500,7 @@ export function StorefrontOverlay({
 
         {/* ---- Head-Start Packs ---- */}
         <div className="pt-5">
-          <SectionHeading>Head-Start Packs</SectionHeading>
+          <SectionHeading>{t("store.headingsPacks", "Head-Start Packs")}</SectionHeading>
           <p className="mt-1 text-xs text-text-2">
             {t(
               "store.packsSub",
@@ -519,19 +517,19 @@ export function StorefrontOverlay({
         {/* ---- Season Pass (two-lane rail) ---- */}
         <div className="pt-5">
           <div className="flex flex-wrap items-center gap-2">
-            <SectionHeading>Season 0 · The Shattering — 28 tiers</SectionHeading>
+            <SectionHeading>{t("store.passHeading", "Season 0 · The Shattering — 28 tiers")}</SectionHeading>
             <span className="ml-auto text-xs text-text-3">
-              Tier{" "}
+              {t("store.tierLabel", "Tier")}{" "}
               <b className="text-text-2">
                 <Bdi dir="ltr" className="num">{formatNumber(lang, tierFromXp(state.battlePass.xp))}</Bdi>
               </b>
-              <span className="text-text-3"> / 28</span>
+              <span className="text-text-3">{t("store.passOfTiers", " / {n}", { n: 28 })}</span>
             </span>
           </div>
           {passOwned ? (
             <span className="chip mt-1.5 bg-surf-4 text-text-2">
               <Icon name="check" size={12} className="mr-1" />
-              PREMIUM TRACK OWNED
+              {t("store.premiumOwned", "PREMIUM TRACK OWNED")}
             </span>
           ) : (
             <button
@@ -541,7 +539,7 @@ export function StorefrontOverlay({
               className="storef-disabled mt-2 flex w-full items-center justify-center gap-1.5 rounded-md bg-purity px-3 py-2.5 text-sm font-bold text-[#11161d]"
             >
               <Icon name="lock" size={14} className="shrink-0" />
-              Premium Track · 750 Votives
+              {t("store.premiumTrack", "Premium Track · 750 Votives")}
             </button>
           )}
           <div className="mt-3">
@@ -558,7 +556,7 @@ export function StorefrontOverlay({
 
         {/* ---- Cosmetic catalog (purchasable) ---- */}
         <div className="pt-5">
-          <SectionHeading>Cradle Cosmetics</SectionHeading>
+          <SectionHeading>{t("store.headingsCosmetics", "Cradle Cosmetics")}</SectionHeading>
           <p className="mt-1 text-xs text-text-2">
             {t(
               "store.cosmeticsSub",
@@ -583,7 +581,7 @@ export function StorefrontOverlay({
                   {owned ? (
                     <span className="chip shrink-0 bg-surf-4 text-text-3">
                       <Icon name="check" size={12} className="mr-1" />
-                      OWNED
+                      {t("store.owned", "OWNED")}
                     </span>
                   ) : (
                     <span className="chip shrink-0 bg-surf-4 text-xs font-bold text-text-1">
@@ -602,7 +600,7 @@ export function StorefrontOverlay({
 
         {/* ---- Commemorative: deed-earned + never-for-sale ---- */}
         <div className="pt-5">
-          <SectionHeading>Earned by Deed — commemorative</SectionHeading>
+          <SectionHeading>{t("store.headingsDeed", "Earned by Deed — commemorative")}</SectionHeading>
           <p className="mt-1 text-xs text-text-2">
             {t(
               "store.deedSub",

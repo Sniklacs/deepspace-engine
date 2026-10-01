@@ -1588,13 +1588,13 @@ export function dailyObjectiveDescT(t: T, o: SeasonObjectiveDef): string {
   return t(`cfg.monet.objectives.daily.${catalogKeyId(o.id)}.desc`, o.description);
 }
 
-/** Weekly objective description (carries {target} where the table has one). */
+/** Weekly objective description (carries {target} where the table has one). The key
+ *  template is inline so the i18n-verify key scan sees the family. */
 export function weeklyObjectiveDescT(t: T, o: SeasonObjectiveDef): string {
-  const key = `cfg.monet.objectives.weekly.${catalogKeyId(o.id)}.desc`;
-  if (o.id === "expedition_complete") return t(key, o.description, { target: WEEKLY_EXPEDITION_TARGET });
-  if (o.id === "codex_recovered") return t(key, o.description, { target: WEEKLY_CODEX_TARGET });
-  if (o.id === "daily_list") return t(key, o.description, { target: WEEKLY_DAILY_LIST_TARGET });
-  return t(key, o.description);
+  if (o.id === "expedition_complete") return t(`cfg.monet.objectives.weekly.${catalogKeyId(o.id)}.desc`, o.description, { target: WEEKLY_EXPEDITION_TARGET });
+  if (o.id === "codex_recovered") return t(`cfg.monet.objectives.weekly.${catalogKeyId(o.id)}.desc`, o.description, { target: WEEKLY_CODEX_TARGET });
+  if (o.id === "daily_list") return t(`cfg.monet.objectives.weekly.${catalogKeyId(o.id)}.desc`, o.description, { target: WEEKLY_DAILY_LIST_TARGET });
+  return t(`cfg.monet.objectives.weekly.${catalogKeyId(o.id)}.desc`, o.description);
 }
 
 /** Currency display name ("Scrip" / "Votives"). */

@@ -13,9 +13,9 @@
 // Text is built from the same state fields the engine uses, so a report reads
 // consistently with the Chronicle without duplicating server-side phrasing.
 import type { GameState } from "./types";
-import { getZone } from "./zones";
-import { TECH_TREE, ARMORY_TREE, REVELATION_TREE } from "./research";
-import { familyFor } from "./armory";
+import { getZone, zoneName } from "./zones";
+import { TECH_TREE, ARMORY_TREE, REVELATION_TREE, techText, leaderName } from "./research";
+import { familyFor, familyText } from "./armory";
 
 export interface ReportEvent {
   text: string;
@@ -145,4 +145,67 @@ export function reportBattleT(
     : outcome === "defender_victory" ? "the defender holds the ground"
     : "both sides break off";
   return t(key, `⚔️ The battle at ${zone} is decided — ${verb}.`, { zone });
+}
+
+/** Translated twin of diffResolvedEvents: identical gating, every user-facing
+ *  name resolved through the render helpers (zoneName/techText/leaderName/
+ *  familyText) before it reaches the report helpers. */
+export function diffResolvedEventsT(t: T, prev: GameState, next: GameState): ReportEvent[] {
+  const out: ReportEvent[] = [];
+
+  // 1 · Expeditions
+  for (const e of prev.expeditions) {
+    if (e.status !== "out") continue;
+    const nxt = next.expeditions.find((x) => x.id === e.id);
+    if (!nxt || nxt.status !== "out") {
+      const zone = getZone(e.zoneId);
+      out.push({ text: reportExpeditionT(t, zone ? zoneName(t, zone) : e.label || e.zoneId) });
+    }
+  }
+
+  // 2 · Studies
+  for (const s of prev.studies) {
+    if (s.status !== "studying") continue;
+    const nxt = next.studies.find((x) => x.id === s.id);
+    if (!nxt || nxt.status !== "studying") {
+      out.push({ text: reportStudyT(t, s.kind) });
+    }
+  }
+
+  // 3 · Research
+  for (const j of prev.researchJobs) {
+    if (j.status !== "researching") continue;
+    const nxt = next.researchJobs.find((x) => x.id === j.id);
+    if (!nxt || nxt.status !== "researching") {
+      const { icon, name } = techNameFor(j.techId);
+      const leader = next.leaders.find((l) => l.id === j.leaderId);
+      out.push({
+        text: reportResearchT(t, icon, techText(t, j.techId, "name", name), leader ? leaderName(t, leader) : undefined),
+      });
+    }
+  }
+
+  // 4 · Armory builds
+  if (next.race) {
+    for (const fam of Object.keys(prev.armoryBuilds)) {
+      if (!next.armoryBuilds[fam]) {
+        const family = familyFor(next.race, fam);
+        out.push({
+          text: reportArmoryT(t, family ? familyText(t, next.race, family, "name", family.name) : fam),
+        });
+      }
+    }
+  }
+
+  // 5 · Battles
+  for (const b of prev.battles ?? []) {
+    if (b.status !== "active") continue;
+    const nxt = (next.battles ?? []).find((x) => x.id === b.id);
+    if (!nxt || nxt.status === "resolved") {
+      const outcome = nxt?.result?.outcome ?? b.result?.outcome ?? "standoff";
+      out.push({ text: reportBattleT(t, b.zoneName || b.zoneId, outcome) });
+    }
+  }
+
+  return out;
 }

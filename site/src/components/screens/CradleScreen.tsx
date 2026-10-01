@@ -789,7 +789,7 @@ function SlotSheet({
                 <ul className="space-y-1.5">
                   <RecordRow label={t("cradle.level")} value={<Bdi dir="ltr" className="num">{level}</Bdi>} />
                   {/* a SENTENCE (the engine's own prose): no Bdi, on purpose */}
-                  <RecordRow label={t("cradle.sheet.effectNow", "Effect now")} value={engineHelpers.domainEffect(state, domain)} />
+                  <RecordRow label={t("cradle.sheet.effectNow", "Effect now")} value={engineHelpers.domainEffectT(t, state, domain)} />
                   {!atMax && <RecordRow label={t("cradle.sheet.nextAdvanceCosts", "Next advance costs")} value={t("cradle.advanceSub", "{embers} Embers · {insight} insight", { embers: cost.embers.toLocaleString(), insight: cost.insight.toLocaleString() })} />}
                 </ul>
                 <p className="text-[11px] leading-tight text-text-3">{tipField(t, "domain", domain, "what", domainTip.what)}</p>

@@ -51,6 +51,8 @@ import {
 import { weaponCost } from "./armory";
 import { getTech } from "./research";
 import { SPECIALTY_LABEL } from "./research";
+import type { T } from "./i18n/types";
+import { keyifySegment } from "./i18n/keyify";
 import { REVELATION_TREE, getRevelation } from "./research";
 import { ARMORY_TREE, getArmoryTech } from "./research";
 import {
@@ -247,6 +249,22 @@ export const engineHelpers = {
         return `Exploration ${Math.round((1 - Math.pow(0.94, state.deployedDomains.industry)) * 100)}% faster & cheaper`;
       case "logistics":
         return `+${Math.floor(state.deployedDomains.logistics / 2)} scientist cap · +${state.deployedDomains.logistics} field slot`;
+    }
+  },
+  /** Translated twin of domainEffect: same numbers, key resolves at RENDER time. */
+  domainEffectT(t: T, state: GameState, domain: DomainId): string {
+    const key = `cfg.zones.domain.${keyifySegment(domain)}.effect`;
+    switch (domain) {
+      case "weaponry":
+        return t(key, "Shields: Chorus/Corruption gain {n}% reduced", { n: Math.round((1 - Math.pow(0.85, state.deployedDomains.weaponry)) * 100) });
+      case "agriculture":
+        return t(key, "+{n}/min supplies", { n: state.deployedDomains.agriculture * 3 });
+      case "economy":
+        return t(key, "+{a}% ember yield · +{b}/min supplies", { a: state.deployedDomains.economy * 6, b: state.deployedDomains.economy * 2 });
+      case "industry":
+        return t(key, "Exploration {n}% faster & cheaper", { n: Math.round((1 - Math.pow(0.94, state.deployedDomains.industry)) * 100) });
+      case "logistics":
+        return t(key, "+{a} scientist cap · +{b} field slot", { a: Math.floor(state.deployedDomains.logistics / 2), b: state.deployedDomains.logistics });
     }
   },
 };
