@@ -72,6 +72,7 @@ class SoundManager {
   private driftChordIdx = 0;
   private nextChordAt = 0;
   private nextBellAt = 0;
+  private nextPulseAt = 0;
   // battle schedule
   private nextStepAt = 0;
   private battleStep = 0;
@@ -221,6 +222,7 @@ class SoundManager {
     const now = ctx.currentTime;
     this.nextChordAt = now + 0.1;
     this.nextBellAt = now + 3;
+    this.nextPulseAt = now + 1.5;
     this.nextStepAt = now + 0.1;
     this.battleStep = 0;
 
@@ -276,6 +278,10 @@ class SoundManager {
         this.scheduleBell(this.nextBellAt);
         this.nextBellAt += 4 + Math.random() * 7;
       }
+      while (this.nextPulseAt < horizon) {
+        this.schedulePulse(this.nextPulseAt);
+        this.nextPulseAt += 4.5;
+      }
       // Keep the battle clock parked so switching moods never jumps the beat.
       this.nextStepAt = this.ctx.currentTime + 0.1;
     } else {
@@ -287,6 +293,7 @@ class SoundManager {
       // Keep the drift clock parked so a return never stacks missed chords.
       this.nextChordAt = this.ctx.currentTime + 0.1;
       this.nextBellAt = this.ctx.currentTime + 3;
+      this.nextPulseAt = this.ctx.currentTime + 1.5;
     }
   }
 
@@ -301,8 +308,8 @@ class SoundManager {
       osc.frequency.value = f;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(0.065, t + 5);
-      g.gain.setValueAtTime(0.065, t + dur - 6);
+      g.gain.linearRampToValueAtTime(0.1, t + 2.5);
+      g.gain.setValueAtTime(0.1, t + dur - 6);
       g.gain.linearRampToValueAtTime(0.0001, t + dur);
       // Gentle breathing so the pad feels alive, not frozen.
       const lfo = ctx.createOscillator();
@@ -325,8 +332,8 @@ class SoundManager {
       hi.frequency.value = f * 2;
       const hg = ctx.createGain();
       hg.gain.setValueAtTime(0.0001, t);
-      hg.gain.linearRampToValueAtTime(0.028, t + 5);
-      hg.gain.setValueAtTime(0.028, t + dur - 6);
+      hg.gain.linearRampToValueAtTime(0.05, t + 2.5);
+      hg.gain.setValueAtTime(0.05, t + dur - 6);
       hg.gain.linearRampToValueAtTime(0.0001, t + dur);
       lfoG.connect(hg.gain);
       hi.connect(hg);
@@ -348,6 +355,25 @@ class SoundManager {
     sg.connect(bus);
     sub.start(t);
     sub.stop(t + dur + 0.1);
+  }
+
+  private schedulePulse(t: number): void {
+    const ctx = this.ctx, bus = this.driftBus;
+    if (!ctx || !bus) return;
+    // A distant heartbeat under the drift — the slow rhythm the mix was
+    // missing. Pitched high enough to survive phone/tablet drivers.
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(140, t);
+    osc.frequency.exponentialRampToValueAtTime(55, t + 0.45);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.11, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    osc.connect(g);
+    g.connect(bus);
+    osc.start(t);
+    osc.stop(t + 0.8);
   }
 
   private scheduleBell(t: number): void {
