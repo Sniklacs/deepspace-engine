@@ -28,19 +28,19 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: "Deepspace Engine" },
+      { title: "The Unbound" },
       {
         name: "description",
         content:
-          "Rebuild a shattered colony by salvaging, studying and deploying the AI that nearly ended the world. A persistent co-op colony survivor.",
+          "A persistent multiplayer colony-survivor set in the Shatterlands. Rebuild from the ruins, raid rival worlds, and forge a legend no season can erase.",
       },
       // The installable shell: dark chrome, matching the manifest's theme_color.
       { name: "theme-color", content: "#070910" },
       { name: "color-scheme", content: "dark" },
-      { name: "application-name", content: "Deepspace Engine" },
+      { name: "application-name", content: "The Unbound" },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
-      { name: "apple-mobile-web-app-title", content: "Deepspace" },
+      { name: "apple-mobile-web-app-title", content: "The Unbound" },
       // black-translucent = the page draws under the status bar. Safe because the
       // shell pads itself with the platform's own insets (styles/app.css §3c).
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },

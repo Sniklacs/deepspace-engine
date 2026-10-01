@@ -265,6 +265,7 @@ export const en: Catalogue = {
   "landing.fall": "The Fall · The Height",
   "landing.world": "The World",
   "landing.what": "What is The Unbound",
+  "landing.whatBody": "Seven races went to war with the machine Chorus and nearly wiped each other out. You are what remains — rebuild from the ruins, and make the next chapter yours.",
   "landing.pillar.world.title": "A world that never sleeps",
   "landing.pillar.world.text": "Your colony lives on in real time, whether you're logged in or not. Explorations run, research completes, rivals move — the world doesn't pause for anyone.",
   "landing.pillar.war.title": "War across worlds",

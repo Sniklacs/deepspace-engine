@@ -16,15 +16,29 @@ export function LandingLangPicker() {
         <path d="M3 12h18M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z" />
       </svg>
       <span className="sr-only">{t("settings.language", "Language")}</span>
+      {/* Full endonyms on comfortable screens… */}
       <select
         value={lang}
         onChange={(e) => chooseDeviceLang(e.target.value)}
-        className="cursor-pointer bg-transparent text-sm font-medium outline-none [&>option]:bg-zinc-900"
+        className="hidden cursor-pointer bg-transparent text-sm font-medium outline-none sm:block [&>option]:bg-zinc-900"
         aria-label={t("settings.language", "Language")}
       >
         {LANGS.map((l) => (
           <option key={l.code} value={l.code} lang={l.code}>
             {l.endonym}
+          </option>
+        ))}
+      </select>
+      {/* …short codes on phones, where "Português (Brasil)" would blow the header out. */}
+      <select
+        value={lang}
+        onChange={(e) => chooseDeviceLang(e.target.value)}
+        className="block cursor-pointer bg-transparent text-xs font-bold tracking-wider outline-none sm:hidden [&>option]:bg-zinc-900"
+        aria-label={t("settings.language", "Language")}
+      >
+        {LANGS.map((l) => (
+          <option key={l.code} value={l.code} lang={l.code}>
+            {l.code === "pt-BR" ? "PT" : l.code.toUpperCase()}
           </option>
         ))}
       </select>

@@ -205,6 +205,7 @@ export const ptBR: Catalogue = {
   "landing.fall": "A Queda · O Auge",
   "landing.world": "O Mundo",
   "landing.what": "O que é The Unbound",
+  "landing.whatBody": "Sete raças guerrearam contra o Coro máquina e quase se exterminaram. Você é o que restou — reconstrua a partir das ruínas e faça seu o próximo capítulo.",
   "landing.pillar.world.title": "Um mundo que nunca dorme",
   "landing.pillar.world.text": "Sua colônia vive em tempo real, você estando online ou não. Explorações avançam, pesquisas se completam, rivais se movem — o mundo não para por ninguém.",
   "landing.pillar.war.title": "Guerra entre mundos",

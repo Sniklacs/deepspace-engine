@@ -210,6 +210,7 @@ export const es: Catalogue = {
   "landing.fall": "La Caída · La Altura",
   "landing.world": "El Mundo",
   "landing.what": "Qué es The Unbound",
+  "landing.whatBody": "Siete razas guerrearon contra el Coro máquina y casi se exterminaron entre sí. Tú eres lo que queda — reconstruye desde las ruinas y haz tuyo el próximo capítulo.",
   "landing.pillar.world.title": "Un mundo que nunca duerme",
   "landing.pillar.world.text": "Tu colonia vive en tiempo real, estés conectado o no. Las exploraciones avanzan, la investigación se completa, los rivales se mueven — el mundo no se detiene por nadie.",
   "landing.pillar.war.title": "Guerra entre mundos",

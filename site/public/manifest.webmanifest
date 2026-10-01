@@ -1,12 +1,16 @@
 {
-  "name": "Deepspace Engine",
-  "short_name": "Deepspace",
+  "name": "The Unbound",
+  "short_name": "The Unbound",
   "description": "Rebuild a shattered colony by salvaging, studying and deploying the AI that nearly ended the world. A persistent co-op colony survivor.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui", "browser"],
+  "display_override": [
+    "standalone",
+    "minimal-ui",
+    "browser"
+  ],
   "orientation": "any",
   "background_color": "#070910",
   "theme_color": "#070910",

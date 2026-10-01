@@ -27,15 +27,15 @@ function LandingPage() {
       {/* header — brand, language picker, play */}
       <header className="fixed inset-x-0 top-0 z-20 border-b border-white/10 bg-[#07070c]/85 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
-          <Link to="/" className="flex items-center gap-2" aria-label={t("landing.brand", "The Unbound")}>
+          <Link to="/" className="flex min-w-0 items-center gap-2" aria-label={t("landing.brand", "The Unbound")}>
             <Emblem />
-            <span className="text-lg font-bold tracking-wide text-white">{t("landing.brand", "The Unbound")}</span>
+            <span className="truncate text-base font-bold tracking-wide text-white sm:text-lg">{t("landing.brand", "The Unbound")}</span>
           </Link>
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <LandingLangPicker />
             <Link
               to="/play"
-              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-black hover:brightness-110"
+              className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-black hover:brightness-110 sm:px-4 sm:text-sm"
             >
               {t("landing.play", "Play the Cradle")}
             </Link>
@@ -111,6 +111,12 @@ function LandingPage() {
         <h2 className="mt-3 text-3xl font-bold text-white sm:text-4xl">
           {t("landing.what", "What is The Unbound")}
         </h2>
+        <p className="mt-4 max-w-3xl text-base leading-relaxed text-zinc-300">
+          {t(
+            "landing.whatBody",
+            "Seven races went to war with the machine Chorus and nearly wiped each other out."
+          )}
+        </p>
         <div className="mt-10 grid items-start gap-8 lg:grid-cols-2">
           <div className="overflow-hidden rounded-2xl border border-white/10">
             <img
