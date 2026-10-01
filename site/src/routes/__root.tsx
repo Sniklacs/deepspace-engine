@@ -6,6 +6,7 @@ import appCss from "~/styles/app.css?url";
 import { bootScript } from "~/game/i18n";
 import { prepareTranslator } from "~/game/translate";
 import { registerServiceWorker } from "~/game/pwa/register";
+import UpdateBanner from "~/components/shell/UpdateBanner";
 import { I18nProvider, LanguageGate } from "~/components/i18n/I18n";
 
 /**
@@ -74,6 +75,7 @@ function RootComponent() {
     <RootDocument>
       <I18nProvider>
         <Outlet />
+        <UpdateBanner />
         {/* First run, on every route — the picker is met BEFORE the game door
             (L1), and the app behind it is already in the suggested language. */}
         <LanguageGate />

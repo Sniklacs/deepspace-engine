@@ -296,6 +296,8 @@ export const es: Catalogue = {
   "install.cta": "Instalar",
   "install.ios": "Toca Compartir y luego Añadir a pantalla de inicio.",
   "install.dismiss": "Ahora no",
+  "update.ready": "Hay una nueva versión lista.",
+  "update.cta": "Actualizar ahora",
   "storage.title": "Almacenamiento sin conexión",
   "storage.line": "Usando {used} de {quota} que este dispositivo permite para datos sin conexión.",
 

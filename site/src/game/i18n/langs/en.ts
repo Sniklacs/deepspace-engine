@@ -373,6 +373,8 @@ export const en: Catalogue = {
   "install.cta": "Install",
   "install.ios": "Tap Share, then Add to Home Screen.",
   "install.dismiss": "Not now",
+  "update.ready": "A new version is ready.",
+  "update.cta": "Update now",
   "storage.title": "Offline storage",
   "storage.line": "Using {used} of the {quota} this device allows for offline data.",
 

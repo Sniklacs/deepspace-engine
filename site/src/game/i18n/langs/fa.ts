@@ -319,6 +319,8 @@ export const fa: Catalogue = {
   "install.cta": "نصب",
   "install.ios": "روی «اشتراک‌گذاری» بزنید و سپس «افزودن به صفحهٔ خانه» را انتخاب کنید.",
   "install.dismiss": "الان نه",
+  "update.ready": "نسخهٔ جدید آماده است.",
+  "update.cta": "همین حالا به‌روزرسانی کن",
   "storage.title": "حافظهٔ آفلاین",
   "storage.line": "استفاده از {used} از {quota} که این دستگاه برای داده‌های آفلاین در اختیار می‌گذارد.",
 

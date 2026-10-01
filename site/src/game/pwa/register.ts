@@ -103,10 +103,83 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
   if (!import.meta.env.PROD) return null;
   try {
     const registration = await navigator.serviceWorker.register(SW_PATH, { scope: "/" });
+    watchForUpdates(registration);
     return registration;
   } catch {
     // A failed registration must never break the game: the app works without a
     // worker, it just cannot be installed or launched offline.
     return null;
   }
+}
+
+// ---- app updates ---------------------------------------------------------
+// The browser only checks for a new worker on navigation — but an installed PWA
+// that is merely foregrounded from the background performs NO navigation, so a
+// player who never fully closes the app can sit on a stale build for days
+// (owner report 2026-10-01). The fix: ask explicitly every time the app becomes
+// visible, and tell the UI the moment a new build is ready to load.
+
+type UpdateListener = () => void;
+const updateListeners = new Set<UpdateListener>();
+let updateReady = false;
+
+/** True once a newer build has been downloaded and is ready to load. */
+export function isUpdateReady(): boolean {
+  return updateReady;
+}
+
+/** Subscribe to "a new version is ready". Fires immediately if one already is. */
+export function onUpdateAvailable(fn: UpdateListener): () => void {
+  updateListeners.add(fn);
+  if (updateReady) {
+    try { fn(); } catch { /* a listener must never break registration */ }
+  }
+  return () => updateListeners.delete(fn);
+}
+
+function announceUpdate() {
+  if (updateReady) return;
+  updateReady = true;
+  for (const fn of updateListeners) {
+    try { fn(); } catch { /* keep announcing to the rest */ }
+  }
+}
+
+let updatesWatched = false;
+
+function watchForUpdates(reg: ServiceWorkerRegistration) {
+  if (typeof document === "undefined" || updatesWatched) return;
+  updatesWatched = true;
+
+  const checkForUpdate = () => {
+    // Explicit check: the browser's own check only runs on navigation.
+    void reg.update().catch(() => { /* offline or unreachable — try later */ });
+  };
+
+  reg.addEventListener("updatefound", () => {
+    const worker = reg.installing;
+    if (!worker) return;
+    worker.addEventListener("statechange", () => {
+      // "installed" with an existing controller means a NEW build is staged;
+      // the very first install has no controller and needs no prompt.
+      if (worker.state === "installed" && navigator.serviceWorker.controller) {
+        announceUpdate();
+      }
+    });
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkForUpdate();
+  });
+  // A deploy may have landed while the app sat in the background.
+  checkForUpdate();
+}
+
+/**
+ * Load the staged build. The worker already skipWaits + claims (public/sw.js),
+ * so a plain reload lands on the fresh bundle.
+ */
+export function applyUpdate(): void {
+  if (typeof window === "undefined") return;
+  window.location.reload();
 }

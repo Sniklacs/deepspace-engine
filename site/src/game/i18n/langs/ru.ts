@@ -291,6 +291,8 @@ export const ru: Catalogue = {
   "install.cta": "Установить",
   "install.ios": "Нажмите «Поделиться», затем «Добавить на главный экран».",
   "install.dismiss": "Не сейчас",
+  "update.ready": "Готова новая версия.",
+  "update.cta": "Обновить сейчас",
   "storage.title": "Офлайн-хранилище",
   "storage.line": "Использовано {used} из {quota}, доступных для офлайн-данных.",
 

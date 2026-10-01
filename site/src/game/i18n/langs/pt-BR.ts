@@ -291,6 +291,8 @@ export const ptBR: Catalogue = {
   "install.cta": "Instalar",
   "install.ios": "Toque em Compartilhar e depois em Adicionar à Tela de Início.",
   "install.dismiss": "Agora não",
+  "update.ready": "Uma nova versão está pronta.",
+  "update.cta": "Atualizar agora",
   "storage.title": "Armazenamento offline",
   "storage.line": "Usando {used} de {quota} que este dispositivo permite para dados offline.",
 
