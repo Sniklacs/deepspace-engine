@@ -29,16 +29,26 @@ function ReplaySandbox() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-text-1">Battle replay — prototype</h1>
-          <p className="text-sm text-text-3">
-            Plan-driven 2.5D viewer. The plan is locked in; the attributes decide the outcome — this shows the key parts while the fight is on.
-          </p>
+      <div className="relative mb-4 overflow-hidden rounded-xl border border-line">
+        <img
+          src="/art/battles/battle-chorus.webp"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover"
+          loading="lazy"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#07070c] via-[#07070c]/60 to-[#07070c]/20" />
+        <div className="relative flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <h1 className="text-xl font-bold text-white">Battle replay — prototype</h1>
+            <p className="text-sm text-zinc-300">
+              Plan-driven 2.5D viewer. The plan is locked in; the attributes decide the outcome — this shows the key parts while the fight is on.
+            </p>
+          </div>
+          <Link to="/play" className="rounded-md border border-white/20 bg-black/40 px-3 py-1.5 text-sm text-zinc-200 hover:text-white">
+            ← Back to the game
+          </Link>
         </div>
-        <Link to="/play" className="rounded-md border border-surf-3 px-3 py-1.5 text-sm text-text-2 hover:text-text-1">
-          ← Back to the game
-        </Link>
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">

@@ -359,15 +359,25 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
 
   if (active.length === 0) {
     return (
-      <div className="rounded-xl border border-line bg-surf-2/60 p-6 text-center">
-        <Icon name="sword" size={28} className="mx-auto text-ember-soft" />
-        <p className="mt-2 text-sm text-text-2">{t("battles.nothingFighting", "Nothing is fighting on your fronts.")}</p>
-        <p className="mt-1 text-xs text-text-3">
-          {t(
-            "battles.fightOpensNote",
-            "When a march meets a defending force the fight opens here; it runs whether or not you are watching, and it leaves a report either way.",
-          )}
-        </p>
+      <div className="relative overflow-hidden rounded-xl border border-line">
+        <img
+          src="/art/battles/battle-siege.webp"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover"
+          loading="lazy"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#07070c] via-[#07070c]/70 to-[#07070c]/25" />
+        <div className="relative p-6 text-center">
+          <Icon name="sword" size={28} className="mx-auto text-ember-soft" />
+          <p className="mt-2 text-sm font-medium text-zinc-100">{t("battles.nothingFighting", "Nothing is fighting on your fronts.")}</p>
+          <p className="mx-auto mt-1 max-w-md text-xs text-zinc-300">
+            {t(
+              "battles.fightOpensNote",
+              "When a march meets a defending force the fight opens here; it runs whether or not you are watching, and it leaves a report either way.",
+            )}
+          </p>
+        </div>
       </div>
     );
   }
@@ -1209,19 +1219,29 @@ export default function BattlesTab({ state, now, token, onDecision, tutorial, mu
   const t = useT();
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-text-1"><Icon name="sword" size={20} /> {t("battles.title", "Battles")}</h2>
-          <p className="text-xs text-text-2">
-            {t(
-              "battles.intro",
-              "The fights running on your fronts. Watch how the enemy fields their force — every report teaches you something worth bringing next time.",
-            )}
-          </p>
+      <div className="relative overflow-hidden rounded-xl border border-line">
+        <img
+          src="/art/battles/battle-raid.webp"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover"
+          loading="lazy"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#07070c] via-[#07070c]/60 to-[#07070c]/20" />
+        <div className="relative flex flex-wrap items-start justify-between gap-2 p-4">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-white"><Icon name="sword" size={20} /> {t("battles.title", "Battles")}</h2>
+            <p className="text-xs text-zinc-300">
+              {t(
+                "battles.intro",
+                "The fights running on your fronts. Watch how the enemy fields their force — every report teaches you something worth bringing next time.",
+              )}
+            </p>
+          </div>
+          <Link to="/replay" className="rounded-md border border-white/20 bg-black/40 px-2.5 py-1 text-xs text-zinc-200 hover:text-white">
+            {t("battles.replayProto", "🎬 Replay prototype")}
+          </Link>
         </div>
-        <Link to="/replay" className="rounded-md border border-surf-3 px-2.5 py-1 text-xs text-text-3 hover:text-text-1">
-          {t("battles.replayProto", "🎬 Replay prototype")}
-        </Link>
       </div>
       {onAction && <AlliancePanel state={state} now={now} token={token} onAction={onAction as (fn: () => Promise<GameResult>, label: string) => void} />}
       <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorial ?? true} muted={muted} />
