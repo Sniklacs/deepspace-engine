@@ -158,6 +158,13 @@ class SoundManager {
     this.tone(700, { type: "sine", dur: 0.2, gain: 0.06, delay: 0.08 });
   }
 
+  /** A new chat message landed: two soft sine notes, warm and unmissable. */
+  chime(): void {
+    this.start();
+    this.tone(880, { type: "sine", dur: 0.16, gain: 0.09 });
+    this.tone(1174.66, { type: "sine", dur: 0.22, gain: 0.08, delay: 0.11 });
+  }
+
   // Wait for a sound to be audible before reporting — used during early start.
   prime(): void { this.start(); this.click(); }
 

@@ -244,6 +244,10 @@ export const en: Catalogue = {
   "settings.qualityFull": "Full",
   "settings.qualityReduced": "Reduced",
   "settings.deviceNote": "Language, text size and graphics quality are saved on this device.",
+  "settings.chatChime": "Chat chime",
+  "settings.chatChimeSub": "Play a sound when a new chat message arrives.",
+  "settings.on": "On",
+  "settings.off": "Off",
 
   // ---- the language picker (first run, before the door; L1/L4) -------------
   "lang.choose": "Choose your language",
@@ -425,6 +429,7 @@ export const en: Catalogue = {
   "translator.retry": "Try again",
   "translator.freeSpace": "Free the space",
   "translator.notReady": "Translation is preparing",
+  "translator.browserReady": "Translation is ready — your device handles it.",
   "translator.translate": "Translate",
   "translator.original": "Show original",
   // ---- the Cradle Market (real money: Xsolla Pay Station + signed webhook) ----

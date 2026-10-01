@@ -194,6 +194,10 @@ export const fa: Catalogue = {
   "settings.qualityFull": "کامل",
   "settings.qualityReduced": "کاهش‌یافته",
   "settings.deviceNote": "زبان، اندازه متن و کیفیت گرافیک روی این دستگاه ذخیره می‌شوند.",
+  "settings.chatChime": "صدای گپ",
+  "settings.chatChimeSub": "هنگام رسیدن پیام جدید صدا پخش شود.",
+  "settings.on": "روشن",
+  "settings.off": "خاموش",
 
   // ---- the language picker ------------------------------------------------
   "lang.choose": "زبان خود را برگزینید",
@@ -372,6 +376,7 @@ export const fa: Catalogue = {
   "translator.retry": "دوباره تلاش کن",
   "translator.freeSpace": "آزاد کردن فضا",
   "translator.notReady": "ترجمه در حال آمادهسازی است",
+  "translator.browserReady": "ترجمه آماده است — دستگاه شما انجامش می‌دهد.",
   "translator.translate": "ترجمه کن",
   "translator.original": "نمایش متن اصلی",
   // ---- the Cradle Market (real money: Xsolla Pay Station + signed webhook) ----

@@ -65,6 +65,8 @@ async function loadRuntime(ctx: TranslatorRuntimeContext): Promise<TranslatorRun
 let runtimeFactory: RuntimeFactory = loadRuntime;
 let runtime: TranslatorRuntime | null = null;
 let runtimeFailed: string | null = null;
+/** Where the registered engine came from: the phone itself, or the weights pipeline. */
+let engineKind: "browser" | "weights" | null = null;
 
 /** Harness seam only: the app never calls this. */
 export function __setRuntimeFactory(factory: RuntimeFactory | null): void {
@@ -132,6 +134,8 @@ export interface TranslatorStatus {
   available: boolean;
   /** true when the manifest slot is the real 603 MB model, not the stand-in */
   realWeights: boolean;
+  /** "browser" when the phone's own translator answered, "weights" for the pipeline */
+  engineKind: "browser" | "weights" | null;
   blocker: string | null;
 }
 
@@ -141,6 +145,7 @@ export function translatorStatus(): TranslatorStatus {
     engine: translatorEngineName(),
     available: translatorAvailable(),
     realWeights: SHIPS_REAL_WEIGHTS,
+    engineKind,
     blocker: translatorBlocker(),
   };
 }
@@ -162,6 +167,10 @@ export function prepareTranslator(env?: WeightsEnvironment): Promise<TranslatorS
 }
 
 async function run(env?: WeightsEnvironment): Promise<TranslatorStatus> {
+  // The phone's own translator first (2026-10-01): no weights to download, no
+  // server, no key. Where the browser has none, fall through to the weights
+  // pipeline, which ends in the honest "preparing" state.
+  if (await registerBrowserEngine()) return translatorStatus();
   const state = await ensureWeights(MODEL, env);
   if (state.phase === "ready") await registerEngine(env);
   return translatorStatus();
@@ -176,10 +185,51 @@ export function retryTranslator(env?: WeightsEnvironment): Promise<TranslatorSta
 export async function freeTranslatorSpace(env?: WeightsEnvironment): Promise<TranslatorStatus> {
   runtime?.dispose?.();
   runtime = null;
+  engineKind = null;
   translated.clear();
   await clearWeights(MODEL, env);
   announce();
   return translatorStatus();
+}
+
+/** The browser's built-in translator, when this browser has one. No weights involved. */
+async function registerBrowserEngine(): Promise<boolean> {
+  if (runtime) return true;
+  try {
+    const created = await runtimeFactory({
+      model: MODEL,
+      cacheName: MODEL_CACHE,
+      readWeights: () => streamStoredWeights(MODEL),
+    });
+    if (!created) return false;
+    installRuntime(created);
+    // Whatever the factory returned on this path came with no weights behind it.
+    engineKind = "browser";
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Put a created runtime behind the seam: the sync cache, the key filler, the announce. */
+function installRuntime(created: TranslatorRuntime): void {
+  runtime = created;
+  runtimeFailed = null;
+  const engine: TranslationEngine = {
+    name: created.name,
+    // Synchronous by contract: answers only from what is already translated.
+    text: (text, from, to) => translated.get(cacheKey(text, from, to)) ?? null,
+  };
+  // A runtime that can also fill a KEY the catalogues are missing gets its chance:
+  // `engine-seam.ts` consults `key` ahead of the humanised fallback, so this bridge
+  // must forward it. (It used not to — a capability the seam documents and a runtime
+  // can implement was silently dropped on the way through, which is exactly the kind
+  // of quiet gap `translate-tests` §8 exists to catch. Still synchronous: a runtime
+  // may only answer a key it can answer without waiting, the same rule as `text`.)
+  const fillKey = created.key;
+  if (fillKey) engine.key = (k, lang, source) => fillKey(k, lang, source);
+  registerTranslationEngine(engine);
+  announce();
 }
 
 /** Load the ML runtime against the bytes on the device and register it. */
@@ -196,23 +246,8 @@ async function registerEngine(env?: WeightsEnvironment): Promise<void> {
       announce();
       return;
     }
-    runtime = created;
-    runtimeFailed = null;
-    const engine: TranslationEngine = {
-      name: created.name,
-      // Synchronous by contract: answers only from what is already translated.
-      text: (text, from, to) => translated.get(cacheKey(text, from, to)) ?? null,
-    };
-    // A runtime that can also fill a KEY the catalogues are missing gets its chance:
-    // `engine-seam.ts` consults `key` ahead of the humanised fallback, so this bridge
-    // must forward it. (It used not to — a capability the seam documents and a runtime
-    // can implement was silently dropped on the way through, which is exactly the kind
-    // of quiet gap `translate-tests` §8 exists to catch. Still synchronous: a runtime
-    // may only answer a key it can answer without waiting, the same rule as `text`.)
-    const fillKey = created.key;
-    if (fillKey) engine.key = (k, lang, source) => fillKey(k, lang, source);
-    registerTranslationEngine(engine);
-    announce();
+    installRuntime(created);
+    engineKind = "weights";
   } catch (err) {
     runtimeFailed = err instanceof Error ? err.message : String(err);
     announce();

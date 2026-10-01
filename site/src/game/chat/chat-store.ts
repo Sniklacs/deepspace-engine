@@ -31,6 +31,8 @@
 //     promises otherwise.
 
 import { chatSyncFn, sendWorldFn } from "./chat-api";
+import { sound } from "../sound";
+import { deviceSnapshot } from "../i18n/device";
 import {
   CHAT_SURFACES,
   unreadChip,
@@ -223,6 +225,9 @@ export function setChatSurface(surface: ChatSurface): void {
 }
 
 // ── the poll ────────────────────────────────────────────────────────────────
+/** True once one sync has landed: everything after that is a delta, not a baseline. */
+let syncedOnce = false;
+
 /**
  * One sync. A failure KEEPS the last-known messages on screen (stale-while-error):
  * clearing the list because the network blinked would destroy the only copy of the
@@ -242,8 +247,21 @@ export async function refreshChat(): Promise<void> {
       set({ phase: "error", errorKey: "chat.loadFailed" });
       return;
     }
+    // The chime (owner 2026-10-01): a new line from someone else is worth a
+    // sound, because a quiet world channel is a missed conversation. Never on
+    // the first sync (the baseline is not an arrival), never for my own lines,
+    // and never while I am already looking at the world surface.
+    const incoming = res.messages ?? state.messages;
+    const me = res.me ?? state.me;
+    if (syncedOnce) {
+      const seen = new Set(state.messages.map((m) => m.id));
+      const fresh = incoming.some((m) => !seen.has(m.id) && m.accountId !== me);
+      const watching = state.open && state.surface === "world";
+      if (fresh && !watching && deviceSnapshot().chatChime) sound.chime();
+    }
+    syncedOnce = true;
     set({
-      messages: res.messages ?? state.messages,
+      messages: incoming,
       unread: res.unread ?? state.unread,
       // The server's answer is the authority on who I am (see configureChat).
       me: res.me ?? state.me,

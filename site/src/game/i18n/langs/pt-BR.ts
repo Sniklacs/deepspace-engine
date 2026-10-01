@@ -186,6 +186,10 @@ export const ptBR: Catalogue = {
   "settings.qualityFull": "Completa",
   "settings.qualityReduced": "Reduzida",
   "settings.deviceNote": "Idioma, tamanho do texto e qualidade gráfica ficam salvos neste aparelho.",
+  "settings.chatChime": "Som do chat",
+  "settings.chatChimeSub": "Toca um som quando uma nova mensagem chegar.",
+  "settings.on": "Ativado",
+  "settings.off": "Desativado",
 
   "lang.choose": "Escolha seu idioma",
   "lang.intro": "Escolha o idioma em que você quer ler o jogo. Você pode mudar depois em Configurações.",
@@ -344,6 +348,7 @@ export const ptBR: Catalogue = {
   "translator.retry": "Tentar de novo",
   "translator.freeSpace": "Liberar o espaço",
   "translator.notReady": "A tradução está sendo preparada",
+  "translator.browserReady": "Tradução pronta — seu aparelho cuida disso.",
   "translator.translate": "Traduzir",
   "translator.original": "Ver o original",
   // ---- the Cradle Market (real money: Xsolla Pay Station + signed webhook) ----

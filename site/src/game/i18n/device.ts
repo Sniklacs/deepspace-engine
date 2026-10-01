@@ -31,10 +31,12 @@ export interface DeviceSettings {
   suggested: string | null;
   textSize: TextSize;
   quality: Quality;
+  /** play a chime when a new chat message arrives (owner 2026-10-01) */
+  chatChime: boolean;
 }
 
 export function deviceDefaults(): DeviceSettings {
-  return { lang: SOURCE_LANG, chosen: false, suggested: null, textSize: "normal", quality: "full" };
+  return { lang: SOURCE_LANG, chosen: false, suggested: null, textSize: "normal", quality: "full", chatChime: true };
 }
 
 function hasWindow(): boolean {
@@ -90,7 +92,8 @@ export function resolveDeviceSettings(): DeviceSettings {
   const textSize: TextSize =
     rec.textSize === "large" || rec.textSize === "larger" ? rec.textSize : "normal";
   const quality: Quality = rec.quality === "reduced" ? "reduced" : "full";
-  return { lang, chosen: !!(pinned ?? stored), suggested, textSize, quality };
+  const chatChime = rec.chatChime === false ? false : true;
+  return { lang, chosen: !!(pinned ?? stored), suggested, textSize, quality, chatChime };
 }
 
 // ---- a tiny store the UI subscribes to (no framework import here) -----------
@@ -133,6 +136,14 @@ export function setDeviceTextSize(size: TextSize): void {
 
 export function setDeviceQuality(quality: Quality): void {
   writeRecord({ quality });
+  snapshot = resolveDeviceSettings();
+  applyToDocument(snapshot);
+  emit();
+}
+
+/** The chat chime: on by default, the player's call per device (owner 2026-10-01). */
+export function setDeviceChatChime(on: boolean): void {
+  writeRecord({ chatChime: on });
   snapshot = resolveDeviceSettings();
   applyToDocument(snapshot);
   emit();

@@ -266,7 +266,8 @@ export function ForgeRoom({
         {items.length === 0 ? (
           <p className="mt-2 text-sm text-text-3">{t("forge.rackEmpty")}</p>
         ) : (
-          <div className="mt-2 space-y-2">
+          /* same inner scroll as the Armory rack above (owner 2026-10-01) */
+          <div className="mt-2 max-h-[55vh] space-y-2 overflow-y-auto overscroll-contain pe-1">
             {items.map((it) => (
               <ForgedPieceCard key={it.id} item={it} now={now} onMelt={onMelt} busy={busy} />
             ))}
@@ -314,7 +315,9 @@ export function ForgedRack({
         }
       />
       <p className="mt-1 text-[11px] text-text-3">{t("forge.ceiling", { power: ceiling, ceiling })}</p>
-      <div className="mt-2 space-y-2">
+      {/* the rack scrolls inside the box (owner 2026-10-01): header and count
+          stay put; a long legend shelf no longer pushes the page down. */}
+      <div className="mt-2 max-h-[55vh] space-y-2 overflow-y-auto overscroll-contain pe-1">
         {items.map((it) => (
           <ForgedPieceCard key={it.id} item={it} now={now} onMelt={onMelt} busy={busy} />
         ))}

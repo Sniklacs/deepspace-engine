@@ -72,13 +72,17 @@ export default function TranslatorNote() {
 
   const size = row.sizeBytes === null ? null : formatBytes(row.sizeBytes);
   const done = formatBytes(row.doneBytes);
-  const ready = row.kind === "ready" && size !== null;
+  const ready = row.kind === "ready";
+  // The phone's own translator: ready, but there is no download to name a size for.
+  const browserReady = ready && status.engineKind === "browser";
+  const sizedReady = ready && size !== null;
   const failed = row.kind === "failed" && size !== null;
   const progress = row.showProgress && size !== null;
 
   return (
     <div className="space-y-1" data-testid="translator-note" data-translator-phase={row.kind}>
-      {ready && <p className={ROW}>{t("translator.ready", { size })}</p>}
+      {browserReady && <p className={ROW}>{t("translator.browserReady", "Translation is ready — your device handles it.")}</p>}
+      {sizedReady && <p className={ROW}>{t("translator.ready", { size })}</p>}
       {failed && <p className={ROW}>{t("translator.failed", { done, size })}</p>}
       {progress && (
         <p className={ROW} data-testid="translator-progress">

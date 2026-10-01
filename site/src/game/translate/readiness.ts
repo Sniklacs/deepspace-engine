@@ -64,10 +64,17 @@ export function translatorRow(status: TranslatorStatus): TranslatorRowView {
   const answerable = status.available === true;
   /** The row may name the model and its size. */
   const named = status.realWeights === true;
+  /** The phone's own translator answered: no weights, no download, no size to name. */
+  const browserBacked = status.engineKind === "browser";
   const downloading = w.phase === "downloading" || w.phase === "partial" || w.phase === "verifying";
 
   let kind: TranslatorRowKind = "preparing";
-  if (w.phase === "unknown" || w.phase === "unsupported") {
+  if (answerable && browserBacked) {
+    // The browser's translator is answerable now: that IS the translator, and the
+    // row may say ready. (The old rule — never call the stand-in weights "ready" —
+    // still holds below: a weights engine is only ready when the profile is real.)
+    kind = "ready";
+  } else if (w.phase === "unknown" || w.phase === "unsupported") {
     kind = "hidden";
   } else if (w.phase === "ready" && answerable && named) {
     kind = "ready";

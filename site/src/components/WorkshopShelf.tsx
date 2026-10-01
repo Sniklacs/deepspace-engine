@@ -62,14 +62,19 @@ export default function WorkshopShelf({ state, onCraft }: {
         <h3 className="text-[15px] font-semibold text-text-1">{t("cradle.workshop")}</h3>
         <span className="text-[11px] text-text-3">{t("cradle.workshopSub")}</span>
       </div>
-      {KIT_TIERS.map((tier, ti) => (
-        <section key={ti} className="space-y-2">
-          <h4 className="eyebrow">{tier.note}</h4>
-          {tier.kinds.map((k) => (
-            <KitRow key={k} state={state} kind={k} recipe={recipe} onCraft={onCraft} />
-          ))}
-        </section>
-      ))}
+      {/* THE KIT LIST (owner 2026-10-01: scrolls inside the box) — the header
+          stays put; the tiers scroll within a phone-fitting bound so the whole
+          inventory is reachable without the page growing nine rows tall. */}
+      <div className="max-h-[55vh] space-y-2 overflow-y-auto overscroll-contain pe-1">
+        {KIT_TIERS.map((tier, ti) => (
+          <section key={ti} className="space-y-2">
+            <h4 className="eyebrow">{tier.note}</h4>
+            {tier.kinds.map((k) => (
+              <KitRow key={k} state={state} kind={k} recipe={recipe} onCraft={onCraft} />
+            ))}
+          </section>
+        ))}
+      </div>
       {/* THE HOLDINGS (owner 2026-09-27: "we're missing an embers inventory I
           don't see how many embers I have"): the colony's OWN stock, in the same
           Panel, so the shelf reads as one inventory. `state.resources.embers`

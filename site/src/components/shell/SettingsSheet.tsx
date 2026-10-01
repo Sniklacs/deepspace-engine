@@ -14,6 +14,7 @@ import StorageNote from "./StorageNote";
 import TranslatorNote from "./TranslatorNote";
 import {
   langMeta,
+  setDeviceChatChime,
   setDeviceLang,
   setDeviceQuality,
   setDeviceTextSize,
@@ -90,7 +91,28 @@ export default function SettingsSheet({ open, onClose }: { open: boolean; onClos
           <p className="text-[11px] leading-snug text-text-3">{t("settings.deviceNote")}</p>
         </section>
 
-        {/* 4 · On this device — the app shell: install it, and what it may keep.
+        {/* 4 · Chat chime — a sound when a new message lands (owner 2026-10-01) */}
+        <section aria-labelledby="settings-chime" className="space-y-1.5">
+          <h3 id="settings-chime" className="eyebrow">
+            {t("settings.chatChime", "Chat chime")}
+          </h3>
+          <p className="text-[11px] leading-snug text-text-3">
+            {t("settings.chatChimeSub", "Play a sound when a new chat message arrives.")}
+          </p>
+          <div data-testid="settings-chime">
+            <SegmentedControl
+              ariaLabel={t("settings.chatChime", "Chat chime")}
+              value={s.chatChime ? "on" : "off"}
+              onChange={(id) => setDeviceChatChime(id === "on")}
+              options={[
+                { id: "on", label: t("settings.on", "On") },
+                { id: "off", label: t("settings.off", "Off") },
+              ]}
+            />
+          </div>
+        </section>
+
+        {/* 5 · On this device — the app shell: install it, and what it may keep.
                Both rows are silent when there is nothing true to say: no install
                path renders nothing, and a browser without the StorageManager API
                renders no storage line. */}
@@ -101,7 +123,7 @@ export default function SettingsSheet({ open, onClose }: { open: boolean; onClos
           <InstallAffordance variant="row" />
           <h4 className="eyebrow pt-1">{t("storage.title")}</h4>
           <StorageNote />
-          {/* 5 · The bundled translator — downloaded unprompted, never a pack to
+          {/* 6 · The bundled translator — downloaded unprompted, never a pack to
                  choose, never a prompt; its progress is real bytes. */}
           <h4 className="eyebrow pt-1">{t("translator.title")}</h4>
           <p className="text-[11px] leading-snug text-text-3">{t("translator.sub")}</p>
