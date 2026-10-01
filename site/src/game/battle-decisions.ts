@@ -430,6 +430,8 @@ export interface ClockAnnouncement {
   /** `${windowId}:${threshold}` — the once-only key the caller remembers. */
   key: string;
   text: string;
+  /** The threshold that fired, so render sites can translate the text. */
+  threshold: 60000 | 30000 | 0;
 }
 
 /** The announcement to make RIGHT NOW, or null for silence. `lastKey` is the
@@ -444,7 +446,7 @@ export function nextClockAnnouncement(
   if (threshold === null) return null;
   const key = `${soonest.windowId}:${threshold}`;
   if (key === lastKey) return null;
-  return { key, text: CLOCK_ANNOUNCE_TEXT[threshold] };
+  return { key, text: CLOCK_ANNOUNCE_TEXT[threshold], threshold: threshold as 60000 | 30000 | 0 };
 }
 
 // ============================================================================
@@ -624,4 +626,259 @@ export function clockAnnounceTextT(t: T, threshold: 60000 | 30000 | 0): string {
     : threshold === 30000 ? "cfg.battledec.announce.sec30"
     : "cfg.battledec.announce.closed";
   return t(key, CLOCK_ANNOUNCE_TEXT[threshold]);
+}
+
+/** Split a rendered template back into text/num parts: each occurrence of one
+ *  of `numerals` (in order) becomes a num part. Keeps the numeral treatment
+ *  across languages without fragment keys — word order may move, the numbers
+ *  stay styled. */
+function partsFromTemplate(text: string, numerals: string[]): OrderLinePart[] {
+  const parts: OrderLinePart[] = [];
+  let rest = text;
+  for (const num of numerals) {
+    const i = rest.indexOf(num);
+    if (i < 0) break;
+    if (i > 0) parts.push({ text: rest.slice(0, i) });
+    parts.push({ text: num, num: true });
+    rest = rest.slice(i + num.length);
+  }
+  if (rest) parts.push({ text: rest });
+  return parts;
+}
+
+/** Translated mirror of plainDecisionError — same match chain, cfg.battledec.errors.*. */
+export function plainDecisionErrorT(t: T, err: string): string {
+  const s = (err || "").toLowerCase();
+  if (s.includes("not signed in") || s.includes("signed out"))
+    return t("cfg.battledec.errors.sessionExpired", "Your session expired — sign in again.");
+  if (s.includes("start a colony"))
+    return t("cfg.battledec.errors.noColony", "Found your Cradle first — no colony, no orders.");
+  if (s.includes("isn't running") || s.includes("already decided"))
+    return t("cfg.battledec.errors.battleOver", "That battle is already over — no more orders to give.");
+  if (s.includes("other side"))
+    return t("cfg.battledec.errors.otherSide", "Those orders belong to the other side.");
+  if (s.includes("window is closed") || s.includes("unknown decision"))
+    return t("cfg.battledec.errors.momentPassed", "Too late — that order's moment has passed.");
+  if (s.includes("too soon to break off") || s.includes("hold the line"))
+    return t("cfg.battledec.errors.tooSoon", "Too soon to break off — hold the line a little longer.");
+  if (s.includes("already withdrawing"))
+    return t("cfg.battledec.errors.alreadyWithdrawing", "Your main body is already pulling back.");
+  if (s.includes("aid call is already open"))
+    return t("cfg.battledec.errors.beaconLit", "Your beacon is already lit — wait for an answer.");
+  if (s.includes("not enough war energy to raise the beacon") || s.includes("not enough war energy this week"))
+    return t("cfg.battledec.errors.noEnergyWeek", "Not enough war energy — earn more in the war week before ordering that.");
+  if (s.includes("not enough war energy to march"))
+    return t("cfg.battledec.errors.noMarchEnergy", "Not enough war energy to march that force.");
+  if (s.includes("not enough reserve troops"))
+    return t("cfg.battledec.errors.noReserveTroops", "Not enough reserve troops — pull fewer soldiers into this fight.");
+  if (s.includes("send something"))
+    return t("cfg.battledec.errors.sendSomething", "Send something — troops at least, heroes when the roster arrives.");
+  if (s.includes("already committed, locked, or not in your reserve"))
+    return t("cfg.battledec.errors.heroCommitted", "One of those heroes is already fighting or locked elsewhere.");
+  if (s.includes("already answered") || s.includes("already arrived"))
+    return t("cfg.battledec.errors.callAnswered", "Someone already answered that call.");
+  if (s.includes("unknown aid call"))
+    return t("cfg.battledec.errors.aidCallGone", "That aid call is gone.");
+  return err || t("cfg.battledec.errors.orderFailed", "The order didn't go through — try again.");
+}
+
+/** Translated mirror of orderEffectLine — same math, cfg.battledec.orderEffect.*. */
+export function orderEffectLineT(
+  t: T,
+  args: { action: IssueAction; battle: Battle; side: BattleSide; typedTroops?: number },
+): OrderLinePart[] {
+  const { action, battle, side } = args;
+  switch (action) {
+    case "hold":
+      return [{ text: t("cfg.battledec.orderEffect.hold", "No cost · the line stands as it is") }];
+    case "reinforce": {
+      const typed = Math.max(0, Math.trunc(args.typedTroops ?? 0) || 0);
+      if (typed <= 0)
+        return [{ text: t("cfg.battledec.orderEffect.reinforcePick", "Pick troops — they leave your reserve") }];
+      const added = reinforcePowerAdded(battle, side, typed);
+      const queued = reinforceQueuedBehind(battle, side, typed);
+      const typedS = String(typed), addedS = String(added), queuedS = String(queued);
+      const text =
+        queued > 0
+          ? t("cfg.battledec.orderEffect.reinforceQueued", "{typed} from reserve · +{added} power · {queued} wait behind the staging line", { typed: typedS, added: addedS, queued: queuedS })
+          : t("cfg.battledec.orderEffect.reinforce", "{typed} from reserve · +{added} power", { typed: typedS, added: addedS });
+      return partsFromTemplate(text, queued > 0 ? [typedS, addedS, queuedS] : [typedS, addedS]);
+    }
+    case "callAid": {
+      const energyS = String(BATTLES_CONFIG.aidCallEnergy);
+      const timeS = fmtClock(BATTLES_CONFIG.aidTravelDelayMs);
+      const text = t("cfg.battledec.orderEffect.callAid", "{energy} war energy · a march from your world takes about {time}", { energy: energyS, time: timeS });
+      return partsFromTemplate(text, [energyS, timeS]);
+    }
+    case "withdrawal": {
+      const rearguard = withdrawalRearguard(battle, side);
+      const troops = Math.max(0, Math.trunc(battle[side].troops) || 0);
+      const rearS = String(rearguard), troopsS = String(troops);
+      const text = t("cfg.battledec.orderEffect.withdrawal", "The rearguard stays — about {rearguard} of {troops} troops · once per fight", { rearguard: rearS, troops: troopsS });
+      return partsFromTemplate(text, [rearS, troopsS]);
+    }
+    case "retreat": {
+      const rearS = String(retreatRearguard(battle, side));
+      const text = t("cfg.battledec.orderEffect.retreat", "About {rearguard} stay behind · the fight ends here as a loss", { rearguard: rearS });
+      return partsFromTemplate(text, [rearS]);
+    }
+  }
+}
+
+/** Translated mirror of orderReason — same branches, cfg.battledec.orderReason.*. */
+export function orderReasonT(
+  t: T,
+  args: { action: IssueAction; reason?: string; battle: Battle; typedTroops?: number; reserves: BattleReserves },
+): string {
+  const reason = args.reason ?? "";
+  if (args.action === "reinforce") {
+    const typed = Math.max(0, Math.trunc(args.typedTroops ?? 0) || 0);
+    if (typed > args.reserves.reserveTroops)
+      return t("cfg.battledec.orderReason.overReserve", "You hold {reserveTroops} in reserve", {
+        reserveTroops: String(args.reserves.reserveTroops),
+      });
+  }
+  if (reason.startsWith("No reserve troops or energy left"))
+    return t("cfg.battledec.orderReason.emptyReserve", "Nothing left to send — your reserve is empty");
+  if (reason.startsWith("Already withdrawing"))
+    return t("cfg.battledec.orderReason.alreadyWithdrawing", "Your main body is already pulling back");
+  if (reason.startsWith("Too soon to break off")) {
+    const opensAfter = Math.round((args.battle.durationMs ?? 0) * BATTLES_CONFIG.minRetreatElapsedFrac);
+    const clock = fmtClock(opensAfter);
+    return t("cfg.battledec.orderReason.tooSoon", "Too soon — the retreat opens after the first {clock}", { clock });
+  }
+  if (reason.startsWith("An aid call is already open"))
+    return t("cfg.battledec.orderReason.beaconLit", "Your beacon is already lit");
+  if (reason.startsWith("Not enough energy to raise the beacon")) {
+    const energy = String(BATTLES_CONFIG.aidCallEnergy);
+    const held = String(args.reserves.energy);
+    return t("cfg.battledec.orderReason.noBeaconEnergy", "Needs {energy} war energy — you hold {held}", { energy, held });
+  }
+  return reason || t("cfg.battledec.orderReason.fallback", "Not available just now");
+}
+
+/** Translated mirror of orderBusyLabel — cfg.battledec.busy.*. */
+export function orderBusyLabelT(t: T, action: IssueAction): string {
+  switch (action) {
+    case "callAid":
+      return t("cfg.battledec.busy.callAid", "Lighting the beacon…");
+    case "retreat":
+      return t("cfg.battledec.busy.retreat", "Sounding the retreat…");
+    case "reinforce":
+    case "hold":
+    case "withdrawal":
+      return t("cfg.battledec.busy.sending", "Sending…");
+  }
+}
+
+/** Translated mirror of orderNoticeText — cfg.battledec.notice ("{label}: {reason}"). */
+export function orderNoticeTextT(t: T, action: IssueAction, playerReason: string): string {
+  return t("cfg.battledec.notice", "{label}: {reason}", {
+    label: decisionActionLabelT(t, action),
+    reason: playerReason,
+  });
+}
+
+/** Translated mirror of windowClockLabel — cfg.battledec.clock.*. */
+export function windowClockLabelT(t: T, msLeft: number): string {
+  const clock = fmtClock(msLeft);
+  return msLeft <= 30_000
+    ? t("cfg.battledec.clock.lastMoments", "closes in {clock} · last moments", { clock })
+    : t("cfg.battledec.clock.closing", "closes in {clock}", { clock });
+}
+
+/** Translated mirror of confirmSentence — cfg.battledec.confirm.sentence.*. */
+export function confirmSentenceT(t: T, action: ConfirmAction, battle: Battle, side: BattleSide): string {
+  if (action === "callAid") {
+    const energy = String(BATTLES_CONFIG.aidCallEnergy);
+    const time = fmtClock(BATTLES_CONFIG.aidTravelDelayMs);
+    return t(
+      "cfg.battledec.confirm.sentence.callAid",
+      "Raise the beacon? It costs {energy} war energy, and your world can answer — a march from the links takes about {time}.",
+      { energy, time },
+    );
+  }
+  const rearguard = String(retreatRearguard(battle, side));
+  return t(
+    "cfg.battledec.confirm.sentence.retreat",
+    "Sound the retreat? The fight ends here as a loss, and about {rearguard} troops stay behind as the rearguard. The rest come home.",
+    { rearguard },
+  );
+}
+
+/** Translated mirror of confirmButtonLabel — cfg.battledec.confirm.button.*. */
+export function confirmButtonLabelT(t: T, action: ConfirmAction): string {
+  return action === "callAid"
+    ? t("cfg.battledec.confirm.button.callAid", "Light the beacon")
+    : t("cfg.battledec.confirm.button.retreat", "Break off now");
+}
+
+/** Translated mirror of confirmButtonAriaLabel — cfg.battledec.confirm.buttonAria.*. */
+export function confirmButtonAriaLabelT(t: T, action: ConfirmAction, battle: Battle, side: BattleSide): string {
+  if (action === "callAid") {
+    const energy = String(BATTLES_CONFIG.aidCallEnergy);
+    return t("cfg.battledec.confirm.buttonAria.callAid", "Confirm — raise the aid beacon ({energy} war energy)", { energy });
+  }
+  const rearguard = String(retreatRearguard(battle, side));
+  return t("cfg.battledec.confirm.buttonAria.retreat", "Confirm — sound the retreat (about {rearguard} troops stay behind)", { rearguard });
+}
+
+/** Translated mirror of confirmGroupLabel — cfg.battledec.confirm.group.*. */
+export function confirmGroupLabelT(t: T, action: ConfirmAction): string {
+  return action === "callAid"
+    ? t("cfg.battledec.confirm.group.callAid", "Confirm: call for aid")
+    : t("cfg.battledec.confirm.group.retreat", "Confirm: sound the retreat");
+}
+
+/** Translated mirror of confirmCancelAriaLabel — cfg.battledec.confirm.cancelAria.*. */
+export function confirmCancelAriaLabelT(t: T, action: ConfirmAction): string {
+  return action === "callAid"
+    ? t("cfg.battledec.confirm.cancelAria.callAid", "Cancel — do not raise the beacon")
+    : t("cfg.battledec.confirm.cancelAria.retreat", "Cancel — do not sound the retreat");
+}
+
+/** Translated mirror of reserveLine — cfg.battledec.reserveLine. */
+export function reserveLineT(t: T, reserves: BattleReserves): string {
+  return t("cfg.battledec.reserveLine", "In reserve: {troops} troops · {energy} war energy · your order reaches the front at once, the view catches up within a few seconds.", {
+    troops: String(reserves.reserveTroops),
+    energy: String(reserves.energy),
+  });
+}
+
+/** Translated mirror of quietStateText — cfg.battledec.quiet.*. */
+export function quietStateTextT(t: T, battle: Battle, side: BattleSide, now: number): string {
+  const next = windowsForView(battle, now)
+    .filter((w) => w.side === side && !w.decided && w.opensAt > now)
+    .sort((a, b) => a.opensAt - b.opensAt)[0];
+  if (next) {
+    const clock = fmtClock(next.opensAt - battle.startedAt);
+    return t("cfg.battledec.quiet.next", "No order is asked of you yet — the next opening comes at {clock} into the fight. Orders already given stand below.", { clock });
+  }
+  return t("cfg.battledec.quiet.none", "The last opening has passed — this fight is decided by what is already on the field.");
+}
+
+/** Translated mirror of aidRowLabel — cfg.battledec.aidRow. */
+export function aidRowLabelT(t: T, call: AidCallView, now: number): string {
+  const who = (call.callerName ?? "").trim() || t("cfg.battledec.aidRow.ally", "An ally");
+  const time = fmtClock(Math.max(0, call.arrivalAt - now));
+  return t("cfg.battledec.aidRow", "{who} is calling for aid · a march from here lands in {time}", { who, time });
+}
+
+/** Translated mirror of aidMarchLine — cfg.battledec.aidMarch.*. */
+export function aidMarchLineT(t: T, typedTroops: number, call: AidCallView, now: number): string {
+  const typed = Math.max(0, Math.trunc(typedTroops) || 0);
+  const landing = fmtClock(Math.max(0, call.arrivalAt - now));
+  return typed > 0
+    ? t("cfg.battledec.aidMarch.typed", "Send {typed} troops · they land in {landing}", { typed: String(typed), landing })
+    : t("cfg.battledec.aidMarch.untyped", "Send troops · they land in {landing}", { landing });
+}
+
+/** Translated mirror of lineLabel — cfg.battledec.line.label. */
+export function lineLabelT(t: T, attackerColony: string, pct: number): string {
+  return t("cfg.battledec.line.label", "the line · {colony} {pct}%", { colony: attackerColony, pct: String(pct) });
+}
+
+/** Translated mirror of lineAriaLabel — cfg.battledec.line.aria. */
+export function lineAriaLabelT(t: T, colonyName: string, pct: number): string {
+  return t("cfg.battledec.line.aria", "{colony} holds {pct}% of the line", { colony: colonyName, pct: String(pct) });
 }

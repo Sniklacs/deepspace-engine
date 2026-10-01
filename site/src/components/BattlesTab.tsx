@@ -24,41 +24,43 @@ import { availableWeight } from "../game/war/troops";
 import { battleIssueFn, battleRespondFn, battleScreenFn } from "../game/api";
 import type { GameResult } from "../game/api";
 import {
-  CONFIRM_CANCEL_LABEL,
-  DECISION_ACTIONS,
-  aidMarchLine,
-  aidRowLabel,
+  aidMarchLineT,
+  aidRowLabelT,
   answerableAidCalls,
+  battleWindowTitleT,
   clientReserves,
-  confirmButtonAriaLabel,
-  confirmButtonLabel,
-  confirmCancelAriaLabel,
-  confirmGroupLabel,
+  clockAnnounceTextT,
+  confirmButtonAriaLabelT,
+  confirmButtonLabelT,
+  confirmCancelAriaLabelT,
+  confirmGroupLabelT,
   confirmReducer,
-  confirmSentence,
-  decidedSummary,
+  confirmSentenceT,
+  decidedSummaryT,
+  decisionActionHintT,
+  decisionActionLabelT,
   decisionRows,
   fmtClock,
   issuePayload,
-  lineAriaLabel,
-  lineLabel,
+  lineAriaLabelT,
+  lineLabelT,
   nextClockAnnouncement,
-  orderBusyLabel,
-  orderEffectLine,
-  orderNoticeText,
-  orderReason,
+  orderBusyLabelT,
+  orderEffectLineT,
+  orderNoticeTextT,
+  orderReasonT,
   ourSide,
-  plainDecisionError,
-  quietStateText,
-  reserveLine,
+  plainDecisionErrorT,
+  quietStateTextT,
+  reserveLineT,
   respondPayload,
-  windowClockLabel,
-  windowTitle,
+  windowClockLabelT,
 } from "../game/battle-decisions";
 import type { ConfirmState, IssueAction, OrderLinePart } from "../game/battle-decisions";
 import { familyFor } from "../game/armory";
 import { Icon } from "./icons";
 import type { IconName } from "./icons";
+import { useT } from "./i18n/I18n";
 import TutorialCueLayer from "./TutorialCueLayer";
 import AlliancePanel from "./AlliancePanel";
 import {
@@ -90,6 +92,12 @@ const CHIP_META: Record<string, { label: string; cls: string }> = {
   stalemate: { label: "Stalemate", cls: "bg-sky-400/15 text-sky-200 border-sky-400/30" },
   pressing: { label: "Pressing", cls: "bg-ember/15 text-ember-soft border-ember/30" },
   "rout-risk": { label: "Rout risk", cls: "bg-danger/15 text-danger-soft border-danger/30" },
+};
+/** The i18n key for a chip id (the map above keeps the English fallback). */
+const CHIP_KEY: Record<string, string> = {
+  stalemate: "battles.chipStalemate",
+  pressing: "battles.chipPressing",
+  "rout-risk": "battles.chipRoutRisk",
 };
 
 // The panel's clock format lives in game/battle-decisions.ts (fmtClock) so the
@@ -268,39 +276,41 @@ function useVoiceLayer({
   return { mode: voiceEngine.mode() };
 }
 
-function weaponLabel(state: GameState, kit: { family: string; tier: number; count: number }): string {
+function weaponLabel(t: ReturnType<typeof useT>, state: GameState, kit: { family: string; tier: number; count: number }): string {
   const fam = state.race ? familyFor(state.race, kit.family) : undefined;
   const base = fam ? fam.name : kit.family;
-  return `${base} T${kit.tier} × ${kit.count}`;
+  return t("battles.weaponLine", "{base} T{tier} × {count}", { base, tier: kit.tier, count: kit.count });
 }
 
-function fobLabel(stage: number): string {
-  const names = ["No FOB", "Landing Pad", "Garrison", "Foundry", "Arsenal/Citadel"];
-  return names[Math.max(0, Math.min(4, stage))] ?? names[0];
+function fobLabel(t: ReturnType<typeof useT>, stage: number): string {
+  const key = stage <= 0 ? "battles.fobNone" : stage === 1 ? "battles.fobLanding" : stage === 2 ? "battles.fobGarrison" : stage === 3 ? "battles.fobFoundry" : "battles.fobArsenal";
+  const en = stage <= 0 ? "No FOB" : stage === 1 ? "Landing Pad" : stage === 2 ? "Garrison" : stage === 3 ? "Foundry" : "Arsenal/Citadel";
+  return t(key, en);
 }
 
 /** One side's committed composition — the observable facts of the fight. */
 function ForceBlock({ state, force, power, tag, focusTarget }: { state: GameState; force: CommittedForce; power: number; tag: string; focusTarget?: UiTarget | null }) {
+  const t = useT();
   const squad = force.heroSquad.length > 0 ? (
     <ul className="space-y-0.5">
       {force.heroSquad.map((h) => (
         <li key={h.id} className="text-xs text-text-2">
-          <span className="text-text-3">{h.role} · L{h.level}</span> {h.name}
+          <span className="text-text-3">{h.role} · {t("battles.heroLevelShort", "L{lvl}", { lvl: h.level })}</span> {h.name}
           {h.specialization ? <span className="text-corrupt-text"> — {h.specialization}</span> : null}
         </li>
       ))}
     </ul>
   ) : (
-    <p className="text-xs text-text-3">No hero squad committed.</p>
+    <p className="text-xs text-text-3">{t("battles.noHeroSquad", "No hero squad committed.")}</p>
   );
   const weapons = force.weapons.length > 0 ? (
     <ul className="space-y-0.5">
       {force.weapons.map((k, i) => (
-        <li key={i} className="text-xs text-text-2">{weaponLabel(state, k)}</li>
+        <li key={i} className="text-xs text-text-2">{weaponLabel(t, state, k)}</li>
       ))}
     </ul>
   ) : (
-    <p className="text-xs text-text-3">No weapon kits fielded.</p>
+    <p className="text-xs text-text-3">{t("battles.noWeapons", "No weapon kits fielded.")}</p>
   );
   const isAttacker = tag === "attacker";
   return (
@@ -310,23 +320,23 @@ function ForceBlock({ state, force, power, tag, focusTarget }: { state: GameStat
     >
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <span className={`flex items-center gap-1.5 text-sm font-semibold ${isAttacker ? "text-ember-soft" : "text-hazard-soft"}`}>
-          <Icon name={isAttacker ? "sword" : "shield"} size={16} /> {isAttacker ? "Attacker" : "Defender"}
+          <Icon name={isAttacker ? "sword" : "shield"} size={16} /> {isAttacker ? t("battles.attacker", "Attacker") : t("battles.defender", "Defender")}
         </span>
         <span className="truncate text-xs text-text-3">{force.colonyName}</span>
       </div>
       <div className="space-y-2">
         <div>
-          <p className="text-[11px] uppercase tracking-wide text-text-3">Hero squad</p>
+          <p className="text-[11px] uppercase tracking-wide text-text-3">{t("battles.heroSquad", "Hero squad")}</p>
           {squad}
         </div>
         <div>
-          <p className="text-[11px] uppercase tracking-wide text-text-3">Weapons</p>
+          <p className="text-[11px] uppercase tracking-wide text-text-3">{t("battles.weapons", "Weapons")}</p>
           {weapons}
         </div>
         <div className="grid grid-cols-3 gap-1 text-xs">
-          <span className="text-text-2">Troops <b className="text-text-1">{Math.trunc(force.troops)}</b></span>
-          <span className="text-text-2">FOB <b className="text-text-1">{fobLabel(force.fobStage)}</b></span>
-          <span className="text-text-2">Power <b className="text-text-1">{power}</b></span>
+          <span className="text-text-2">{t("battles.troopsLabel", "Troops")} <b className="text-text-1">{Math.trunc(force.troops)}</b></span>
+          <span className="text-text-2">{t("battles.fobLabel", "FOB")} <b className="text-text-1">{fobLabel(t, force.fobStage)}</b></span>
+          <span className="text-text-2">{t("battles.powerLabel", "Power")} <b className="text-text-1">{power}</b></span>
         </div>
       </div>
     </div>
@@ -342,6 +352,7 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
   tutorialEnabled?: boolean;
   muted?: boolean;
 }) {
+  const t = useT();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const active = (state.battles ?? []).filter((b) => b.status === "active").sort((a, b) => a.startedAt - b.startedAt);
   const selected = active.find((b) => b.id === selectedId) ?? active[0] ?? null;
@@ -350,10 +361,12 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
     return (
       <div className="rounded-xl border border-line bg-surf-2/60 p-6 text-center">
         <Icon name="sword" size={28} className="mx-auto text-ember-soft" />
-        <p className="mt-2 text-sm text-text-2">Nothing is fighting on your fronts.</p>
+        <p className="mt-2 text-sm text-text-2">{t("battles.nothingFighting", "Nothing is fighting on your fronts.")}</p>
         <p className="mt-1 text-xs text-text-3">
-          When a march meets a defending force the fight opens here; it runs whether or not you are watching, and it
-          leaves a report either way.
+          {t(
+            "battles.fightOpensNote",
+            "When a march meets a defending force the fight opens here; it runs whether or not you are watching, and it leaves a report either way.",
+          )}
         </p>
       </div>
     );
@@ -376,13 +389,18 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-medium text-text-1">{b.zoneName || b.zoneId}</span>
-                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${chip.cls}`}>{chip.label}</span>
+                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${chip.cls}`}>{t(CHIP_KEY[m.chip] ?? "battles.chipStalemate", chip.label)}</span>
               </div>
               <p className="mt-1 text-xs text-text-2">
-                {b.attacker.colonyName} <span className="text-text-3">vs</span> {b.defender.colonyName}
+                {b.attacker.colonyName} <span className="text-text-3">{t("battles.vs", "vs")}</span> {b.defender.colonyName}
               </p>
               <p className="mt-1 text-xs text-text-3">
-                {Math.trunc(b.attacker.troops)}/{Math.max(0, b.defender.troops)} troops · {fmtClock(m.elapsedMs)} elapsed · {fmtClock(m.remainingMs)} left
+                {t("battles.battleStats", "{a}/{d} troops · {elapsed} elapsed · {left} left", {
+                  a: Math.trunc(b.attacker.troops),
+                  d: Math.max(0, b.defender.troops),
+                  elapsed: fmtClock(m.elapsedMs),
+                  left: fmtClock(m.remainingMs),
+                })}
               </p>
             </button>
           );
@@ -521,6 +539,7 @@ export function DecisionPanel({
   const [tickNow, setTickNow] = useState<number>(() => now);
   const lastAnnounce = useRef<string | null>(null);
   const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const t = useT();
 
   // DISPLAY-ONLY ticker (§A.5): the clock under each window advances every
   // second without a single request — `now` still arrives on the page's poll.
@@ -533,7 +552,7 @@ export function DecisionPanel({
   const effToken = token ?? (() => { try { return localStorage.getItem("deepspace_session_token") ?? ""; } catch { return ""; } })();
   const me = {
     colonyId: colonyId ?? state.gameId ?? "",
-    colonyName: colonyName ?? state.playerName ?? "Unnamed Colony",
+    colonyName: colonyName ?? state.playerName ?? t("battles.unnamedColony", "Unnamed Colony"),
   };
   // Troop affordability is the REAL home-garrison weight (muster roster minus
   // commitments) — never a reserve ledger. All live battles are home-backed;
@@ -549,12 +568,11 @@ export function DecisionPanel({
     .sort((a, b) => a.opensAt - b.opensAt)
     .map((w) => {
       const d = (battle.decisions ?? []).find((dd) => dd.windowId === w.id);
-      return d ? { id: w.id, text: decidedSummary({ id: w.id, kind: w.kind, side: w.side, open: false, decided: true, action: d.action, issuedAt: d.issuedAt, opensAt: w.opensAt, closesAt: w.closesAt }) } : null;
+      return d ? { id: w.id, text: decidedSummaryT(t, { id: w.id, kind: w.kind, side: w.side, open: false, decided: true, action: d.action, issuedAt: d.issuedAt, opensAt: w.opensAt, closesAt: w.closesAt }) } : null;
     })
     .filter((x): x is { id: string; text: string } => !!x);
   const aidCalls = answerableAidCalls(battle, displayNow).filter((c) => c.callerSide !== side);
   const busy = busyKey !== null;
-  const meta = Object.fromEntries(DECISION_ACTIONS.map((a) => [a.action, a]));
 
   // One announcement per (window, threshold), for the soonest-closing window
   // only (§A.5) — silence in between, and no aria-live on the clock itself.
@@ -566,7 +584,7 @@ export function DecisionPanel({
     );
     if (!next) return;
     lastAnnounce.current = next.key;
-    setAnnounce(next.text);
+    setAnnounce(clockAnnounceTextT(t, next.threshold));
   }, [soonest?.window.id, soonest?.msLeft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A confirm never outlives the window it belongs to (§A.4).
@@ -588,18 +606,18 @@ export function DecisionPanel({
       if (res && (res as { ok?: boolean }).ok) {
         setNotice({
           text: action === "callAid"
-            ? "Beacon lit — a teammate can march to you now."
+            ? t("battles.noticeBeacon", "Beacon lit — a teammate can march to you now.")
             : action === "retreat"
-              ? "Retreat sounded — the army breaks off."
-              : "Order sent — it reaches the front at once.",
+              ? t("battles.noticeRetreat", "Retreat sounded — the army breaks off.")
+              : t("battles.noticeIssued", "Order sent — it reaches the front at once."),
         });
         setConfirm((c) => confirmReducer(c, { type: "posted" }));
         onDecision?.({ battleId: battle.id, side, windowId, action });
       } else {
-        setError(plainDecisionError((res as { error?: string })?.error ?? ""));
+        setError(plainDecisionErrorT(t, (res as { error?: string })?.error ?? ""));
       }
     } catch {
-      setError("The order didn't go through — check your connection and try again.");
+      setError(t("battles.orderFailed", "The order didn't go through — check your connection and try again."));
     } finally {
       setBusyKey(null);
     }
@@ -611,7 +629,7 @@ export function DecisionPanel({
     if (!accept) {
       // Hold back is local-only: no march, no lock, no server write — the
       // beacon stays open for another colony. Announced so the choice is visible.
-      setNotice({ text: "You stay put — another colony can still answer." });
+      setNotice({ text: t("battles.noticeStayPut", "You stay put — another colony can still answer.") });
       setError(null);
       return;
     }
@@ -621,13 +639,13 @@ export function DecisionPanel({
     try {
       const res = await battleRespondFn({ data: respondPayload({ token: effToken, battleId: battle.id, aidCallId, me, troops: Math.max(0, Math.trunc(Number(aidTroops)) || 0) }) });
       if (res && (res as { ok?: boolean }).ok) {
-        setNotice({ text: "Marching — your force joins the fight when travel time lands." });
+        setNotice({ text: t("battles.noticeMarching", "Marching — your force joins the fight when travel time lands.") });
         onDecision?.({ battleId: battle.id, side, windowId: `aid-${aidCallId}`, action: "respondAid" });
       } else {
-        setError(plainDecisionError((res as { error?: string })?.error ?? ""));
+        setError(plainDecisionErrorT(t, (res as { error?: string })?.error ?? ""));
       }
     } catch {
-      setError("The order didn't go through — check your connection and try again.");
+      setError(t("battles.orderFailed", "The order didn't go through — check your connection and try again."));
     } finally {
       setBusyKey(null);
     }
@@ -637,7 +655,7 @@ export function DecisionPanel({
    *  legal → explain itself in the panel's own notice line (§A.3). */
   function onOrderPress(windowId: string, action: IssueAction, legal: boolean, playerReason: string, typed: number) {
     if (!legal) {
-      setNotice({ text: orderNoticeText(action, playerReason), info: true });
+      setNotice({ text: orderNoticeTextT(t, action, playerReason), info: true });
       setError(null);
       return;
     }
@@ -652,19 +670,19 @@ export function DecisionPanel({
 
   return (
     <section
-      aria-label="Battle orders"
+      aria-label={t("battles.decisionTitle", "Battle orders")}
       data-testid="decision-panel"
       data-battle-id={battle.id}
       data-side={side}
       data-tutorial-target="decision-panel"
       className={`rounded-xl border border-ember/40 bg-ember/5 p-3 ${tutorialRing(focusTarget ?? null, "decision-panel")}`}
     >
-      <h4 className="text-sm font-semibold text-ember-soft">Battle orders</h4>
-      <p className="mt-0.5 text-[11px] text-text-2">{reserveLine(reserves)}</p>
+      <h4 className="text-sm font-semibold text-ember-soft">{t("battles.decisionTitle", "Battle orders")}</h4>
+      <p className="mt-0.5 text-[11px] text-text-2">{reserveLineT(t, reserves)}</p>
 
       {rows.length === 0 && (
         <p className="mt-2 text-xs text-text-2" data-testid="decision-quiet">
-          {quietStateText(battle, side, displayNow)}
+          {quietStateTextT(t, battle, side, displayNow)}
         </p>
       )}
 
@@ -686,12 +704,12 @@ export function DecisionPanel({
             }}
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-text-2">{windowTitle(w.kind, side)}</span>
+              <span className="text-xs font-medium text-text-2">{battleWindowTitleT(t, w.kind, side)}</span>
               <span
                 data-testid={`window-clock-${w.id}`}
                 className={`num text-sm font-semibold transition-none ${lastMoments ? "text-danger-soft" : "text-ember-soft"}`}
               >
-                {windowClockLabel(msLeft)}
+                {windowClockLabelT(t, msLeft)}
               </span>
             </div>
 
@@ -702,12 +720,12 @@ export function DecisionPanel({
                 // still owns every server-side rule.
                 const overReserve = action === "reinforce" && typed > reserves.reserveTroops;
                 const legal = eligible && !overReserve;
-                const playerReason = orderReason({ action, reason, battle, typedTroops: typed, reserves });
+                const playerReason = orderReasonT(t, { action, reason, battle, typedTroops: typed, reserves });
                 const k = `${w.id}:${action}`;
                 const isBusy = busyKey === k;
                 const reasonId = `order-line-${w.id}-${action}`;
                 const parts: OrderLinePart[] = legal
-                  ? orderEffectLine({ action, battle, side, typedTroops: typed })
+                  ? orderEffectLineT(t, { action, battle, side, typedTroops: typed })
                   : [{ text: playerReason }];
                 const expanded = confirmHere?.action === action || undefined;
                 const button = (
@@ -726,13 +744,13 @@ export function DecisionPanel({
                     aria-describedby={reasonId}
                     aria-expanded={expanded}
                     aria-controls={expanded ? `confirm-${w.id}` : undefined}
-                    title={legal ? meta[action].hint : playerReason}
+                    title={legal ? decisionActionHintT(t, action) : playerReason}
                     onClick={() => onOrderPress(w.id, action, legal, playerReason, typed)}
                     className={`${ORDER_BASE} ${legal ? ORDER_FAMILY[ORDER_FAMILY_BY_ACTION[action]] : ORDER_FAMILY.off} ${orderHeight(action)} ${tutorialRing(focusTarget ?? null, ORDER_TESTID[action] as UiTarget)}`}
                   >
                     <span className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight">
                       <Icon name={ORDER_ICON[action]} size={16} />
-                      {isBusy ? orderBusyLabel(action) : meta[action].label}
+                      {isBusy ? orderBusyLabelT(t, action) : decisionActionLabelT(t, action)}
                     </span>
                     <OrderLine id={reasonId} parts={parts} testId={`decision-reason-${action}`} />
                   </button>
@@ -740,14 +758,14 @@ export function DecisionPanel({
                 if (action !== "reinforce") return button;
                 return (
                   <div key={action} className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
-                    <label className="sr-only" htmlFor={`troops-${w.id}`}>Reserve troops to send</label>
+                    <label className="sr-only" htmlFor={`troops-${w.id}`}>{t("battles.reserveTroopsLabel", "Reserve troops to send")}</label>
                     <input
                       id={`troops-${w.id}`}
                       data-testid={`reinforce-troops-${w.id}`}
                       inputMode="numeric"
                       pattern="[0-9]*"
                       max={reserves.reserveTroops}
-                      placeholder="Troops"
+                      placeholder={t("battles.troopsPlaceholder", "Troops")}
                       value={troopsByWindow[w.id] ?? ""}
                       onChange={(e) => setTroopsByWindow((t) => ({ ...t, [w.id]: e.target.value.replace(/[^0-9]/g, "") }))}
                       readOnly={!eligible || busy}
@@ -765,16 +783,16 @@ export function DecisionPanel({
               <div
                 id={`confirm-${w.id}`}
                 role="group"
-                aria-label={confirmGroupLabel(confirmHere.action)}
+                aria-label={confirmGroupLabelT(t, confirmHere.action)}
                 data-testid={`confirm-${confirmHere.action}-${w.id}`}
                 className="mt-2 rounded-lg border border-line-strong bg-surf-3/80 p-2.5"
               >
-                <p className="text-[11px] text-text-2">{confirmSentence(confirmHere.action, battle, side)}</p>
+                <p className="text-[11px] text-text-2">{confirmSentenceT(t, confirmHere.action, battle, side)}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
                     data-testid={`confirm-go-${confirmHere.action}`}
-                    aria-label={confirmButtonAriaLabel(confirmHere.action, battle, side)}
+                    aria-label={confirmButtonAriaLabelT(t, confirmHere.action, battle, side)}
                     aria-disabled={busy || undefined}
                     aria-busy={busyKey === `issue:${w.id}:${confirmHere.action}` || undefined}
                     onClick={() => {
@@ -785,20 +803,20 @@ export function DecisionPanel({
                     className={`${ORDER_BASE} min-h-12 w-auto ${confirmHere.action === "callAid" ? ORDER_FAMILY.ally : ORDER_FAMILY.break}`}
                   >
                     <span className="text-[13px] font-semibold">
-                      {busyKey === `issue:${w.id}:${confirmHere.action}` ? orderBusyLabel(confirmHere.action) : confirmButtonLabel(confirmHere.action)}
+                      {busyKey === `issue:${w.id}:${confirmHere.action}` ? orderBusyLabelT(t, confirmHere.action) : confirmButtonLabelT(t, confirmHere.action)}
                     </span>
                   </button>
                   <button
                     type="button"
                     data-testid={`confirm-cancel-${confirmHere.action}`}
-                    aria-label={confirmCancelAriaLabel(confirmHere.action)}
+                    aria-label={confirmCancelAriaLabelT(t, confirmHere.action)}
                     onClick={() => {
                       setConfirm((c) => confirmReducer(c, { type: "cancel" }));
                       triggerRefs.current[`${w.id}:${confirmHere.action}`]?.focus();
                     }}
                     className={`${ORDER_BASE} min-h-11 w-auto ${ORDER_FAMILY.free}`}
                   >
-                    <span className="text-[13px] font-semibold">{CONFIRM_CANCEL_LABEL}</span>
+                    <span className="text-[13px] font-semibold">{t("cfg.battledec.confirm.cancel", "Not now")}</span>
                   </button>
                 </div>
               </div>
@@ -815,18 +833,18 @@ export function DecisionPanel({
           data-tutorial-target="aid-panel"
         >
           <p className="flex items-center gap-1.5 text-xs font-medium text-sky-100">
-            <Icon name="beacon" size={14} /> Aid beacons · your world is calling
+            <Icon name="beacon" size={14} /> {t("battles.aidBeacons", "Aid beacons · your world is calling")}
           </p>
           {aidCalls.map((c) => (
             <div key={c.id} data-testid="aid-call" data-aid-call-id={c.id} className="mt-1.5 flex flex-wrap items-end gap-1.5">
-              <span className="text-[11px] text-text-2">{aidRowLabel(c, displayNow)}</span>
-              <label className="sr-only" htmlFor={`aid-troops-${c.id}`}>Troops to march to the beacon</label>
+              <span className="text-[11px] text-text-2">{aidRowLabelT(t, c, displayNow)}</span>
+              <label className="sr-only" htmlFor={`aid-troops-${c.id}`}>{t("battles.aidTroopsLabel", "Troops to march to the beacon")}</label>
               <input
                 id={`aid-troops-${c.id}`}
                 data-testid={`aid-troops-${c.id}`}
                 inputMode="numeric"
                 pattern="[0-9]*"
-                placeholder="Troops"
+                placeholder={t("battles.troopsPlaceholder", "Troops")}
                 value={aidTroops}
                 onChange={(e) => setAidTroops(e.target.value.replace(/[^0-9]/g, ""))}
                 disabled={busy}
@@ -843,9 +861,9 @@ export function DecisionPanel({
                 className="flex flex-col items-start gap-0.5 rounded-lg border border-sky-400/60 bg-sky-400/10 px-3 py-2 text-start text-sky-100 transition-colors hover:bg-sky-400/20 disabled:opacity-50"
               >
                 <span className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight">
-                  <Icon name="march" size={16} /> {busyKey === `respond:${c.id}:accept` ? "Marching…" : "March to aid"}
+                  <Icon name="march" size={16} /> {busyKey === `respond:${c.id}:accept` ? t("battles.marching", "Marching…") : t("battles.marchToAid", "March to aid")}
                 </span>
-                <span className="text-[11px] leading-snug text-text-2">{aidMarchLine(Math.max(0, Math.trunc(Number(aidTroops)) || 0), c, displayNow)}</span>
+                <span className="text-[11px] leading-snug text-text-2">{aidMarchLineT(t, Math.max(0, Math.trunc(Number(aidTroops)) || 0), c, displayNow)}</span>
               </button>
               <button
                 type="button"
@@ -856,7 +874,7 @@ export function DecisionPanel({
                 onClick={() => postRespond(c.id, false)}
                 className="min-h-11 rounded-lg border border-line-strong bg-surf-3 px-3 py-2 text-[13px] font-semibold text-text-2 transition-colors hover:bg-surf-4 hover:text-text-1 disabled:opacity-50"
               >
-                Hold back
+                {t("battles.holdBack", "Hold back")}
               </button>
             </div>
           ))}
@@ -911,12 +929,12 @@ export function DecisionPanel({
 // Renders only when there is something to screen: a live battle, our side
 // known, a plan attached, and the plan isn't ours.
 // ============================================================================
-const SCREEN_VECTORS: { v: ManeuverVector; label: string }[] = [
-  { v: "MAIN", label: "Main" },
-  { v: "FLANK_LEFT", label: "Left flank" },
-  { v: "FLANK_RIGHT", label: "Right flank" },
-  { v: "REAR", label: "Rear" },
-  { v: "RESERVE", label: "Reserve" },
+const SCREEN_VECTORS: { v: ManeuverVector; key: string; en: string }[] = [
+  { v: "MAIN", key: "battles.screenMain", en: "Main" },
+  { v: "FLANK_LEFT", key: "battles.screenFlankLeft", en: "Left flank" },
+  { v: "FLANK_RIGHT", key: "battles.screenFlankRight", en: "Right flank" },
+  { v: "REAR", key: "battles.screenRear", en: "Rear" },
+  { v: "RESERVE", key: "battles.screenReserve", en: "Reserve" },
 ];
 
 function ScreenPanel({ state, battle, side, token }: {
@@ -927,6 +945,7 @@ function ScreenPanel({ state, battle, side, token }: {
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
   const intel = battle.replayIntel;
   if (battle.status !== "active" || !intel || intel.side === side) return null;
   const screens = intel.screens ?? {};
@@ -940,9 +959,9 @@ function ScreenPanel({ state, battle, side, token }: {
     setError(null);
     try {
       const res = await battleScreenFn({ data: { token, battleId: battle.id, side, vector } });
-      if (!res.ok) setError(res.error ?? "The order was refused.");
+      if (!res.ok) setError(res.error ?? t("battles.screenRefused", "The order was refused."));
     } catch {
-      setError("The order didn't go through — try again.");
+      setError(t("battles.screenFailed", "The order didn't go through — try again."));
     } finally {
       setBusy(null);
     }
@@ -951,24 +970,26 @@ function ScreenPanel({ state, battle, side, token }: {
   return (
     <div className="rounded-lg border border-line bg-surf-1 p-3">
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-text-2">Screen the approach</h4>
-        <span className="text-[11px] text-text-3">⚡ {energy} energy</span>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-text-2">{t("battles.screenTitle", "Screen the approach")}</h4>
+        <span className="text-[11px] text-text-3">⚡ {t("battles.energyLine", "{energy} energy", { energy })}</span>
       </div>
       <p className="mt-1 text-[11px] text-text-3">
-        The enemy is marching to a plan you can't see. Post pickets on an entry vector ({cost} energy each) —
-        a screened vector loses its surprise when it enters.
+        {t("battles.screenExplain", "The enemy is marching to a plan you can't see. Post pickets on an entry vector ({cost} energy each) — a screened vector loses its surprise when it enters.", { cost })}
       </p>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {SCREEN_VECTORS.map(({ v, label }) => {
+        {SCREEN_VECTORS.map(({ v, key, en }) => {
           const posted = !!screens[v];
           const disabled = posted || !canAfford || busy !== null;
+          const label = t(key, en);
           return (
             <button
               key={v}
               onClick={() => post(v)}
               disabled={disabled}
               aria-pressed={posted}
-              title={posted ? `Pickets posted on the ${label.toLowerCase()}` : `Post pickets on the ${label.toLowerCase()} (${cost} energy)`}
+              title={posted
+                ? t("battles.picketsPostedTitle", "Pickets posted on the {label}", { label: label.toLowerCase() })
+                : t("battles.postPicketsTitle", "Post pickets on the {label} ({cost} energy)", { label: label.toLowerCase(), cost })}
               className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
                 posted
                   ? "border-ember/50 bg-ember/10 text-ember-soft"
@@ -982,7 +1003,7 @@ function ScreenPanel({ state, battle, side, token }: {
           );
         })}
       </div>
-      {!canAfford && <p className="mt-1.5 text-[11px] text-text-3">Not enough war energy to post pickets.</p>}
+      {!canAfford && <p className="mt-1.5 text-[11px] text-text-3">{t("battles.noEnergy", "Not enough war energy to post pickets.")}</p>}
       {error && <p className="mt-1.5 text-[11px] text-hazard-soft">{error}</p>}
     </div>
   );
@@ -998,6 +1019,7 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
   /** The sound layer's mute (the Cradle sheet's Sound row). */
   muted?: boolean;
 }) {
+  const t = useT();
   const m = battleMoment(battle, now);
   const chip = CHIP_META[m.chip];
   const end = battleEndAt(battle);
@@ -1028,21 +1050,21 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-base font-semibold text-text-1">{battle.zoneName || battle.zoneId}</h3>
-          <p className="text-xs text-text-3">Power {battle.forcePower.attacker} vs {battle.forcePower.defender} · gap {Math.round(m.gap * 100)}%</p>
+          <p className="text-xs text-text-3">{t("battles.powerLine", "Power {a} vs {d} · gap {g}%", { a: battle.forcePower.attacker, d: battle.forcePower.defender, g: Math.round(m.gap * 100) })}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setWatch(!watch)}
             className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase ${watch ? "border-ember text-ember-soft" : "border-surf-3 text-text-3 hover:text-text-1"}`}
-            title="Open the 2.5D plan-driven battle viewer"
+            title={t("battles.fieldViewTitle", "Open the 2.5D plan-driven battle viewer")}
           >
-            {watch ? "▼ Field view" : "▶ Watch the field"}
+            {watch ? t("battles.fieldViewHide", "▼ Field view") : t("battles.fieldViewShow", "▶ Watch the field")}
           </button>
           <span
             data-tutorial-target="live-state-chip"
             className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase ${chip.cls} ${tutorialRing(tutorial.target, "live-state-chip")}`}
           >
-            {chip.label}
+            {t(CHIP_KEY[m.chip] ?? "battles.chipStalemate", chip.label)}
           </span>
         </div>
       </div>
@@ -1066,10 +1088,10 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
       )}
 
       <div className="grid grid-cols-2 gap-2 text-xs text-text-2">
-        <span>Elapsed <b className="text-text-1">{fmtClock(m.elapsedMs)}</b></span>
-        <span>Ends in <b className="text-text-1">{fmtClock(m.remainingMs)}</b></span>
-        <span>Casualties are counted every minute</span>
-        <span className="text-end">Ends by {new Date(end).toLocaleTimeString()}</span>
+        <span>{t("battles.elapsedLabel", "Elapsed")} <b className="text-text-1">{fmtClock(m.elapsedMs)}</b></span>
+        <span>{t("battles.endsInLabel", "Ends in")} <b className="text-text-1">{fmtClock(m.remainingMs)}</b></span>
+        <span>{t("battles.casualtyNote", "Casualties are counted every minute")}</span>
+        <span className="text-end">{t("battles.endsBy", "Ends by {time}", { time: new Date(end).toLocaleTimeString() })}</span>
       </div>
 
       {side && <ScreenPanel state={state} battle={battle} side={side} token={token} />}
@@ -1078,10 +1100,10 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
       <div data-tutorial-target="battle-line" className={tutorialRing(tutorial.target, "battle-line")}>
         <div className="flex items-center justify-between text-xs">
           <span className="flex items-center gap-1.5 text-ember-soft"><Icon name="sword" size={14} /> {battle.attacker.colonyName}</span>
-          <span className="text-text-3">{lineLabel(battle.attacker.colonyName, linePct)}</span>
+          <span className="text-text-3">{lineLabelT(t, battle.attacker.colonyName, linePct)}</span>
           <span className="flex items-center gap-1.5 text-hazard-soft"><Icon name="shield" size={14} /> {battle.defender.colonyName}</span>
         </div>
-        <div className="mt-1 flex h-2 w-full overflow-hidden rounded-full bg-surf-4" role="img" aria-label={lineAriaLabel(battle.attacker.colonyName, linePct)}>
+        <div className="mt-1 flex h-2 w-full overflow-hidden rounded-full bg-surf-4" role="img" aria-label={lineAriaLabelT(t, battle.attacker.colonyName, linePct)}>
           <div className="bg-ember/80 transition-all duration-1000" style={{ width: `${linePct}%` }} />
         </div>
       </div>
@@ -1089,11 +1111,11 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <ForceBlock state={state} force={battle.attacker} power={battle.forcePower.attacker} tag="attacker" focusTarget={tutorial.target} />
-          <p className="mt-1 text-end text-xs text-text-2">{aCas} casualties</p>
+          <p className="mt-1 text-end text-xs text-text-2">{t("battles.casualtiesCount", "{n} casualties", { n: aCas })}</p>
         </div>
         <div>
           <ForceBlock state={state} force={battle.defender} power={battle.forcePower.defender} tag="defender" focusTarget={tutorial.target} />
-          <p className="mt-1 text-end text-xs text-text-2">{dCas} casualties</p>
+          <p className="mt-1 text-end text-xs text-text-2">{t("battles.casualtiesCount", "{n} casualties", { n: dCas })}</p>
         </div>
       </div>
 
@@ -1119,10 +1141,14 @@ function BattleDetail({ state, battle, now, token, onDecision, tutorialEnabled =
 /** The append-only report ledger, newest first (the §7 History Book's raw
  *  material — composition, duration, casualties, result). */
 function BattleLog({ reports }: { reports: BattleReport[] }) {
+  const t = useT();
   if (reports.length === 0) {
     return (
       <p className="text-xs text-text-3">
-        No battles decided yet. Every resolved battle appends a report here — the History Book starts with these.
+        {t(
+          "battles.logEmpty",
+          "No battles decided yet. Every resolved battle appends a report here — the History Book starts with these.",
+        )}
       </p>
     );
   }
@@ -1138,18 +1164,28 @@ function BattleLog({ reports }: { reports: BattleReport[] }) {
                 : r.outcome === "defender_victory" ? "text-hazard-soft"
                   : "text-text-2"
             }`}>
-              {r.outcome === "attacker_victory" ? `${r.attacker.colonyName} wins`
-                : r.outcome === "defender_victory" ? `${r.defender.colonyName} holds`
-                  : "Standoff — both sides break off"}
+              {r.outcome === "attacker_victory" ? t("battles.reportAttackerWins", "{name} wins", { name: r.attacker.colonyName })
+                : r.outcome === "defender_victory" ? t("battles.reportDefenderHolds", "{name} holds", { name: r.defender.colonyName })
+                  : t("battles.reportStandoff", "Standoff — both sides break off")}
             </span>
           </div>
           <p className="mt-1 text-xs text-text-3">
-            Fought {fmtClock(r.durationMs)} · power {r.attacker.power} vs {r.defender.power} · casualties{" "}
-            {r.attacker.casualties}/{r.defender.casualties}
+            {t("battles.reportLine", "Fought {duration} · power {aPow} vs {dPow} · casualties {aCas}/{dCas}", {
+              duration: fmtClock(r.durationMs),
+              aPow: r.attacker.power,
+              dPow: r.defender.power,
+              aCas: r.attacker.casualties,
+              dCas: r.defender.casualties,
+            })}
           </p>
           <p className="mt-1 text-[11px] text-text-3">
-            {r.attacker.heroNames.join(", ") || "no squad"} vs {r.defender.heroNames.join(", ") || "no squad"} ·{" "}
-            {r.attacker.troops} vs {r.defender.troops} troops · {new Date(r.resolvedAt).toLocaleString()}
+            {t("battles.reportTroops", "{aHeroes} vs {dHeroes} · {aTroops} vs {dTroops} troops · {when}", {
+              aHeroes: r.attacker.heroNames.join(", ") || t("battles.noSquad", "no squad"),
+              dHeroes: r.defender.heroNames.join(", ") || t("battles.noSquad", "no squad"),
+              aTroops: r.attacker.troops,
+              dTroops: r.defender.troops,
+              when: new Date(r.resolvedAt).toLocaleString(),
+            })}
           </p>
         </li>
       ))}
@@ -1170,24 +1206,27 @@ export default function BattlesTab({ state, now, token, onDecision, tutorial, mu
   /** Post a server action and refresh (the play route's `act`). */
   onAction?: (fn: () => Promise<unknown>, label: string) => void;
 }) {
+  const t = useT();
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-text-1"><Icon name="sword" size={20} /> Battles</h2>
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-text-1"><Icon name="sword" size={20} /> {t("battles.title", "Battles")}</h2>
           <p className="text-xs text-text-2">
-            The fights running on your fronts. Watch how the enemy fields their force — every report teaches you
-            something worth bringing next time.
+            {t(
+              "battles.intro",
+              "The fights running on your fronts. Watch how the enemy fields their force — every report teaches you something worth bringing next time.",
+            )}
           </p>
         </div>
         <Link to="/replay" className="rounded-md border border-surf-3 px-2.5 py-1 text-xs text-text-3 hover:text-text-1">
-          🎬 Replay prototype
+          {t("battles.replayProto", "🎬 Replay prototype")}
         </Link>
       </div>
       {onAction && <AlliancePanel state={state} now={now} token={token} onAction={onAction as (fn: () => Promise<GameResult>, label: string) => void} />}
       <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorial ?? true} muted={muted} />
       <div className="rounded-xl border border-line bg-surf-2/40 p-4">
-        <h3 className="mb-2 text-sm font-semibold text-text-1">Battle log</h3>
+        <h3 className="mb-2 text-sm font-semibold text-text-1">{t("battles.battleLogTitle", "Battle log")}</h3>
         <BattleLog reports={state.battleReports ?? []} />
       </div>
     </div>
