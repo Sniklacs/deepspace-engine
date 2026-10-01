@@ -654,6 +654,7 @@ function PlayPage() {
           accountId={username}
           token={token}
           purchaseReturn={purchaseReturnView}
+          onError={flash}
         />
       )}
       {feedbackOpen && <FeedbackModal token={token!} colonyName={state.playerName} onClose={() => setFeedbackOpen(false)} flash={flash} />}

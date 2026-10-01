@@ -386,6 +386,7 @@ export function StorefrontOverlay({
   accountId = null,
   token = null,
   purchaseReturn = null,
+  onError,
 }: {
   state: GameState;
   open: boolean;
@@ -398,6 +399,12 @@ export function StorefrontOverlay({
    *  account this token resolves to, so checkout needs it, not just the id. */
   token?: string | null;
   purchaseReturn?: PurchaseReturnView | null;
+  /**
+   * Called with a human-readable message when checkout cannot start or fails.
+   * The buy flow used to fail silently (console.warn only) — the player tapped
+   * Buy and nothing happened. Every refusal now surfaces here.
+   */
+  onError?: (msg: string) => void;
 }) {
   const t = useT();
   const lang = useLang();
@@ -419,12 +426,16 @@ export function StorefrontOverlay({
    * starting a checkout that would take money for nobody.
    */
   const buy = async (skuId: string) => {
+    const fail = (msg: string) => {
+      console.warn(`[storefront] checkout failed for ${skuId}: ${msg}`);
+      onError?.(msg);
+    };
     if (!isSellable(skuId)) {
-      console.warn(`[storefront] refused checkout for ${skuId}: not sellable`);
+      fail(t("store.buyNotSellable", "That item isn't for sale right now."));
       return;
     }
     if (!token) {
-      console.warn(`[storefront] refused checkout for ${skuId}: not signed in`);
+      fail(t("store.buySignIn", "Sign in to purchase."));
       return;
     }
     // A private note to self about what the wallet looked like at the click, so
@@ -445,11 +456,13 @@ export function StorefrontOverlay({
       });
       if (res.ok && res.url) {
         window.location.assign(res.url);
+      } else if (res.signedOut) {
+        fail(t("store.buySignedOut", "Your session expired — sign in again to purchase."));
       } else {
-        console.warn(`[storefront] checkout failed for ${skuId}: ${res.error ?? "unknown error"}`);
+        fail(res.error ?? t("store.buyFailed", "Checkout failed — try again in a moment."));
       }
     } catch (err) {
-      console.warn(`[storefront] checkout threw for ${skuId}: ${(err as Error)?.message ?? err}`);
+      fail(`${t("store.buyFailed", "Checkout failed — try again in a moment.")} (${(err as Error)?.message ?? err})`);
     }
   };
 

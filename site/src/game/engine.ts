@@ -1117,7 +1117,9 @@ export function contributionScore(state: GameState): number {
 // from the SAME contributionScore() over already-public fields only — no new
 // persisted state, and acknowledgedOnce / every revelation counter stay
 // unreachable from this surface by construction (they are never read here).
-// Rank order is deterministic: score desc, then "earliest achievement" — the
+// The member sheet reads the same public surface: cradle level (the five
+// deployed-domain levels every visitor can see on the Cradle plate) and the
+// score's four components. Rank order is deterministic: score desc, then "earliest achievement" — the
 // colony founded EARLIEST wins the tie (a stable stand-in for first-to-the-dent
 // without adding per-achievement timestamps; documented interpretation), then
 // gameId asc as the final unambiguous break. A colony must have a race to rank
@@ -1128,6 +1130,21 @@ export interface ContributionEntry {
   race: RaceId | null;
   score: number;
   createdAt: number;
+  /**
+   * The colony's Cradle level: the sum of its five deployed-domain levels
+   * (weaponry + agriculture + economy + industry + logistics) — the visible
+   * advancement of the capital, public colony state, safe for the leaderboard.
+   */
+  cradleLevel: number;
+  /**
+   * The score's four components (the same public reads contributionScore()
+   * makes) so the member sheet can show HOW the dent was made — never the
+   * input echoed, never a guess.
+   */
+  expeditions: number;
+  deeds: number;
+  codices: number;
+  techs: number;
 }
 
 export function contributionRanking(states: GameState[]): ContributionEntry[] {
@@ -1135,13 +1152,29 @@ export function contributionRanking(states: GameState[]): ContributionEntry[] {
     .filter(
       (st) => !!st && typeof st === "object" && !!st.race && !!st.gameId
     )
-    .map((st) => ({
-      gameId: st.gameId!,
-      colonyName: st.playerName || "Unnamed Colony",
-      race: st.race,
-      score: contributionScore(st),
-      createdAt: typeof st.createdAt === "number" ? st.createdAt : 0,
-    }))
+    .map((st) => {
+      const d = st.deployedDomains;
+      const cradleLevel =
+        d && typeof d === "object"
+          ? (typeof d.weaponry === "number" ? d.weaponry : 0) +
+            (typeof d.agriculture === "number" ? d.agriculture : 0) +
+            (typeof d.economy === "number" ? d.economy : 0) +
+            (typeof d.industry === "number" ? d.industry : 0) +
+            (typeof d.logistics === "number" ? d.logistics : 0)
+          : 0;
+      return {
+        gameId: st.gameId!,
+        colonyName: st.playerName || "Unnamed Colony",
+        race: st.race,
+        score: contributionScore(st),
+        createdAt: typeof st.createdAt === "number" ? st.createdAt : 0,
+        cradleLevel,
+        expeditions: typeof st.completedExpeditions === "number" ? st.completedExpeditions : 0,
+        deeds: Array.isArray(st.deedsCompleted) ? st.deedsCompleted.length : 0,
+        codices: typeof st.totalCodicesEarned === "number" ? st.totalCodicesEarned : 0,
+        techs: Array.isArray(st.techsResearched) ? st.techsResearched.length : 0,
+      };
+    })
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;

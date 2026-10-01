@@ -382,7 +382,11 @@ export const fa: Catalogue = {
   // ---- the Cradle Market (real money: Xsolla Pay Station + signed webhook) ----
   // 13 keys, added by the payments slice: the buy control, the honest reasons it can
   // be locked, and the post-purchase panel. Copy carries NO limitation language.
-  "store.buy": "خرید",
+    "store.buyNotSellable": "این کالا در حال حاضر فروشی نیست.",
+  "store.buySignIn": "برای خرید وارد شوید.",
+  "store.buySignedOut": "نشست شما منقضی شد — برای خرید دوباره وارد شوید.",
+  "store.buyFailed": "پرداخت ناموفق بود — لحظه‌ای دیگر تلاش کنید.",
+"store.buy": "خرید",
   "store.signInToBuy": "برای خرید وارد شوید",
   "store.notForSale": "هنوز برای فروش نیست",
   "store.votivesHeading": "نذور",
@@ -1562,6 +1566,18 @@ export const fa: Catalogue = {
   "circuit.rankShort": "#{rank}",
   "circuit.youBadge": "تو",
   "circuit.scoreLine": "{score} امتیاز",
+  "circuit.tapHint": "Ø¨Ø±Ø§Û Ø¯ÛØ¯Ù Ù¾Ø±ÙÙØ¯ÙØ Ø±ÙÛ ÛÚ© Ú©ÙÙÙÛ Ø¨Ø²ÙÛØ¯.",
+  "circuit.memberOpenLabel": "Ø¯ÛØ¯Ù Ù¾Ø±ÙÙØ¯Ù Ú©ÙÙÙÛ {name}",
+  "circuit.memberTitle": "Ù¾Ø±ÙÙØ¯Ù Ú©ÙÙÙÛ",
+  "circuit.memberRankLine": "#{rank} Ø§Ø² {total}",
+  "circuit.memberCradleLevel": "Ø³Ø·Ø­ Ú¯ÙÙØ§Ø±Ù",
+  "circuit.memberFounded": "ØªØ£Ø³ÛØ³",
+  "circuit.memberBreakdown": "Ø§ÙØªÛØ§Ø² ÚÚ¯ÙÙÙ Ø¨Ù Ø¯Ø³Øª Ø¢ÙØ¯",
+  "circuit.memberExpeditions": "Ø§Ú©ØªØ´Ø§ÙâÙØ§Û Ú©Ø§ÙÙâØ´Ø¯Ù",
+  "circuit.memberDeeds": "Ú©Ø§Ø±ÙØ§Û Ø¨Ø²Ø±Ú¯",
+  "circuit.memberCodices": "Ú©Ø¯Ú©Ø³âÙØ§Û Ø¨Ø§Ø²ÛØ§Ø¨ÛâØ´Ø¯Ù",
+  "circuit.memberTechs": "Ù¾ÚÙÙØ´âÙØ§Û Ú©Ø§ÙÙâØ´Ø¯Ù",
+  "circuit.memberFormula": "Ø§ÙØªÛØ§Ø² = Ø§Ú©ØªØ´Ø§ÙâÙØ§ × Û² + Ú©Ø§Ø±ÙØ§Û Ø¨Ø²Ø±Ú¯ × Û±Û° + Ú©Ø¯Ú©Ø³âÙØ§ + Ù¾ÚÙÙØ´âÙØ§ × Ûµ — Ø¨ÙâØµÙØ±Øª Ø¹ÛÙÛ Ø³ÙØ¬ÛØ¯Ù ÙÛâØ´ÙØ¯Ø ÙÙ Ø¨Ø§ ÙØ²ÛÙÙ ÛØ§ Ø±Ø£Û.",
   "circuit.titleFallback": "مدار",
   "circuit.chipChorusHeart": "🔥 قلبِ در دست همسرایان",
   "circuit.chipCradle": "گهواره · مرز خانه",
@@ -2094,6 +2110,7 @@ export const fa: Catalogue = {
   "loadout.guard": "دفاع",
   "loadout.hero": "قهرمان",
   "loadout.leader": "رهبر",
+  "loadout.viewPortrait": "دیدن چهره {name}",
   "loadout.lockedModules": "اسلات‌های ماژول وقتی مدل ماژول آماده شود باز می‌شوند — اینجا جعلیات جایی ندارند.",
   "loadout.lockedRelic": "اسلات یادگار منتظر مصنوعات واقعی است — به‌دست‌آمده از اکتشاف و حملات کرس، هرگز ساخته‌شده نیست.",
   "loadout.mods": "تغییردهنده‌های نبرد",

@@ -19,6 +19,7 @@ import { EARNED_TIME_TOKEN_SIZES } from "../game/time-tokens";
 import type { EarnedTimeTokenSizeId } from "../game/time-tokens";
 import { useT } from "./i18n/I18n";
 import { Panel } from "./ui/Panel";
+import CradleBanner from "./CradleBanner";
 
 export type SpeedupKind = "research" | "armory_build" | "domain_deploy";
 
@@ -76,16 +77,22 @@ export default function CradleOverview({
 
   return (
     <Panel testid="cradle-overview" className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-text-1">{t("overview.title")}</h3>
-        <span className="text-[11px] text-text-3">
-          {t("overview.scientists")}:{" "}
-          <Bdi dir="ltr">
-            {idleScientists}/{state.scientists}
-          </Bdi>{" "}
-          {t("overview.idle")}
-        </span>
-      </div>
+      {/* the cradle painting behind the overview header (owner 2026-10-01):
+          race-keyed, falling back to the default dome when the race has no
+          art file yet. The scrim keeps the header readable on the art. */}
+      <CradleBanner
+        raceId={state.race}
+        title={t("overview.title")}
+        sub={
+          <>
+            {t("overview.scientists")}:{" "}
+            <Bdi dir="ltr">
+              {idleScientists}/{state.scientists}
+            </Bdi>{" "}
+            {t("overview.idle")}
+          </>
+        }
+      />
 
       {!anyTimer && (
         <p className="text-xs text-text-3">{t("overview.noTimers")}</p>

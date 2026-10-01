@@ -272,6 +272,15 @@ export interface ContributionRow {
   colonyName: string;
   race: RaceId | null;
   score: number;
+  /** Cradle level = the five deployed-domain levels summed (public colony state). */
+  cradleLevel: number;
+  /** The score's four components — how the dent was made. */
+  expeditions: number;
+  deeds: number;
+  codices: number;
+  techs: number;
+  /** Colony founding timestamp (already used as the ranking tiebreak). */
+  foundedAt: number;
 }
 /** The calling colony's standing + the world's top-N. */
 export interface ContributionView {
@@ -297,7 +306,18 @@ export function contributionPublicView(own: GameState | null, all: GameState[]):
   const entries = engine.contributionRanking(states);
   const leaders = entries
     .slice(0, CONTRIBUTION_LEADERBOARD_TOP_N)
-    .map((e, i) => ({ rank: i + 1, colonyName: e.colonyName, race: e.race, score: e.score }));
+    .map((e, i) => ({
+      rank: i + 1,
+      colonyName: e.colonyName,
+      race: e.race,
+      score: e.score,
+      cradleLevel: e.cradleLevel,
+      expeditions: e.expeditions,
+      deeds: e.deeds,
+      codices: e.codices,
+      techs: e.techs,
+      foundedAt: e.createdAt,
+    }));
   const me =
     own && own.race && own.gameId
       ? (() => {

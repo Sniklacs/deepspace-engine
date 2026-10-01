@@ -22,7 +22,7 @@
 // ============================================================================
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { useT } from "./i18n/I18n";
+import { useT, useLang } from "./i18n/I18n";
 import type { GameState, RaceId } from "../game/types";
 import { generateAtlas, nodeById, ATLAS_CONFIG } from "../game/map";
 import type { AtlasNode, AtlasGraph } from "../game/map";
@@ -30,7 +30,7 @@ import { WORLD_CONFIG_PUBLIC } from "../game/world-config";
 import { getRace, raceText } from "../game/races";
 import { getZone, zoneFlavor, zoneName } from "../game/zones";
 import { getContributionFn } from "../game/api";
-import type { ContributionView } from "../game/api";
+import type { ContributionView, ContributionRow } from "../game/api";
 import { sound } from "../game/sound";
 import { SegmentedControl } from "./SegmentedControl";
 import { LedgerButton } from "./LedgerButton";
@@ -677,6 +677,9 @@ function ContributionTab({ state, token }: { state: GameState; token: string }) 
   const t = useT();
   const [view, setView] = useState<ContributionView | null>(null);
   const [failed, setFailed] = useState(false);
+  // The colony whose record the member sheet shows (a snapshot taken at tap
+  // time, so the 4s re-fetch never swaps the sheet's contents under the user).
+  const [selected, setSelected] = useState<ContributionRow | null>(null);
   // Re-fetch whenever the parent's 4s state refresh lands, so score and rank stay
   // live without a second timer. The server computes everything from the SAME
   // contributionScore() the Unbound gate uses — this panel only renders it.
@@ -729,6 +732,7 @@ function ContributionTab({ state, token }: { state: GameState; token: string }) 
       {/* Top-10 leaderboard */}
       <div className="mt-6 rounded-xl border border-white/10 bg-black/30 p-5">
         <h3 className="font-semibold text-white">{t("circuit.worldsNotice", "The World's Notice")} <span className="text-xs font-normal text-text-3">{t("circuit.top10", "— top 10 colonies")}</span></h3>
+        <p className="mt-1 text-[11px] text-text-3">{t("circuit.tapHint", "Tap a colony to see its record.")}</p>
         {failed && rows.length === 0 ? (
           <p className="mt-3 text-sm text-text-3">{t("circuit.ledgerQuiet", "The ledger is quiet right now.")}</p>
         ) : rows.length === 0 ? (
@@ -738,21 +742,97 @@ function ContributionTab({ state, token }: { state: GameState; token: string }) 
             {rows.map((row) => {
               const isMe = me !== null && row.rank === me.rank;
               return (
-                <li key={row.rank} className={`flex items-center gap-3 py-2 ${isMe ? "text-amber-200" : ""}`}>
-                  <span className={`w-9 shrink-0 text-center font-bold ${row.rank === 1 ? "text-amber-300" : row.rank <= 3 ? "text-white" : "text-text-3"}`}>{row.rank === 1 ? "🥇" : row.rank === 2 ? "🥈" : row.rank === 3 ? "🥉" : t("circuit.rankShort", "#{rank}", { rank: row.rank })}</span>
-                  <span className="shrink-0">{raceEmoji(row.race)}</span>
-                  <span className="min-w-0 flex-1 truncate font-semibold">
-                    {row.colonyName}
-                    {isMe ? <span className="ms-2 rounded bg-amber-400/20 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-amber-200">{t("circuit.youBadge", "You")}</span> : null}
-                  </span>
-                  <span className="shrink-0 text-sm text-gray-400">{t("circuit.scoreLine", "{score} score", { score: row.score.toLocaleString() })}</span>
+                <li key={row.rank} className={isMe ? "text-amber-200" : ""}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(row)}
+                    aria-label={t("circuit.memberOpenLabel", "See {name}'s colony record", { name: row.colonyName })}
+                    className="flex min-h-[44px] w-full items-center gap-3 py-2 text-start transition-colors hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-amber-300"
+                  >
+                    <span className={`w-9 shrink-0 text-center font-bold ${row.rank === 1 ? "text-amber-300" : row.rank <= 3 ? "text-white" : "text-text-3"}`}>{row.rank === 1 ? "🥇" : row.rank === 2 ? "🥈" : row.rank === 3 ? "🥉" : t("circuit.rankShort", "#{rank}", { rank: row.rank })}</span>
+                    <span className="shrink-0" aria-hidden="true">{raceEmoji(row.race)}</span>
+                    <span className="min-w-0 flex-1 truncate font-semibold">
+                      {row.colonyName}
+                      {isMe ? <span className="ms-2 rounded bg-amber-400/20 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-amber-200">{t("circuit.youBadge", "You")}</span> : null}
+                    </span>
+                    <span className="shrink-0 text-sm text-gray-400">{t("circuit.scoreLine", "{score} score", { score: row.score.toLocaleString() })}</span>
+                  </button>
                 </li>
               );
             })}
           </ol>
         )}
       </div>
+      <ColonySheet row={selected} total={view?.total ?? 0} onClose={() => setSelected(null)} />
     </main>
+  );
+}
+
+/* ---------------- colony member sheet (the public record — never private state) ---------------- */
+const LOCALE_FOR_LANG: Record<string, string> = {
+  en: "en-US",
+  es: "es-ES",
+  "pt-BR": "pt-BR",
+  ru: "ru-RU",
+  fa: "fa-IR",
+};
+
+function ColonySheet({ row, total, onClose }: { row: ContributionRow | null; total: number; onClose: () => void }) {
+  const t = useT();
+  const lang = useLang();
+  const race = row?.race ? getRace(row.race) : null;
+  const raceName = race ? raceText(t, race, "name", race.name) : "";
+  const founded = row && row.foundedAt > 0
+    ? new Date(row.foundedAt).toLocaleDateString(LOCALE_FOR_LANG[lang] ?? "en-US", { year: "numeric", month: "short", day: "numeric" })
+    : "";
+  return (
+    <Sheet open={!!row} onClose={onClose} labelledBy="circuit-colony-sheet-title" title={row?.colonyName ?? t("circuit.memberTitle", "Colony record")}>
+      <SheetHeader id="circuit-colony-sheet-title" title={row?.colonyName ?? ""} onClose={onClose} />
+      <div className="sheet-body px-4 py-3 md:px-5">
+        {row && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl" aria-hidden="true">{raceEmoji(row.race)}</span>
+              <div className="min-w-0">
+                <div className="truncate text-lg font-bold text-white">{row.colonyName}</div>
+                {raceName ? <div className="text-xs text-text-3">{raceName}</div> : null}
+              </div>
+              <span className="ms-auto shrink-0 rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-sm font-bold text-amber-200">
+                {t("circuit.memberRankLine", "#{rank} of {total}", { rank: row.rank, total })}
+              </span>
+            </div>
+
+            <dl className="grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                <dt className="text-[11px] uppercase tracking-wider text-text-3">{t("circuit.contributionScore", "Contribution score")}</dt>
+                <dd className="mt-1 text-xl font-bold text-white"><bdi dir="ltr" className="num">{row.score.toLocaleString()}</bdi></dd>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                <dt className="text-[11px] uppercase tracking-wider text-text-3">{t("circuit.memberCradleLevel", "Cradle level")}</dt>
+                <dd className="mt-1 text-xl font-bold text-white"><bdi dir="ltr" className="num">{row.cradleLevel.toLocaleString()}</bdi></dd>
+              </div>
+              {founded ? (
+                <div className="col-span-2 rounded-xl border border-white/10 bg-black/30 p-3">
+                  <dt className="text-[11px] uppercase tracking-wider text-text-3">{t("circuit.memberFounded", "Founded")}</dt>
+                  <dd className="mt-1 font-semibold text-white">{founded}</dd>
+                </div>
+              ) : null}
+            </dl>
+
+            <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-text-3">{t("circuit.memberBreakdown", "How the score was earned")}</h4>
+              <ul className="mt-2 space-y-1.5 text-sm">
+                <li className="flex items-center justify-between"><span className="text-gray-300">{t("circuit.memberExpeditions", "Explorations completed")}</span><bdi dir="ltr" className="num font-semibold text-white">{row.expeditions.toLocaleString()}</bdi></li>
+                <li className="flex items-center justify-between"><span className="text-gray-300">{t("circuit.memberDeeds", "Deeds completed")}</span><bdi dir="ltr" className="num font-semibold text-white">{row.deeds.toLocaleString()}</bdi></li>
+                <li className="flex items-center justify-between"><span className="text-gray-300">{t("circuit.memberCodices", "Codices recovered")}</span><bdi dir="ltr" className="num font-semibold text-white">{row.codices.toLocaleString()}</bdi></li>
+                <li className="flex items-center justify-between"><span className="text-gray-300">{t("circuit.memberTechs", "Research completed")}</span><bdi dir="ltr" className="num font-semibold text-white">{row.techs.toLocaleString()}</bdi></li>
+              </ul>
+              <p className="mt-2 text-[11px] leading-relaxed text-text-3">{t("circuit.memberFormula", "Score = explorations × 2 + deeds × 10 + codices + research × 5 — measured objectively, never by spend or votes.")}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </Sheet>
   );
 }
 

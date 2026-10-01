@@ -12,7 +12,9 @@ import { useMemo, useState } from "react";
 import type { GameState } from "../game/types";
 import type { ForgeItem, LoadoutSlot } from "../game/forge";
 import { forgeGrade } from "../game/forge";
+import { raceText } from "../game/races";
 import { useT } from "./i18n/I18n";
+import { Sheet, SheetHeader } from "./Sheet";
 
 /** Race portrait SVGs live in public/art/races (ashtar's file is "asart.svg"). */
 const RACE_PORTRAIT: Record<string, string> = {
@@ -38,6 +40,13 @@ const SLOT_SILHOUETTE: Record<LoadoutSlot, string> = {
   module2: "/art/loadout/slot-module.webp",
   relic: "/art/loadout/slot-relic.webp",
 };
+
+/** Fallback monogram when a bearer has no race portrait. */
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
 
 export interface LoadoutBearer {
   kind: "hero" | "leader";
@@ -86,11 +95,18 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
 
   const [bearerId, setBearerId] = useState<string | null>(null);
   const [slotId, setSlotId] = useState<LoadoutSlot>("weapon");
+  // Portrait viewer: tapping a roster portrait opens the large portrait sheet.
+  // Row tap still selects the bearer — the two affordances stay separate.
+  const [portraitId, setPortraitId] = useState<string | null>(null);
   const bearer: LoadoutBearer | null = useMemo(() => {
     const found = roster.find((r) => r.id === (bearerId ?? roster[0]?.id));
     return found ? { kind: found.kind, id: found.id } : null;
   }, [roster, bearerId]);
   const bearerName = roster.find((r) => r.id === bearer?.id)?.name ?? "";
+  const portraitBearer = useMemo(
+    () => roster.find((r) => r.id === portraitId) ?? null,
+    [roster, portraitId],
+  );
 
   const items = state.forgeItems ?? [];
   const worn = useMemo(() => {
@@ -150,23 +166,45 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
         <div className="mt-2 space-y-1">
           {roster.map((r) => {
             const portrait = r.race ? RACE_PORTRAIT[r.race] : undefined;
+            const selected = bearer?.id === r.id;
             return (
-              <button
+              <div
                 key={r.id}
-                onClick={() => setBearerId(r.id)}
-                aria-pressed={bearer?.id === r.id}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-start text-sm ${
-                  bearer?.id === r.id ? "bg-amber-400/20 text-amber-100" : "text-text-2 hover:bg-white/5"
+                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 ${
+                  selected ? "bg-amber-400/20" : ""
                 }`}
               >
-                {portrait && (
-                  <img src={portrait} alt="" aria-hidden className="h-9 w-9 shrink-0 rounded-full object-cover" />
-                )}
-                <span>
-                  <span className="me-2 text-xs text-text-3">{r.kind === "hero" ? t("loadout.hero") : t("loadout.leader")}</span>
-                  {r.name}
-                </span>
-              </button>
+                {/* Portrait button: opens the large portrait viewer. Separate from
+                    row selection so tapping the picture never changes the bearer. */}
+                <button
+                  onClick={() => setPortraitId(r.id)}
+                  aria-label={t("loadout.viewPortrait", "View portrait of {name}", { name: r.name })}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10"
+                >
+                  {portrait ? (
+                    <img src={portrait} alt="" aria-hidden className="h-11 w-11 rounded-full object-cover" />
+                  ) : (
+                    <span
+                      aria-hidden
+                      className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-base font-bold text-text-2"
+                    >
+                      {initialsOf(r.name)}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setBearerId(r.id)}
+                  aria-pressed={selected}
+                  className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg py-2 text-start text-sm ${
+                    selected ? "text-amber-100" : "text-text-2 hover:bg-white/5"
+                  }`}
+                >
+                  <span className="truncate">
+                    <span className="me-2 text-xs text-text-3">{r.kind === "hero" ? t("loadout.hero") : t("loadout.leader")}</span>
+                    {r.name}
+                  </span>
+                </button>
+              </div>
             );
           })}
         </div>
@@ -278,6 +316,59 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
         </div>
       </section>
       </div>
+
+      {/* Portrait viewer: a large look at the hero/leader, opened from the
+          roster portrait. Selection is untouched — this is view-only. */}
+      {portraitBearer ? (
+        <PortraitSheet
+          name={portraitBearer.name}
+          kind={portraitBearer.kind}
+          race={portraitBearer.race}
+          onClose={() => setPortraitId(null)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/** Large portrait sheet for one roster bearer (race art or monogram fallback). */
+function PortraitSheet({
+  name,
+  kind,
+  race,
+  onClose,
+}: {
+  name: string;
+  kind: "hero" | "leader";
+  race: string | null;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const portrait = race ? RACE_PORTRAIT[race] : undefined;
+  const kindLabel = kind === "hero" ? t("loadout.hero") : t("loadout.leader");
+  const raceLabel = race ? raceText(t, { id: race }, "name", race) : null;
+  const subtitle = raceLabel ? `${kindLabel} · ${raceLabel}` : kindLabel;
+  return (
+    <Sheet open onClose={onClose} labelledBy="loadout-portrait-title" title={name}>
+      <SheetHeader id="loadout-portrait-title" title={name} subtitle={subtitle} onClose={onClose} />
+      <div className="flex flex-col items-center px-6 py-8">
+        {portrait ? (
+          <img
+            src={portrait}
+            alt=""
+            aria-hidden
+            className="h-52 w-52 rounded-2xl border border-white/10 object-cover"
+          />
+        ) : (
+          <span
+            aria-hidden
+            className="flex h-52 w-52 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-6xl font-bold text-text-2"
+          >
+            {initialsOf(name)}
+          </span>
+        )}
+        <p className="mt-4 text-sm text-text-2">{subtitle}</p>
+      </div>
+    </Sheet>
   );
 }
