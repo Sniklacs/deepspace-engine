@@ -577,6 +577,15 @@ export const DOMAINS: {
 export const DOMAIN_BY_ID: Record<DomainId, { id: DomainId; name: string; description: string; icon: string }> =
   Object.fromEntries(DOMAINS.map((d) => [d.id, d])) as never;
 
+// ---- i18n render helpers (cfg.zones.domain.*) --------------------------------
+// slot-label.ts convention: the English literal stays in the table above; the
+// key resolves at RENDER time.
+export type DomainTextField = "name" | "description";
+
+export function domainText(t: T, id: string, field: DomainTextField, fallback: string): string {
+  return t(`cfg.zones.domain.${keyifySegment(id)}.${field}`, fallback);
+}
+
 /**
  * THE DOMAIN LADDER'S TOP RUNG — the ONE authoritative ceiling for a deployed
  * domain, and the only literal of it anywhere in the codebase.

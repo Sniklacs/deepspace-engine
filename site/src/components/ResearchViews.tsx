@@ -7,16 +7,17 @@
 // and the Tooltip long-press/double-tap fix is untouched.
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { DOMAINS } from "../game/zones";
+import { DOMAINS, domainText } from "../game/zones";
 import { engineHelpers } from "../game/client-utils";
 import { useT } from "./i18n/I18n";
 import { fmtDuration } from "../game/i18n/format";
 import { Bdi } from "./ui/Bdi";
 import { sound } from "../game/sound";
 import { Tooltip } from "./Tooltip";
-import { tip, LAB_TIPS } from "../game/tooltips";
+import { tipT, LAB_TIPS } from "../game/tooltips";
 import type { GameState, Leader } from "../game/types";
-import { TECH_TREE, SPECIALTY_LABEL, SPECIALTY_DOMAIN, DOMAIN_SPECIALTY, REVELATION_TREE } from "../game/research";
+import { TECH_TREE, SPECIALTY_LABEL, SPECIALTY_DOMAIN, DOMAIN_SPECIALTY, REVELATION_TREE, techText, specialtyLabel, leaderName } from "../game/research";
+import { specText } from "../game/hero-xp";
 
 // NO local duration formatter here (2026-09-27). This file used to carry a
 // SECOND one — minutes-only, unkeyed — while `play.tsx` carried another, and
@@ -32,12 +33,12 @@ export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameS
     <>
       <div className="mt-5 rounded-2xl border border-white/10 bg-black/40 p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Tooltip content={tip(LAB_TIPS.research)}>
-            <h3 className="font-semibold text-white">🌳 The Research Tree <span className="text-xs font-normal text-gray-400">— human knowledge, 5 domains × 4 named techs</span></h3>
+          <Tooltip content={tipT(t, "lab", "research", LAB_TIPS.research)}>
+            <h3 className="font-semibold text-white">{t("rviews.treeTitle", "🌳 The Research Tree")} <span className="text-xs font-normal text-gray-400">{t("rviews.treeSub", "— human knowledge, 5 domains × 4 named techs")}</span></h3>
           </Tooltip>
-          <span className="text-xs text-purple-200">📜 Codices: {state.codices} earned</span>
+          <span className="text-xs text-purple-200">{t("rviews.codicesEarned", "📜 Codices: {n} earned", { n: state.codices })}</span>
         </div>
-        <p className="mt-1 text-xs text-gray-400">Research costs 📜 Codices + real time, run by an appointed Leader. A Leader whose <b className="text-purple-300">specialty</b> matches the line works faster and can trigger a <b className="text-amber-300">surprise breakthrough</b> at completion. A <b className="text-purple-300">Scholar</b> runs their projects 15% faster and breaks through 5% more often.</p>
+        <p className="mt-1 text-xs text-gray-400">{t("rviews.introA", "Research costs 📜 Codices + real time, run by an appointed Leader. A Leader whose ")}<b className="text-purple-300">{t("rviews.introSpecialty", "specialty")}</b>{t("rviews.introB", " matches the line works faster and can trigger a ")}<b className="text-amber-300">{t("rviews.introBreakthrough", "surprise breakthrough")}</b>{t("rviews.introC", " at completion. A ")}<b className="text-purple-300">{t("rviews.introScholar", "Scholar")}</b>{t("rviews.introD", " runs their projects 15% faster and breaks through 5% more often.")}</p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
           {DOMAINS.map((d) => {
@@ -46,8 +47,8 @@ export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameS
               <div key={d.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
                 <div className="mb-2 flex items-center gap-2">
                   <span className="text-lg">{d.icon}</span>
-                  <span className="font-semibold text-white">{d.name}</span>
-                  <span className="ms-auto text-[11px] text-purple-300">{DOMAIN_SPECIALTY[d.id]}</span>
+                  <span className="font-semibold text-white">{domainText(t, d.id, "name", d.name)}</span>
+                  <span className="ms-auto text-[11px] text-purple-300">{specialtyLabel(t, DOMAIN_SPECIALTY[d.id], DOMAIN_SPECIALTY[d.id])}</span>
                 </div>
                 <div className="space-y-2">
                   {techs.map((t) => {
@@ -66,8 +67,8 @@ export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameS
 {engineHelpers.armoryTree.length > 0 && (
           <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="text-sm font-semibold text-amber-200">🏛️ The Armory <span className="text-xs font-normal text-gray-400">— war hardware, built at the Cradle</span></h4>
-              <span className="text-[11px] text-text-3">Unlocks weapon families · every family needs the 🏛️ Armory hub first</span>
+              <h4 className="text-sm font-semibold text-amber-200">{t("rviews.armoryTitle", "🏛️ The Armory")} <span className="text-xs font-normal text-gray-400">{t("rviews.armorySub", "— war hardware, built at the Cradle")}</span></h4>
+              <span className="text-[11px] text-text-3">{t("rviews.armoryNote", "Unlocks weapon families · every family needs the 🏛️ Armory hub first")}</span>
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
               {engineHelpers.armoryTree.map((node) => {
@@ -79,30 +80,30 @@ export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameS
                 return (
                   <div key={node.id} className={`w-56 rounded-lg border p-2.5 ${done ? "border-amber-400/50 bg-amber-400/10" : inProg ? "border-purple-400/40 bg-purple-400/10" : available ? "border-amber-400/40 bg-amber-400/5" : "border-white/10 bg-black/30 opacity-80"}`}>
                     <div className="flex items-center justify-between gap-1">
-                      <span className={`text-sm font-semibold ${done ? "text-amber-300" : "text-white"}`}>{node.icon} {node.name}</span>
-                      {done ? <span className="text-xs text-amber-300">✓</span> : <span className="text-xs text-purple-300">{node.codicesCost} 📜</span>}
+                      <span className={`text-sm font-semibold ${done ? "text-amber-300" : "text-white"}`}>{node.icon} {techText(t, node.id, "name", node.name)}</span>
+                      {done ? <span className="text-xs text-amber-300">✓</span> : <span className="text-xs text-purple-300">{t("rviews.codicesCost", "{n} 📜", { n: node.codicesCost })}</span>}
                     </div>
-                    <p className="mt-1 text-[11px] text-gray-400">{node.description}</p>
-                    <p className="mt-1 text-[11px] font-medium text-amber-200">Effect: {node.effect}</p>
+                    <p className="mt-1 text-[11px] text-gray-400">{techText(t, node.id, "description", node.description)}</p>
+                    <p className="mt-1 text-[11px] font-medium text-amber-200">{t("rviews.effectLine", "Effect: {v}", { v: techText(t, node.id, "effect", node.effect) })}</p>
                     {inProg && leaderOnIt && job && (
                       <>
                         <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-                          <span>🫂 {leaderOnIt.name}</span>
-                          <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> left</span>
+                          <span>🫂 {leaderName(t, leaderOnIt)}</span>
+                          <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
                         </div>
                         <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-purple-400" style={{ width: `${Math.min(100, ((now - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
                       </>
                     )}
-                    {done && <p className="mt-1 text-xs text-amber-400/80">Researched</p>}
+                    {done && <p className="mt-1 text-xs text-amber-400/80">{t("rviews.researched", "Researched")}</p>}
                     {!done && !inProg && available && (
                       <div className="mt-2">
                         {state.codices < node.codicesCost ? (
-                          <div className="text-[11px] text-text-3">Need {node.codicesCost} 📜</div>
+                          <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: node.codicesCost })}</div>
                         ) : freeLeaders.length === 0 ? (
-                          <div className="text-[11px] text-text-3">No free Leader</div>
+                          <div className="text-[11px] text-text-3">{t("rviews.noFreeLeader", "No free Leader")}</div>
                         ) : (
                           <button onClick={() => { sound.click(); onBeginResearch(node.id, freeLeaders[0].id); }} className="w-full rounded bg-white/10 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:bg-white/20">
-                            Appoint {freeLeaders[0].name}
+                            {t("rviews.appointLeader", "Appoint {name}", { name: freeLeaders[0].name })}
                           </button>
                         )}
                       </div>
@@ -128,11 +129,11 @@ export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameS
       </div>
 
       <div className="mt-4 rounded-2xl border border-white/10 bg-black/40 p-5">
-        <h3 className="font-semibold text-white">📜 How Codices are earned</h3>
+        <h3 className="font-semibold text-white">{t("rviews.codicesHowTitle", "📜 How Codices are earned")}</h3>
         <ul className="mt-2 space-y-1 text-xs text-gray-400 list-disc list-inside">
-          <li>A <b className="text-gray-200">clean recovery</b> — an exploration returns with no radiation loss and no surprise encounter — recovers a surviving archive whole (deeper sites hide more).</li>
-          <li><b className="text-gray-200">Deeds & merit</b> — first clean return, first Deploy, fifth exploration, and a deep clean recovery all award Codices.</li>
-          <li>Rare <b className="text-gray-200">discovery</b> on exploration as a bonus. Embers you salvage, chipsets you raid for, Codices you <b className="text-purple-300">earn</b>.</li>
+          <li>{t("rviews.codicesHowA1", "A ")}<b className="text-gray-200">{t("rviews.codicesHowB1", "clean recovery")}</b>{t("rviews.codicesHowC1", " — an exploration returns with no radiation loss and no surprise encounter — recovers a surviving archive whole (deeper sites hide more).")}</li>
+          <li><b className="text-gray-200">{t("rviews.codicesHowB2", "Deeds & merit")}</b>{t("rviews.codicesHowC2", " — first clean return, first Deploy, fifth exploration, and a deep clean recovery all award Codices.")}</li>
+          <li>{t("rviews.codicesHowA3", "Rare ")}<b className="text-gray-200">{t("rviews.codicesHowB3", "discovery")}</b>{t("rviews.codicesHowC3", " on exploration as a bonus. Embers you salvage, chipsets you raid for, Codices you ")}<b className="text-purple-300">{t("rviews.codicesHowD3", "earn.")}</b></li>
         </ul>
       </div>
     </>
@@ -153,37 +154,37 @@ function TechNode({ tech, done, inProg, available, now, job, leader, codices, fr
   return (
     <div className={`rounded-lg border p-2.5 ${done ? "border-ember/40 bg-ember/10" : inProg ? "border-purple-400/40 bg-purple-400/10" : available ? "border-amber-400/40 bg-amber-400/5" : "border-white/10 bg-black/30 opacity-80"}`}>
       <div className="flex items-center justify-between gap-1">
-        <span className={`text-sm font-semibold ${done ? "text-ember-soft" : "text-white"}`}>{tech.icon} {tech.name}</span>
-        {done ? <span className="text-xs text-ember-soft">✓</span> : <span className="text-xs text-purple-300">{tech.codicesCost} 📜</span>}
+        <span className={`text-sm font-semibold ${done ? "text-ember-soft" : "text-white"}`}>{tech.icon} {techText(t, tech.id, "name", tech.name)}</span>
+        {done ? <span className="text-xs text-ember-soft">✓</span> : <span className="text-xs text-purple-300">{t("rviews.codicesCost", "{n} 📜", { n: tech.codicesCost })}</span>}
       </div>
-      <p className="mt-1 text-[11px] text-gray-400">{tech.description}</p>
-      <p className="mt-1 text-[11px] font-medium text-amber-200">Effect: {tech.effect}</p>
+      <p className="mt-1 text-[11px] text-gray-400">{techText(t, tech.id, "description", tech.description)}</p>
+      <p className="mt-1 text-[11px] font-medium text-amber-200">{t("rviews.effectLine", "Effect: {v}", { v: techText(t, tech.id, "effect", tech.effect) })}</p>
       {inProg && leader && job && (
         <>
           <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-            <span>🫂 {leader.name} <span className="text-purple-300">({engineHelpers.specialtyLabel(leader)})</span></span>
-            <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> left</span>
+            <span>🫂 {leaderName(t, leader)} <span className="text-purple-300">({specialtyLabel(t, leader.specialty, engineHelpers.specialtyLabel(leader))})</span></span>
+            <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
           </div>
           <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-purple-400" style={{ width: `${pct}%` }} /></div>
         </>
       )}
-      {done && <p className="mt-1 text-xs text-ember-soft/80">Researched</p>}
+      {done && <p className="mt-1 text-xs text-ember-soft/80">{t("rviews.researched", "Researched")}</p>}
       {!done && !inProg && available && (
         <div className="mt-2">
           {!canAfford ? (
-            <div className="text-[11px] text-red-300">Need {tech.codicesCost} 📜</div>
+            <div className="text-[11px] text-red-300">{t("rviews.needCodices", "Need {n} 📜", { n: tech.codicesCost })}</div>
           ) : !hasLeader ? (
-            <div className="text-[11px] text-amber-300">No free Leader</div>
+            <div className="text-[11px] text-amber-300">{t("rviews.noFreeLeader", "No free Leader")}</div>
           ) : (
             <button onClick={() => { sound.click(); onBeginResearch(tech.id, (alignedFree ?? freeLeaders[0]).id); }} className="w-full rounded bg-purple-400 px-2 py-1 text-[11px] font-semibold text-black hover:bg-purple-300">
-              Appoint {alignedFree ? `✨ ${alignedFree.name}` : freeLeaders[0].name}
+              {t("rviews.appointLeader", "Appoint {name}", { name: alignedFree ? `✨ ${alignedFree.name}` : freeLeaders[0].name })}
             </button>
           )}
-          {alignedFree && <p className="mt-1 text-xs text-purple-300">✨ {alignedFree.name} matches — faster + breakthrough</p>}
+          {alignedFree && <p className="mt-1 text-xs text-purple-300">{t("rviews.alignedMatch", "✨ {name} matches — faster + breakthrough", { name: alignedFree.name })}</p>}
         </div>
       )}
       {!done && !inProg && !available && (
-        <p className="mt-1 text-xs text-text-3">{tech.index === 0 ? "Earn 📜 Codices to begin" : `Unlock ${prv ? prv.name : "the previous tech"} first`}</p>
+        <p className="mt-1 text-xs text-text-3">{tech.index === 0 ? t("rviews.earnToBegin", "Earn 📜 Codices to begin") : t("rviews.unlockFirst", "Unlock {name} first", { name: prv ? prv.name : t("rviews.prevTech", "the previous tech") })}</p>
       )}
     </div>
   );
@@ -206,15 +207,15 @@ function RevelationNode({ node, done, inProg, available, now, job, leader, codic
   return (
     <div className={`rounded-lg border p-2.5 ${done ? "border-white/10 bg-white/5" : inProg ? "border-white/15 bg-white/5" : "border-white/10 bg-black/30"}`}>
       <div className="flex items-center justify-between gap-1">
-        <span className="text-sm font-semibold text-white">{node.glyph}{inProg ? " … ✍️" : done ? ` ${node.name}` : available ? ` ${node.name}` : ""}</span>
-        {done ? <span className="text-xs text-text-3">✓</span> : <span className="text-xs text-text-3">{node.codicesCost} 📜</span>}
+        <span className="text-sm font-semibold text-white">{node.glyph}{inProg ? " … ✍️" : done ? ` ${techText(t, node.id, "name", node.name)}` : available ? ` ${techText(t, node.id, "name", node.name)}` : ""}</span>
+        {done ? <span className="text-xs text-text-3">✓</span> : <span className="text-xs text-text-3">{t("rviews.codicesCost", "{n} 📜", { n: node.codicesCost })}</span>}
       </div>
-      {(done || available || inProg) && <p className="mt-1 text-[11px] text-gray-400">{node.description}</p>}
+      {(done || available || inProg) && <p className="mt-1 text-[11px] text-gray-400">{techText(t, node.id, "description", node.description)}</p>}
       {inProg && leader && job && (
         <>
           <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-            <span>🫂 {leader.name}</span>
-            <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> left</span>
+            <span>🫂 {leaderName(t, leader)}</span>
+            <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
           </div>
           <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-white/40" style={{ width: `${pct}%` }} /></div>
         </>
@@ -222,12 +223,12 @@ function RevelationNode({ node, done, inProg, available, now, job, leader, codic
       {!done && !inProg && available && (
         <div className="mt-2">
           {!canAfford ? (
-            <div className="text-[11px] text-text-3">Need {node.codicesCost} 📜</div>
+            <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: node.codicesCost })}</div>
           ) : !hasLeader ? (
-            <div className="text-[11px] text-text-3">No free Leader</div>
+            <div className="text-[11px] text-text-3">{t("rviews.noFreeLeader", "No free Leader")}</div>
           ) : (
             <button onClick={() => { sound.click(); onBeginResearch(node.id, freeLeaders[0].id); }} className="w-full rounded bg-white/10 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:bg-white/20">
-              Appoint {freeLeaders[0].name}
+              {t("rviews.appointLeader", "Appoint {name}", { name: freeLeaders[0].name })}
             </button>
           )}
         </div>
@@ -255,6 +256,7 @@ export function LeadersView({ state, now, onAllocatePoint, onChooseSpec }: {
   onAllocatePoint: (leaderId: string, attr: "research" | "economy" | "combat" | "engineering") => void;
   onChooseSpec: (leaderId: string, path: "scholar" | "marshal" | "quartermaster") => void;
 }) {
+  const t = useT();
   const slots = engineHelpers.leaderSlots(state);
   const active = state.leaders.filter((l) => l.status !== "lost");
   // ---- Level-3 specialization modal state ----
@@ -281,17 +283,17 @@ export function LeadersView({ state, now, onAllocatePoint, onChooseSpec }: {
   return (
     <div className="mt-5 rounded-2xl border border-white/10 bg-black/40 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Tooltip content={tip(LAB_TIPS.leaders)}>
-          <h3 className="font-semibold text-white">🫂 The Council <span className="text-xs font-normal text-gray-400">— your named Leaders</span></h3>
+        <Tooltip content={tipT(t, "lab", "leaders", LAB_TIPS.leaders)}>
+          <h3 className="font-semibold text-white">{t("rviews.councilTitle", "🫂 The Council")} <span className="text-xs font-normal text-gray-400">{t("rviews.councilSub", "— your named Leaders")}</span></h3>
         </Tooltip>
-        <span className="text-xs text-gray-400">Slots: <b className="text-white">{active.length}/{slots}</b></span>
+        <span className="text-xs text-gray-400">{t("rviews.slotsLabel", "Slots:")} <b className="text-white">{active.length}/{slots}</b></span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-        <Tooltip content={tip(LAB_TIPS.leaderXp)}>
-          <span className="rounded-lg bg-white/5 border border-white/10 px-2 py-1 text-gray-300">⭐ XP <b className="text-amber-200">{engineHelpers.dailyCap}/day</b> shared cap</span>
+        <Tooltip content={tipT(t, "lab", "leaderXp", LAB_TIPS.leaderXp)}>
+          <span className="rounded-lg bg-white/5 border border-white/10 px-2 py-1 text-gray-300">{t("rviews.xpChip", "⭐ XP")} <b className="text-amber-200">{t("rviews.xpDaily", "{n}/day", { n: engineHelpers.dailyCap })}</b> {t("rviews.xpSharedCap", "shared cap")}</span>
         </Tooltip>
         {engineHelpers.leaderSlots(state) > 0 && (
-          <span className="text-[11px] text-text-3">Leaders earn XP from research, breakthroughs, surviving surprises & deep runs — then choose a path at Level 3.</span>
+          <span className="text-[11px] text-text-3">{t("rviews.leadersEarnNote", "Leaders earn XP from research, breakthroughs, surviving surprises & deep runs — then choose a path at Level 3.")}</span>
         )}
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -304,7 +306,7 @@ export function LeadersView({ state, now, onAllocatePoint, onChooseSpec }: {
         {active.length < slots && (
           <div className="rounded-xl border border-dashed border-white/15 p-4 text-center text-xs text-text-3">
             <div className="text-2xl">🕊️</div>
-            An empty seat. <span className="text-purple-300">Earn it</span> — a deep clean recovery rescues a scholar into the Council.
+            {t("rviews.emptySeatA", "An empty seat. ")}<span className="text-purple-300">{t("rviews.emptySeatB", "Earn it")}</span>{t("rviews.emptySeatC", " — a deep clean recovery rescues a scholar into the Council.")}
           </div>
         )}
       </div>
@@ -340,64 +342,64 @@ function LeaderCard({ leader, job, now, onAllocate, onOpenSpec }: {
   return (
     <div className={`rounded-xl border p-4 ${lost ? "border-red-400/40 bg-red-400/5 opacity-60" : "border-white/10 bg-white/5"}`}>
       <div className="flex items-center justify-between gap-2">
-        <Tooltip content={tip(LAB_TIPS.leaderLevel)}>
-          <span className="font-semibold text-white">{leader.name}</span>
+        <Tooltip content={tipT(t, "lab", "leaderLevel", LAB_TIPS.leaderLevel)}>
+          <span className="font-semibold text-white">{leaderName(t, leader)}</span>
         </Tooltip>
-        <span className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase ${leader.status === "active" ? "bg-ember/15 text-ember-soft" : leader.status === "wounded" ? "bg-amber-400/15 text-amber-300" : "bg-red-400/15 text-red-300"}`}>{leader.status}</span>
+        <span className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase ${leader.status === "active" ? "bg-ember/15 text-ember-soft" : leader.status === "wounded" ? "bg-amber-400/15 text-amber-300" : "bg-red-400/15 text-red-300"}`}>{t(`rviews.status.${leader.status}`, leader.status)}</span>
       </div>
       <div className="mt-0.5 flex items-center justify-between gap-2 text-xs">
-        <span className="text-purple-300">{SPECIALTY_LABEL[leader.specialty]} <span className="text-text-3">→ {SPECIALTY_DOMAIN[leader.specialty]} line</span></span>
-        <span className="rounded bg-white/10 px-2 py-0.5 text-[11px] font-bold text-amber-200">Lv {level}</span>
+        <span className="text-purple-300">{SPECIALTY_LABEL[leader.specialty]} <span className="text-text-3">{t("rviews.specialtyDomainLine", "→ {domain} line", { domain: SPECIALTY_DOMAIN[leader.specialty] })}</span></span>
+        <span className="rounded bg-white/10 px-2 py-0.5 text-[11px] font-bold text-amber-200">{t("rviews.levelShort", "Lv {n}", { n: level })}</span>
       </div>
 
       {/* XP bar */}
-      <Tooltip content={tip(LAB_TIPS.leaderXp)}>
+      <Tooltip content={tipT(t, "lab", "leaderXp", LAB_TIPS.leaderXp)}>
         <div className="mt-2">
           <div className="flex items-center justify-between text-xs text-gray-400">
-            <span>⭐ {Math.round(leader.xp)} XP{leader.specialization ? " · bound" : ""}</span>
-            <span>{level >= 10 ? "MAX Lv 10" : xpToNext !== null ? `${xpToNext} XP → Lv ${level + 1}` : ""}</span>
+            <span>{t("rviews.xpTotal", "⭐ {n} XP", { n: Math.round(leader.xp) })}{leader.specialization ? t("rviews.xpBound", " · bound") : ""}</span>
+            <span>{level >= 10 ? t("rviews.maxLevel", "MAX Lv 10") : xpToNext !== null ? t("rviews.xpToNext", "{n} XP → Lv {lvl}", { n: xpToNext, lvl: level + 1 }) : ""}</span>
           </div>
           <div className="mt-0.5 h-1.5 rounded bg-white/10">
             <div className="h-1.5 rounded bg-ember" style={{ width: `${Math.round(progress * 100)}%` }} />
           </div>
-          <div className="mt-0.5 text-end text-xs text-text-3">today {todayXp}/{engineHelpers.dailyCap} XP</div>
+          <div className="mt-0.5 text-end text-xs text-text-3">{t("rviews.todayXp", "today {a}/{b} XP", { a: todayXp, b: engineHelpers.dailyCap })}</div>
         </div>
       </Tooltip>
 
       {/* Specialization badge / pending button */}
       {spec ? (
-        <Tooltip content={tip(LAB_TIPS.specialization)}>
+        <Tooltip content={tipT(t, "lab", "specialization", LAB_TIPS.specialization)}>
           <div className={`mt-2 rounded-lg border px-2 py-1 text-[11px] font-semibold ${spec.accent}`}>
-            {spec.icon} {spec.mandate} <span className="text-xs font-normal opacity-80">— bound, permanent</span>
+            {spec.icon} {spec.mandate} <span className="text-xs font-normal opacity-80">{t("rviews.boundPermanent", "— bound, permanent")}</span>
           </div>
         </Tooltip>
       ) : pendingSpec ? (
         <button onClick={() => { sound.click(); onOpenSpec(); }} className="mt-2 w-full rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] font-semibold text-amber-200 hover:bg-amber-400/20">
-          🧭 Level 3 — choose a path (Scholar · Marshal · Quartermaster)
+          {t("rviews.choosePath", "🧭 Level 3 — choose a path (Scholar · Marshal · Quartermaster)")}
         </button>
       ) : null}
 
       {/* Attributes + allocate */}
       <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] text-gray-400">
-        <span>🔬 research {leader.attributes.research}</span>
-        <span>💰 economy {leader.attributes.economy}</span>
-        <span>⚔️ combat {leader.attributes.combat}</span>
-        <span>🔧 engineering {leader.attributes.engineering}</span>
+        <span>{t("rviews.attrResearch", "🔬 research {n}", { n: leader.attributes.research })}</span>
+        <span>{t("rviews.attrEconomy", "💰 economy {n}", { n: leader.attributes.economy })}</span>
+        <span>{t("rviews.attrCombat", "⚔️ combat {n}", { n: leader.attributes.combat })}</span>
+        <span>{t("rviews.attrEngineering", "🔧 engineering {n}", { n: leader.attributes.engineering })}</span>
       </div>
       {leader.unspentPoints > 0 && (
         <button onClick={() => { sound.click(); onAllocate(); }} className="mt-2 w-full rounded-lg bg-ember px-2 py-1.5 text-[11px] font-bold text-black hover:brightness-110">
-          ● +{leader.unspentPoints} point{leader.unspentPoints > 1 ? "s" : ""} to allocate
+          {t("rviews.allocatePoints", "● +{n} {unit} to allocate", { n: leader.unspentPoints, unit: leader.unspentPoints > 1 ? t("rviews.points", "points") : t("rviews.point", "point") })}
         </button>
       )}
 
       <div className="mt-2 text-[11px]">
         {job && leader.assignment ? (
-          <span className="text-purple-200">📚 Researching: {engineHelpers.techName(leader.assignment)} · <Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> left</span>
+          <span className="text-purple-200">{t("rviews.researching", "📚 Researching:")} {engineHelpers.techName(leader.assignment)} · <Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
         ) : (
-          <span className="text-text-3">Free to appoint</span>
+          <span className="text-text-3">{t("rviews.freeToAppoint", "Free to appoint")}</span>
         )}
       </div>
-      <div className="mt-1 text-[11px] text-text-3">✨ {leader.breakthroughs} breakthroughs · 📜 {leader.codicesEarned} codices</div>
+      <div className="mt-1 text-[11px] text-text-3">{t("rviews.leaderStats", "✨ {a} breakthroughs · 📜 {b} codices", { a: leader.breakthroughs, b: leader.codicesEarned })}</div>
       {leader.history.length > 0 && (
         <div className="mt-2 max-h-20 overflow-y-auto space-y-0.5 border-t border-white/10 pt-1.5 text-xs text-text-3">
           {leader.history.slice(-4).map((h, i) => <div key={i}>• {h}</div>)}
@@ -412,39 +414,40 @@ function LeaderCard({ leader, job, now, onAllocate, onOpenSpec }: {
 function SpecializationModal({ leader, onPick, onClose }: {
   leader: Leader; onPick: (path: "scholar" | "marshal" | "quartermaster") => void; onClose: () => void;
 }) {
+  const t = useT();
   const chosen = leader.specialization ? engineHelpers.specs.find((s) => s.id === leader.specialization) : null;
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/70 p-4" onClick={onClose}>
       <div className="my-auto max-w-lg rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-white">🧭 {leader.name} — Level {engineHelpers.leaderLevel(leader)}</h3>
-          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">Close</button>
+          <h3 className="text-lg font-bold text-white">{t("rviews.specTitle", "🧭 {name} — Level {lvl}", { name: leaderName(t, leader), lvl: engineHelpers.leaderLevel(leader) })}</h3>
+          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("rviews.close", "Close")}</button>
         </div>
         {chosen ? (
           <div className="mt-3">
-            <p className="text-sm text-gray-300">This Leader already walks the <b className={chosen.accent.split(" ")[2] || "text-amber-200"}>{chosen.icon} {chosen.mandate}</b>.</p>
+            <p className="text-sm text-gray-300">{t("rviews.alreadyWalksA", "This Leader already walks the ")}<b className={chosen.accent.split(" ")[2] || "text-amber-200"}>{chosen.icon} {specText(t, chosen.id, "mandate", chosen.mandate)}</b>{t("rviews.alreadyWalksB", ".")}</p>
             <div className={`mt-2 rounded-xl border p-3 ${chosen.accent}`}>
-              <p className="text-xs">{chosen.blurb}</p>
-              <ul className="mt-2 space-y-1 text-xs">{chosen.effects.map((e) => <li key={e}>• {e}</li>)}</ul>
+              <p className="text-xs">{specText(t, chosen.id, "blurb", chosen.blurb)}</p>
+              <ul className="mt-2 space-y-1 text-xs">{chosen.effects.map((e, i) => <li key={e}>• {specText(t, chosen.id, `effect${i + 1}`, e)}</li>)}</ul>
             </div>
-            <p className="mt-3 text-xs text-text-3">A one-time choice — permanent, and the other two paths are closed for this Leader.</p>
+            <p className="mt-3 text-xs text-text-3">{t("rviews.oneTimeChoice", "A one-time choice — permanent, and the other two paths are closed for this Leader.")}</p>
           </div>
         ) : (
           <>
-            <p className="mt-2 text-sm text-gray-300">One choice, made permanent. Pick the mandate this Leader will carry — the other two close forever.</p>
+            <p className="mt-2 text-sm text-gray-300">{t("rviews.pickMandate", "One choice, made permanent. Pick the mandate this Leader will carry — the other two close forever.")}</p>
             <div className="mt-3 space-y-2">
               {engineHelpers.specs.map((s) => (
                 <button key={s.id} onClick={() => { sound.click(); onPick(s.id); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-amber-400/50 hover:bg-white/10">
                   <div className="flex items-center gap-2">
                     <span className="text-xl">{s.icon}</span>
-                    <span className="font-semibold text-white">{s.mandate}</span>
+                    <span className="font-semibold text-white">{specText(t, s.id, "mandate", s.mandate)}</span>
                   </div>
-                  <p className="mt-1 text-xs text-gray-400">{s.blurb}</p>
-                  <ul className="mt-1.5 space-y-0.5 text-xs">{s.effects.map((e) => <li key={e} className="text-amber-200/90">• {e}</li>)}</ul>
+                  <p className="mt-1 text-xs text-gray-400">{specText(t, s.id, "blurb", s.blurb)}</p>
+                  <ul className="mt-1.5 space-y-0.5 text-xs">{s.effects.map((e, i) => <li key={e} className="text-amber-200/90">• {specText(t, s.id, `effect${i + 1}`, e)}</li>)}</ul>
                 </button>
               ))}
             </div>
-            <p className="mt-3 text-xs text-text-3">Earned entirely by play — XP, then the choice. This is progression, never something to buy.</p>
+            <p className="mt-3 text-xs text-text-3">{t("rviews.earnedByPlay", "Earned entirely by play — XP, then the choice. This is progression, never something to buy.")}</p>
           </>
         )}
       </div>
@@ -457,26 +460,27 @@ function SpecializationModal({ leader, onPick, onClose }: {
 function AllocateModal({ leader, onPick, onClose }: {
   leader: Leader; onPick: (attr: "research" | "economy" | "combat" | "engineering") => void; onClose: () => void;
 }) {
+  const t = useT();
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/70 p-4" onClick={onClose}>
       <div className="my-auto max-w-md rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-white">🎖️ Allocate {leader.name}'s point</h3>
-          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">Close</button>
+          <h3 className="text-lg font-bold text-white">{t("rviews.allocateTitle", "🎖️ Allocate {name}'s point", { name: leader.name })}</h3>
+          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("rviews.close", "Close")}</button>
         </div>
-        <p className="mt-2 text-sm text-gray-300">You have <b className="text-amber-200">{leader.unspentPoints}</b> unspent point{leader.unspentPoints > 1 ? "s" : ""} from leveling. Put one into the craft YOU want to grow.</p>
+        <p className="mt-2 text-sm text-gray-300">{t("rviews.allocYouHave", "You have ")}<b className="text-amber-200">{leader.unspentPoints}</b>{t("rviews.allocUnspent", " unspent ")}{leader.unspentPoints > 1 ? t("rviews.points", "points") : t("rviews.point", "point")}{t("rviews.allocRest", " from leveling. Put one into the craft YOU want to grow.")}</p>
         <div className="mt-3 space-y-2">
           {ATTRS.map((a) => (
             <button key={a.id} onClick={() => { sound.click(); onPick(a.id); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-amber-400/50 hover:bg-white/10">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-white">{a.icon} {a.label}</span>
+                <span className="font-semibold text-white">{a.icon} {t(`rviews.attrLabel.${a.id}`, a.label)}</span>
                 <span className="text-sm text-amber-200">{leader.attributes[a.id]} <span className="text-text-3">→ {leader.attributes[a.id] + 1}</span></span>
               </div>
-              <p className="mt-1 text-xs text-gray-400">{a.does}</p>
+              <p className="mt-1 text-xs text-gray-400">{t(`rviews.attrDoes.${a.id}`, a.does)}</p>
             </button>
           ))}
         </div>
-        <p className="mt-3 text-xs text-text-3">Every level grants exactly 1 point. No purchase, no shortcut — growth is earned through play.</p>
+        <p className="mt-3 text-xs text-text-3">{t("rviews.allocFooter", "Every level grants exactly 1 point. No purchase, no shortcut — growth is earned through play.")}</p>
       </div>
     </div>
   );

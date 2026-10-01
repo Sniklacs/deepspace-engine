@@ -22,6 +22,8 @@
 import { DAILY_XP_CAP, LEVEL_XP, MAX_LEVEL, SPECIALIZATION_MILESTONE, levelFromXp, xpDayKey, xpForLevel } from "./leader-xp";
 import type { HeroAttributes, HeroDef, HeroRole } from "./heroes-data";
 import type { RaceId } from "./types";
+import type { T } from "./i18n/types";
+import { keyifySegment } from "./i18n/keyify";
 
 // ============================================================================
 // §1 CONFIG — every tunable number in one place (§4 values ratified; the
@@ -123,6 +125,15 @@ export const HERO_SPECIALIZATIONS: {
 ];
 
 export const HERO_SPECIALIZATION_BY_ID = Object.fromEntries(HERO_SPECIALIZATIONS.map((s) => [s.id, s])) as Record<HeroSpecialization, (typeof HERO_SPECIALIZATIONS)[number]>;
+
+// ---- i18n render helpers (cfg.heroes.spec.*) --------------------------------
+// slot-label.ts convention: the English literal stays in the table above; the
+// key resolves at RENDER time.
+export type SpecTextField = "mandate" | "blurb" | `effect${number}`;
+
+export function specText(t: T, id: string, field: SpecTextField, fallback: string): string {
+  return t(`cfg.heroes.spec.${keyifySegment(id)}.${field}`, fallback);
+}
 
 // ============================================================================
 // §3 PURE PROGRESSION PRIMITIVES (leader-spine clones)

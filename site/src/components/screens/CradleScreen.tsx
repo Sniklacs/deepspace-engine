@@ -44,12 +44,12 @@ import type { EarnedTimeTokenSizeId } from "../../game/time-tokens";
 import { sound } from "../../game/sound";
 import { useT } from "../i18n/I18n";
 import { SplitValue } from "../i18n/SplitValue";
-import { DAILY_ITEM_BY_ID } from "../../game/daily";
-import { SPECIALTY_LABEL } from "../../game/research";
+import { DAILY_ITEM_BY_ID, dailyItemLabelT } from "../../game/daily";
+import { SPECIALTY_LABEL, specialtyLabel, leaderName } from "../../game/research";
 import { DEED_BY_ID } from "../../game/heroes-data";
 import { heroLevel, heroXpForLevel } from "../../game/hero-xp";
 import {
-  tip, DOMAIN_TIPS, METER_TIPS, LAB_TIPS, RESOURCE_TIPS,
+  tipT, tipField, DOMAIN_TIPS, METER_TIPS, LAB_TIPS, RESOURCE_TIPS,
 } from "../../game/tooltips";
 import type { CradleSlotId } from "../../game/cradle-slots";
 import type { GameState, DomainId } from "../../game/types";
@@ -194,7 +194,7 @@ export default function CradleScreen({
                   })}
                 </p>
               </div>
-              <Tooltip className="flex-none" content={tip(LAB_TIPS.fieldSlots)}>
+              <Tooltip className="flex-none" content={tipT(t, "lab", "fieldSlots", LAB_TIPS.fieldSlots)}>
                 <span className="pill border border-line bg-surf-2 text-text-2">
                   <Bdi dir="ltr" className="num text-ember-soft">{`+${spm.toFixed(1)}`}</Bdi>
                   <span className="text-[11px]">{t("cradle.perMin")}</span>
@@ -248,7 +248,7 @@ export default function CradleScreen({
                 meter={{ value: state.chorusAttention, danger: state.chorusAttention > 50 }}
               />
             </div>
-            <Tooltip className="w-full" content={tip(LAB_TIPS.purify)}>
+            <Tooltip className="w-full" content={tipT(t, "lab", "purify", LAB_TIPS.purify)}>
               <ActionButton
                 full
                 size="md"
@@ -265,7 +265,7 @@ export default function CradleScreen({
                 onClick={() => onPurify(1)}
               />
             </Tooltip>
-            <p className="text-[11px] text-text-3">{METER_TIPS.corruption.what}</p>
+            <p className="text-[11px] text-text-3">{tipField(t, "meter", "corruption", "what", METER_TIPS.corruption.what)}</p>
           </Panel>
         </div>
 
@@ -346,7 +346,7 @@ export default function CradleScreen({
                 inventory. Every figure is the engine's — `state.resources.embers` is the
                 holding, `totalEmbersLooted` in the stores band below is the lifetime
                 statistic, and the two must never be read as the same number. */}
-            <Tooltip className="w-full" content={tip(RESOURCE_TIPS.embers)}>
+            <Tooltip className="w-full" content={tipT(t, "resource", "embers", RESOURCE_TIPS.embers)}>
               <div className="flex min-h-tap w-full items-center gap-2 rounded-xl border border-line bg-surf-3/60 px-3 py-2">
                 <Icon name="flame" size={16} className="shrink-0 text-ember-soft" aria-hidden="true" />
                 <span className="min-w-0 flex-1 text-[12px] text-text-2">{t("resource.embers")}</span>
@@ -485,7 +485,7 @@ export default function CradleScreen({
       />
 
       {/* ---------------- the Leader sheet ---------------- */}
-      <Sheet open={sheet?.kind === "leader"} onClose={close} labelledBy="cradle-leader-title" title="Leader">
+      <Sheet open={sheet?.kind === "leader"} onClose={close} labelledBy="cradle-leader-title" title={t("cradle.sheet.leaderTitle", "Leader")}>
         {sheet?.kind === "leader"
           ? (() => {
               const leader = state.leaders.find((l) => l.id === sheet.id);
@@ -494,32 +494,32 @@ export default function CradleScreen({
                 <>
                   <SheetHeader
                     id="cradle-leader-title"
-                    title={leader.name}
-                    subtitle={leader.title ?? SPECIALTY_LABEL[leader.specialty]}
+                    title={leaderName(t, leader)}
+                    subtitle={leader.title ?? specialtyLabel(t, leader.specialty, SPECIALTY_LABEL[leader.specialty])}
                     onClose={close}
                   />
                   <div className="sheet-body space-y-3 px-4 py-3 md:px-5">
                     <ul className="space-y-1.5">
-                      <RecordRow label="Level" value={<Bdi dir="ltr" className="num">{engineHelpers.leaderLevel(leader)}</Bdi>} />
-                      <RecordRow label="Specialization" value={leader.specialization ?? "no path yet"} />
-                      <RecordRow label="Breakthroughs" value={<Bdi dir="ltr" className="num">{leader.breakthroughs}</Bdi>} />
-                      <RecordRow label="Codices earned" value={<Bdi dir="ltr" className="num">{leader.codicesEarned}</Bdi>} />
+                      <RecordRow label={t("cradle.sheet.level", "Level")} value={<Bdi dir="ltr" className="num">{engineHelpers.leaderLevel(leader)}</Bdi>} />
+                      <RecordRow label={t("cradle.sheet.specialization", "Specialization")} value={leader.specialization ?? t("cradle.sheet.noPathYet", "no path yet")} />
+                      <RecordRow label={t("cradle.sheet.breakthroughs", "Breakthroughs")} value={<Bdi dir="ltr" className="num">{leader.breakthroughs}</Bdi>} />
+                      <RecordRow label={t("cradle.sheet.codicesEarned", "Codices earned")} value={<Bdi dir="ltr" className="num">{leader.codicesEarned}</Bdi>} />
                       {/* a STATUS WORD, not a figure: it passes no Bdi on purpose */}
-                      <RecordRow label="Status" value={leader.status} />
+                      <RecordRow label={t("cradle.sheet.status", "Status")} value={leader.status} />
                     </ul>
                     <div>
-                      <p className="eyebrow">Attributes</p>
+                      <p className="eyebrow">{t("cradle.sheet.attributes", "Attributes")}</p>
                       <ul className="mt-1.5 grid grid-cols-2 gap-2">
-                        <RecordRow label="Research" value={<Bdi dir="ltr" className="num">{leader.attributes.research}</Bdi>} />
-                        <RecordRow label="Economy" value={<Bdi dir="ltr" className="num">{leader.attributes.economy}</Bdi>} />
-                        <RecordRow label="Combat" value={<Bdi dir="ltr" className="num">{leader.attributes.combat}</Bdi>} />
-                        <RecordRow label="Engineering" value={<Bdi dir="ltr" className="num">{leader.attributes.engineering}</Bdi>} />
+                        <RecordRow label={t("cradle.sheet.research", "Research")} value={<Bdi dir="ltr" className="num">{leader.attributes.research}</Bdi>} />
+                        <RecordRow label={t("cradle.sheet.economy", "Economy")} value={<Bdi dir="ltr" className="num">{leader.attributes.economy}</Bdi>} />
+                        <RecordRow label={t("cradle.sheet.combat", "Combat")} value={<Bdi dir="ltr" className="num">{leader.attributes.combat}</Bdi>} />
+                        <RecordRow label={t("cradle.sheet.engineering", "Engineering")} value={<Bdi dir="ltr" className="num">{leader.attributes.engineering}</Bdi>} />
                       </ul>
                     </div>
                     <div>
-                      <p className="eyebrow">History</p>
+                      <p className="eyebrow">{t("cradle.sheet.history", "History")}</p>
                       {leader.history.length === 0 ? (
-                        <p className="mt-1 text-[12px] text-text-3">Nothing recorded yet.</p>
+                        <p className="mt-1 text-[12px] text-text-3">{t("cradle.sheet.nothingRecorded", "Nothing recorded yet.")}</p>
                       ) : (
                         <ul className="mt-1 space-y-1">
                           {leader.history.slice().reverse().map((h, i) => (
@@ -538,7 +538,7 @@ export default function CradleScreen({
       </Sheet>
 
       {/* ---------------- the hero sheet (no price, no unlock, no timer) ---------------- */}
-      <Sheet open={sheet?.kind === "hero"} onClose={close} labelledBy="cradle-hero-title" title="Hero">
+      <Sheet open={sheet?.kind === "hero"} onClose={close} labelledBy="cradle-hero-title" title={t("cradle.sheet.heroTitle", "Hero")}>
         {sheet?.kind === "hero"
           ? (() => {
               const hero = (state.prologue?.heroes ?? []).find((h) => h.id === sheet.id);
@@ -553,18 +553,18 @@ export default function CradleScreen({
                   />
                   <div className="sheet-body space-y-3 px-4 py-3 md:px-5">
                     <ul className="space-y-1.5">
-                      <RecordRow label="Level" value={<Bdi dir="ltr" className="num">{heroLevel(hero)}</Bdi>} />
-                      <RecordRow label="Specialization" value={hero.specialization ?? "no path yet"} />
+                      <RecordRow label={t("cradle.sheet.level", "Level")} value={<Bdi dir="ltr" className="num">{heroLevel(hero)}</Bdi>} />
+                      <RecordRow label={t("cradle.sheet.specialization", "Specialization")} value={hero.specialization ?? t("cradle.sheet.noPathYet", "no path yet")} />
                       {/* provenance: a deed's NAME only — a raw id is never printed */}
                       {DEED_BY_ID[hero.earnedBy]?.name ? (
-                        <RecordRow label="Earned by" value={DEED_BY_ID[hero.earnedBy].name} />
+                        <RecordRow label={t("cradle.sheet.earnedBy", "Earned by")} value={DEED_BY_ID[hero.earnedBy].name} />
                       ) : null}
                     </ul>
                     <ul className="grid grid-cols-2 gap-2">
-                      <RecordRow label="Power" value={<Bdi dir="ltr" className="num">{hero.attributes.power}</Bdi>} />
-                      <RecordRow label="Guard" value={<Bdi dir="ltr" className="num">{hero.attributes.guard}</Bdi>} />
-                      <RecordRow label="Craft" value={<Bdi dir="ltr" className="num">{hero.attributes.craft}</Bdi>} />
-                      <RecordRow label="Presence" value={<Bdi dir="ltr" className="num">{hero.attributes.presence}</Bdi>} />
+                      <RecordRow label={t("cradle.sheet.power", "Power")} value={<Bdi dir="ltr" className="num">{hero.attributes.power}</Bdi>} />
+                      <RecordRow label={t("cradle.sheet.guard", "Guard")} value={<Bdi dir="ltr" className="num">{hero.attributes.guard}</Bdi>} />
+                      <RecordRow label={t("cradle.sheet.craft", "Craft")} value={<Bdi dir="ltr" className="num">{hero.attributes.craft}</Bdi>} />
+                      <RecordRow label={t("cradle.sheet.presence", "Presence")} value={<Bdi dir="ltr" className="num">{hero.attributes.presence}</Bdi>} />
                     </ul>
                   </div>
                 </>
@@ -691,7 +691,7 @@ function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onC
                     {done ? "\u2713" : "\u25cb"}
                   </span>
                   <span className={`text-[13px] ${done ? "text-text-1" : "text-text-2"}`}>
-                    {def?.label ?? id}
+                    {def ? dailyItemLabelT(t, id) : id}
                     {done && banked ? (
                       <span className="ms-1.5 text-[11px] uppercase tracking-wide text-ember-soft/80">
                         {t("cradle.claimed")}
@@ -789,10 +789,10 @@ function SlotSheet({
                 <ul className="space-y-1.5">
                   <RecordRow label={t("cradle.level")} value={<Bdi dir="ltr" className="num">{level}</Bdi>} />
                   {/* a SENTENCE (the engine's own prose): no Bdi, on purpose */}
-                  <RecordRow label="Effect now" value={engineHelpers.domainEffect(state, domain)} />
-                  {!atMax && <RecordRow label="Next advance costs" value={t("cradle.advanceSub", "{embers} Embers · {insight} insight", { embers: cost.embers.toLocaleString(), insight: cost.insight.toLocaleString() })} />}
+                  <RecordRow label={t("cradle.sheet.effectNow", "Effect now")} value={engineHelpers.domainEffect(state, domain)} />
+                  {!atMax && <RecordRow label={t("cradle.sheet.nextAdvanceCosts", "Next advance costs")} value={t("cradle.advanceSub", "{embers} Embers · {insight} insight", { embers: cost.embers.toLocaleString(), insight: cost.insight.toLocaleString() })} />}
                 </ul>
-                <p className="text-[11px] leading-tight text-text-3">{domainTip.what}</p>
+                <p className="text-[11px] leading-tight text-text-3">{tipField(t, "domain", domain, "what", domainTip.what)}</p>
                 {atMax ? (
                   <ActionButton
                     full

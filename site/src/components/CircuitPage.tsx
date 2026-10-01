@@ -22,12 +22,13 @@
 // ============================================================================
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useT } from "./i18n/I18n";
 import type { GameState, RaceId } from "../game/types";
 import { generateAtlas, nodeById, ATLAS_CONFIG } from "../game/map";
 import type { AtlasNode, AtlasGraph } from "../game/map";
 import { WORLD_CONFIG_PUBLIC } from "../game/world-config";
-import { getRace } from "../game/races";
-import { getZone } from "../game/zones";
+import { getRace, raceText } from "../game/races";
+import { getZone, zoneFlavor, zoneName } from "../game/zones";
 import { getContributionFn } from "../game/api";
 import type { ContributionView } from "../game/api";
 import { sound } from "../game/sound";
@@ -92,6 +93,7 @@ export function CircuitPage({
   unread,
   onReports,
 }: CircuitPageProps) {
+  const t = useT();
   const circuit: AtlasGraph = useMemo(
     () => generateAtlas({ worldId: WORLD_CONFIG_PUBLIC.worldId, raceId: WORLD_CONFIG_PUBLIC.raceLock }),
     [],
@@ -102,8 +104,8 @@ export function CircuitPage({
   // third Battles option joins only in war phases — the SegmentedControl
   // options array already supports it; nothing changes here.
   const SEG_OPTIONS = [
-    { id: "map", label: "Map" },
-    { id: "world", label: "World" },
+    { id: "map", label: t("circuit.segMap", "Map") },
+    { id: "world", label: t("circuit.segWorld", "World") },
   ];
   const [seg, setSeg] = useState<Seg>("map");
   const [sel, setSel] = useState<string | null>(null);
@@ -248,7 +250,7 @@ export function CircuitPage({
     }
   }, []);
 
-  const tierPip = (t: number) => (t === 1 ? "T1" : t === 2 ? "T2" : "T3");
+  const tierPip = (tt: ReturnType<typeof useT>, tier: number) => tt(`circuit.tierPip${tier}`, tier === 1 ? "T1" : tier === 2 ? "T2" : "T3");
 
   return (
     <div className="flex h-screen flex-col bg-surf-0 text-gray-200" style={{ height: "100dvh" }}>
@@ -256,18 +258,18 @@ export function CircuitPage({
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surf-1 px-2 md:px-3">
         <button
           onClick={seg === "world" && !isDesktop ? () => { setSeg("map"); sound.tab(); } : onClose}
-          aria-label={seg === "world" && !isDesktop ? "Back to Map" : "Return to the Cradle"}
-          title={seg === "world" && !isDesktop ? "Back to Map" : "Return to the Cradle"}
+          aria-label={seg === "world" && !isDesktop ? t("circuit.backToMap", "Back to Map") : t("circuit.returnToCradle", "Return to the Cradle")}
+          title={seg === "world" && !isDesktop ? t("circuit.backToMap", "Back to Map") : t("circuit.returnToCradle", "Return to the Cradle")}
           className="flex h-11 min-w-11 flex-none items-center justify-center gap-1.5 rounded-lg px-2 text-text-2 hover:bg-white/10"
         >
           <span aria-hidden="true">◀</span>
           <span className="hidden text-sm font-medium md:inline">
-            {seg === "world" && !isDesktop ? "Back to Map" : "Return to Cradle"}
+            {seg === "world" && !isDesktop ? t("circuit.backToMap", "Back to Map") : t("circuit.returnToCradleShort", "Return to Cradle")}
           </span>
         </button>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="truncate text-lg font-semibold leading-tight text-text-1">THE CIRCUIT</h1>
+            <h1 className="truncate text-lg font-semibold leading-tight text-text-1">{t("circuit.title", "THE CIRCUIT")}</h1>
             <span
               className="chip flex-none border"
               style={{
@@ -276,31 +278,31 @@ export function CircuitPage({
                 color: `var(--race-${race.id}-text)`,
               }}
             >
-              {race.name}
+              {raceText(t, race, "name", race.name)}
             </span>
             {isDesktop && WORLD_CONFIG_PUBLIC.debugWorld && (
               <span className="chip flex-none border border-purple-400/30 bg-purple-400/15 font-semibold uppercase tracking-wider text-purple-200">
-                Beta Test World
+                {t("circuit.betaWorld", "Beta Test World")}
               </span>
             )}
           </div>
-          {isDesktop && <p className="truncate text-sm leading-tight text-text-3">the shattered circuit-web of the old world</p>}
+          {isDesktop && <p className="truncate text-sm leading-tight text-text-3">{t("circuit.subtitle", "the shattered circuit-web of the old world")}</p>}
         </div>
         <div className="ms-auto flex flex-none items-center gap-1.5">
           {isDesktop && (
             <SegmentedControl
-              ariaLabel="Circuit view — map or world"
+              ariaLabel={t("circuit.segAria", "Circuit view — map or world")}
               options={SEG_OPTIONS}
               value={seg}
               onChange={(id) => { setSeg(id as Seg); sound.tab(); }}
               className="me-1"
             />
           )}
-          <Tooltip content="Reports — what came home while you watched.">
+          <Tooltip content={t("circuit.reportsHint", "Reports — what came home while you watched.")}>
             <button
               onClick={onReports}
-              aria-label={unread > 0 ? `Reports — ${unread} new` : "Reports — nothing new"}
-              title={unread > 0 ? `${unread} new reports` : "Reports"}
+              aria-label={unread > 0 ? t("circuit.reportsAriaNew", "Reports — {n} new", { n: unread }) : t("circuit.reportsAriaIdle", "Reports — nothing new")}
+              title={unread > 0 ? t("circuit.reportsTitleNew", "{n} new reports", { n: unread }) : t("circuit.reportsTitle", "Reports")}
               className={`relative flex h-11 min-w-11 items-center justify-center rounded-lg border px-2.5 ${
                 unread > 0
                   ? "report-blink border-ember/80 bg-ember/10 text-ember-soft"
@@ -315,21 +317,21 @@ export function CircuitPage({
               )}
             </button>
           </Tooltip>
-          <Tooltip content={muted ? "Unmute" : "Mute"}>
+          <Tooltip content={muted ? t("circuit.unmute", "Unmute") : t("circuit.mute", "Mute")}>
             <button
               onClick={onToggleMute}
-              title={muted ? "Unmute" : "Mute"}
-              aria-label={muted ? "Unmute audio" : "Mute audio"}
+              title={muted ? t("circuit.unmute", "Unmute") : t("circuit.mute", "Mute")}
+              aria-label={muted ? t("circuit.unmuteAudio", "Unmute audio") : t("circuit.muteAudio", "Mute audio")}
               className="flex h-11 min-w-11 items-center justify-center rounded-lg border border-line text-text-2 hover:bg-white/10"
             >
               {muted ? "🔇" : "🔊"}
             </button>
           </Tooltip>
-          <Tooltip content={isFullscreen ? "Exit full screen" : "Full screen"}>
+          <Tooltip content={isFullscreen ? t("circuit.exitFullscreen", "Exit full screen") : t("circuit.fullscreen", "Full screen")}>
             <button
               onClick={onToggleFullscreen}
-              title={isFullscreen ? "Exit full screen" : "Full screen"}
-              aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
+              title={isFullscreen ? t("circuit.exitFullscreen", "Exit full screen") : t("circuit.fullscreen", "Full screen")}
+              aria-label={isFullscreen ? t("circuit.exitFullscreen", "Exit full screen") : t("circuit.fullscreen", "Full screen")}
               className="flex h-11 min-w-11 items-center justify-center rounded-lg border border-line text-text-2 hover:bg-white/10 md:block"
             >
               {isFullscreen ? "🗗" : "⛶"}
@@ -358,7 +360,7 @@ export function CircuitPage({
             <div
               ref={stageRef}
               tabIndex={-1}
-              aria-label="The Circuit — world map"
+              aria-label={t("circuit.mapAria", "The Circuit — world map")}
               className="circuit-stage relative min-h-0 flex-1 overflow-auto bg-surf-0 outline-none"
             >
               <div className="flex h-full min-h-full w-full min-w-full">
@@ -371,7 +373,7 @@ export function CircuitPage({
                     viewBox={`0 0 ${canvas.w} ${canvas.h}`}
                     className={`circuit-zoom-${tier} block h-full w-full select-none`}
                     role="img"
-                    aria-label="The Circuit — world map: territories, traces, and the Chorus-held heart"
+                    aria-label={t("circuit.mapSvgAria", "The Circuit — world map: territories, traces, and the Chorus-held heart")}
                   >
                     {/* LAYER 0+1 — severed-trace breaks, then road / ruin-pass traces.
                         x goes through the §3.2 canvas map; y, radii and stroke widths
@@ -440,7 +442,7 @@ export function CircuitPage({
                             {n.kind === "cradle" && <text x={nx} y={n.y + 5} textAnchor="middle" fontSize="13">🔰</text>}
                             {n.kind === "rim" && n.importance && (
                               <text className="cl-pip" x={nx + 14 * canvas.kx} y={n.y - 12} textAnchor="middle" fontSize={fontUnits} fontWeight="bold" fill={TIER_COLORS[n.importance.tier]} {...halo}>
-                                {tierPip(n.importance.tier)}
+                                {tierPip(t, n.importance.tier)}
                               </text>
                             )}
                             {n.kind === "rim" && n.id === "shattered-academies" && (
@@ -462,7 +464,7 @@ export function CircuitPage({
                             )}
                             {n.kind === "heart" && (
                               <text className="cl-sub" x={nx} y={n.y - 38} textAnchor="middle" fontSize={fontUnits} fill={SIGIL_COLORS.heartSub} letterSpacing="1.5" {...halo}>
-                                THE PRIZE · THE THREAT
+                                {t("circuit.heartSub", "THE PRIZE · THE THREAT")}
                               </text>
                             )}
                           </g>
@@ -473,7 +475,7 @@ export function CircuitPage({
                         events; the r26 circle is the 44px tap floor (§2.1 rule 4). */}
                     <g>
                       {circuit.nodes.map((n) => {
-                        const title = nodeTitle(n);
+                        const title = nodeTitle(t, n);
                         return (
                           <g
                             key={n.id}
@@ -512,7 +514,7 @@ export function CircuitPage({
           {!isDesktop && (
             <div className="flex h-14 shrink-0 items-center gap-2 border-t border-line bg-surf-1 px-2">
               <SegmentedControl
-                ariaLabel="Circuit view — map or world"
+                ariaLabel={t("circuit.segAria", "Circuit view — map or world")}
                 options={SEG_OPTIONS}
                 value={seg}
                 onChange={(id) => { setSeg(id as Seg); sound.tab(); }}
@@ -522,32 +524,32 @@ export function CircuitPage({
               <div className="ms-auto flex flex-none items-center gap-1">
                 <button
                   onClick={() => { setLegendSheetOpen(true); sound.click(); }}
-                  aria-label="Open the full Circuit legend"
-                  title="Legend"
+                  aria-label={t("circuit.openLegend", "Open the full Circuit legend")}
+                  title={t("circuit.legendShort", "Legend")}
                   className="flex h-11 w-11 items-center justify-center rounded-lg border border-line text-text-2 hover:bg-white/10"
                 >
                   <span aria-hidden="true">▾</span>
                 </button>
                 <button
                   onClick={resetView}
-                  aria-label="Reset the map view"
-                  title="Reset view"
+                  aria-label={t("circuit.resetMapView", "Reset the map view")}
+                  title={t("circuit.resetView", "Reset view")}
                   className="flex h-11 w-11 items-center justify-center rounded-lg border border-line text-text-2 hover:bg-white/10"
                 >
                   <span aria-hidden="true">⇱</span>
                 </button>
                 <button
                   onClick={() => zoomBy(-1)}
-                  aria-label="Zoom out"
-                  title="Zoom out"
+                  aria-label={t("circuit.zoomOut", "Zoom out")}
+                  title={t("circuit.zoomOut", "Zoom out")}
                   className="flex h-11 w-11 items-center justify-center rounded-lg border border-line text-text-2 hover:bg-white/10"
                 >
                   <span aria-hidden="true">−</span>
                 </button>
                 <button
                   onClick={() => zoomBy(1)}
-                  aria-label="Zoom in"
-                  title="Zoom in"
+                  aria-label={t("circuit.zoomIn", "Zoom in")}
+                  title={t("circuit.zoomIn", "Zoom in")}
                   className="flex h-11 w-11 items-center justify-center rounded-lg border border-line text-text-2 hover:bg-white/10"
                 >
                   <span aria-hidden="true">+</span>
@@ -568,17 +570,17 @@ export function CircuitPage({
             <div className="mt-auto px-4 pb-4">
               <WhosHereCard />
               <p className="mt-3 text-xs leading-relaxed text-text-3">
-                The Circuit shows the world as it is — no one holds these grounds yet. When the frontier burns, this web becomes the war board.
+                {t("circuit.legendNote", "The Circuit shows the world as it is — no one holds these grounds yet. When the frontier burns, this web becomes the war board.")}
               </p>
-              <p className="mt-1.5 text-xs text-text-3">Earn-only ground — nothing here is for sale.</p>
+              <p className="mt-1.5 text-xs text-text-3">{t("circuit.earnOnly", "Earn-only ground — nothing here is for sale.")}</p>
             </div>
           </aside>
         )}
       </div>
 
       {/* mobile / tablet: full legend in the Sheet primitive (§4.3) */}
-      <Sheet open={legendSheetOpen} onClose={() => { setLegendSheetOpen(false); sound.click(); }} labelledBy="circuit-legend-sheet-title" title="Reading the Circuit">
-        <SheetHeader id="circuit-legend-sheet-title" title="Reading the Circuit" subtitle="the shattered circuit-web of the old world" onClose={() => { setLegendSheetOpen(false); sound.click(); }} />
+      <Sheet open={legendSheetOpen} onClose={() => { setLegendSheetOpen(false); sound.click(); }} labelledBy="circuit-legend-sheet-title" title={t("circuit.readingTitle", "Reading the Circuit")}>
+        <SheetHeader id="circuit-legend-sheet-title" title={t("circuit.readingTitle", "Reading the Circuit")} subtitle={t("circuit.subtitle", "the shattered circuit-web of the old world")} onClose={() => { setLegendSheetOpen(false); sound.click(); }} />
         <div className="sheet-body pb-6"><CircuitLegend /></div>
       </Sheet>
 
@@ -613,11 +615,15 @@ function nodeFill(n: AtlasNode): string {
 function nodeRing(n: AtlasNode): string {
   return RING_COLORS[n.kind === "rim" ? "rim" : n.kind];
 }
-function nodeTitle(n: AtlasNode): string {
-  if (n.kind === "heart") return "The Chorus-held heart — the deepest scientific site. The prize and the threat.";
-  if (n.kind === "cradle") return "The Cradle — your capital and the home edge.";
-  if (n.kind === "near") return `${n.name} — home-protected ground, never contestable.`;
-  return `${n.name} — Burning-Rim territory${n.importance ? `, Tier ${n.importance.tier} (score ${n.importance.score.toFixed(2)})` : ""}.`;
+function nodeTitle(t: ReturnType<typeof useT>, n: AtlasNode): string {
+  const zone = n.zoneId ? getZone(n.zoneId) : null;
+  const zname = zone ? zoneName(t, zone) : n.name;
+  if (n.kind === "heart") return t("circuit.nodeHeart", "The Chorus-held heart — the deepest scientific site. The prize and the threat.");
+  if (n.kind === "cradle") return t("circuit.nodeCradle", "The Cradle — your capital and the home edge.");
+  if (n.kind === "near") return t("circuit.nodeNear", "{name} — home-protected ground, never contestable.", { name: zname });
+  return n.importance
+    ? t("circuit.nodeRimTier", "{name} — Burning-Rim territory, Tier {tier} (score {score}).", { name: zname, tier: n.importance.tier, score: n.importance.score.toFixed(2) })
+    : t("circuit.nodeRim", "{name} — Burning-Rim territory.", { name: zname });
 }
 /** §2.3 (amended) — the zoom tier sets TYPE SIZE and VISIBILITY only; the NAME
  *  STRING comes from the display-name table + collision ladder in
@@ -628,18 +634,19 @@ function nodeTitle(n: AtlasNode): string {
 
 /* ---------------- chrome pieces ---------------- */
 function FloatingControls({ onLegend, onReset, onZoomIn, onZoomOut }: { onLegend: () => void; onReset: () => void; onZoomIn: () => void; onZoomOut: () => void }) {
+  const t = useT();
   return (
     <div className="absolute bottom-3 start-3 z-10 flex items-center gap-1">
-      <button onClick={onLegend} aria-label="Jump to the legend" title="Legend" className="flex h-11 items-center gap-1 rounded-lg border border-line bg-surf-1 px-2.5 text-sm text-text-2 shadow-lg hover:bg-white/10">
-        Legend <span aria-hidden="true">▸</span>
+      <button onClick={onLegend} aria-label={t("circuit.jumpToLegend", "Jump to the legend")} title={t("circuit.legendShort", "Legend")} className="flex h-11 items-center gap-1 rounded-lg border border-line bg-surf-1 px-2.5 text-sm text-text-2 shadow-lg hover:bg-white/10">
+        {t("circuit.legendShort", "Legend")} <span aria-hidden="true">▸</span>
       </button>
-      <button onClick={onReset} aria-label="Reset the map view" title="Reset view" className="flex h-11 w-11 items-center justify-center rounded-lg border border-line bg-surf-1 text-text-2 shadow-lg hover:bg-white/10">
+      <button onClick={onReset} aria-label={t("circuit.resetMapView", "Reset the map view")} title={t("circuit.resetView", "Reset view")} className="flex h-11 w-11 items-center justify-center rounded-lg border border-line bg-surf-1 text-text-2 shadow-lg hover:bg-white/10">
         <span aria-hidden="true">⇱</span>
       </button>
-      <button onClick={onZoomOut} aria-label="Zoom out" title="Zoom out" className="flex h-11 w-11 items-center justify-center rounded-lg border border-line bg-surf-1 text-text-2 shadow-lg hover:bg-white/10">
+      <button onClick={onZoomOut} aria-label={t("circuit.zoomOut", "Zoom out")} title={t("circuit.zoomOut", "Zoom out")} className="flex h-11 w-11 items-center justify-center rounded-lg border border-line bg-surf-1 text-text-2 shadow-lg hover:bg-white/10">
         <span aria-hidden="true">−</span>
       </button>
-      <button onClick={onZoomIn} aria-label="Zoom in" title="Zoom in" className="flex h-11 w-11 items-center justify-center rounded-lg border border-line bg-surf-1 text-text-2 shadow-lg hover:bg-white/10">
+      <button onClick={onZoomIn} aria-label={t("circuit.zoomIn", "Zoom in")} title={t("circuit.zoomIn", "Zoom in")} className="flex h-11 w-11 items-center justify-center rounded-lg border border-line bg-surf-1 text-text-2 shadow-lg hover:bg-white/10">
         <span aria-hidden="true">+</span>
       </button>
     </div>
@@ -650,11 +657,12 @@ function FloatingControls({ onLegend, onReset, onZoomIn, onZoomOut }: { onLegend
  * Renders the empty state until server presence ships; the `CircuitPresence`
  * contract already exists in circuit-tokens.ts so this card never reflows. */
 function WhosHereCard() {
+  const t = useT();
   return (
-    <section aria-label="Who's here" className="min-h-[168px] rounded-s border border-line bg-surf-2 p-4">
-      <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-3">Who's here</h3>
+    <section aria-label={t("circuit.whosHere", "Who's here")} className="min-h-[168px] rounded-s border border-line bg-surf-2 p-4">
+      <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-3">{t("circuit.whosHere", "Who's here")}</h3>
       <p className="mt-2 text-xs leading-relaxed text-text-3">
-        The frontier is quiet — no colonies hold ground here yet. When the war comes, holders and top colonies appear in this space.
+        {t("circuit.whosHereNote", "The frontier is quiet — no colonies hold ground here yet. When the war comes, holders and top colonies appear in this space.")}
       </p>
     </section>
   );
@@ -666,6 +674,7 @@ function raceEmoji(id: RaceId | null): string {
 }
 
 function ContributionTab({ state, token }: { state: GameState; token: string }) {
+  const t = useT();
   const [view, setView] = useState<ContributionView | null>(null);
   const [failed, setFailed] = useState(false);
   // Re-fetch whenever the parent's 4s state refresh lands, so score and rank stay
@@ -687,30 +696,30 @@ function ContributionTab({ state, token }: { state: GameState; token: string }) 
   const rows = view?.leaders ?? [];
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      <h2 className="text-2xl font-bold text-white">World Contribution</h2>
+      <h2 className="text-2xl font-bold text-white">{t("circuit.worldContribution", "World Contribution")}</h2>
       <p className="mt-1 text-xs text-gray-400">
-        World notice follows the dent you make — measured objectively, never by spend or votes.
+        {t("circuit.worldSub", "World notice follows the dent you make — measured objectively, never by spend or votes.")}
       </p>
 
       {/* Own standing — always visible */}
       <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/5 p-5">
         {failed && !me ? (
-          <p className="text-sm text-gray-400">The world's ledger is quiet right now — look again in a moment.</p>
+          <p className="text-sm text-gray-400">{t("circuit.ledgerQuietRetry", "The world's ledger is quiet right now — look again in a moment.")}</p>
         ) : !me ? (
-          <p className="text-sm text-gray-400">Reading the world's ledger…</p>
+          <p className="text-sm text-gray-400">{t("circuit.ledgerReading", "Reading the world's ledger…")}</p>
         ) : (
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             <div>
-              <div className="text-[11px] uppercase tracking-wider text-text-3">Your rank</div>
-              <div className="text-3xl font-bold text-amber-300">#{me.rank}<span className="text-sm font-normal text-text-3"> / {me.total} {me.total === 1 ? "colony" : "colonies"}</span></div>
+              <div className="text-[11px] uppercase tracking-wider text-text-3">{t("circuit.yourRank", "Your rank")}</div>
+              <div className="text-3xl font-bold text-amber-300"><bdi dir="ltr" className="num">{t("circuit.rankLine", "#{rank} / {total} {unit}", { rank: me.rank, total: me.total, unit: me.total === 1 ? t("circuit.colonyUnit", "colony") : t("circuit.coloniesUnit", "colonies") })}</bdi></div>
             </div>
             <div>
-              <div className="text-[11px] uppercase tracking-wider text-text-3">Contribution score</div>
+              <div className="text-[11px] uppercase tracking-wider text-text-3">{t("circuit.contributionScore", "Contribution score")}</div>
               <div className="text-3xl font-bold text-white">{me.score.toLocaleString()}</div>
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs leading-relaxed text-gray-400">
-                Earned by completed explorations, deeds, Codices recovered, and research — the dent your colony has left on this world so far.
+                {t("circuit.earnedNote", "Earned by completed explorations, deeds, Codices recovered, and research — the dent your colony has left on this world so far.")}
               </p>
             </div>
           </div>
@@ -719,24 +728,24 @@ function ContributionTab({ state, token }: { state: GameState; token: string }) 
 
       {/* Top-10 leaderboard */}
       <div className="mt-6 rounded-xl border border-white/10 bg-black/30 p-5">
-        <h3 className="font-semibold text-white">The World's Notice <span className="text-xs font-normal text-text-3">— top 10 colonies</span></h3>
+        <h3 className="font-semibold text-white">{t("circuit.worldsNotice", "The World's Notice")} <span className="text-xs font-normal text-text-3">{t("circuit.top10", "— top 10 colonies")}</span></h3>
         {failed && rows.length === 0 ? (
-          <p className="mt-3 text-sm text-text-3">The ledger is quiet right now.</p>
+          <p className="mt-3 text-sm text-text-3">{t("circuit.ledgerQuiet", "The ledger is quiet right now.")}</p>
         ) : rows.length === 0 ? (
-          <p className="mt-3 text-sm text-text-3">No colony has left a dent yet — the first dent will be the loudest.</p>
+          <p className="mt-3 text-sm text-text-3">{t("circuit.noDentYet", "No colony has left a dent yet — the first dent will be the loudest.")}</p>
         ) : (
           <ol className="mt-3 divide-y divide-white/5">
             {rows.map((row) => {
               const isMe = me !== null && row.rank === me.rank;
               return (
                 <li key={row.rank} className={`flex items-center gap-3 py-2 ${isMe ? "text-amber-200" : ""}`}>
-                  <span className={`w-9 shrink-0 text-center font-bold ${row.rank === 1 ? "text-amber-300" : row.rank <= 3 ? "text-white" : "text-text-3"}`}>{row.rank === 1 ? "🥇" : row.rank === 2 ? "🥈" : row.rank === 3 ? "🥉" : `#${row.rank}`}</span>
+                  <span className={`w-9 shrink-0 text-center font-bold ${row.rank === 1 ? "text-amber-300" : row.rank <= 3 ? "text-white" : "text-text-3"}`}>{row.rank === 1 ? "🥇" : row.rank === 2 ? "🥈" : row.rank === 3 ? "🥉" : t("circuit.rankShort", "#{rank}", { rank: row.rank })}</span>
                   <span className="shrink-0">{raceEmoji(row.race)}</span>
                   <span className="min-w-0 flex-1 truncate font-semibold">
                     {row.colonyName}
-                    {isMe ? <span className="ms-2 rounded bg-amber-400/20 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-amber-200">You</span> : null}
+                    {isMe ? <span className="ms-2 rounded bg-amber-400/20 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-amber-200">{t("circuit.youBadge", "You")}</span> : null}
                   </span>
-                  <span className="shrink-0 text-sm text-gray-400">{row.score.toLocaleString()} <span className="text-text-3">score</span></span>
+                  <span className="shrink-0 text-sm text-gray-400">{t("circuit.scoreLine", "{score} score", { score: row.score.toLocaleString() })}</span>
                 </li>
               );
             })}
@@ -749,62 +758,65 @@ function ContributionTab({ state, token }: { state: GameState; token: string }) 
 
 /* ---------------- node Sheet (the territory's story — no war state) ---------------- */
 function NodeSheet({ node, onClose }: { node?: AtlasNode; onClose: () => void }) {
+  const t = useT();
   return (
-    <Sheet open={!!node} onClose={onClose} labelledBy="circuit-node-sheet-title" title={node?.name ?? "The Circuit"}>
+    <Sheet open={!!node} onClose={onClose} labelledBy="circuit-node-sheet-title" title={node?.name ?? t("circuit.titleFallback", "The Circuit")}>
       <SheetHeader id="circuit-node-sheet-title" title={node?.name ?? ""} onClose={onClose} />
       <div className="sheet-body px-4 py-3 md:px-5">
         {node && (
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              {node.heart && <span className="chip border border-orange-500/40 bg-orange-500/10 font-semibold text-orange-300">🔥 CHORUS-HELD HEART</span>}
-              {node.kind === "cradle" && <span className="chip border border-amber-400/40 bg-amber-400/10 font-semibold text-amber-200">THE CRADLE · HOME EDGE</span>}
-              {node.kind === "near" && <span className="chip border border-line bg-surf-2 text-text-2">HOME-PROTECTED</span>}
+              {node.heart && <span className="chip border border-orange-500/40 bg-orange-500/10 font-semibold text-orange-300">{t("circuit.chipChorusHeart", "🔥 CHORUS-HELD HEART")}</span>}
+              {node.kind === "cradle" && <span className="chip border border-amber-400/40 bg-amber-400/10 font-semibold text-amber-200">{t("circuit.chipCradle", "THE CRADLE · HOME EDGE")}</span>}
+              {node.kind === "near" && <span className="chip border border-line bg-surf-2 text-text-2">{t("circuit.chipNear", "HOME-PROTECTED")}</span>}
               {node.kind === "rim" && node.importance && (
                 <span className="chip border border-line bg-surf-2 font-semibold" style={{ color: TIER_COLORS[node.importance.tier] }}>
-                  BURNING RIM · TIER {node.importance.tier} — {tierWord(node.importance.tier)}
+                  {t("circuit.chipRim", "BURNING RIM · TIER {tier} — {word}", { tier: node.importance.tier, word: tierWord(t, node.importance.tier) })}
                 </span>
               )}
             </div>
             <p className="text-xs leading-relaxed text-gray-400">
-              {node.kind === "heart" ? "The deep-most scientific site — the web's core." :
-                node.kind === "cradle" ? "Your capital. The world persists around it." :
-                node.kind === "near" ? "Near Ring — the Cradle's buffer and starter economy. Never contestable." :
-                "Burning Rim — the frontier. Contestable ground when war comes."}
+              {node.kind === "heart" ? t("circuit.nodeDescHeart", "The deep-most scientific site — the web's core.") :
+                node.kind === "cradle" ? t("circuit.nodeDescCradle", "Your capital. The world persists around it.") :
+                node.kind === "near" ? t("circuit.nodeDescNear", "Near Ring — the Cradle's buffer and starter economy. Never contestable.") :
+                t("circuit.nodeDescRim", "Burning Rim — the frontier. Contestable ground when war comes.")}
             </p>
             {node.zoneId && (
               <p className="text-xs leading-relaxed text-gray-300">
-                {getZone(node.zoneId).flavor}
+                {zoneFlavor(t, getZone(node.zoneId))}
                 {node.heart && (
-                  <span className="mt-1 block text-orange-300/90">The Chorus holds this ground. The war's arc reads inward — footholds, then the chain, then this: the closer you get, the harder it hunts.</span>
+                  <span className="mt-1 block text-orange-300/90">{t("circuit.heartNote", "The Chorus holds this ground. The war's arc reads inward — footholds, then the chain, then this: the closer you get, the harder it hunts.")}</span>
                 )}
               </p>
             )}
             {node.importance && (
               <div className="space-y-1 rounded-xl border border-white/10 bg-black/30 p-3 text-xs">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-amber-200">Tier {node.importance.tier} — {tierWord(node.importance.tier)}</span>
-                  <span className="text-gray-400">score {node.importance.score.toFixed(2)}</span>
+                  <span className="font-semibold text-amber-200">{t("circuit.tierLine", "Tier {tier} — {word}", { tier: node.importance.tier, word: tierWord(t, node.importance.tier) })}</span>
+                  <span className="text-gray-400">{t("circuit.scoreShort", "score {v}", { v: node.importance.score.toFixed(2) })}</span>
                 </div>
                 <p className="text-gray-300">
-                  <b className="text-white">Because:</b> Richness <b className="text-cyan-300">{node.importance.richness.toFixed(2)}</b> ·
-                  Position <b className="text-fuchsia-300">{node.importance.position.toFixed(2)}</b> ·
-                  Chorus <b className="text-orange-300">{node.importance.chorus.toFixed(2)}</b>
+                  <b className="text-white">{t("circuit.because", "Because:")}</b>{" "}
+                  <b className="text-cyan-300">{t("circuit.richnessStat", "Richness {v}", { v: node.importance.richness.toFixed(2) })}</b>{" · "}
+                  <b className="text-fuchsia-300">{t("circuit.positionStat", "Position {v}", { v: node.importance.position.toFixed(2) })}</b>{" · "}
+                  <b className="text-orange-300">{t("circuit.chorusStat", "Chorus {v}", { v: node.importance.chorus.toFixed(2) })}</b>
                 </p>
                 {node.profile && (
                   <p className="text-gray-300">
-                    <b className="text-white">The ground yields (per day):</b> 🔥 embers {node.profile.embersPerDay[0]}–{node.profile.embersPerDay[1]} ·
-                    🧠 chipsets ≈{node.profile.chipsetsPerDay.toFixed(2)} ·
-                    {node.profile.plasmaPerDay ? <> ⚡ plasma {node.profile.plasmaPerDay[0]}–{node.profile.plasmaPerDay[1]} ·</> : null}
-                    {node.profile.mat ? <> 📦 war-captured territory mat</> : <> 📦 no mat</>}
+                    <b className="text-white">{t("circuit.yieldsLabel", "The ground yields (per day):")}</b>{" "}
+                    {t("circuit.yieldsEmbers", "🔥 embers {min}–{max}", { min: node.profile.embersPerDay[0], max: node.profile.embersPerDay[1] })} ·{" "}
+                    {t("circuit.yieldsChipsets", "🧠 chipsets ≈{v}", { v: node.profile.chipsetsPerDay.toFixed(2) })} ·{" "}
+                    {node.profile.plasmaPerDay ? <>{t("circuit.yieldsPlasma", "⚡ plasma {min}–{max}", { min: node.profile.plasmaPerDay[0], max: node.profile.plasmaPerDay[1] })} · </> : null}
+                    {node.profile.mat ? t("circuit.yieldsMat", "📦 war-captured territory mat") : t("circuit.noMat", "📦 no mat")}
                   </p>
                 )}
               </div>
             )}
             {node.kind === "near" && (
-              <p className="text-xs text-text-3">Home-protected ground — explorations run here as today; the frontier cut never touches it.</p>
+              <p className="text-xs text-text-3">{t("circuit.nearNote", "Home-protected ground — explorations run here as today; the frontier cut never touches it.")}</p>
             )}
             {node.kind === "cradle" && (
-              <p className="text-xs text-text-3">The supply lanes run Cradle → Near Ring → Rim along the traces you see here.</p>
+              <p className="text-xs text-text-3">{t("circuit.cradleNote", "The supply lanes run Cradle → Near Ring → Rim along the traces you see here.")}</p>
             )}
           </div>
         )}
@@ -813,8 +825,12 @@ function NodeSheet({ node, onClose }: { node?: AtlasNode; onClose: () => void })
   );
 }
 
-function tierWord(t: number): string {
-  return t === 1 ? "foothold" : t === 2 ? "strong ground" : "crown jewel";
+function tierWord(t: ReturnType<typeof useT>, tier: number): string {
+  return tier === 1
+    ? t("circuit.tierWord1", "foothold")
+    : tier === 2
+      ? t("circuit.tierWord2", "strong ground")
+      : t("circuit.tierWord3", "crown jewel");
 }
 
 /* ============================================================================
@@ -868,73 +884,75 @@ function LegendSection({ title, children }: { title: string; children: ReactNode
 }
 
 function CircuitLegend() {
+  const t = useT();
   return (
     <div className="px-4 py-4 md:px-5">
       <h2 id="circuit-legend-title" className="text-xs font-semibold uppercase tracking-[0.08em] text-text-3">
-        Reading the Circuit
+        {t("circuit.readingTitle", "Reading the Circuit")}
       </h2>
       <p className="mt-2 text-xs leading-relaxed text-text-3">
-        Contestable ground carries a depth tier: how deep it lies, how rich it is, how hard it hunts.
+        {t("circuit.legendIntro", "Contestable ground carries a depth tier: how deep it lies, how rich it is, how hard it hunts.")}
       </p>
 
-      <LegendSection title="Depth tiers — contestable ground only">
-        <LegendEntry kind="t1" title="T1 · OUTER RIM" caption="Footholds at the landing edge. Embers flow; the risk is low." />
-        <LegendEntry kind="t2" title="T2 · MID-DEPTH" caption="Strong ground — balanced embers and chipsets, a real fight to hold." />
-        <LegendEntry kind="t3" title="T3 · DEEP" caption="The crown jewels. Chipsets and plasma — and the Chorus hunts hardest here." />
+      <LegendSection title={t("circuit.legendSecTiers", "Depth tiers — contestable ground only")}>
+        <LegendEntry kind="t1" title={t("circuit.legendT1", "T1 · OUTER RIM")} caption={t("circuit.legendT1Cap", "Footholds at the landing edge. Embers flow; the risk is low.")} />
+        <LegendEntry kind="t2" title={t("circuit.legendT2", "T2 · MID-DEPTH")} caption={t("circuit.legendT2Cap", "Strong ground — balanced embers and chipsets, a real fight to hold.")} />
+        <LegendEntry kind="t3" title={t("circuit.legendT3", "T3 · DEEP")} caption={t("circuit.legendT3Cap", "The crown jewels. Chipsets and plasma — and the Chorus hunts hardest here.")} />
       </LegendSection>
       <p className="mt-2 text-xs text-text-3">
-        Tier = published importance score: T1 &lt; 0.40 · T2 0.40–0.70 · T3 &gt; 0.70 — never hidden math.
+        {t("circuit.legendTierRule", "Tier = published importance score: T1 < 0.40 · T2 0.40–0.70 · T3 > 0.70 — never hidden math.")}
       </p>
 
-      <LegendSection title="Ground kinds">
-        <LegendEntry kind="heart" title="THE CHORUS-HELD HEART" caption="The deepest scientific site at the web's core. The prize and the threat — never a neutral prize." />
-        <LegendEntry kind="rim" title="CONTESTABLE RIM" caption="The frontier — where the war will burn. Carries a depth tier above." />
-        <LegendEntry kind="near" title="HOME-PROTECTED" caption="Near Ring — the Cradle's buffer and starter economy. Never contestable." />
-        <LegendEntry kind="cradle" title="THE CRADLE" caption="Your capital — the home edge. Supply lanes run from here to the frontier." />
+      <LegendSection title={t("circuit.legendSecKinds", "Ground kinds")}>
+        <LegendEntry kind="heart" title={t("circuit.legendHeart", "THE CHORUS-HELD HEART")} caption={t("circuit.legendHeartCap", "The deepest scientific site at the web's core. The prize and the threat — never a neutral prize.")} />
+        <LegendEntry kind="rim" title={t("circuit.legendRim", "CONTESTABLE RIM")} caption={t("circuit.legendRimCap", "The frontier — where the war will burn. Carries a depth tier above.")} />
+        <LegendEntry kind="near" title={t("circuit.legendNear", "HOME-PROTECTED")} caption={t("circuit.legendNearCap", "Near Ring — the Cradle's buffer and starter economy. Never contestable.")} />
+        <LegendEntry kind="cradle" title={t("circuit.legendCradle", "THE CRADLE")} caption={t("circuit.legendCradleCap", "Your capital — the home edge. Supply lanes run from here to the frontier.")} />
       </LegendSection>
 
-      <LegendSection title="Traces — how ground connects">
-        <LegendEntry kind="road" title="CONDUCTOR LANE" caption="Fast marches and supply." />
-        <LegendEntry kind="ruin" title="BURNT PASS" caption="Slow and risky — but passable." />
-        <LegendEntry kind="severed" title="SEVERED TRACE" caption="Impassable. The Chorus broke the circuit here." />
+      <LegendSection title={t("circuit.legendSecTraces", "Traces — how ground connects")}>
+        <LegendEntry kind="road" title={t("circuit.legendRoad", "CONDUCTOR LANE")} caption={t("circuit.legendRoadCap", "Fast marches and supply.")} />
+        <LegendEntry kind="ruin" title={t("circuit.legendRuin", "BURNT PASS")} caption={t("circuit.legendRuinCap", "Slow and risky — but passable.")} />
+        <LegendEntry kind="severed" title={t("circuit.legendSevered", "SEVERED TRACE")} caption={t("circuit.legendSeveredCap", "Impassable. The Chorus broke the circuit here.")} />
       </LegendSection>
 
-      <LegendSection title="War-phase states">
-        <LegendEntry kind="corrupted" title="CORRUPTED" caption="No holder. Open extraction at a small yield." />
-        <LegendEntry kind="contested" title="CONTESTED" caption="A side holds it; score ticks to them. Flag = the holder's world." />
-        <LegendEntry kind="purified" title="PURIFIED" caption="Oracle-cleaned ground. The brightest node on the map — and the rarest." />
+      <LegendSection title={t("circuit.legendSecWar", "War-phase states")}>
+        <LegendEntry kind="corrupted" title={t("circuit.legendCorrupted", "CORRUPTED")} caption={t("circuit.legendCorruptedCap", "No holder. Open extraction at a small yield.")} />
+        <LegendEntry kind="contested" title={t("circuit.legendContested", "CONTESTED")} caption={t("circuit.legendContestedCap", "A side holds it; score ticks to them. Flag = the holder's world.")} />
+        <LegendEntry kind="purified" title={t("circuit.legendPurified", "PURIFIED")} caption={t("circuit.legendPurifiedCap", "Oracle-cleaned ground. The brightest node on the map — and the rarest.")} />
       </LegendSection>
 
       <p className="mt-4 text-xs italic leading-relaxed text-text-3">
-        Every state is also a shape or a label — rings, chips, stars, sigils. If a color alone is doing the talking, that is a bug.
+        {t("circuit.legendClosing", "Every state is also a shape or a label — rings, chips, stars, sigils. If a color alone is doing the talking, that is a bug.")}
       </p>
     </div>
   );
 }
 
 /* ---- §4.2 compact rail (mobile/tablet, 40px, always visible, scrollable) ---- */
-const RAIL: Array<{ kind: SwatchKind; label: string }> = [
-  { kind: "heart", label: "Heart" },
-  { kind: "rim", label: "Rim" },
-  { kind: "near", label: "Near" },
-  { kind: "cradle", label: "Cradle" },
-  { kind: "t1", label: "T1 Outer" },
-  { kind: "t2", label: "T2 Mid" },
-  { kind: "t3", label: "T3 Deep" },
-  { kind: "road", label: "lane" },
-  { kind: "ruin", label: "burnt" },
-  { kind: "severed", label: "severed" },
+const RAIL: Array<{ kind: SwatchKind; key: string; en: string }> = [
+  { kind: "heart", key: "circuit.railHeart", en: "Heart" },
+  { kind: "rim", key: "circuit.railRim", en: "Rim" },
+  { kind: "near", key: "circuit.railNear", en: "Near" },
+  { kind: "cradle", key: "circuit.railCradle", en: "Cradle" },
+  { kind: "t1", key: "circuit.railT1Outer", en: "T1 Outer" },
+  { kind: "t2", key: "circuit.railT2Mid", en: "T2 Mid" },
+  { kind: "t3", key: "circuit.railT3Deep", en: "T3 Deep" },
+  { kind: "road", key: "circuit.railRoad", en: "lane" },
+  { kind: "ruin", key: "circuit.railRuin", en: "burnt" },
+  { kind: "severed", key: "circuit.railSevered", en: "severed" },
 ];
 
 function CompactLegendRail() {
+  const t = useT();
   return (
-    <div role="list" aria-label="Circuit legend — compact" className="h-10 shrink-0 overflow-x-auto border-t border-line bg-surf-1">
+    <div role="list" aria-label={t("circuit.railAria", "Circuit legend — compact")} className="h-10 shrink-0 overflow-x-auto border-t border-line bg-surf-1">
       <ul className="flex h-10 w-max items-center gap-1.5 px-2">
         {RAIL.map((r) => (
-          <li key={r.label} role="listitem">
+          <li key={r.key} role="listitem">
             <span className="chip h-6 gap-1.5 border border-line bg-surf-2 ps-1.5 pe-2 text-[11px] font-medium text-text-2" style={{ maxWidth: "112px" }}>
               <Swatch kind={r.kind} />
-              <span className="truncate">{r.label}</span>
+              <span className="truncate">{t(r.key, r.en)}</span>
             </span>
           </li>
         ))}

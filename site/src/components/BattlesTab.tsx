@@ -57,7 +57,7 @@ import {
   windowClockLabelT,
 } from "../game/battle-decisions";
 import type { ConfirmState, IssueAction, OrderLinePart } from "../game/battle-decisions";
-import { familyFor } from "../game/armory";
+import { familyFor, familyText } from "../game/armory";
 import { Icon } from "./icons";
 import type { IconName } from "./icons";
 import { useT } from "./i18n/I18n";
@@ -278,7 +278,7 @@ function useVoiceLayer({
 
 function weaponLabel(t: ReturnType<typeof useT>, state: GameState, kit: { family: string; tier: number; count: number }): string {
   const fam = state.race ? familyFor(state.race, kit.family) : undefined;
-  const base = fam ? fam.name : kit.family;
+  const base = fam && state.race ? familyText(t, state.race, fam, "name", fam.name) : kit.family;
   return t("battles.weaponLine", "{base} T{tier} × {count}", { base, tier: kit.tier, count: kit.count });
 }
 
