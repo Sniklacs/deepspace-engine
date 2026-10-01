@@ -14,6 +14,10 @@ cd "$(dirname "$0")"
 umask 002
 
 echo "[1/3] vite build (light — safe under the sandbox memory cap)"
+# Stamp the build with its commit so the app can say which build it is
+# (Settings → On this device). Falls back to "dev" outside a git checkout.
+export VITE_BUILD_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
+echo "build sha: $VITE_BUILD_SHA"
 # The workspace starts as sources only (deps live with the image's pre-built
 # placeholder copy); no-op once node_modules is current.
 bun install

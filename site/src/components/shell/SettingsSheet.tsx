@@ -12,6 +12,7 @@ import { LanguageRows } from "../i18n/LanguagePicker";
 import InstallAffordance from "./InstallAffordance";
 import StorageNote from "./StorageNote";
 import TranslatorNote from "./TranslatorNote";
+import { BUILD_SHA } from "../../game/build-info";
 import {
   langMeta,
   setDeviceChatChime,
@@ -128,6 +129,11 @@ export default function SettingsSheet({ open, onClose }: { open: boolean; onClos
           <h4 className="eyebrow pt-1">{t("translator.title")}</h4>
           <p className="text-[11px] leading-snug text-text-3">{t("translator.sub")}</p>
           <TranslatorNote />
+          {/* The build stamp: which version of the app is this copy? If the app
+              ever stops updating, read this — it names the exact build. */}
+          <p className="px-1 pt-2 text-[11px] text-text-3" data-testid="build-stamp">
+            Build {BUILD_SHA}
+          </p>
         </section>
       </div>
     </Sheet>
