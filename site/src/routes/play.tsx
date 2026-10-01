@@ -57,6 +57,7 @@ import { useT, useLang } from "../components/i18n/I18n";
 import { navBadges } from "../game/nav-badges";
 import type { Tab } from "../game/nav-slots";
 import CradleScreen from "../components/screens/CradleScreen";
+import CradlePlate from "../components/CradlePlate";
 import { ForgedRack } from "../components/ForgeViews";
 import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
@@ -607,7 +608,7 @@ function PlayPage() {
           canLeaveHeight={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
         />
       )}
-      {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onCraft={(k, n) => act(() => craftFn({ data: { token: token!, kind: k, count: n } }), "success")} />}
+      {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onCraft={(k, n) => act(() => craftFn({ data: { token: token!, kind: k, count: n } }), "success")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} busy={busy} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} onForgeMelt={(itemId) => act(() => forgeMeltFn({ data: { token: token!, itemId } }), "success")} />}
       {tab === "loadout" && <LoadoutTab state={state} busy={busy} onEquip={(itemId, bearer, slot) => act(() => equipForgeItemFn({ data: { token: token!, itemId, bearer, slot } }), "success")} onUnequip={(itemId) => act(() => unequipForgeItemFn({ data: { token: token!, itemId } }), "success")} />}
       {tab === "battles" && (
@@ -1439,9 +1440,10 @@ function SiteNeeds({ state, zone, scientists }: { state: GameState; zone: Zone; 
   );
 }
 
-function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
+function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft, onDeploy }: {
   state: GameState; now: number; onLaunch: (zone: string, sci: number) => void;
   onFlash: (m?: string) => void; onCraft: (k: CraftKind, count: number) => void;
+  onDeploy: (d: DomainId) => void;
 }) {
   const t = useT();
   const [sel, setSel] = useState("outer-ruins");
@@ -1496,7 +1498,10 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft }: {
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      <div className="flex flex-wrap items-baseline justify-between">
+      {/* the Cradle name plate + domain tiles (owner 2026-10-01: moved here from
+          the top of the Cradle page — the colony's home now greets expeditions) */}
+      <CradlePlate state={state} onDeploy={onDeploy} />
+      <div className="mt-6 flex flex-wrap items-baseline justify-between">
         <h2 className="text-2xl font-bold text-white">{t("exp.title")}</h2>
         <p className="text-sm text-gray-400">{t("play.exp.teamsAway", "Teams away:")} <b className="text-white">{active.length}/{maxSlots}</b> {!canLaunch && <span className="text-amber-300">{t("play.exp.moreSlots", " — deploy Logistics AI for more slots")}</span>}</p>
       </div>

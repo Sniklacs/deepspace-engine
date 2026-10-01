@@ -16,7 +16,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Panel } from "../ui/Panel";
-import { BuildingTile } from "../ui/BuildingTile";
 import { ActionButton } from "../ui/ActionButton";
 import { StatTile } from "../ui/StatTile";
 import { RosterCard, RosterEmpty } from "../ui/RosterCard";
@@ -26,11 +25,10 @@ import { Icon } from "../icons";
 import { Tooltip } from "../Tooltip";
 import { JournalButton } from "../JournalButton";
 import { engineHelpers } from "../../game/client-utils";
-import { CRADLE_SLOTS, CRADLE_SLOT_BY_ID, kitsHeld } from "../../game/cradle-slots";
+import { CRADLE_SLOTS, kitsHeld } from "../../game/cradle-slots";
 import { canForgeAlloy, alloyRecipeRaces } from "../../game/engine";
-import { DOMAIN_BY_ID, MAX_DOMAIN_LEVEL } from "../../game/zones";
 import { RACES, getRace } from "../../game/races";
-import { domainDescription, slotLabel } from "../../game/i18n";
+import { slotLabel } from "../../game/i18n";
 // The ONE date formatter: it pins `nu-latn`, so a Persian device cannot turn a
 // dated row into  ۱۴۰۵/۰۷/۰۶  — §11.4's "western digits only" promise.
 import { formatDate } from "../../game/i18n/format";
@@ -40,6 +38,7 @@ import { formatDate } from "../../game/i18n/format";
 import { joinValue } from "../../game/i18n/split";
 import { ForgeDoor, ForgeRoom } from "../ForgeViews";
 import CradleOverview, { type SpeedupKind } from "../CradleOverview";
+import SlotSheet from "../SlotSheet";
 import type { EarnedTimeTokenSizeId } from "../../game/time-tokens";
 import { sound } from "../../game/sound";
 import { useT } from "../i18n/I18n";
@@ -49,7 +48,7 @@ import { SPECIALTY_LABEL, specialtyLabel, leaderName } from "../../game/research
 import { DEED_BY_ID } from "../../game/heroes-data";
 import { heroLevel, heroXpForLevel } from "../../game/hero-xp";
 import {
-  tipT, tipField, DOMAIN_TIPS, METER_TIPS, LAB_TIPS, RESOURCE_TIPS,
+  tipT, tipField, METER_TIPS, LAB_TIPS, RESOURCE_TIPS,
 } from "../../game/tooltips";
 import type { CradleSlotId } from "../../game/cradle-slots";
 import type { GameState, DomainId } from "../../game/types";
@@ -120,7 +119,6 @@ export default function CradleScreen({
   const t = useT();
   const race = getRace(state.race!);
   const r = state.resources;
-  const spm = engineHelpers.suppliesPerMinute(state);
   const [sheet, setSheet] = useState<null | { kind: "slot" | "leader" | "hero" | "forge"; id: string }>(null);
   const close = () => setSheet(null);
   const adv = nextAdvance(state);
@@ -172,41 +170,16 @@ export default function CradleScreen({
             </Panel>
           ) : null}
 
-          {/* ---- B2 · the Cradle plate (the base view) ---------------------- */}
-          <Panel
-            variant="hero"
-            className="plate-ground"
-            accent={race.accent}
-            labelledBy="cradle-plate-title"
-            testid="cradle-plate"
-          >
-            <header className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="eyebrow">{t("cradle.plate")}</p>
-                <h1 id="cradle-plate-title" className="truncate text-lg font-bold text-text-1">
-                  {state.playerName}
-                </h1>
-                <p className="mt-0.5 truncate text-[11px] text-text-3">
-                  {t("cradle.plateMeta", {
-                    race: race.name,
-                    region: race.homeRegion,
-                    date: formatDate(t.lang ?? "en", state.createdAt),
-                  })}
-                </p>
-              </div>
-              <Tooltip className="flex-none" content={tipT(t, "lab", "fieldSlots", LAB_TIPS.fieldSlots)}>
-                <span className="pill border border-line bg-surf-2 text-text-2">
-                  <Bdi dir="ltr" className="num text-ember-soft">{`+${spm.toFixed(1)}`}</Bdi>
-                  <span className="text-[11px]">{t("cradle.perMin")}</span>
-                </span>
-              </Tooltip>
-            </header>
-            <div className="relative mt-3 grid grid-cols-3 gap-2 plate-map">
-              {CRADLE_SLOTS.map((s) => (
-                <BuildingTile key={s.id} slot={s} state={state} onOpen={(id) => setSheet({ kind: "slot", id })} />
-              ))}
-            </div>
-          </Panel>
+          {/* ---- B2 · the Cradle overview (owner 2026-10-01: the name plate +
+              its domain tiles moved to the Exploration page; the overview
+              takes the top of the Cradle page) --------------------------- */}
+          <CradleOverview
+            state={state}
+            now={now}
+            timeTokens={timeTokens}
+            onSpeedup={onSpeedup}
+            onOpenAlliance={onOpenAlliance}
+          />
 
           {/* ---- B3 · the advance bar (the screen's middle action) ---------- */}
           <div data-testid="advance-bar">
@@ -323,16 +296,10 @@ export default function CradleScreen({
             </div>
           </Panel>
 
-          {/* ---- B7 · the Cradle overview --------------------------------- */}
+          {/* ---- B7 · (moved to top 2026-10-01: the overview now sits where the
+              name plate was) ------------------------------------------------ */}
           {/* the workshop shelf moved to the Exploration page (owner 2026-09-30):
               the kits are expedition gear, so they live where expeditions launch. */}
-          <CradleOverview
-            state={state}
-            now={now}
-            timeTokens={timeTokens}
-            onSpeedup={onSpeedup}
-            onOpenAlliance={onOpenAlliance}
-          />
 
           {/* ---- B7b · the inventory stores --------------------------------- */}
           <Panel testid="inventory-stores" className="space-y-2">
@@ -745,86 +712,3 @@ function DevotionSection({ state, onClaim, tokenGrant }: { state: GameState; onC
   );
 }
 
-/* ---------------- the slot sheets ---------------------------------------- */
-
-function SlotSheet({
-  state,
-  slot,
-  onClose,
-  onDeploy,
-}: {
-  state: GameState;
-  slot: CradleSlotId | null;
-  onClose: () => void;
-  onDeploy: (d: DomainId) => void;
-}) {
-  const t = useT();
-  if (!slot) return null;
-  const def = CRADLE_SLOT_BY_ID[slot];
-  return (
-    <Sheet
-      open
-      onClose={onClose}
-      labelledBy="cradle-slot-title"
-      title={slotLabel(t, def)}
-    >
-      <SheetHeader
-        id="cradle-slot-title"
-        title={slotLabel(t, def)}
-        subtitle={t("cradle.levelN", { n: def.level(state) })}
-        onClose={onClose}
-      />
-      <div className="sheet-body space-y-3 px-4 py-3 md:px-5">
-          {(() => {
-            const domain = slot as DomainId;
-            const info = DOMAIN_BY_ID[domain];
-            const level = state.deployedDomains[domain];
-            const atMax = engineHelpers.domainAtMax(state, domain);
-            const cost = engineHelpers.deployCost(state, domain);
-            const affordable = engineHelpers.domainAffordable(state, domain);
-            const domainTip = DOMAIN_TIPS[domain];
-            return (
-              <>
-                <p className="text-[13px] text-text-2">{domainDescription(t, domain, info.description)}</p>
-                <ul className="space-y-1.5">
-                  <RecordRow label={t("cradle.level")} value={<Bdi dir="ltr" className="num">{level}</Bdi>} />
-                  {/* a SENTENCE (the engine's own prose): no Bdi, on purpose */}
-                  <RecordRow label={t("cradle.sheet.effectNow", "Effect now")} value={engineHelpers.domainEffectT(t, state, domain)} />
-                  {!atMax && <RecordRow label={t("cradle.sheet.nextAdvanceCosts", "Next advance costs")} value={t("cradle.advanceSub", "{embers} Embers · {insight} insight", { embers: cost.embers.toLocaleString(), insight: cost.insight.toLocaleString() })} />}
-                </ul>
-                <p className="text-[11px] leading-tight text-text-3">{tipField(t, "domain", domain, "what", domainTip.what)}</p>
-                {atMax ? (
-                  <ActionButton
-                    full
-                    size="md"
-                    icon="gear"
-                    label={t("cradle.domainMax", { cap: MAX_DOMAIN_LEVEL })}
-                    locked
-                    reason={t("cradle.domainMaxReason")}
-                    onClick={() => onDeploy(domain)}
-                  />
-                ) : (
-                <ActionButton
-                  full
-                  size="md"
-                  icon="gear"
-                  label={t("cradle.slotDeploy", { n: level + 1 })}
-                  sub={t("cradle.advanceSub", {
-                    embers: cost.embers.toLocaleString(),
-                    insight: cost.insight.toLocaleString(),
-                  })}
-                  locked={!affordable}
-                  reason={t("cradle.slotDeployLocked", {
-                    embers: cost.embers.toLocaleString(),
-                    insight: cost.insight.toLocaleString(),
-                  })}
-                  onClick={() => onDeploy(domain)}
-                />
-                )}
-              </>
-            );
-          })()}
-      </div>
-    </Sheet>
-  );
-}
