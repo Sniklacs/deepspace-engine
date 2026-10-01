@@ -1436,7 +1436,6 @@ export const fa: Catalogue = {
   "cfg.monet.votivePack.votiveGrand.name": "نذر بزرگ",
   "cfg.monet.votivePack.votiveSmall.name": "پیشکش کوچک",
   "cfg.monet.votivePack.votiveSteady.name": "عبادت استوار",
-  "cfg.prologuedata.config.heightColonyName": "آخرین آکادمی",
   "cfg.reports.armoryComplete": "🏛️ زرادخانه {family} را تمام کرد.",
   "cfg.reports.battleAttacker": "⚔️ نبرد در {zone} به پایان رسید — مهاجم خط را شکست.",
   "cfg.reports.battleDefender": "⚔️ نبرد در {zone} به پایان رسید — مدافع موضع را نگه داشت.",

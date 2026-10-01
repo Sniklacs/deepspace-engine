@@ -1408,7 +1408,6 @@ export const ru: Catalogue = {
   "cfg.monet.votivePack.votiveGrand.name": "Великий обет",
   "cfg.monet.votivePack.votiveSmall.name": "Малое подношение",
   "cfg.monet.votivePack.votiveSteady.name": "Твёрдая преданность",
-  "cfg.prologuedata.config.heightColonyName": "Последняя Академия",
   "cfg.reports.armoryComplete": "🏛️ Оружейная завершила: {family}.",
   "cfg.reports.battleAttacker": "⚔️ Битва у {zone} решена — атакующий прорывает линию.",
   "cfg.reports.battleDefender": "⚔️ Битва у {zone} решена — защитник удерживает позиции.",

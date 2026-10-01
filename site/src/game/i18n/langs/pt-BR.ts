@@ -1408,7 +1408,6 @@ export const ptBR: Catalogue = {
   "cfg.monet.votivePack.votiveGrand.name": "Grande Voto",
   "cfg.monet.votivePack.votiveSmall.name": "Pequena Oferenda",
   "cfg.monet.votivePack.votiveSteady.name": "Devoção Firme",
-  "cfg.prologuedata.config.heightColonyName": "A Última Academia",
   "cfg.reports.armoryComplete": "🏛️ O Arsenal terminou {family}.",
   "cfg.reports.battleAttacker": "⚔️ A batalha em {zone} está decidida — o atacante rompe a linha.",
   "cfg.reports.battleDefender": "⚔️ A batalha em {zone} está decidida — o defensor mantém o terreno.",

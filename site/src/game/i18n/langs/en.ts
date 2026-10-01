@@ -1493,7 +1493,6 @@ export const en: Catalogue = {
   "cfg.monet.votivePack.votiveGrand.name": "Grand Vow",
   "cfg.monet.votivePack.votiveSmall.name": "Small Offering",
   "cfg.monet.votivePack.votiveSteady.name": "Steady Devotion",
-  "cfg.prologuedata.config.heightColonyName": "The Last Academy",
   "cfg.reports.armoryComplete": "🏛️ The Armory finished {family}.",
   "cfg.reports.battleAttacker": "⚔️ The battle at {zone} is decided — the attacker breaks the line.",
   "cfg.reports.battleDefender": "⚔️ The battle at {zone} is decided — the defender holds the ground.",

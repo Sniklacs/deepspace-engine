@@ -1413,7 +1413,6 @@ export const es: Catalogue = {
   "cfg.monet.votivePack.votiveGrand.name": "Gran Voto",
   "cfg.monet.votivePack.votiveSmall.name": "Pequeña Ofrenda",
   "cfg.monet.votivePack.votiveSteady.name": "Devoción Firme",
-  "cfg.prologuedata.config.heightColonyName": "La Última Academia",
   "cfg.reports.armoryComplete": "🏛️ La Armería terminó {family}.",
   "cfg.reports.battleAttacker": "⚔️ La batalla en {zone} está decidida — el atacante rompe la línea.",
   "cfg.reports.battleDefender": "⚔️ La batalla en {zone} está decidida — el defensor mantiene el terreno.",
