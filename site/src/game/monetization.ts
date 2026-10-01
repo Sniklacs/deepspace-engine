@@ -188,10 +188,10 @@ export const MONETIZATION_CONFIG = {
   // earned income as Scrip. Wave-1 packs carry ZERO Scrip (spec §3.1 lists
   // none); this is the hard server-side lifetime cap if a pack ever does.
   maxScripPerPack: 200,
-  // §8.6 — storefront stays OFF through beta (keeps the beta world's purity and
-  // the First-Run channel honest). The owner flips this switch at/after launch;
-  // catalog/ledger/entitlements run regardless.
-  storefrontEnabled: false,
+  // §8.6 — the storefront went LIVE on 2026-10-01 at the owner's order
+  // ("flipper on"): Xsolla Pay Station is wired, catalog/ledger/entitlements
+  // were already running underneath.
+  storefrontEnabled: true,
   // §2.2 — deed cosmetics may appear in the shop as commemorative DISPLAY
   // (viewable, never buyable).
   deedDisplayInShop: true,
