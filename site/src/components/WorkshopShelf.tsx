@@ -21,7 +21,7 @@ import { kitsHeld } from "../game/cradle-slots";
 import { CRAFT, CRAFT_RESOURCE_KEY, canForgeAlloy, alloyRecipeRaces } from "../game/engine";
 import type { CraftKind } from "../game/engine";
 import { RACES } from "../game/races";
-import { tip, RESOURCE_TIPS } from "../game/tooltips";
+import { tipT, tipField, RESOURCE_TIPS } from "../game/tooltips";
 import { useT } from "./i18n/I18n";
 import { SplitValue } from "./i18n/SplitValue";
 import type { GameState, RaceId } from "../game/types";
@@ -74,7 +74,7 @@ export default function WorkshopShelf({ state, onCraft }: {
           don't see how many embers I have"): the colony's OWN stock, in the same
           Panel, so the shelf reads as one inventory. `state.resources.embers`
           is the holding; lifetime loot lives in the stores band elsewhere. */}
-      <Tooltip className="w-full" content={tip(RESOURCE_TIPS.embers)}>
+      <Tooltip className="w-full" content={tipT(t, "resource", "embers", RESOURCE_TIPS.embers)}>
         <div className="flex min-h-tap w-full items-center gap-2 rounded-xl border border-line bg-surf-3/60 px-3 py-2">
           <Icon name="flame" size={16} className="shrink-0 text-ember-soft" aria-hidden="true" />
           <span className="min-w-0 flex-1 text-[12px] text-text-2">{t("resource.embers")}</span>
@@ -129,7 +129,7 @@ export default function WorkshopShelf({ state, onCraft }: {
             );
           })}
         </div>
-        <p className="mt-2 text-[11px] text-text-3">{RESOURCE_TIPS.mats.what}</p>
+        <p className="mt-2 text-[11px] text-text-3">{tipField(t, "resource", "mats", "what", RESOURCE_TIPS.mats.what)}</p>
       </section>
     </Panel>
   );

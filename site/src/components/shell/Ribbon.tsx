@@ -11,7 +11,7 @@
 // passed in from races.ts — the single allowed source, §9.1 rule 4).
 import { getRace } from "../../game/races";
 import { WORLD_CONFIG_PUBLIC } from "../../game/world-config";
-import { tip, RESOURCE_TIPS, ARMORY_TIPS } from "../../game/tooltips";
+import { tipT, RESOURCE_TIPS, ARMORY_TIPS } from "../../game/tooltips";
 import { Icon } from "../icons";
 import { LedgerButton } from "../LedgerButton";
 import { ResourcePill } from "../ui/ResourcePill";
@@ -87,19 +87,19 @@ export default function Ribbon({
           className="resource-row flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:overflow-visible"
           data-testid="ribbon-stores"
         >
-          <Tooltip className="flex-none" content={tip(RESOURCE_TIPS.embers)}>
+          <Tooltip className="flex-none" content={tipT(t, "resource", "embers", RESOURCE_TIPS.embers)}>
             <ResourcePill icon="flame" value={Math.floor(r.embers)} tone="ember" label={t("ribbon.embers")} onClick={onOpenStores} />
           </Tooltip>
-          <Tooltip className="flex-none" content={tip(RESOURCE_TIPS.chipsets)}>
+          <Tooltip className="flex-none" content={tipT(t, "resource", "chipsets", RESOURCE_TIPS.chipsets)}>
             <ResourcePill icon="chip" value={r.chipsets} tone="plain" label={t("ribbon.chipsets")} onClick={onOpenStores} />
           </Tooltip>
-          <Tooltip className="flex-none" content={tip(RESOURCE_TIPS.supplies)}>
+          <Tooltip className="flex-none" content={tipT(t, "resource", "supplies", RESOURCE_TIPS.supplies)}>
             <ResourcePill icon="crate" value={Math.floor(r.supplies)} tone="ember" label={t("ribbon.supplies")} onClick={onOpenStores} />
           </Tooltip>
-          <Tooltip className="flex-none" content={tip(RESOURCE_TIPS.codices)}>
+          <Tooltip className="flex-none" content={tipT(t, "resource", "codices", RESOURCE_TIPS.codices)}>
             <ResourcePill icon="scroll" value={state.codices} tone="plain" label={t("ribbon.codices")} onClick={onOpenStores} />
           </Tooltip>
-          <Tooltip className="flex-none" content={tip(ARMORY_TIPS.plasma)}>
+          <Tooltip className="flex-none" content={tipT(t, "armory", "plasma", ARMORY_TIPS.plasma)}>
             <ResourcePill icon="spark" value={Math.floor(r.plasma ?? 0)} tone="ember" label={t("ribbon.plasma")} onClick={onOpenStores} />
           </Tooltip>
         </div>

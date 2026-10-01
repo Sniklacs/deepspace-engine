@@ -17,7 +17,7 @@ import { ActionButton } from "../ui/ActionButton";
 import { engineHelpers } from "../../game/client-utils";
 import { getRace } from "../../game/races";
 import { WORLD_CONFIG_PUBLIC } from "../../game/world-config";
-import { RESOURCE_TIPS, ARMORY_TIPS } from "../../game/tooltips";
+import { RESOURCE_TIPS, ARMORY_TIPS, tipField } from "../../game/tooltips";
 import type { GameState } from "../../game/types";
 import type { IconName } from "../icons";
 import { useT } from "../i18n/I18n";
@@ -117,16 +117,16 @@ export default function CradleSheet({
             {t("cradleSheet.stores", "Stores")} · {t("time.tokens")}
           </h3>
           <ul className="mt-2 space-y-1.5">
-            <StoreRow icon="flame" label={t("resource.embers", "Embers")} value={Math.floor(r.embers)} sub={RESOURCE_TIPS.embers.what} />
-            <StoreRow icon="chip" label={t("resource.chipsets", "Chipsets")} value={r.chipsets} sub={RESOURCE_TIPS.chipsets.what} />
+            <StoreRow icon="flame" label={t("resource.embers", "Embers")} value={Math.floor(r.embers)} sub={tipField(t, "resource", "embers", "what", RESOURCE_TIPS.embers.what)} />
+            <StoreRow icon="chip" label={t("resource.chipsets", "Chipsets")} value={r.chipsets} sub={tipField(t, "resource", "chipsets", "what", RESOURCE_TIPS.chipsets.what)} />
             <StoreRow
               icon="crate"
               label={t("resource.supplies", "Supplies")}
               value={Math.floor(r.supplies)}
               sub={<><Bdi dir="ltr" className="num">{`+${spm.toFixed(1)}`}</Bdi> {t("resource.suppliesSub", "{rate} per minute while the Cradle stands", { rate: spm.toFixed(1) })}</>}
             />
-            <StoreRow icon="scroll" label={t("resource.codices", "Codices")} value={state.codices} sub={RESOURCE_TIPS.codices.what} />
-            <StoreRow icon="spark" label={t("resource.plasma", "Plasma")} value={Math.floor(r.plasma ?? 0)} sub={ARMORY_TIPS.plasma.what} />
+            <StoreRow icon="scroll" label={t("resource.codices", "Codices")} value={state.codices} sub={tipField(t, "resource", "codices", "what", RESOURCE_TIPS.codices.what)} />
+            <StoreRow icon="spark" label={t("resource.plasma", "Plasma")} value={Math.floor(r.plasma ?? 0)} sub={tipField(t, "armory", "plasma", "what", ARMORY_TIPS.plasma.what)} />
             <StoreRow
               icon="coin"
               label={t("resource.scrip", "Scrip")}
