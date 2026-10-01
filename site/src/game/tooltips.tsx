@@ -1,9 +1,15 @@
 import type { ReactNode } from "react";
+import type { T } from "./i18n/types";
 
 // Central registry of tooltip copy for the Deepspace Engine MVP.
 // Every string is grounded in the REAL mechanics in engine.ts / types.ts /
 // zones.ts — vocabulary (Embers, Chipsets, Supplies, The Cradle, The Shatterlands,
 // The Chorus) matches the code exactly, and in-fiction framing is respected.
+//
+// i18n convention (slot-label.ts pattern): the English literal stays in the data
+// tables below as the source of truth / fallback. Render sites that already hold
+// `t` translate one field at a time with `tipField` (keys `tip.<block>.<id>.<field>`),
+// or render a whole block translated with `tipT`. This data file holds no hooks.
 
 export interface TooltipBlock {
   what: string;
@@ -11,8 +17,31 @@ export interface TooltipBlock {
   how: string;
 }
 
+/**
+ * Translate one tooltip field. `block` is the table name lowercased without the
+ * `_TIPS` suffix (`resource`, `domain`, `meter`, `expedition`, `armory`, `lab`,
+ * `owner`), `id` the entry key, `field` one of `what` / `does` / `how`.
+ * The English literal stays as the fallback, so a tooltip can never render a raw key.
+ */
+export function tipField(
+  t: T,
+  block: string,
+  id: string,
+  field: keyof TooltipBlock,
+  fallback: string,
+): string {
+  return t(`tip.${block}.${id}.${field}`, fallback);
+}
+
+/** Translate the HELP_COPY core-loop blurb (`tip.help.coreLoop`). */
+export function tipHelp(t: T, fallback: string): string {
+  return t("tip.help.coreLoop", fallback);
+}
+
 // Format a block as a compact "what / does / how" tooltip body with amber headers.
-export function tip(b: TooltipBlock): ReactNode {
+// Pass `t` to translate the section headers as well; without it the logic is
+// unchanged (headers render in English, as before).
+export function tip(b: TooltipBlock, t?: T): ReactNode {
   const Line = ({
     h,
     c,
@@ -29,12 +58,32 @@ export function tip(b: TooltipBlock): ReactNode {
       </span>
     ) : null;
 
+  const head = (key: string, fallback: string) => (t ? t(key, fallback) : fallback);
+
   return (
     <span className="block space-y-1">
-      <Line h="What" c={b.what} color="text-amber-400" />
-      <Line h="Does" c={b.does} color="text-amber-400" />
-      <Line h="Get/Use" c={b.how} color="text-amber-400" />
+      <Line h={head("tip.ui.what", "What")} c={b.what} color="text-amber-400" />
+      <Line h={head("tip.ui.does", "Does")} c={b.does} color="text-amber-400" />
+      <Line h={head("tip.ui.how", "Get/Use")} c={b.how} color="text-amber-400" />
     </span>
+  );
+}
+
+/**
+ * Fully translated version of `tip()`: headers AND all three fields come out of
+ * the catalogue, with the entry's English strings as fallback. Drop-in for
+ * render sites that already hold `t`:
+ *
+ *   <Tooltip content={tipT(t, "resource", "embers", RESOURCE_TIPS.embers)}>
+ */
+export function tipT(t: T, block: string, id: string, b: TooltipBlock): ReactNode {
+  return tip(
+    {
+      what: tipField(t, block, id, "what", b.what),
+      does: tipField(t, block, id, "does", b.does),
+      how: tipField(t, block, id, "how", b.how),
+    },
+    t,
   );
 }
 
