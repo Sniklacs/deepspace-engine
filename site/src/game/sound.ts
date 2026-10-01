@@ -28,15 +28,18 @@ const MUSIC_DUCK = 0.45;
 
 export type MusicMood = "drift" | "battle";
 
-// ---- drift: D-minor progression, ~18s per chord (Below-the-Asteroids space)
+// ---- drift: A-minor progression, ~18s per chord (Below-the-Asteroids space).
+// Harmonic DNA drawn from the reference track's own analysis (A minor, A
+// pedal, i–VI–III–VII drift) — buried as inspiration, never quoted.
 const DRIFT_CHORDS: number[][] = [
-  [146.83, 220.0, 329.63, 349.23],   // Dm(add9)
-  [116.54, 174.61, 220.0, 293.66],   // Bbmaj7
-  [87.31, 130.81, 164.81, 220.0],    // Fmaj7
-  [130.81, 196.0, 293.66, 329.63],   // Cadd9
+  [110.0, 164.81, 246.94, 293.66],   // Am(add9)
+  [87.31, 110.0, 130.81, 164.81],    // Fmaj7
+  [130.81, 196.0, 246.94, 329.63],   // Cmaj7
+  [98.0, 146.83, 220.0, 246.94],     // G(add9/A)
 ];
-const DRIFT_SUBS = [73.42, 58.27, 43.65, 65.41]; // roots, one octave down
-const DRIFT_BELLS = [587.33, 659.25, 698.46, 783.99, 880.0, 1046.5, 1174.66];
+const DRIFT_SUBS = [55.0, 43.65, 65.41, 49.0]; // roots, one octave down
+const DRIFT_BELLS = [880.0, 1046.5, 1174.66, 1318.51, 1567.98, 1760.0]; // A-minor pentatonic, high
+const DRIFT_PEDAL = 110.0; // the A pedal that sits under the whole track
 const DRIFT_CHORD_SECS = 18;
 
 // ---- battle: driving minor pulse, 112 BPM
@@ -187,6 +190,17 @@ class SoundManager {
     this.echoIn.gain.value = 1;
     this.echoIn.connect(this.driftBus);
     this.echoIn.connect(echo);
+
+    // The A pedal: a barely-there root tone sitting under the whole drift,
+    // the way the reference track holds its center. Felt more than heard.
+    const pedal = ctx.createOscillator();
+    pedal.type = "sine";
+    pedal.frequency.value = DRIFT_PEDAL;
+    const pedalG = ctx.createGain();
+    pedalG.gain.value = 0.022;
+    pedal.connect(pedalG);
+    pedalG.connect(this.driftBus);
+    pedal.start();
 
     // 1s of white noise, reused for battle hats.
     const len = ctx.sampleRate;
