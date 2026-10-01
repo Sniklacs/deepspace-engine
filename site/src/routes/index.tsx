@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import InstallAffordance from "~/components/shell/InstallAffordance";
 import { useT } from "~/components/i18n/I18n";
 import { LandingLangPicker } from "~/components/i18n/LandingLangPicker";
+import { sound } from "~/game/sound";
 
 export const Route = createFileRoute("/")({
   component: LandingPage,
@@ -22,6 +24,28 @@ function Emblem() {
 
 function LandingPage() {
   const t = useT();
+  const [muted, setMuted] = useState(false);
+
+  // The drift starts on the visitor's first tap — browser autoplay rules
+  // forbid sound before a gesture, so the landing page arms it the same way
+  // the game does. The header carries a mute toggle; mute is per-visit.
+  useEffect(() => {
+    const onFirst = () => {
+      sound.prime();
+      sound.startMusic();
+      window.removeEventListener("pointerdown", onFirst);
+      window.removeEventListener("keydown", onFirst);
+    };
+    window.addEventListener("pointerdown", onFirst);
+    window.addEventListener("keydown", onFirst);
+    return () => {
+      window.removeEventListener("pointerdown", onFirst);
+      window.removeEventListener("keydown", onFirst);
+    };
+  }, []);
+
+  const toggleMute = () => setMuted(sound.toggleMute());
+
   return (
     <div className="safe-area-top min-h-screen bg-[#07070c] text-zinc-100">
       {/* header — brand, language picker, play */}
@@ -33,6 +57,26 @@ function LandingPage() {
           </Link>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <LandingLangPicker />
+            <button
+              onClick={toggleMute}
+              aria-label={muted ? "Unmute" : "Mute"}
+              title={muted ? "Unmute" : "Mute"}
+              className="rounded-lg border border-white/15 bg-white/5 p-2 text-zinc-300 hover:bg-white/10"
+            >
+              {muted ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M11 5 6 9H2v6h4l5 4V5z" />
+                  <line x1="23" y1="9" x2="17" y2="15" />
+                  <line x1="17" y1="9" x2="23" y2="15" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M11 5 6 9H2v6h4l5 4V5z" />
+                  <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                  <path d="M18.5 5.5a9.4 9.4 0 0 1 0 13" />
+                </svg>
+              )}
+            </button>
             <Link
               to="/play"
               className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-black hover:brightness-110 sm:px-4 sm:text-sm"
