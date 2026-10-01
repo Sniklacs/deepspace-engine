@@ -1501,3 +1501,111 @@ export function xpToNextTier(xp: number): number {
   const per = MONETIZATION_CONFIG.seasonXpPerTier;
   return tierFromXp(xp) >= SEASON_TIER_COUNT ? 0 : per - (xp % per);
 }
+// ============================================================================
+// i18n helpers — render-time key views over the monetization catalogues.
+// Keys live in cfg.monet.*; the English literals above stay the source of
+// truth per the DATA-file convention (t("<key>", <literal>) at render time).
+// No logic changes: these are pure views over the same tables.
+// ============================================================================
+import type { T } from "./i18n/types";
+
+/**
+ * Catalogue id → key id: "the-observatory-hull" → "theObservatoryHull",
+ * "votive-small" → "votiveSmall", "launch_expedition" → "launchExpedition",
+ * "base_cart" → "baseCart". Keys allow no hyphens or underscores.
+ */
+export function catalogKeyId(id: string): string {
+  return id
+    .replace(/[-_]+([A-Za-z0-9])/g, (_m, c: string) => c.toUpperCase())
+    .replace(/[-_]+/g, "");
+}
+
+/** Purchasable/deed cosmetic display name. */
+export function cosmeticNameT(t: T, c: CosmeticDef): string {
+  return t(`cfg.monet.cosmetic.${catalogKeyId(c.id)}.name`, c.name);
+}
+
+/** Purchasable/deed cosmetic blurb. */
+export function cosmeticBlurbT(t: T, c: CosmeticDef): string {
+  return t(`cfg.monet.cosmetic.${catalogKeyId(c.id)}.blurb`, c.blurb);
+}
+
+/** Votive pack display name ("votive-small" → cfg.monet.votivePack.votiveSmall.name). */
+export function votivePackNameT(t: T, p: VotivePackDef): string {
+  return t(`cfg.monet.votivePack.${catalogKeyId(p.id)}.name`, p.name);
+}
+
+/** Head-start pack display name / blurb / play-equivalent line. */
+export function headStartPackNameT(t: T, p: HeadStartPackDef): string {
+  return t(`cfg.monet.pack.${catalogKeyId(p.id)}.name`, p.name);
+}
+export function headStartPackBlurbT(t: T, p: HeadStartPackDef): string {
+  return t(`cfg.monet.pack.${catalogKeyId(p.id)}.blurb`, p.blurb);
+}
+export function headStartPackPlayT(t: T, p: HeadStartPackDef): string {
+  return t(`cfg.monet.pack.${catalogKeyId(p.id)}.play`, p.playEquivalent);
+}
+
+/** One grant row's player-facing note ("Votives", "base supplies bundle …", …). */
+export function headStartPackGrantNoteT(t: T, packId: string, g: PackGrant): string {
+  const what =
+    g.kind === "resource" ? g.key
+    : g.kind === "currency" ? g.currency
+    : g.kind === "cosmetic" ? catalogKeyId(g.itemId)
+    : catalogKeyId(g.vehicleId);
+  return t(`cfg.monet.pack.${catalogKeyId(packId)}.grants.${g.kind}.${what}`, g.note);
+}
+
+/** Sellable size → key id ("30m" → "halfHour", "24h" → "day", …). */
+const TIME_TOKEN_KEY_ID: Record<SellableTimeTokenSizeId, string> = {
+  "30m": "halfHour",
+  "1h": "oneHour",
+  "8h": "eightHour",
+  "12h": "twelveHour",
+  "24h": "day",
+  "48h": "twoDay",
+};
+
+/** Time-token pack display name (keyed by size, not catalogue row). */
+export function timeTokenPackNameT(t: T, p: TimeTokenPackDef): string {
+  const keyId = TIME_TOKEN_KEY_ID[p.sizeId] ?? catalogKeyId(p.sizeId);
+  return t(`cfg.monet.timeToken.${keyId}.name`, p.name);
+}
+
+/** Season-0 cosmetic display name ("s0-facade-brass" → cfg.monet.seasonCosmetic.s0FacadeBrass.name). */
+export function seasonCosmeticNameT(t: T, c: SeasonalCosmetic): string {
+  return t(`cfg.monet.seasonCosmetic.${catalogKeyId(c.id)}.name`, c.name);
+}
+
+/** Battle-pass tier reward label for one track. */
+export function battlePassTierLabelT(t: T, tier: BattlePassTier, track: "free" | "premium"): string {
+  const reward = track === "free" ? tier.free : tier.premium;
+  return t(`cfg.monet.pass.tier${tier.tier}.${track}`, reward.label);
+}
+
+/** Daily objective description (no interpolation). */
+export function dailyObjectiveDescT(t: T, o: SeasonObjectiveDef): string {
+  return t(`cfg.monet.objectives.daily.${catalogKeyId(o.id)}.desc`, o.description);
+}
+
+/** Weekly objective description (carries {target} where the table has one). */
+export function weeklyObjectiveDescT(t: T, o: SeasonObjectiveDef): string {
+  const key = `cfg.monet.objectives.weekly.${catalogKeyId(o.id)}.desc`;
+  if (o.id === "expedition_complete") return t(key, o.description, { target: WEEKLY_EXPEDITION_TARGET });
+  if (o.id === "codex_recovered") return t(key, o.description, { target: WEEKLY_CODEX_TARGET });
+  if (o.id === "daily_list") return t(key, o.description, { target: WEEKLY_DAILY_LIST_TARGET });
+  return t(key, o.description);
+}
+
+/** Currency display name ("Scrip" / "Votives"). */
+export function currencyDisplayNameT(t: T, c: CurrencyId): string {
+  return t(`cfg.monet.currency.${c}`, MONETIZATION_CONFIG.currencyNames[c]);
+}
+
+/** Convenience item display name / purchase note. */
+export function convenienceNameT(t: T, item: { id: string; name: string }): string {
+  return t(`cfg.monet.convenience.${catalogKeyId(item.id)}.name`, item.name);
+}
+export function convenienceNoteT(t: T, item: { id: string; note: string }): string {
+  return t(`cfg.monet.convenience.${catalogKeyId(item.id)}.note`, item.note);
+}

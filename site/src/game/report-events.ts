@@ -95,3 +95,54 @@ export function diffResolvedEvents(prev: GameState, next: GameState): ReportEven
 
   return out;
 }
+// ============================================================================
+// i18n helpers — render-time views of the report-event texts (no logic
+// changes). Keys live in cfg.reports.*; the English literals above stay the
+// source of truth per the DATA-file convention.
+// ============================================================================
+import type { T } from "./i18n/types";
+
+/** "Exploration of {zone} returned — …" */
+export function reportExpeditionT(t: T, zone: string): string {
+  return t(
+    "cfg.reports.expeditionReturned",
+    `Exploration of ${zone} returned — the salvage is in the Cradle's stores.`,
+    { zone },
+  );
+}
+
+/** "A scientist finished studying an Ember/Chipset — insight distilled." */
+export function reportStudyT(t: T, kind: "ember" | "chipset"): string {
+  return kind === "ember"
+    ? t("cfg.reports.studyEmber", "A scientist finished studying an Ember — insight distilled.")
+    : t("cfg.reports.studyChipset", "A scientist finished studying a Chipset — insight distilled.");
+}
+
+/** "{icon} {name} — research complete." / "… ({leader})." */
+export function reportResearchT(t: T, icon: string, name: string, leader?: string): string {
+  return leader
+    ? t("cfg.reports.researchCompleteLeader", `${icon} ${name} — research complete (${leader}).`, { icon, name, leader })
+    : t("cfg.reports.researchComplete", `${icon} ${name} — research complete.`, { icon, name });
+}
+
+/** "🏛️ The Armory finished {family}." */
+export function reportArmoryT(t: T, family: string): string {
+  return t("cfg.reports.armoryComplete", `🏛️ The Armory finished ${family}.`, { family });
+}
+
+/** "⚔️ The battle at {zone} is decided — {verb}." */
+export function reportBattleT(
+  t: T,
+  zone: string,
+  outcome: "attacker_victory" | "defender_victory" | "standoff",
+): string {
+  const key =
+    outcome === "attacker_victory" ? "cfg.reports.battleAttacker"
+    : outcome === "defender_victory" ? "cfg.reports.battleDefender"
+    : "cfg.reports.battleStandoff";
+  const verb =
+    outcome === "attacker_victory" ? "the attacker breaks the line"
+    : outcome === "defender_victory" ? "the defender holds the ground"
+    : "both sides break off";
+  return t(key, `⚔️ The battle at ${zone} is decided — ${verb}.`, { zone });
+}

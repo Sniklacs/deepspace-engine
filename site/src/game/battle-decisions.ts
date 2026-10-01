@@ -571,3 +571,57 @@ export function lineAriaLabel(colonyName: string, pct: number): string {
 
 /** Settled-order row prefix (the check icon carries the tick now). */
 export const SETTLED_ORDER_ARIA = "Order already given: ";
+
+// ============================================================================
+// i18n helpers — render-time key views over the decision tables (no logic
+// changes). Keys live in cfg.battledec.*; the English literals above stay the
+// source of truth per the DATA-file convention.
+// ============================================================================
+import type { T } from "./i18n/types";
+
+/** Order button label ("Reinforce", "Call for aid", …). */
+export function decisionActionLabelT(t: T, action: IssueAction): string {
+  const a = DECISION_ACTIONS.find((x) => x.action === action);
+  return t(`cfg.battledec.actions.${action}.label`, a?.label ?? action);
+}
+
+/** Order button hint line (the aid hint carries {energy} = current config). */
+export function decisionActionHintT(t: T, action: IssueAction): string {
+  const a = DECISION_ACTIONS.find((x) => x.action === action);
+  if (!a) return "";
+  return action === "callAid"
+    ? t(`cfg.battledec.actions.${action}.hint`, a.hint, { energy: BATTLES_CONFIG.aidCallEnergy })
+    : t(`cfg.battledec.actions.${action}.hint`, a.hint);
+}
+
+/** Settled-order summary ("Reinforced", "Answered an aid call", …). */
+export function decidedSummaryT(t: T, w: BattleWindowView): string {
+  const key =
+    w.action === "reinforce" ? "cfg.battledec.summary.reinforce"
+    : w.action === "hold" ? "cfg.battledec.summary.hold"
+    : w.action === "withdrawal" ? "cfg.battledec.summary.withdrawal"
+    : w.action === "retreat" ? "cfg.battledec.summary.retreat"
+    : w.action === "callAid" ? "cfg.battledec.summary.callAid"
+    : w.action === "respondAid" ? "cfg.battledec.summary.respondAid"
+    : "cfg.battledec.summary.unknown";
+  return t(key, decidedSummary(w));
+}
+
+/** "assault" / "defence" — the word folded into window titles. */
+export function commandLabelT(t: T, side: BattleSide): string {
+  return t(`cfg.battledec.command.${side}`, commandLabel(side));
+}
+
+/** Decision-window title for one window kind + commanding side. */
+export function battleWindowTitleT(t: T, kind: "milestone" | "edge" | "response", side: BattleSide): string {
+  return t(`cfg.battledec.windowTitle.${kind}`, windowTitle(kind, side), { side: commandLabelT(t, side) });
+}
+
+/** The spoken closing warning for a clock threshold (60s / 30s / closed). */
+export function clockAnnounceTextT(t: T, threshold: 60000 | 30000 | 0): string {
+  const key =
+    threshold === 60000 ? "cfg.battledec.announce.min60"
+    : threshold === 30000 ? "cfg.battledec.announce.sec30"
+    : "cfg.battledec.announce.closed";
+  return t(key, CLOCK_ANNOUNCE_TEXT[threshold]);
+}

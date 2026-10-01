@@ -1236,3 +1236,31 @@ export function battlePublicView(battle: Battle): Battle {
   }
   return pub as Battle;
 }
+// ============================================================================
+// i18n helper — render-time view of the resolved-battle Chronicle line.
+// logBattle above keeps writing English; keys live in cfg.battleeng.*.
+// ============================================================================
+import type { T } from "../i18n/types";
+
+/** "⚔️ The battle at {zoneName} is decided — …" for one outcome. */
+export function battleResolvedLogLineT(t: T, b: Battle): string {
+  const out = b.result?.outcome ?? "standoff";
+  const casualties = b.casualties.attacker + b.casualties.defender;
+  if (out === "attacker_victory")
+    return t(
+      "cfg.battleeng.logBattle.attackerVictory",
+      `⚔️ The battle at ${b.zoneName} is decided — ${b.attacker.colonyName} breaks the line. ${casualties} casualties between them.`,
+      { zoneName: b.zoneName, attackerName: b.attacker.colonyName, casualties },
+    );
+  if (out === "defender_victory")
+    return t(
+      "cfg.battleeng.logBattle.defenderVictory",
+      `⚔️ The battle at ${b.zoneName} is decided — ${b.defender.colonyName} holds the ground. ${casualties} casualties between them.`,
+      { zoneName: b.zoneName, defenderName: b.defender.colonyName, casualties },
+    );
+  return t(
+    "cfg.battleeng.logBattle.standoff",
+    `⚔️ The battle at ${b.zoneName} is decided — both sides break off. ${casualties} casualties between them.`,
+    { zoneName: b.zoneName, casualties },
+  );
+}

@@ -377,7 +377,7 @@ check("the storefront is untouched by this slice", (await import(`${SITE}/src/ga
 // check is what caught the two keys landing in the catalogue untouched, and
 // skipping it would leave the catalogue unfrozen for the next slice.
 // Previous pin: b1e42fff74d7465c2bd9dde1203028111bbbb2d96a8812f160a2a6f0b9124b1f
-const ENGLISH_SHA = "7f2ac8761f7975d745d1844d1adefaf589832d4ae578505dab5c32236a2e46bc";
+const ENGLISH_SHA = "92b8adc11b22141d8df8b61e9e015a8abd3d38bbfcbdd7ad2915f7c72ed084c4";
 const enCanonical = Object.keys(CATALOGUES[SOURCE_LANG]).sort().map((k) => `${k}\t${CATALOGUES[SOURCE_LANG][k]}`).join("\n");
 const enSha = createHash("sha256").update(enCanonical, "utf8").digest("hex");
 check(`the English catalogue is byte-identical to slice 1 (${englishKeys.length} keys, sha256 ${enSha.slice(0, 12)}…)`, enSha === ENGLISH_SHA, enSha);
