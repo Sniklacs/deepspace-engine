@@ -458,5 +458,37 @@ export const ptBR: Catalogue = {
   "meter.high": "alto",
   "roster.xpAria": "{name} — experiência",
 
+
+  // ---- i18n slice: tutorial (bulk keying 2026-09-30) ----
+  "tutorial.cue1.line": "Leia a batalha antes de se mover. Lados, números e o estado da linha. Aquela ficha te diz a verdade.",
+  "tutorial.cue10.line": "O caminho de volta está no programa, Comandante. Uma retirada firme custa uma retaguarda, mas salva o exército; uma debandada não salva nada. Peça ajuda e ela virá cavalgando os elos — mas leva tempo para chegar. Tempo que você compra não quebrando.",
+  "tutorial.cue11.line": "Apanhar é sobrevivível — se você escolher antes da ficha virar. Recue para o terreno alto e chame o mundo. Nós vencemos juntos ou não vencemos.",
+  "tutorial.cue12.line": "Você estava perdendo. Você escolheu. Agora veja virar.",
+  "tutorial.cue13.line": "Você estava perdendo. Você escolheu. Agora veja virar.",
+  "tutorial.cue14.line": "Essa é a forma, senhor. Você a leu, a alimentou, a dobrou de volta e nos chamou quando importou. A próxima vencemos do mesmo jeito — e a seguinte.",
+  "tutorial.cue15.line": "Você já conhece a forma. Leia-a, alimente-a, chame se ela quebrar. Vou falar menos agora.",
+  "tutorial.cue2.line": "Verde do seu lado, vermelho do deles. A ficha diz Impasse — ninguém está vencendo ainda. Quando pender para Pressão, alguém está. Quando virar Risco de debandada, é você quem está sangrando.",
+  "tutorial.cue3.line": "Agora comande. A composição do esquadrão é a decisão antes da decisão — escolha quem luta e qual habilidade cronometrar.",
+  "tutorial.cue4.line": "Eu vejo a falha, Comandante. Me coloque onde ela cede — a guarda do inimigo vai se abrir como um livro que esqueceu ter escrito.",
+  "tutorial.cue5.line": "Cronometre a habilidade, não a desperdice. Uma decisão no segundo certo vale mais que dez no pânico. Nós seguramos enquanto você escolhe.",
+  "tutorial.cue6.line": "A linha está dobrando. Reforce ou segure — alimente a luta ou confie na posição. Decida.",
+  "tutorial.cue7.line": "Reforçar coloca mais peso na linha; segurar não gasta nada e confia no terreno. Quando é uma briga de faca na brecha, alimente-a. Quando o terreno vale mais que os corpos, segure.",
+  "tutorial.cue8.line": "Pressão — a nossa. Bom. Agora a lição difícil enquanto você ainda está vencendo.",
+  "tutorial.cue9.line": "E agora — você está apanhando. Isso não é o fim. Isso é uma decisão. Duas ferramentas, ambas honestas: chame seu mundo para a luta ou recue em boa ordem.",
+
+  // ---- i18n slice: tutorial-speakers (bulk keying 2026-09-30) ----
+  "tutorial.speaker.delen.name": "Delen",
+  "tutorial.speaker.delen.title": "a Purificadora",
+  "tutorial.speaker.kael.name": "Kael",
+  "tutorial.speaker.kael.title": "o Mordomo",
+  "tutorial.speaker.miren.name": "Miren",
+  "tutorial.speaker.miren.title": "a Intendente",
+  "tutorial.speaker.narrator.name": "O Narrador",
+  "tutorial.speaker.semira.name": "Semira a Reveladora",
+  "tutorial.speaker.serev.name": "Serev",
+  "tutorial.speaker.serev.title": "o Marechal",
+  "tutorial.speaker.vesper.name": "Vésper o Sílabo",
+  "tutorial.speaker.vyra.name": "Vyra",
+  "tutorial.speaker.vyra.title": "a Erudita",
 };
 export default ptBR;

@@ -463,5 +463,37 @@ export const es: Catalogue = {
   "meter.high": "alto",
   "roster.xpAria": "{name} — experiencia",
 
+
+  // ---- i18n slice: tutorial (bulk keying 2026-09-30) ----
+  "tutorial.cue1.line": "Lee la batalla antes de moverte. Bandos, números y el estado de la línea. Esa ficha te dice la verdad.",
+  "tutorial.cue10.line": "El camino de vuelta está en el temario, comandante. Una retirada firme cuesta una retaguardia pero salva al ejército; una desbandada no salva nada. Pide ayuda y vendrá cabalgando los enlaces — pero tarda en llegar. Tiempo que compras no rompiéndote.",
+  "tutorial.cue11.line": "Ser apaleado se sobrevive — si eliges antes de que la ficha cambie. Retírate al terreno alto y llama al mundo. Esto lo ganamos juntos o no lo ganamos.",
+  "tutorial.cue12.line": "La estabas perdiendo. Elegiste. Ahora mírala cambiar.",
+  "tutorial.cue13.line": "La estabas perdiendo. Elegiste. Ahora mírala cambiar.",
+  "tutorial.cue14.line": "Esa es la forma, señor. La leíste, la alimentaste, la doblaste de vuelta y nos llamaste cuando importaba. La próxima la ganamos igual — y la de después.",
+  "tutorial.cue15.line": "Ya conoces la forma. Léela, aliméntala, llama si se rompe. Hablaré menos ahora.",
+  "tutorial.cue2.line": "Verde de tu lado, rojo del de ellos. La ficha dice Empate — nadie está ganando todavía. Cuando se incline a Presión, alguien lo está haciendo. Cuando pase a Riesgo de desbandada, eres tú quien sangra.",
+  "tutorial.cue3.line": "Ahora manda. La composición del escuadrón es la decisión antes de la decisión — elige quién pelea y qué habilidad sincronizar.",
+  "tutorial.cue4.line": "Veo la falla, comandante. Ponme donde cede — la guardia del enemigo se abrirá como un libro que olvidó haber escrito.",
+  "tutorial.cue5.line": "Sincroniza la habilidad, no la desperdicies. Una decisión en el segundo justo vale más que diez en pánico. Nosotros aguantamos mientras eliges.",
+  "tutorial.cue6.line": "La línea se está doblando. Refuerza o mantén — alimenta la pelea o confía en la posición. Decide.",
+  "tutorial.cue7.line": "Reforzar pone más peso en la línea; mantener no gasta nada y confía en el terreno. Cuando es una pelea a cuchillo en la brecha, aliméntala. Cuando el terreno vale más que los cuerpos, mantén.",
+  "tutorial.cue8.line": "Presión — la nuestra. Bien. Ahora la lección difícil mientras todavía la estás ganando.",
+  "tutorial.cue9.line": "Y ahora — te están dando una paliza. Esto no es el final. Esto es una decisión. Dos herramientas, ambas honestas: llama a tu mundo a la pelea o retírate en buen orden.",
+
+  // ---- i18n slice: tutorial-speakers (bulk keying 2026-09-30) ----
+  "tutorial.speaker.delen.name": "Delen",
+  "tutorial.speaker.delen.title": "la Purificadora",
+  "tutorial.speaker.kael.name": "Kael",
+  "tutorial.speaker.kael.title": "el Mayordomo",
+  "tutorial.speaker.miren.name": "Miren",
+  "tutorial.speaker.miren.title": "la Intendenta",
+  "tutorial.speaker.narrator.name": "El Narrador",
+  "tutorial.speaker.semira.name": "Semira la Reveladora",
+  "tutorial.speaker.serev.name": "Serev",
+  "tutorial.speaker.serev.title": "el Mariscal",
+  "tutorial.speaker.vesper.name": "Vesper el Sílabo",
+  "tutorial.speaker.vyra.name": "Vyra",
+  "tutorial.speaker.vyra.title": "la Erudita",
 };
 export default es;

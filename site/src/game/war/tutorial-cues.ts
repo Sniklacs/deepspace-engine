@@ -35,6 +35,7 @@
 import { battleMoment, windowsForView } from "./battle-engine";
 import { BATTLES_CONFIG } from "./war-types";
 import type { Battle, BattleSide } from "./war-types";
+import type { T } from "../i18n/types";
 
 // ============================================================================
 // §0 CONFIG — one block, tunable numbers only (rules below never change with
@@ -81,6 +82,20 @@ export const TUTORIAL_SPEAKERS: Record<string, TutorialSpeaker> = {
 /** The caption line the UI renders above the spoken text. */
 export function speakerLabel(speaker: TutorialSpeaker): string {
   return speaker.title ? `${speaker.name} — ${speaker.title}` : speaker.name;
+}
+
+// ---- i18n helpers (string extraction only — no logic change) ----
+
+/** `tutorial.cue<N>.line` for a cue, by its position in CUES. */
+export function cueLineKey(cue: { id: string }): string {
+  const n = CUES.findIndex((c) => c.id === cue.id) + 1;
+  return `tutorial.cue${n}.line`;
+}
+
+/** Translated speaker caption — the t() mirror of speakerLabel(). */
+export function speakerLabelT(t: T, speaker: TutorialSpeaker): string {
+  const name = t(`tutorial.speaker.${speaker.id}.name`, speaker.name);
+  return speaker.title ? `${name} — ${t(`tutorial.speaker.${speaker.id}.title`, speaker.title)}` : name;
 }
 
 // ============================================================================

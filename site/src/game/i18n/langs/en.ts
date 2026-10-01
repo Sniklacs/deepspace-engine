@@ -543,5 +543,37 @@ export const en: Catalogue = {
   "meter.high": "high",
   "roster.xpAria": "{name} — experience",
 
+
+  // ---- i18n slice: tutorial (bulk keying 2026-09-30) ----
+  "tutorial.cue1.line": "Read the fight before you move. Sides, numbers, and the state of the line. That chip tells you the truth of it.",
+  "tutorial.cue10.line": "The route back is in the syllabus, Commander. A steady withdrawal costs a rearguard but saves the army; a rout saves neither. Call aid and it comes riding the links — but it takes time to arrive. Time you buy by not breaking.",
+  "tutorial.cue11.line": "Pummeled is survivable — if you choose before the chip turns. Withdraw to the high ground and call the world. We win this together or we don't win it.",
+  "tutorial.cue12.line": "You were losing it. You chose. Now watch it turn.",
+  "tutorial.cue13.line": "You were losing it. You chose. Now watch it turn.",
+  "tutorial.cue14.line": "That's the shape of it, sir. You read it, you fed it, you bent it back, and you called us when it mattered. We win the next one the same way — and the one after.",
+  "tutorial.cue15.line": "You know the shape. Read it, feed it, call if it breaks. I'll say less now.",
+  "tutorial.cue2.line": "Green on your side, red on theirs. The chip says Stalemate — no one's winning yet. When it tips to Pressing, someone is. When it turns Rout risk, that's you bleeding.",
+  "tutorial.cue3.line": "Now command. Squad composition is the decision before the decision — choose who fights, and which skill to time.",
+  "tutorial.cue4.line": "I see the flaw, Commander. Put me where it bends — the enemy's guard will open like a book it forgot it wrote.",
+  "tutorial.cue5.line": "Time the skill, don't spam it. One decision at the right second beats ten in a panic. We'll hold while you choose.",
+  "tutorial.cue6.line": "The line is bending. Reinforce, or hold — feed the fight, or trust the position. Decide.",
+  "tutorial.cue7.line": "Reinforce puts more weight on the line; hold spends nothing and trusts the ground. When it's a knife-fight at the breach, feed it. When the ground's worth more than the bodies, hold.",
+  "tutorial.cue8.line": "Pressing — ours. Good. Now the hard lesson while you're still winning it.",
+  "tutorial.cue9.line": "And now — you're getting pummeled. This is not the end. This is a decision. Two tools, both honest: call your world to the fight, or pull back in good order.",
+
+  // ---- i18n slice: tutorial-speakers (bulk keying 2026-09-30) ----
+  "tutorial.speaker.delen.name": "Delen",
+  "tutorial.speaker.delen.title": "the Purifier",
+  "tutorial.speaker.kael.name": "Kael",
+  "tutorial.speaker.kael.title": "the Steward",
+  "tutorial.speaker.miren.name": "Miren",
+  "tutorial.speaker.miren.title": "the Quartermaster",
+  "tutorial.speaker.narrator.name": "The Narrator",
+  "tutorial.speaker.semira.name": "Semira the Revealer",
+  "tutorial.speaker.serev.name": "Serev",
+  "tutorial.speaker.serev.title": "the Marshal",
+  "tutorial.speaker.vesper.name": "Vesper the Syllabus",
+  "tutorial.speaker.vyra.name": "Vyra",
+  "tutorial.speaker.vyra.title": "the Scholar",
 };
 export default en;
