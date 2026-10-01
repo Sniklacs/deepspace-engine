@@ -54,7 +54,10 @@ import type {
 import { CHAT_RETENTION } from "./chat/chat-types";
 
 // ── backend selection ───────────────────────────────────────────────────────
-const USE_DB = !!process.env.DATABASE_URL;
+// Vercel Postgres (Neon) injects POSTGRES_URL rather than DATABASE_URL, so
+// accept either — explicit DATABASE_URL wins when both are set.
+const DB_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const USE_DB = !!DB_URL;
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const SAVES_DIR = path.join(DATA_DIR, "saves");
@@ -69,7 +72,7 @@ const CHAT_PATH = path.join(DATA_DIR, "chat.json");
 // starts (never .end()'d per request; that would kill pooled connections).
 let pool: Pool | null = null;
 function db(): Pool {
-  if (!pool) pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+  if (!pool) pool = new Pool({ connectionString: DB_URL! });
   return pool;
 }
 
