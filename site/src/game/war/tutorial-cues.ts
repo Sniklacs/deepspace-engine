@@ -92,6 +92,13 @@ export function cueLineKey(cue: { id: string }): string {
   return `tutorial.cue${n}.line`;
 }
 
+/** Translated cue line — the t() mirror; the key template is inline so the
+ *  i18n-verify key scan sees the `tutorial.cue*` family. */
+export function cueLineT(t: T, cue: { id: string; line: string }): string {
+  const n = CUES.findIndex((c) => c.id === cue.id) + 1;
+  return t(`tutorial.cue${n}.line`, cue.line);
+}
+
 /** Translated speaker caption — the t() mirror of speakerLabel(). */
 export function speakerLabelT(t: T, speaker: TutorialSpeaker): string {
   const name = t(`tutorial.speaker.${speaker.id}.name`, speaker.name);

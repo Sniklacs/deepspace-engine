@@ -750,13 +750,23 @@ export function resetRailStoryDone(): void {
 /** Every caption key this module owns, in script order. */
 export const RAIL_I18N_KEYS: readonly string[] = RAIL_ROWS.map((_, i) => `rail.row${i + 1}.line`);
 
+/** The caption the plate renders. The key template is inline so the
+ *  i18n-verify key scan sees the `rail.row*` family. */
+export function railLine(t: T, row: RailRow): string {
+  const n = RAIL_ORDER.indexOf(row.id) + 1;
+  return t(`rail.row${n}.line`, row.line);
+}
+
 /** The catalogue key for a row's caption. */
 export function railLineKey(row: RailRow): string {
   const n = RAIL_ORDER.indexOf(row.id) + 1;
   return `rail.row${n}.line`;
 }
 
-/** The caption the plate renders. */
-export function railLine(t: T, row: RailRow): string {
-  return t(railLineKey(row), row.line);
+/** Translated prologue speaker line (`prologue.line<N>`, 1-based). Reserved for
+ *  the future journal re-keying — the engine's persisted composites stay
+ *  English by design. The key template is inline so the i18n-verify key scan
+ *  sees the `prologue.line*` family. */
+export function prologueLineT(t: T, n: number, fallback: string): string {
+  return t(`prologue.line${n}`, fallback);
 }

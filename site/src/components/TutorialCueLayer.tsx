@@ -26,9 +26,10 @@
 // device — one existing `.chip` reading "sound off", so a player who mutes and
 // then taps "Let them speak" is told the truth instead of guessing. Captions are
 // unaffected either way: the authored line below is rendered VERBATIM.
+import { useT } from "./i18n/I18n";
 import { TranslateAffordance } from "./shell/TranslatorNote";
 import type { TutorialCue } from "../game/war/tutorial-cues";
-import { speakerLabel } from "../game/war/tutorial-cues";
+import { cueLineT, speakerLabelT } from "../game/war/tutorial-cues";
 import type { VoiceMode } from "../game/voice/voice-engine";
 
 export interface TutorialCueLayerProps {
@@ -66,17 +67,18 @@ export default function TutorialCueLayer({
   muted = false,
   voiceMode = "voiced",
 }: TutorialCueLayerProps) {
+  const t = useT();
   // §6.3: a word, not a colour and not a motion. It renders when the global mute
   // is on or when there is nothing on this device that can speak.
   const soundOff = muted || voiceMode === "silent";
   const soundOffChip = soundOff ? (
     <span data-testid="tutorial-sound-off" className="chip border border-line text-text-3">
-      sound off
+      {t("tcue.soundOff", "sound off")}
     </span>
   ) : null;
   return (
     <aside
-      aria-label="Battle guidance"
+      aria-label={t("tcue.battleGuidance", "Battle guidance")}
       data-testid="tutorial-cue-layer"
       data-voice-mode={voiceMode}
     >
@@ -89,25 +91,25 @@ export default function TutorialCueLayer({
           className="rounded-lg border border-purity/40 bg-surf-3 p-2.5"
         >
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-purity">{speakerLabel(cue.speaker)}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-purity">{speakerLabelT(t, cue.speaker)}</p>
             <p className="text-[11px] text-text-3">
-              {waiting > 1 ? `${waiting} lines waiting` : "the Cradle is speaking"}
+              {waiting > 1 ? t("tcue.linesWaiting", { waiting }) : t("tcue.cradleSpeaking", "the Cradle is speaking")}
             </p>
           </div>
           <p className="mt-1 text-sm text-text-1" id="tut-cue-line" aria-live="polite">
-            {cue.line}
+            {cueLineT(t, cue)}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {waiting > 1 && (
               <button type="button" data-testid="tutorial-step" onClick={onStep} className={BTN}>
-                Next line
+                {t("tcue.nextLine", "Next line")}
               </button>
             )}
             <button type="button" data-testid="tutorial-replay" onClick={onReplay} className={BTN}>
-              Hear it again
+              {t("tcue.hearAgain", "Hear it again")}
             </button>
             <button type="button" data-testid="tutorial-suppress" onClick={onSuppress} className={BTN}>
-              Quiet the voices
+              {t("tcue.quietVoices", "Quiet the voices")}
             </button>
             {/* Live prose (the Cradle's own line), in the player's language, from
                 the engine we bundle — the browser's free translator is
@@ -119,19 +121,19 @@ export default function TutorialCueLayer({
       ) : (
         <div className="flex flex-wrap items-center gap-2" data-testid="tutorial-quiet">
           <p className="text-[11px] text-text-3">
-            {suppressed ? "The voices are quiet. The battle is yours." : "The voices have said their piece for this battle."}
+            {suppressed ? t("tcue.voicesQuiet", "The voices are quiet. The battle is yours.") : t("tcue.saidPiece", "The voices have said their piece for this battle.")}
           </p>
           {suppressed && (
             <button type="button" data-testid="tutorial-resume" onClick={onResume} className={BTN}>
-              Let them speak
+              {t("tcue.letThemSpeak", "Let them speak")}
             </button>
           )}
           <button type="button" data-testid="tutorial-replay" onClick={onReplay} className={BTN}>
-            {suppressed ? "Hear the lesson again" : "Hear it again"}
+            {suppressed ? t("tcue.hearLessonAgain", "Hear the lesson again") : t("tcue.hearAgain", "Hear it again")}
           </button>
           {!suppressed && (
             <button type="button" data-testid="tutorial-suppress" onClick={onSuppress} className={BTN}>
-              Quiet the voices
+              {t("tcue.quietVoices", "Quiet the voices")}
             </button>
           )}
           {soundOffChip}

@@ -80,7 +80,15 @@ for (const c of comp) {
 }
 check("no language file is empty", comp.every((c) => c.present > 0));
 check("machine files are not left as a copy of English", comp.filter((c) => c.lang !== SOURCE_LANG).every((c) => c.identical.length < c.total * 0.2), comp.map((c) => `${c.lang}:${c.identical.length}`).join(" "));
-check("identical-to-English entries are all short labels / proper nouns, never prose", comp.filter((c) => c.lang !== SOURCE_LANG).every((c) => c.identical.every((k) => (CATALOGUES.en[k] ?? "").length <= 34)), comp.flatMap((c) => c.identical).slice(0, 8).join(","));
+/** An identical-to-English entry is legitimate when it is a short label — or when
+ *  the English holds no translatable prose at all (emoji + placeholders, e.g.
+ *  `cfg.monet.log.grant` = "💰 +{amount} {currency} — {reason}."). */
+const identicalOk = (k: string) => {
+  const en = CATALOGUES.en[k] ?? "";
+  if (en.length <= 34) return true;
+  return !/[A-Za-z]/.test(en.replace(/\{\w+\}/g, ""));
+};
+check("identical-to-English entries are all short labels / proper nouns, never prose", comp.filter((c) => c.lang !== SOURCE_LANG).every((c) => c.identical.every(identicalOk)), comp.flatMap((c) => c.identical.filter((k) => !identicalOk(k))).slice(0, 8).join(","));
 
 // --------------------------------------------------------- §3 fallback chain
 section("3 · THE FALLBACK CHAIN — missing key → English, and NEVER a raw key");
@@ -158,6 +166,26 @@ section("6 · NO DEAD LOOKUP — every key the UI asks for exists in English");
 // `store.cosmetic.<id>.blurb`), which §6 treats as dynamic families — payments-tests
 // checks that every one of those lines exists and is translated in all five files.
 const UI_FILES = [...SWEPT, "src/components/screens/CradleScreen.tsx", "src/routes/play.tsx", "src/components/ui/BuildingTile.tsx", "src/game/i18n/slot-label.ts", "src/components/StorefrontOverlay.tsx",
+  // THE RENDER HELPERS joined the scan with the cfg-a/cfg-b/tutorial/rail/
+  // tooltips slices (2026-09-30). Those slices resolve catalogue keys through
+  // helper functions (`zoneName()`, `tipT()`, `railLine()`, …) whose backtick
+  // key templates live in game modules, not in the components — a scanner
+  // that only read components reported every helper-resolved family UNUSED.
+  // One more set of files scanned, no check relaxed.
+  "src/game/battle-decisions.ts", "src/game/report-events.ts", "src/game/zones.ts",
+  "src/game/races.ts", "src/game/research.ts", "src/game/armory.ts", "src/game/daily.ts",
+  "src/game/hero-xp.ts", "src/game/war/tutorial-cues.ts", "src/game/prologue/prologue-cues.ts",
+  "src/game/tooltips.tsx", "src/game/monetization.ts", "src/game/heroes-data.ts",
+  // THE KEYED SURFACES joined the scan with the routes/components slices
+  // (2026-09-30): BattlesTab, CircuitPage, CradleOverview, LoadoutTab,
+  // ResearchViews, TutorialCueLayer and WorkshopShelf all ask catalogue keys
+  // directly — a scanner that did not read them reported their families
+  // (battles.*, circuit.*, rviews.*, tcue.*, loadout.*, overview.*) UNUSED.
+  // More files scanned, no check relaxed.
+  "src/components/BattlesTab.tsx", "src/components/CircuitPage.tsx",
+  "src/components/CradleOverview.tsx", "src/components/LoadoutTab.tsx",
+  "src/components/ResearchViews.tsx", "src/components/TutorialCueLayer.tsx",
+  "src/components/WorkshopShelf.tsx",
   // THE ONE DURATION FORMATTER joined the scan on 2026-09-27. It is the file that
   // now holds the ONLY call sites of `dur.day|hour|minute|second`: when the three
   // private duration formatters (play.tsx, ResearchViews.tsx) were unified into
@@ -178,7 +206,16 @@ function keysAskedIn(src: string): string[] {
   const out: string[] = [];
   for (const m of src.matchAll(/\b(?:t|tf)\(\s*["'`]([A-Za-z][A-Za-z0-9.]*)/g)) {
     const kk = m[1].replace(/\.$/, "");
-    out.push(m[0].includes("`") ? kk + ".*" : kk);
+    const isBacktick = m[0].includes("`");
+    // A single-arg t("English prose") is the identity marker, not a key lookup:
+    // without this guard the scan reads the fragment before the first space
+    // ("No", "The", "Pick") as a catalogue key. Only a key closed by its own
+    // quote — or a backtick template (a dynamic family) — counts.
+    if (!isBacktick) {
+      const after = src[m.index! + m[0].length];
+      if (after !== '"' && after !== "'" && after !== "`") continue;
+    }
+    out.push(isBacktick ? kk + ".*" : kk);
   }
   // `<SplitValue k="cradle.needSupplies" …>` — on one line or wrapped over three
   for (const m of src.matchAll(/<SplitValue\b[\s\S]{0,240}?\bk=\s*(?:"([A-Za-z][A-Za-z0-9.]*)"|\{`([A-Za-z][A-Za-z0-9.]*)`\})/g)) {
@@ -186,6 +223,14 @@ function keysAskedIn(src: string): string[] {
   }
   // `splitValue(lang, "key", …)` / `joinValue(t.lang, "key", …)`
   for (const m of src.matchAll(/\b(?:split|join)Value\(\s*[\w.$]+\s*,\s*["'`]([A-Za-z][A-Za-z0-9.]*)/g)) {
+    out.push(m[1]);
+  }
+  // A catalogue key held as data — `lockedKey: "loadout.lockedModules"`, or a
+  // key chosen by a ternary then passed as `t(key, …)`. Any quoted literal with
+  // exact key-shape is a lookup the UI will ask for. Filenames (`asart.svg`)
+  // share the shape but are not lookups.
+  for (const m of src.matchAll(/["']([a-z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)+)["']/g)) {
+    if (/\.(svg|png|jpg|jpeg|gif|webp|mp3|wav|ogg|mp4|json|css|ts|tsx|js)$/.test(m[1])) continue;
     out.push(m[1]);
   }
   return out;
@@ -206,8 +251,14 @@ for (const f of UI_FILES) {
 const unknown = [...used].filter((k) => !k.endsWith(".*") && !(k in CATALOGUES[SOURCE_LANG]));
 check(`every key used by the UI exists in the English catalogue (${used.size} call sites)`, unknown.length === 0, unknown.join(","));
 const dynamic = [...used].filter((k) => k.endsWith(".*")).map((k) => k.slice(0, -2));
-check("the dynamic keys (template lookups) resolve a real family in the catalogue", dynamic.every((p) => englishKeys.some((k) => k.startsWith(p + "."))), dynamic.join(","));
-const unused = englishKeys.filter((k) => !used.has(k) && !dynamic.some((p) => k.startsWith(p + "."))).filter((k) => !k.startsWith("app.notFound"));
+/** A catalogue key belongs to a dynamic family when it starts with the family
+ *  plus a dot — or plus a digit, for the numbered families (`tutorial.cue1.line`,
+ *  `rail.row1.line`, `prologue.line1`) whose templates splice the number
+ *  directly onto the stem. */
+const familyHit = (p: string, k: string) =>
+  k.startsWith(p + ".") || (k.startsWith(p) && k.length > p.length && /[0-9]/.test(k[p.length]!));
+check("the dynamic keys (template lookups) resolve a real family in the catalogue", dynamic.every((p) => englishKeys.some((k) => familyHit(p, k))), dynamic.join(","));
+const unused = englishKeys.filter((k) => !used.has(k) && !dynamic.some((p) => familyHit(p, k))).filter((k) => !k.startsWith("app.notFound"));
 check(`unused catalogue keys are only the deliberate reserved set (${unused.length})`, unused.every((k) => k.startsWith("lang.") || k.startsWith("settings.") || k.endsWith("Short")), unused.join(","));
 
 // ------------------------------------------------------- §7 L9 device storage
@@ -274,8 +325,7 @@ check("the shell's seven Cradle-sheet controls keep their exact English literal"
 check("the landing page still links The Fall (entry route untouched)", read("src/routes/index.tsx").includes('to="/the-fall"'));
 check("the English literals at the call sites match the catalogue (no silent English change)", (() => {
   const pairs: [string, string][] = [];
-  for (const f of UI_FILES) for (const m of read(f).matchAll(/\bt\(\s*"([A-Za-z][A-Za-z0-9.]*)"\s*,\s*"([^"]+)"/g)) pairs.push([m[1], m[2]]);
-  const bad = pairs.filter(([k, lit]) => CATALOGUES.en[k] !== lit);
+  for (const f of UI_FILES) for (const m of read(f).matchAll(/\bt\(\s*"([A-Za-z][A-Za-z0-9.]*)"\s*,\s*"((?:[^"\\]|\\.)*)"/g)) pairs.push([m[1], m[2].replace(/\\(.)/g, "$1")]);  const bad = pairs.filter(([k, lit]) => CATALOGUES.en[k] !== lit);
   if (bad.length) console.log(`     mismatched: ${bad.slice(0, 5).map((b) => b[0]).join(",")}`);
   return pairs.length > 40 && bad.length === 0;
 })());
