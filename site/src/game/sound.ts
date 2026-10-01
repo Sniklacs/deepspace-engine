@@ -1,15 +1,24 @@
 // Deepspace Engine sound layer — entirely WebAudio-synthesized, no audio asset
 // files (keeps memory/disk low). Two parts:
 //   1. Short UI blips for clicks / tabs / launch / study / deploy / purify / error.
-//   2. An ambient background drone (slowly evolving sci-fi pad) for the game page.
+//   2. A generative music engine for the game page: two moods that never loop
+//      the same way twice —
+//        drift  — "Below the Asteroids" energy: vast, lonely, ancient. A slow
+//                 D-minor pad that changes chords every ~18s, sparse bell notes
+//                 blooming through a long space-echo, a deep sub swell.
+//        battle — upbeat and driving: ~112 BPM pulse, kick thump, rolling bass,
+//                 16th-note arps, offbeat hats, tenser harmony.
+//      The game switches moods (battles tab / replay = battle, everything else
+//      = drift) with a ~2s crossfade. A single mute toggle controls both music
+//      and SFX.
 //
 // Browser autoplay rule: the AudioContext is only created/resumed on the first
 // user gesture (see start()) — the manager is inert until then, so nothing plays
-// without interaction. A single mute toggle controls both music and SFX.
+// without interaction.
 
 type Ctx = AudioContext;
 
-/** The music pad's authored gain (owner direction 2026-09-14: loud enough the
+/** The music bus's authored gain (owner direction 2026-09-14: loud enough the
  *  player reaches to turn it down). */
 const MUSIC_GAIN = 0.7;
 /** Speech ducking (design/prologue-voice-direction.md §5.6): the voice loses a
@@ -17,12 +26,53 @@ const MUSIC_GAIN = 0.7;
  *  line is speaking and comes back when it ends. */
 const MUSIC_DUCK = 0.45;
 
+export type MusicMood = "drift" | "battle";
+
+// ---- drift: D-minor progression, ~18s per chord (Below-the-Asteroids space)
+const DRIFT_CHORDS: number[][] = [
+  [146.83, 220.0, 329.63, 349.23],   // Dm(add9)
+  [116.54, 174.61, 220.0, 293.66],   // Bbmaj7
+  [87.31, 130.81, 164.81, 220.0],    // Fmaj7
+  [130.81, 196.0, 293.66, 329.63],   // Cadd9
+];
+const DRIFT_SUBS = [73.42, 58.27, 43.65, 65.41]; // roots, one octave down
+const DRIFT_BELLS = [587.33, 659.25, 698.46, 783.99, 880.0, 1046.5, 1174.66];
+const DRIFT_CHORD_SECS = 18;
+
+// ---- battle: driving minor pulse, 112 BPM
+const BATTLE_BPM = 112;
+const BATTLE_STEP = 60 / BATTLE_BPM / 4; // 16th note
+const BATTLE_BARS_PER_CHORD = 4;
+const BATTLE_ROOTS = [73.42, 58.27, 87.31, 65.41]; // D2 Bb1 F2 C2
+// chord tones (root, minor 3rd, 5th) per root, for arps
+const BATTLE_TONES = [
+  [293.66, 349.23, 440.0],  // Dm
+  [233.08, 293.66, 349.23], // Bbm
+  [349.23, 415.3, 523.25],  // F
+  [261.63, 329.63, 392.0],  // C
+];
+
 class SoundManager {
   private ctx: Ctx | null = null;
   private master: GainNode | null = null;
   private music: GainNode | null = null;
   private musicStarted = false;
   muted = false;
+
+  // --- generative engine state ---
+  private mood: MusicMood = "drift";
+  private driftBus: GainNode | null = null;
+  private battleBus: GainNode | null = null;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private noiseBuf: AudioBuffer | null = null;
+  // drift schedule
+  private driftChordIdx = 0;
+  private nextChordAt = 0;
+  private nextBellAt = 0;
+  // battle schedule
+  private nextStepAt = 0;
+  private battleStep = 0;
+  private echoIn: GainNode | null = null;
 
   // Resume/create the AudioContext on a user gesture. Safe to call repeatedly.
   start(): void {
@@ -107,66 +157,279 @@ class SoundManager {
   // Wait for a sound to be audible before reporting — used during early start.
   prime(): void { this.start(); this.click(); }
 
-  // --- ambient drone ---
+  // --- generative music engine ---
   startMusic(): void {
     this.start();
     if (!this.ctx || !this.music || this.musicStarted) return;
     this.musicStarted = true;
     const ctx = this.ctx;
 
-    // Dark, desolate pad. Low fundamentals give depth; mid partials carry the
-    // body on phone speakers (which roll off below ~300 Hz) so it is genuinely
-    // audible on mobile while still sitting under the UI as ambient background.
-    const filter = ctx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.value = 950;
-    filter.Q.value = 0.5;
-    filter.connect(this.music);
+    // Two mood buses; setMood() crossfades between them.
+    this.driftBus = ctx.createGain();
+    this.driftBus.gain.value = 0.55;
+    this.driftBus.connect(this.music);
+    this.battleBus = ctx.createGain();
+    this.battleBus.gain.value = 0.0001;
+    this.battleBus.connect(this.music);
 
-    // A1 · E2 · A2 · E3 (depth) + A3 · E4 · A4 (phone-audible body).
-    const baseFreqs = [55, 82.4, 110, 164.8, 220, 329.63, 440];
-    const gains = [0.055, 0.045, 0.05, 0.04, 0.035, 0.03, 0.02];
+    // The space-echo: a long feedback delay the drift bells bloom through.
+    const echo = ctx.createDelay(2.0);
+    echo.delayTime.value = 0.45;
+    const echoFb = ctx.createGain();
+    echoFb.gain.value = 0.45;
+    const echoWet = ctx.createGain();
+    echoWet.gain.value = 0.5;
+    echo.connect(echoFb);
+    echoFb.connect(echo);
+    echo.connect(echoWet);
+    echoWet.connect(this.driftBus);
+    this.echoIn = ctx.createGain();
+    this.echoIn.gain.value = 1;
+    this.echoIn.connect(this.driftBus);
+    this.echoIn.connect(echo);
 
-    const oscs: OscillatorNode[] = [];
-    for (let i = 0; i < baseFreqs.length; i++) {
-      const osc = ctx.createOscillator();
-      osc.type = i % 2 === 0 ? "sine" : "triangle";
-      osc.frequency.value = baseFreqs[i];
-      const g = ctx.createGain();
-      g.gain.value = gains[i];
+    // 1s of white noise, reused for battle hats.
+    const len = ctx.sampleRate;
+    this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = this.noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
 
-      // Slow amplitude breathing so the drone evolves and is perceptible.
-      const lfo = ctx.createOscillator();
-      lfo.frequency.value = 0.05 + i * 0.015; // 0.05–0.14 Hz
-      const lfoGain = ctx.createGain();
-      lfoGain.gain.value = g.gain.value * 0.5;
-      lfo.connect(lfoGain);
-      lfoGain.connect(g.gain);
-      lfo.start();
+    const now = ctx.currentTime;
+    this.nextChordAt = now + 0.1;
+    this.nextBellAt = now + 3;
+    this.nextStepAt = now + 0.1;
+    this.battleStep = 0;
 
-      osc.connect(g);
-      g.connect(filter);
-      osc.start();
-      oscs.push(osc);
+    // Lookahead scheduler: every 200ms, schedule events up to 0.8s ahead.
+    this.timer = setInterval(() => this.schedule(), 200);
+
+    // Fade the music bus in over 3s (owner direction 2026-09-14: LOUD — loud
+    // enough the player reaches to turn it down).
+    this.music.gain.cancelScheduledValues(now);
+    this.music.gain.setValueAtTime(0.0001, now);
+    this.music.gain.exponentialRampToValueAtTime(MUSIC_GAIN, now + 3);
+  }
+
+  /** Stop the generative engine (clears the scheduler). The bus fade-out keeps
+   *  it musical rather than a hard cut. */
+  stopMusic(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
     }
+    if (this.ctx && this.music) {
+      const t = this.ctx.currentTime;
+      this.music.gain.cancelScheduledValues(t);
+      this.music.gain.setTargetAtTime(0.0001, t, 0.4);
+    }
+    this.musicStarted = false;
+  }
 
-    // Slow filter sweep adds an evolving, "ruined wind" character.
-    const filterLfo = ctx.createOscillator();
-    filterLfo.frequency.value = 0.05;
-    const filterLfoGain = ctx.createGain();
-    filterLfoGain.gain.value = 90;
-    filterLfo.connect(filterLfoGain);
-    filterLfoGain.connect(filter.frequency);
-    filterLfo.start();
+  /** Switch the musical mood; crossfades over ~2s. Safe to call before
+   *  startMusic() — it just records the target. */
+  setMood(mood: MusicMood): void {
+    this.mood = mood;
+    if (!this.ctx || !this.driftBus || !this.battleBus) return;
+    const t = this.ctx.currentTime;
+    const driftTarget = mood === "drift" ? 0.55 : 0.0001;
+    const battleTarget = mood === "battle" ? 0.5 : 0.0001;
+    this.driftBus.gain.cancelScheduledValues(t);
+    this.battleBus.gain.cancelScheduledValues(t);
+    this.driftBus.gain.setTargetAtTime(driftTarget, t, 0.7);
+    this.battleBus.gain.setTargetAtTime(battleTarget, t, 0.7);
+  }
 
-    // Fade the pad in over 3s. Owner direction (2026-09-14): the music must be
-    // LOUD — loud enough the player reaches to turn it down — so it sits well
-    // forward, not tucked under the UI. Still below clipping (partials sum ≪ 1).
-    this.music.gain.cancelScheduledValues(ctx.currentTime);
-    this.music.gain.setValueAtTime(0.0001, ctx.currentTime);
-    this.music.gain.exponentialRampToValueAtTime(MUSIC_GAIN, ctx.currentTime + 3);
-    // (No need to hold node references: everything is connected to the
-    // destination through this.music, so the graph stays alive while running.)
+  private schedule(): void {
+    if (!this.ctx) return;
+    const horizon = this.ctx.currentTime + 0.8;
+    if (this.mood === "drift") {
+      while (this.nextChordAt < horizon) {
+        this.scheduleDriftChord(this.nextChordAt, this.driftChordIdx);
+        this.driftChordIdx = (this.driftChordIdx + 1) % DRIFT_CHORDS.length;
+        this.nextChordAt += DRIFT_CHORD_SECS;
+      }
+      while (this.nextBellAt < horizon) {
+        this.scheduleBell(this.nextBellAt);
+        this.nextBellAt += 4 + Math.random() * 7;
+      }
+      // Keep the battle clock parked so switching moods never jumps the beat.
+      this.nextStepAt = this.ctx.currentTime + 0.1;
+    } else {
+      while (this.nextStepAt < horizon) {
+        this.scheduleBattleStep(this.battleStep, this.nextStepAt);
+        this.battleStep++;
+        this.nextStepAt += BATTLE_STEP;
+      }
+      // Keep the drift clock parked so a return never stacks missed chords.
+      this.nextChordAt = this.ctx.currentTime + 0.1;
+      this.nextBellAt = this.ctx.currentTime + 3;
+    }
+  }
+
+  // --- drift: slow chord swells + sparse echoing bells ---
+  private scheduleDriftChord(t: number, idx: number): void {
+    const ctx = this.ctx, bus = this.driftBus;
+    if (!ctx || !bus) return;
+    const dur = DRIFT_CHORD_SECS + 4; // 4s overlap into the next chord
+    for (const f of DRIFT_CHORDS[idx]) {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.05, t + 5);
+      g.gain.setValueAtTime(0.05, t + dur - 6);
+      g.gain.linearRampToValueAtTime(0.0001, t + dur);
+      // Gentle breathing so the pad feels alive, not frozen.
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.06 + Math.random() * 0.05;
+      const lfoG = ctx.createGain();
+      lfoG.gain.value = 0.02;
+      lfo.connect(lfoG);
+      lfoG.connect(g.gain);
+      osc.connect(g);
+      g.connect(bus);
+      osc.start(t);
+      osc.stop(t + dur + 0.1);
+      lfo.start(t);
+      lfo.stop(t + dur + 0.1);
+    }
+    // Deep sub root underneath.
+    const sub = ctx.createOscillator();
+    sub.type = "sine";
+    sub.frequency.value = DRIFT_SUBS[idx];
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0.0001, t);
+    sg.gain.linearRampToValueAtTime(0.06, t + 6);
+    sg.gain.setValueAtTime(0.06, t + dur - 6);
+    sg.gain.linearRampToValueAtTime(0.0001, t + dur);
+    sub.connect(sg);
+    sg.connect(bus);
+    sub.start(t);
+    sub.stop(t + dur + 0.1);
+  }
+
+  private scheduleBell(t: number): void {
+    const ctx = this.ctx, bus = this.driftBus, echo = this.echoIn;
+    if (!ctx || !bus || !echo) return;
+    // Pick a bell tone; sometimes a soft fifth above for harmony.
+    const f = DRIFT_BELLS[Math.floor(Math.random() * DRIFT_BELLS.length)];
+    const tones = Math.random() < 0.3 ? [f, f * 1.5] : [f];
+    for (const tone of tones) {
+      for (const [mult, peak] of [[1, 0.055], [2, 0.018]] as const) {
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = tone * mult;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(peak, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 2.8);
+        osc.connect(g);
+        g.connect(bus);   // dry
+        g.connect(echo);  // blooms through the space-echo
+        osc.start(t);
+        osc.stop(t + 3);
+      }
+    }
+  }
+
+  // --- battle: driving 112 BPM pulse ---
+  private scheduleBattleStep(step: number, t: number): void {
+    const ctx = this.ctx, bus = this.battleBus;
+    if (!ctx || !bus) return;
+    const s16 = step % 16;                       // position in bar
+    const bar = Math.floor(step / 16);
+    const chordIdx = Math.floor(bar / BATTLE_BARS_PER_CHORD) % BATTLE_ROOTS.length;
+    const root = BATTLE_ROOTS[chordIdx];
+    const tones = BATTLE_TONES[chordIdx];
+
+    // Kick thump on every beat.
+    if (s16 % 4 === 0) {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(120, t);
+      osc.frequency.exponentialRampToValueAtTime(42, t + 0.1);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.5, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      osc.connect(g);
+      g.connect(bus);
+      osc.start(t);
+      osc.stop(t + 0.2);
+    }
+    // Rolling bass, 8th notes.
+    if (s16 % 2 === 0) {
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = root * 2 * (s16 % 8 === 6 ? 1.5 : 1);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.11, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      osc.connect(g);
+      g.connect(bus);
+      osc.start(t);
+      osc.stop(t + 0.25);
+    }
+    // 16th-note arp, cycling chord tones two octaves up.
+    {
+      const seq = [tones[0] * 2, tones[1] * 2, tones[2] * 2, tones[0] * 4, tones[2] * 2, tones[1] * 2];
+      const f = seq[s16 % seq.length];
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = f;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 1700;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.045, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      osc.connect(lp);
+      lp.connect(g);
+      g.connect(bus);
+      osc.start(t);
+      osc.stop(t + 0.15);
+    }
+    // Offbeat hats from the noise buffer.
+    if ((s16 % 4 === 2) && this.noiseBuf) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuf;
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 6500;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.035, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+      src.connect(hp);
+      hp.connect(g);
+      g.connect(bus);
+      src.start(t);
+      src.stop(t + 0.06);
+    }
+    // Tense pad swell under each chord change.
+    if (step % (16 * BATTLE_BARS_PER_CHORD) === 0) {
+      const dur = 16 * BATTLE_BARS_PER_CHORD * BATTLE_STEP;
+      for (const f of tones) {
+        const osc = ctx.createOscillator();
+        osc.type = "sawtooth";
+        osc.frequency.value = f;
+        osc.detune.value = (Math.random() - 0.5) * 14;
+        const lp = ctx.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.value = 850;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.035, t + 1.6);
+        g.gain.setValueAtTime(0.035, t + dur - 2);
+        g.gain.linearRampToValueAtTime(0.0001, t + dur);
+        osc.connect(lp);
+        lp.connect(g);
+        g.connect(bus);
+        osc.start(t);
+        osc.stop(t + dur + 0.1);
+      }
+    }
   }
 
   /** Duck the music under a spoken line: ×0.45 over ~120 ms while the line

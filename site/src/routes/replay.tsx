@@ -4,10 +4,11 @@
 // be judged without fighting a real battle first. Pick a plan, watch the
 // vectors enter, the surprise land, the pickets go up. The "staging" toggle
 // shows the pre-loaded view: the locked plan before launch, counting down.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import BattleReplay from "../components/BattleReplay";
 import { REPLAY_PRESETS, buildDemoBattle, type ReplayPreset } from "../game/war/replay-demo";
+import { sound } from "../game/sound";
 
 export const Route = createFileRoute("/replay")({
   component: ReplaySandbox,
@@ -16,6 +17,12 @@ export const Route = createFileRoute("/replay")({
 function ReplaySandbox() {
   const [preset, setPreset] = useState<ReplayPreset>("pincer");
   const [staging, setStaging] = useState(false);
+  // Battle footage gets battle music.
+  useEffect(() => {
+    sound.startMusic();
+    sound.setMood("battle");
+    return () => sound.setMood("drift");
+  }, []);
   // Anchor once per preset/staging so the demo battle (and its timeline)
   // stays stable while the viewer plays, pauses, and scrubs.
   const battle = useMemo(() => buildDemoBattle(preset, Date.now(), staging), [preset, staging]);
