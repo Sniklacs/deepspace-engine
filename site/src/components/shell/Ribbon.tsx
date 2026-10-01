@@ -9,7 +9,7 @@
 // the alert is never colour-only (it says the word "Chorus" and the number).
 // This file introduces no colour of its own except `race.accent` (identity,
 // passed in from races.ts — the single allowed source, §9.1 rule 4).
-import { getRace } from "../../game/races";
+import { getRace, raceText } from "../../game/races";
 import { WORLD_CONFIG_PUBLIC } from "../../game/world-config";
 import { tipT, RESOURCE_TIPS, ARMORY_TIPS } from "../../game/tooltips";
 import { Icon } from "../icons";
@@ -62,7 +62,7 @@ export default function Ribbon({
           aria-haspopup="dialog"
           aria-label={t("ribbon.identity", {
             name: state.playerName,
-            race: race.name,
+            race: raceText(t, race, "name", race.name),
             world: WORLD_CONFIG_PUBLIC.worldName,
           })}
           onClick={onIdentity}

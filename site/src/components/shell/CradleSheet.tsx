@@ -15,7 +15,7 @@ import { Icon } from "../icons";
 import { RowButton } from "../ui/RowButton";
 import { ActionButton } from "../ui/ActionButton";
 import { engineHelpers } from "../../game/client-utils";
-import { getRace } from "../../game/races";
+import { getRace, raceText } from "../../game/races";
 import { WORLD_CONFIG_PUBLIC } from "../../game/world-config";
 import { RESOURCE_TIPS, ARMORY_TIPS, tipField } from "../../game/tooltips";
 import type { GameState } from "../../game/types";
@@ -102,7 +102,7 @@ export default function CradleSheet({
       <SheetHeader
         id="cradle-sheet-title"
         title={state.playerName}
-        subtitle={`${race.name} · ${race.homeRegion} · ${WORLD_CONFIG_PUBLIC.worldName}`}
+        subtitle={`${raceText(t, race, "name", race.name)} · ${raceText(t, race, "homeRegion", race.homeRegion)} · ${WORLD_CONFIG_PUBLIC.worldName}`}
         onClose={onClose}
       />
       <div className="sheet-body space-y-4 px-4 py-3 md:px-5">

@@ -20,7 +20,7 @@ import { engineHelpers } from "../game/client-utils";
 import { kitsHeld } from "../game/cradle-slots";
 import { CRAFT, CRAFT_RESOURCE_KEY, canForgeAlloy, alloyRecipeRaces } from "../game/engine";
 import type { CraftKind } from "../game/engine";
-import { RACES } from "../game/races";
+import { RACES, raceText } from "../game/races";
 import { tipT, tipField, RESOURCE_TIPS } from "../game/tooltips";
 import { useT } from "./i18n/I18n";
 import { SplitValue } from "./i18n/SplitValue";
@@ -123,7 +123,7 @@ export default function WorkshopShelf({ state, onCraft }: {
                       : "border-line bg-surf-2 text-text-3"
                 }`}
               >
-                {race.name.replace("The ", "")}
+                {raceText(t, race, "name", race.name).replace("The ", "")}
                 {isOwn ? " (own)" : ""} <Bdi dir="ltr" className="num">&times;{count}</Bdi>
               </span>
             );
