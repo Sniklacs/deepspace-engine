@@ -40,6 +40,8 @@
 // purchasable, wave flags, race binding) are contracts and are asserted in the
 // heroes verification harness.
 import type { RaceId } from "./types";
+import type { T } from "./i18n/types";
+import { keyifySegment } from "./i18n/keyify";
 
 // ============================================================================
 // §1 CONFIG — ONE place for every tunable number.
@@ -302,6 +304,24 @@ export const HERO_DEFS: readonly HeroDef[] = [
 ];
 
 export const HERO_BY_ID: Readonly<Record<string, HeroDef>> = Object.fromEntries(HERO_DEFS.map((h) => [h.id, h])) as Record<string, HeroDef>;
+
+// ---- i18n render helpers (cfg.heroes.*) -------------------------------------
+// slot-label.ts convention: the English literal stays in the tables above; the
+// key resolves at RENDER time. This module is not yet consumed by the client,
+// so these helpers are ready for the war-layer UI to pick up. Deed names and
+// conditions key under the deed id; hero names/identities under the hero id;
+// skill names/effects under the (globally unique) skill id.
+export function heroText(t: T, hero: { id: string }, field: "name" | "identity", fallback: string): string {
+  return t(`cfg.heroes.${keyifySegment(hero.id)}.${field}`, fallback);
+}
+
+export function skillText(t: T, skill: { id: string }, field: "name" | "effect", fallback: string): string {
+  return t(`cfg.heroes.${keyifySegment(skill.id)}.${field}`, fallback);
+}
+
+export function deedText(t: T, deed: { id: string }, field: "name" | "condition", fallback: string): string {
+  return t(`cfg.heroes.${keyifySegment(deed.id)}.${field}`, fallback);
+}
 
 // ============================================================================
 // §5 RACE-BOUND COLLECTION AXIS (R3) — DATA, not logic. The beta debug world

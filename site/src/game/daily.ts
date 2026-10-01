@@ -58,6 +58,8 @@
 //   • discipline()/purify stays untouched — `cleanse_taint` merely NOTES the
 //     existing action; this file has no discipline implementation.
 import type { DailyState, GameState, Zone } from "./types";
+import type { T } from "./i18n/types";
+import { keyifySegment } from "./i18n/keyify";
 import { awardDeedCosmetic, grantCurrency, recordSeasonEvent, utcDayKey } from "./monetization";
 import { grantTimeToken } from "./time-tokens";
 
@@ -152,6 +154,14 @@ export const DAILY_ITEM_BY_ID = Object.fromEntries(DAILY_ITEM_POOL.map((d) => [d
 
 export function dailyItemLabel(id: string): string {
   return DAILY_ITEM_BY_ID[id as DailyItemId]?.label ?? id;
+}
+
+// ---- i18n render helpers (cfg.daily.*) --------------------------------------
+// slot-label.ts convention: the English literal stays in the pool above; the
+// key resolves at RENDER time. The Devotion panel (CradleScreen) calls
+// dailyItemLabelT(t, id) instead of reading `.label` directly.
+export function dailyItemLabelT(t: T, id: string): string {
+  return t(`cfg.daily.${keyifySegment(id)}.label`, dailyItemLabel(id));
 }
 
 // ---- family/category memberships used by the generator (TD1 constraints) ----

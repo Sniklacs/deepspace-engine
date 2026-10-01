@@ -19,6 +19,8 @@
 //   • All §7-flagged numbers (bases, multipliers, costs, times, plasma ratio)
 //     live in ARMORY_CONFIG — one config object, per the design.
 import type { RaceId } from "./types";
+import type { T } from "./i18n/types";
+import { keyifySegment } from "./i18n/keyify";
 
 // ---- the five war roles (uniform across every race) ----
 export const WEAPON_TYPES = ["frontline", "assault", "precision", "siege", "engine"] as const;
@@ -409,3 +411,23 @@ export const ARMORY_FAMILY_TECH: Record<WeaponType, string> = {
   siege: "armory_siege",
   engine: "armory_engine",
 };
+
+// ---- i18n render helpers (cfg.armory.*) -------------------------------------
+// slot-label.ts convention: the English literal stays in the tables above; the
+// key resolves at RENDER time. Family ids repeat across races, so family keys
+// are nested under the race: cfg.armory.<raceId>.<familyId>.<field>.
+export type FamilyTextField = "name" | "identity" | "role";
+
+export function familyText(t: T, raceId: RaceId, family: { id: string }, field: FamilyTextField, fallback: string): string {
+  return t(`cfg.armory.${keyifySegment(raceId)}.${keyifySegment(family.id)}.${field}`, fallback);
+}
+
+/** The tier word in a model designation ("Primer" etc.): cfg.armory.<raceId>.tier.<1-4>. */
+export function tierWord(t: T, raceId: RaceId, tier: WeaponTier, fallback: string): string {
+  return t(`cfg.armory.${keyifySegment(raceId)}.tier.${tier}`, fallback);
+}
+
+/** Human label for a stat key (STAT_LABELS): cfg.armory.stat.<key>.label. */
+export function statLabel(t: T, key: keyof WeaponStats, fallback: string): string {
+  return t(`cfg.armory.stat.${keyifySegment(key)}.label`, fallback);
+}

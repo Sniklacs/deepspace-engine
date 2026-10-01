@@ -6,6 +6,8 @@
 // Research costs Codices (earned, never looted) + real time, run by appointed
 // Leaders whose specialty boosts the matching domain line.
 import type { DomainId, Leader, Specialty } from "./types";
+import type { T } from "./i18n/types";
+import { keyifySegment } from "./i18n/keyify";
 import { freshLeaderXpState } from "./leader-xp";
 
 export interface Tech {
@@ -156,6 +158,27 @@ export function starterLeaders(now: number): Leader[] {
 /** The leader a colony RESCUES by completing the deep clean-return deed. */
 export function rescueLeader(now: number): Leader {
   return lead("aran", "Aran Holt", "logistician", { research: 3, economy: 2, combat: 3, engineering: 4 }, now);
+}
+
+// ---- i18n render helpers (cfg.research.*) -----------------------------------
+// slot-label.ts convention: the English literal stays in the table above; the
+// key resolves at RENDER time. techText covers TECH_TREE, REVELATION_TREE and
+// ARMORY_TREE (their ids are disjoint, so one helper serves all three).
+export type TechTextField = "name" | "description" | "effect";
+
+export function techText(t: T, id: string, field: TechTextField, fallback: string): string {
+  return t(`cfg.research.${keyifySegment(id)}.${field}`, fallback);
+}
+
+export function specialtyLabel(t: T, specialty: Specialty, fallback: string): string {
+  return t(`cfg.research.specialty.${keyifySegment(specialty)}.label`, fallback);
+}
+
+/** Leader display names (built by lead() with id "ld-<short>"; the key uses
+ *  the short id, e.g. cfg.research.leader.vaera.name). */
+export function leaderName(t: T, leader: { id: string; name: string }): string {
+  const short = leader.id.startsWith("ld-") ? leader.id.slice(3) : leader.id;
+  return t(`cfg.research.leader.${keyifySegment(short)}.name`, leader.name);
 }
 
 function lead(

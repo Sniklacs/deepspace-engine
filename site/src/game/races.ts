@@ -1,4 +1,6 @@
 import type { Race, RaceId } from "./types";
+import type { T } from "./i18n/types";
+import { keyifySegment } from "./i18n/keyify";
 
 // All race lore is in-universe mythology — legends the colonies believe about the
 // old world. It is never presented as fact and never mapped to any real-world
@@ -133,6 +135,29 @@ export const UNBOUND_LEGEND = {
 
 export function getRace(id: RaceId): Race {
   return RACES.find((r) => r.id === id)!;
+}
+
+// ---- i18n render helpers (cfg.races.*) -------------------------------------
+// slot-label.ts convention: the English literal stays in the table above; the
+// key resolves at RENDER time. raceText covers the six prose fields;
+// raceAttributeLabel covers the attributes list (keyed by index).
+export type RaceTextField = "name" | "title" | "blurb" | "lore" | "homeRegion" | "flavorQuote";
+
+export function raceText(t: T, race: { id: string }, field: RaceTextField, fallback: string): string {
+  return t(`cfg.races.${keyifySegment(race.id)}.${field}`, fallback);
+}
+
+export function raceAttributeLabel(t: T, raceId: string, index: number, fallback: string): string {
+  return t(`cfg.races.${keyifySegment(raceId)}.attribute.${index}`, fallback);
+}
+
+// UNBOUND_LEGEND has no id field, so it keys under cfg.races.unbound.<field>.
+export function unboundText(t: T, field: RaceTextField, fallback: string): string {
+  return t(`cfg.races.unbound.${field}`, fallback);
+}
+
+export function unboundAttributeLabel(t: T, index: number, fallback: string): string {
+  return t(`cfg.races.unbound.attribute.${index}`, fallback);
 }
 
 // Human-readable lines for the LIVE numeric mods, so the pick screen can show the

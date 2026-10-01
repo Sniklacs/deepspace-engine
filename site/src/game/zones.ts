@@ -1,4 +1,6 @@
 import type { DomainId, Zone } from "./types";
+import type { T } from "./i18n/types";
+import { keyifySegment } from "./i18n/keyify";
 
 // Expedition destinations in the Shatterlands. Outer ruins hold embers; deep
 // scientific sites are the only places chipsets live. Higher risk, higher reward.
@@ -545,6 +547,18 @@ export const ZONES: Zone[] = [
 
 export function getZone(id: string): Zone {
   return ZONES.find((z) => z.id === id)!;
+}
+
+// ---- i18n render helpers (cfg.zones.*) -------------------------------------
+// slot-label.ts convention: the English literal stays in the table above; the
+// key resolves at RENDER time, so a zone can never render a raw key. Render
+// sites (CircuitPage, play.tsx, engine log lines) call these with the page's
+// `t` instead of reading `.name` / `.flavor` directly.
+export function zoneName(t: T, z: { id: string; name: string }): string {
+  return t(`cfg.zones.${keyifySegment(z.id)}.name`, z.name);
+}
+export function zoneFlavor(t: T, z: { id: string; flavor: string }): string {
+  return t(`cfg.zones.${keyifySegment(z.id)}.flavor`, z.flavor);
 }
 
 export const DOMAINS: {
