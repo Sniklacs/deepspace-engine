@@ -201,6 +201,16 @@ class SoundManager {
     pedal.connect(pedalG);
     pedalG.connect(this.driftBus);
     pedal.start();
+    // 220 Hz harmonic so the pedal survives small speakers — 110 Hz alone
+    // vanishes on phone/tablet drivers.
+    const pedalHi = ctx.createOscillator();
+    pedalHi.type = "sine";
+    pedalHi.frequency.value = DRIFT_PEDAL * 2;
+    const pedalHiG = ctx.createGain();
+    pedalHiG.gain.value = 0.014;
+    pedalHi.connect(pedalHiG);
+    pedalHiG.connect(this.driftBus);
+    pedalHi.start();
 
     // 1s of white noise, reused for battle hats.
     const len = ctx.sampleRate;
@@ -291,8 +301,8 @@ class SoundManager {
       osc.frequency.value = f;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(0.05, t + 5);
-      g.gain.setValueAtTime(0.05, t + dur - 6);
+      g.gain.linearRampToValueAtTime(0.065, t + 5);
+      g.gain.setValueAtTime(0.065, t + dur - 6);
       g.gain.linearRampToValueAtTime(0.0001, t + dur);
       // Gentle breathing so the pad feels alive, not frozen.
       const lfo = ctx.createOscillator();
@@ -307,11 +317,28 @@ class SoundManager {
       osc.stop(t + dur + 0.1);
       lfo.start(t);
       lfo.stop(t + dur + 0.1);
+      // Octave-up shimmer: the same tone one octave higher, much quieter.
+      // Phone/tablet drivers can't reproduce the low chord tones, so this
+      // carries the harmony where small speakers actually work.
+      const hi = ctx.createOscillator();
+      hi.type = "sine";
+      hi.frequency.value = f * 2;
+      const hg = ctx.createGain();
+      hg.gain.setValueAtTime(0.0001, t);
+      hg.gain.linearRampToValueAtTime(0.028, t + 5);
+      hg.gain.setValueAtTime(0.028, t + dur - 6);
+      hg.gain.linearRampToValueAtTime(0.0001, t + dur);
+      lfoG.connect(hg.gain);
+      hi.connect(hg);
+      hg.connect(bus);
+      hi.start(t);
+      hi.stop(t + dur + 0.1);
     }
-    // Deep sub root underneath.
+    // Low root underneath, one octave up from the original sub: 43–65 Hz is
+    // silence on small speakers, so the root sits where it can be felt.
     const sub = ctx.createOscillator();
     sub.type = "sine";
-    sub.frequency.value = DRIFT_SUBS[idx];
+    sub.frequency.value = DRIFT_SUBS[idx] * 2;
     const sg = ctx.createGain();
     sg.gain.setValueAtTime(0.0001, t);
     sg.gain.linearRampToValueAtTime(0.06, t + 6);
