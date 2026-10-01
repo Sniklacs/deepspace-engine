@@ -45,7 +45,6 @@ import {
   satelliteTechFor,
 } from "../game/satellites";
 import {
-  LABEL_NODE_RADIUS,
   labelTier,
   labelFontUnits,
   resolveLabels,
@@ -74,7 +73,9 @@ import {
   SEAM_BANDS,
   ISLAND_SAT_RING,
   ISLAND_RIM_FILL_OPACITY,
+  ISLAND_RIM_RING,
   ISLAND_TRACE,
+  ISLAND_NODE_RADIUS,
 } from "../game/circuit-island-map";
 
 export interface CircuitPageProps {
@@ -176,9 +177,12 @@ export function CircuitPage({
     return () => ro.disconnect();
   }, []);
 
-  // §2.1 rule 4 — the 44px law: never render the r26 hit circle below a 22px
-  // CSS radius, no matter how small the stage gets. The map then pans instead.
-  const baseScale = fit > 0 ? Math.max(fit, HIT_FLOOR_PX / HIT_RADIUS) : 0;
+  // The 44px tap floor, kept at EVERY zoom: the whole island is visible at
+  // zoom 1 (fit = contain — no forced overscale on phones), and the invisible
+  // hit circles size themselves as max(HIT_RADIUS, 22/scale) so they never
+  // render below a 22px CSS radius no matter the zoom. Tapping stays easy;
+  // the map stays whole.
+  const baseScale = fit;
   const scale = baseScale * zoom;
 
   const zoomBy = (dir: 1 | -1) => {
@@ -242,6 +246,8 @@ export function CircuitPage({
         y: islandPos(n.id).y,
         kind: n.kind,
         importance: n.importance ? { tier: n.importance.tier } : null,
+        // the ladder's circle-box test must measure the circles we render
+        r: ISLAND_NODE_RADIUS[n.kind],
       })),
     [circuit],
   );
@@ -383,7 +389,7 @@ export function CircuitPage({
               <div className="flex h-full min-h-full w-full min-w-full">
                 <div
                   ref={innerRef}
-                  className="circuit-map-inner m-auto flex-none"
+                  className="circuit-map-inner relative m-auto flex-none"
                   // THE ISLAND — the owner's survey art is the whole map. No
                   // veil: the terrain reads at full strength and the halo'd
                   // labels carry the contrast. Markers are pinned to the
@@ -407,30 +413,33 @@ export function CircuitPage({
                       preserveAspectRatio="xMidYMid slice"
                       aria-hidden="true"
                     />
-                    {/* Region seam banners, straight from the owner's map —
-                        decorative, non-interactive. */}
-                    <g aria-hidden="true" style={{ pointerEvents: "none" }}>
-                      {SEAM_BANDS.map((s) => (
-                        <text
-                          key={s.label}
-                          x={ISLAND_W / 2} y={s.yPct * ISLAND_H}
-                          textAnchor="middle"
-                          fontSize={22}
-                          letterSpacing={4}
-                          fontWeight={600}
-                          fill={LABEL_COLORS.node}
-                          opacity={0.85}
-                          style={{
-                            paintOrder: "stroke",
-                            stroke: LABEL_COLORS.halo,
-                            strokeWidth: 4,
-                            strokeLinejoin: "round",
-                          }}
-                        >
-                          {s.label}
-                        </text>
-                      ))}
-                    </g>
+                    {/* Region seam banners — HTML overlays, NOT SVG text: they track the
+                        island by percentage but keep a constant readable size
+                        at any zoom (SVG text would scale with the viewBox and
+                        blow up when zoomed). Decorative, non-interactive. */}
+                    {SEAM_BANDS.map((sb) => (
+                      <div
+                        key={sb.label}
+                        aria-hidden="true"
+                        style={{
+                          position: "absolute",
+                          left: "50%",
+                          top: `${sb.yPct * 100}%`,
+                          transform: "translate(-50%, -50%)",
+                          pointerEvents: "none",
+                          whiteSpace: "nowrap",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          letterSpacing: ".35em",
+                          textIndent: ".35em",
+                          color: "rgba(226,232,240,0.55)",
+                          textShadow: "0 1px 10px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9)",
+                          zIndex: 2,
+                        }}
+                      >
+                        {sb.label}
+                      </div>
+                    ))}
                     {/* LAYER 0b — the satellite ring, in the ocean around the
                         island. One marker per covered node (the constellation,
                         in atlas order), state-colored: hollow red = dormant,
@@ -496,7 +505,7 @@ export function CircuitPage({
                           <line
                             key={i}
                             x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                            stroke={e.kind === "road" ? (nearEdge ? TRACE_COLORS.roadNear : TRACE_COLORS.road) : TRACE_COLORS.ruin}
+                            stroke={e.kind === "road" ? (nearEdge ? TRACE_COLORS.roadNear : TRACE_COLORS.road) : ISLAND_TRACE.ruinColor}
                             strokeWidth={selected ? 3 : e.kind === "road" ? ISLAND_TRACE.roadWidth : 2}
                             strokeOpacity={selected ? 0.95 : e.kind === "road" ? (nearEdge ? ISLAND_TRACE.roadOpacity * 0.8 : ISLAND_TRACE.roadOpacity) : ISLAND_TRACE.ruinOpacity}
                             strokeDasharray={e.kind === "ruinPass" ? "5 5" : undefined}
@@ -531,20 +540,20 @@ export function CircuitPage({
                               cx={nx} cy={ny} r={r}
                               fill={nodeFill(n)}
                               fillOpacity={n.kind === "rim" ? ISLAND_RIM_FILL_OPACITY : 1}
-                              stroke={sel === n.id ? "rgba(255,255,255,0.95)" : nodeRing(n)}
-                              strokeWidth={sel === n.id ? 3 : n.kind === "heart" ? 3 : 1.5}
+                              stroke={sel === n.id ? "rgba(255,255,255,0.95)" : n.kind === "rim" ? ISLAND_RIM_RING : nodeRing(n)}
+                              strokeWidth={sel === n.id ? 3 : n.kind === "rim" ? 2 : n.kind === "heart" ? 3 : 1.5}
                               className={n.kind === "heart" ? "animate-pulse" : undefined}
                             />
                             {/* sigils (layer 5) — symbols, not text: authored sizes */}
-                            {n.kind === "heart" && <text x={nx} y={ny + 5} textAnchor="middle" fontSize="15">🔥</text>}
-                            {n.kind === "cradle" && <text x={nx} y={ny + 5} textAnchor="middle" fontSize="13">🔰</text>}
+                            {n.kind === "heart" && <text x={nx} y={ny + 7} textAnchor="middle" fontSize="22">🔥</text>}
+                            {n.kind === "cradle" && <text x={nx} y={ny + 6} textAnchor="middle" fontSize="19">🔰</text>}
                             {n.kind === "rim" && n.importance && (
-                              <text className="cl-pip" x={nx + 14} y={ny - 12} textAnchor="middle" fontSize={fontUnits} fontWeight="bold" fill={TIER_COLORS[n.importance.tier]} {...halo}>
+                              <text className="cl-pip" x={nx + r * 0.8} y={ny - r * 0.8} textAnchor="middle" fontSize={fontUnits} fontWeight="bold" fill={TIER_COLORS[n.importance.tier]} {...halo}>
                                 {tierPip(t, n.importance.tier)}
                               </text>
                             )}
                             {n.kind === "rim" && n.id === "shattered-academies" && (
-                              <text x={nx} y={ny - 14} textAnchor="middle" fontSize="11" fill={SIGIL_COLORS.heartZoneStar}>★</text>
+                              <text x={nx} y={ny - r - 6} textAnchor="middle" fontSize="13" fill={SIGIL_COLORS.heartZoneStar}>★</text>
                             )}
                             {/* ORBITAL WATCH dishes (design/satellites.md §0.5) —
                                 status + stage numeral, never color alone. Red =
@@ -559,13 +568,13 @@ export function CircuitPage({
                               return (
                                 <g key={`sat-${n.id}`} transform={`translate(${nx - r - 14},${ny - r - 10})`}>
                                   <circle
-                                    r={7}
+                                    r={9}
                                     fill={awake ? SATELLITE_COLORS.activeFill : SATELLITE_COLORS.dormantFill}
                                     stroke={awake ? SATELLITE_COLORS.activeRing : SATELLITE_COLORS.dormantRing}
                                     strokeWidth={1.5}
                                   />
                                   {awake && (
-                                    <text textAnchor="middle" dy="3.2" fontSize="9" fontWeight="bold" fill={SATELLITE_COLORS.activeInk}>
+                                    <text textAnchor="middle" dy="3.8" fontSize="11" fontWeight="bold" fill={SATELLITE_COLORS.activeInk}>
                                       {stage}
                                     </text>
                                   )}
@@ -593,11 +602,14 @@ export function CircuitPage({
                       })}
                     </g>
                     {/* LAYER 8 — invisible hit circles: ALWAYS topmost for pointer
-                        events; the r26 circle is the 44px tap floor (§2.1 rule 4). */}
+                        events. The 44px tap floor holds at every zoom: radius
+                        is max(HIT_RADIUS, 22/scale) viewBox units, so the
+                        circle never renders below a 22px CSS radius. */}
                     <g>
                       {circuit.nodes.map((n) => {
                         const ip = islandPos(n.id);
                         const title = nodeTitle(t, n);
+                        const hitR = Math.max(HIT_RADIUS, scale > 0 ? HIT_FLOOR_PX / scale : HIT_RADIUS);
                         return (
                           <g
                             key={n.id}
@@ -616,7 +628,7 @@ export function CircuitPage({
                             }}
                             style={{ opacity: n.kind === "near" ? 0.6 : 1 }}
                           >
-                            <circle cx={ip.x} cy={ip.y} r={HIT_RADIUS} fill="transparent" />
+                            <circle cx={ip.x} cy={ip.y} r={hitR} fill="transparent" />
                             <title>{title}</title>
                           </g>
                         );
@@ -722,7 +734,7 @@ export function CircuitPage({
 
 /* ---------------- map node helpers ---------------- */
 function nodeRadius(n: AtlasNode): number {
-  return LABEL_NODE_RADIUS[n.kind]; // single source (circuit-labels.ts)
+  return ISLAND_NODE_RADIUS[n.kind]; // island-space markers (circuit-island-map.ts)
 }
 function nodeFill(n: AtlasNode): string {
   if (n.kind === "heart") return KIND_COLORS.heart;

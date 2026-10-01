@@ -67,6 +67,15 @@ export const ISLAND_POSITIONS: Record<string, IslandPoint> = {
   cradle: { x: 560, y: 2050 },
 };
 
+/** Site marker radii in island space (viewBox units). The island canvas is
+ *  ~2x the old circuit-web's width, so markers are scaled up to match —
+ *  at phone contain-fit they render ~14–21px radius, readable without zoom. */
+export const ISLAND_NODE_RADIUS: Record<"heart" | "rim" | "near" | "cradle", number> = {
+  heart: 34,
+  rim: 22,
+  near: 16,
+  cradle: 24,
+};
 /** Fallback when a node id has no island position (never expected — every
  *  game node is in the table above). Dead centre of the island. */
 export const ISLAND_FALLBACK: IslandPoint = { x: 560, y: 1120 };
@@ -97,18 +106,23 @@ export const ISLAND_SAT_RING = {
   cy: 1120,
   rx: 532,
   ry: 1082,
-  markerR: 5,
+  markerR: 8,
 } as const;
 
-/** Rim node fill on terrain: the 22% surf-0 recipe (TIER_FILL_OPACITY) was
- *  tuned for a near-black underlay and washes out over ice and farmland, so
- *  the island render uses a denser wash — same tier hues, still translucent. */
-export const ISLAND_RIM_FILL_OPACITY = 0.55;
+/** Rim node fill on terrain: a light wash so the survey art reads through —
+ *  the tier pip beside each marker carries the tier identity. */
+export const ISLAND_RIM_FILL_OPACITY = 0.3;
 
-/** Traces on terrain: old roads at a whisper so the survey art reads first. */
+/** Island marker ring: dark ink instead of the pale circuit-web ring, so
+ *  markers read as survey pins on the artwork rather than bright decals. */
+export const ISLAND_RIM_RING = "rgba(8,10,16,0.72)";
+
+/** Traces on terrain: old roads at a whisper so the survey art reads first.
+ *  Ruin traces use a dark burnt umber instead of the bright canon orange. */
 export const ISLAND_TRACE = {
-  roadOpacity: 0.3,
+  roadOpacity: 0.2,
   roadWidth: 1.5,
-  ruinOpacity: 0.4,
-  severedOpacity: 0.5,
+  ruinOpacity: 0.3,
+  ruinColor: "#7c4a1e",
+  severedOpacity: 0.35,
 } as const;
