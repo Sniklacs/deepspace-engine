@@ -1,9 +1,9 @@
 {
-  "note": "Frozen pre-existing type debt in the shipped app (site/src), snapshot 2026-09-26 with the /play `useT is not defined` hotfix. The guard FAILS on any increase and on any code that is not listed here; it prints a nudge when a number drops, so lower these as the debt is paid. The undefined-identifier family (TS2304/TS2551/TS2552) is deliberately NOT baselined \u2014 zero tolerance, see scripts/typecheck-guard.ts. Tightened 2026-09-30: TS2322 4->3, TS2614 1->0 (war ghost-reserve removal paid the debt).",
+  "note": "Frozen pre-existing type debt in the shipped app (site/src), snapshot 2026-09-26 with the /play `useT is not defined` hotfix. The guard FAILS on any increase and on any code that is not listed here; it prints a nudge when a number drops, so lower these as the debt is paid. The undefined-identifier family (TS2304/TS2551/TS2552) is deliberately NOT baselined — zero tolerance, see scripts/typecheck-guard.ts. Tightened 2026-09-30: TS2322 4->3, TS2614 1->0 (war ghost-reserve removal paid the debt). Tightened 2026-10-01: TS6133 3->1 (island-map rework removed the unused CircuitPage imports).",
   "snapshot": "2026-09-26",
-  "generatedWith": "typescript 5.9.x \u00b7 tsconfig.typecheck.json (src/**)",
+  "generatedWith": "typescript 5.9.x · tsconfig.typecheck.json (src/**)",
   "counts": {
-    "6133": 3,
+    "6133": 1,
     "2614": 0,
     "2322": 3,
     "2769": 3,
@@ -13,7 +13,7 @@
     "2741": 1
   },
   "where": {
-    "6133": "unused locals \u2014 CircuitPage DISPLAY_NAMES/LABEL_DY, client-utils 'state'. (play.tsx ColonyTab was the 4th; the Cradle-side slice stopped producing it, so this count went 4 \u2192 3 and was tightened with it.)",
+    "6133": "unused locals — client-utils 'state'. (CircuitPage DISPLAY_NAMES/LABEL_DY pair removed with the island-map rework, 2026-10-01.)",
     "2614": "RailNarration: TutorialCueLayer has no exported member 'PlateLine' (beat-rail work)",
     "2322": "RailNarration ariaLabel, ResearchViews ResearchJob|undefined, battle-engine FobStage, play.tsx CircuitPage onSettings",
     "2769": "Tooltip: document listener overloads (passive)",

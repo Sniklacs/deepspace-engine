@@ -91,15 +91,6 @@ export const SATELLITE_COLORS = {
   activeInk: "#052e16", // numeral ink on the green dish
 } as const;
 
-/** ORBITAL WATCH — the land-survey world backdrop (original art, downscaled
- *  to a lean WebP for the downloadable app). Rendered UNDER a dark surf-0
- *  veil so the terrain reads as a survey photo while halo'd labels keep
- *  their contrast. */
-export const WORLD_BG = {
-  image: "/art/pages/circuit-world-bg.webp",
-  veil: "rgba(7,9,16,0.70)", // == LABEL_COLORS.halo @ 70%
-} as const;
-
 /** War-phase legend swatches (reserved identities — shape channels only).
  *  No race accent appears here: legend swatches are identity-free kind/tier
  *  meaning (§5 adjacency discipline). The purple/contested swatch is the

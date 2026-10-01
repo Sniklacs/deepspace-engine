@@ -24,7 +24,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useT, useLang } from "./i18n/I18n";
 import type { GameState, RaceId } from "../game/types";
-import { generateAtlas, nodeById, ATLAS_CONFIG } from "../game/map";
+import { generateAtlas, nodeById } from "../game/map";
 import type { AtlasNode, AtlasGraph } from "../game/map";
 import { WORLD_CONFIG_PUBLIC } from "../game/world-config";
 import { getRace, raceText } from "../game/races";
@@ -45,11 +45,7 @@ import {
   satelliteTechFor,
 } from "../game/satellites";
 import {
-  DISPLAY_NAMES,
-  LABEL_DY,
   LABEL_NODE_RADIUS,
-  canvasFor,
-  canvasX,
   labelTier,
   labelFontUnits,
   resolveLabels,
@@ -60,7 +56,6 @@ import {
   TRACE_COLORS,
   LABEL_COLORS,
   RING_COLORS,
-  TIER_FILL_OPACITY,
   HIT_RADIUS,
   HIT_FLOOR_PX,
   ZOOM_MIN,
@@ -70,8 +65,17 @@ import {
   RIM_FALLBACK_FILL,
   WAR_SWATCH_COLORS,
   SATELLITE_COLORS,
-  WORLD_BG,
 } from "../game/circuit-tokens";
+import {
+  ISLAND_W,
+  ISLAND_H,
+  ISLAND_IMAGE,
+  islandPos,
+  SEAM_BANDS,
+  ISLAND_SAT_RING,
+  ISLAND_RIM_FILL_OPACITY,
+  ISLAND_TRACE,
+} from "../game/circuit-island-map";
 
 export interface CircuitPageProps {
   state: GameState;
@@ -140,14 +144,11 @@ export function CircuitPage({
     return () => mq.removeEventListener("change", apply);
   }, []);
 
-  /* ---- map stage geometry (§2.1 rule 3/8 + §3): aspect-aware render canvas,
-     fit, hit-floor cap, zoom clamp ---- */
-  const W = ATLAS_CONFIG.viewBox.w; // authored canvas — READ ONLY (map.ts)
-  const H = ATLAS_CONFIG.viewBox.h;
-  // The RENDER canvas: authored geography × one uniform x-scale (canvasX), so
-  // a wide stage gets a wide web instead of 52% dead space (§3.2). `y`,
-  // radii and font units stay authored — circles stay circles.
-  const [canvas, setCanvas] = useState(() => canvasFor(W, H));
+  /* ---- map stage geometry: THE ISLAND — the owner's map is the whole stage.
+     Fixed 1120×2240 aspect, deliberately NOT aspect-stretched the way the old
+     circuit-web was: every marker is pinned to its terrain feature, so the
+     x-scale stays 1 and the canvas never changes shape (fit = contain). ---- */
+  const canvas = { w: ISLAND_W, h: ISLAND_H, kx: 1 };
   const [fit, setFit] = useState(0);
   const [zoom, setZoom] = useState(1); // multiplier over the fit-capped base
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -155,37 +156,25 @@ export function CircuitPage({
   const anchorRef = useRef<{ x: number; y: number } | null>(null);
   const pendingReset = useRef(false);
   const lastInner = useRef<{ w: number; h: number } | null>(null);
-  const canvasRef = useRef(canvas);
-  const lastCanvasW = useRef<number | null>(null);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
     const measure = () => {
-      // §3.6 rule 1 — hysteresis PLUS a stable measurement source. The stage is
-      // `overflow-auto`, so once the map exceeds a box the scrollbars shrink
-      // clientWidth/clientHeight and a client-box measurement feeds back into
-      // itself (commit a wider canvas → scrollbar → measure again → commit
-      // again). The LAYOUT box (offsetWidth/offsetHeight) does not move when
-      // scrollbars appear, so the canvas is derived from it and the loop cannot
-      // run. clientWidth remains the fallback for a detached/hidden stage.
+      // The island is fixed-aspect: fit = contain, so the whole island is
+      // visible at zoom 1 and pan/zoom take over from there. The LAYOUT box
+      // (offsetWidth/offsetHeight) is the stable measurement source — it does
+      // not move when scrollbars appear, so no measure/commit feedback loop.
       const stageW = stage.offsetWidth || stage.clientWidth;
       const stageH = stage.offsetHeight || stage.clientHeight;
       if (stageW <= 0 || stageH <= 0) return;
-      const next = canvasFor(stageW, stageH);
-      const cur = canvasRef.current;
-      // only commit a new canvas when the stage aspect actually moved by > 2%
-      const committed = Math.abs(next.w - cur.w) > 0.02 * cur.w ? next : cur;
-      canvasRef.current = committed;
-      setFit(Math.min(stageW / committed.w, stageH / committed.h));
-      setCanvas(committed); // same reference when uncommitted → React bails out
+      setFit(Math.min(stageW / ISLAND_W, stageH / ISLAND_H));
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(stage);
     return () => ro.disconnect();
-    // ResizeObserver re-arms anyway; fit recomputes from the live container.
-  }, [W, H]);
+  }, []);
 
   // §2.1 rule 4 — the 44px law: never render the r26 hit circle below a 22px
   // CSS radius, no matter how small the stage gets. The map then pans instead.
@@ -218,16 +207,12 @@ export function CircuitPage({
     if (!stage || !inner) return;
     const prev = lastInner.current;
     lastInner.current = { w: inner.clientWidth, h: inner.clientHeight };
-    // §3.6 rule 2 — a canvas change is a new map: the old scroll offsets mean
-    // nothing, so re-centre exactly like ⇱ does.
-    const canvasChanged = lastCanvasW.current !== null && lastCanvasW.current !== canvas.w;
-    lastCanvasW.current = canvas.w;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (pendingReset.current || canvasChanged) {
+    if (pendingReset.current) {
       pendingReset.current = false;
       const tx = Math.max(0, (inner.clientWidth - stage.clientWidth) / 2);
       const ty = Math.max(0, (inner.clientHeight - stage.clientHeight) / 2);
-      stage.scrollTo({ left: tx, top: ty, behavior: reduced || canvasChanged ? "auto" : "smooth" });
+      stage.scrollTo({ left: tx, top: ty, behavior: reduced ? "auto" : "smooth" });
       return;
     }
     if (prev && anchorRef.current) {
@@ -236,7 +221,7 @@ export function CircuitPage({
       stage.scrollLeft = Math.max(0, a.x * inner.clientWidth - stage.clientWidth / 2);
       stage.scrollTop = Math.max(0, a.y * inner.clientHeight - stage.clientHeight / 2);
     }
-  }, [scale, canvas.w]);
+  }, [scale]);
 
   // §1.4 label zoom tiers — the tier sets the TYPE SIZE and VISIBILITY; the
   // NAME STRING comes from the display-name table (§2.3 amendment). Nothing is
@@ -244,20 +229,33 @@ export function CircuitPage({
   // and below scale 0.55 the tier is `low` and the labels HIDE.
   const tier = labelTier(scale);
   const fontUnits = labelFontUnits(tier, scale);
-  // §2.1 — the deterministic collision ladder (full → compact → hidden). Pure
-  // geometry, memoised on the canvas + tier + selection only.
+  // §2.1 — the deterministic collision ladder (full → compact → hidden). The
+  // ladder's geometry helper (canvasX) maps authored x as x + 280 at kx 1, so
+  // island positions are shifted by −280 on the way in; the returned
+  // placements land back in island space. y is untouched either way. Pure
+  // geometry, memoised on tier + selection only.
+  const labelNodes = useMemo(
+    () =>
+      circuit.nodes.map((n) => ({
+        id: n.id,
+        x: islandPos(n.id).x - 280,
+        y: islandPos(n.id).y,
+        kind: n.kind,
+        importance: n.importance ? { tier: n.importance.tier } : null,
+      })),
+    [circuit],
+  );
   const labels = useMemo(
     () =>
-      resolveLabels(circuit.nodes, {
+      resolveLabels(labelNodes, {
         tier,
         fontUnits,
-        canvasW: canvas.w,
-        kx: canvas.kx,
+        canvasW: ISLAND_W,
+        kx: 1,
         selectedId: sel,
       }),
-    [circuit, tier, fontUnits, canvas.w, canvas.kx, sel],
+    [labelNodes, tier, fontUnits, sel],
   );
-  const px = (x: number) => canvasX(x, canvas.w, canvas.kx);
 
   // Focus the map container on entry (§7); Return restores focus to the
   // Shell nav button via play.tsx's onClose.
@@ -386,49 +384,78 @@ export function CircuitPage({
                 <div
                   ref={innerRef}
                   className="circuit-map-inner m-auto flex-none"
-                  // ORBITAL WATCH / land-survey presentation: the original world
-                  // art sits under the SVG behind a surf-0 veil — the geography
-                  // shows through, the halo'd labels keep their contrast. The
-                  // image scales with the zoom because it lives on the zoomed div.
+                  // THE ISLAND — the owner's survey art is the whole map. No
+                  // veil: the terrain reads at full strength and the halo'd
+                  // labels carry the contrast. Markers are pinned to the
+                  // island-space coordinates in game/circuit-island-map.ts.
                   style={{
                     width: canvas.w * scale,
                     height: canvas.h * scale,
-                    backgroundImage: `linear-gradient(to bottom, ${WORLD_BG.veil}, ${WORLD_BG.veil}), url(${WORLD_BG.image})`,
-                    backgroundSize: "cover",
-                    backgroundPosition: "center",
                   }}
                 >
                   <svg
-                    viewBox={`0 0 ${canvas.w} ${canvas.h}`}
+                    viewBox={`0 0 ${ISLAND_W} ${ISLAND_H}`}
                     className={`circuit-zoom-${tier} block h-full w-full select-none`}
                     role="img"
                     aria-label={t("circuit.mapSvgAria", "The Circuit — world map: territories, traces, and the Chorus-held heart")}
                   >
-                    {/* LAYER 0 — the satellite ring. One marker per covered node
-                        (the constellation, in atlas order), state-colored:
-                        hollow red = dormant, filled green = awake. Shape +
-                        color, never color alone. Decorative redundancy — the
-                        dish beside each node is the information channel — so
-                        this group is aria-hidden with the other underlays and
+                    {/* LAYER 0 — the island itself: the owner's land-survey art,
+                        full-bleed. Everything else sits in this same space. */}
+                    <image
+                      href={ISLAND_IMAGE}
+                      x={0} y={0} width={ISLAND_W} height={ISLAND_H}
+                      preserveAspectRatio="xMidYMid slice"
+                      aria-hidden="true"
+                    />
+                    {/* Region seam banners, straight from the owner's map —
+                        decorative, non-interactive. */}
+                    <g aria-hidden="true" style={{ pointerEvents: "none" }}>
+                      {SEAM_BANDS.map((s) => (
+                        <text
+                          key={s.label}
+                          x={ISLAND_W / 2} y={s.yPct * ISLAND_H}
+                          textAnchor="middle"
+                          fontSize={22}
+                          letterSpacing={4}
+                          fontWeight={600}
+                          fill={LABEL_COLORS.node}
+                          opacity={0.85}
+                          style={{
+                            paintOrder: "stroke",
+                            stroke: LABEL_COLORS.halo,
+                            strokeWidth: 4,
+                            strokeLinejoin: "round",
+                          }}
+                        >
+                          {s.label}
+                        </text>
+                      ))}
+                    </g>
+                    {/* LAYER 0b — the satellite ring, in the ocean around the
+                        island. One marker per covered node (the constellation,
+                        in atlas order), state-colored: hollow red = dormant,
+                        filled green = awake. Shape + color, never color alone.
+                        Decorative redundancy — the dish beside each node is the
+                        information channel — so this group is aria-hidden and
                         the hit circles own every tap. */}
                     <g aria-hidden="true" style={{ pointerEvents: "none" }}>
                       <ellipse
-                        cx={canvas.w / 2} cy={canvas.h / 2}
-                        rx={canvas.w / 2 - 28} ry={canvas.h / 2 - 38}
+                        cx={ISLAND_SAT_RING.cx} cy={ISLAND_SAT_RING.cy}
+                        rx={ISLAND_SAT_RING.rx} ry={ISLAND_SAT_RING.ry}
                         fill="none"
                         stroke={TRACE_COLORS.road}
-                        strokeOpacity={0.22}
+                        strokeOpacity={0.25}
                         strokeWidth={1}
                       />
                       {satRingIds.map((id, i) => {
                         const a = ((-90 + (i * 360) / satRingIds.length) * Math.PI) / 180;
-                        const mx = canvas.w / 2 + (canvas.w / 2 - 28) * Math.cos(a);
-                        const my = canvas.h / 2 + (canvas.h / 2 - 38) * Math.sin(a);
+                        const mx = ISLAND_SAT_RING.cx + ISLAND_SAT_RING.rx * Math.cos(a);
+                        const my = ISLAND_SAT_RING.cy + ISLAND_SAT_RING.ry * Math.sin(a);
                         const awake = satelliteStage(state, id) > 0;
                         return awake ? (
                           <circle
                             key={id}
-                            cx={mx} cy={my} r={5}
+                            cx={mx} cy={my} r={ISLAND_SAT_RING.markerR}
                             fill={SATELLITE_COLORS.activeFill}
                             stroke={SATELLITE_COLORS.activeRing}
                             strokeWidth={1}
@@ -436,7 +463,7 @@ export function CircuitPage({
                         ) : (
                           <circle
                             key={id}
-                            cx={mx} cy={my} r={5}
+                            cx={mx} cy={my} r={ISLAND_SAT_RING.markerR}
                             fill="none"
                             stroke={SATELLITE_COLORS.dormantFill}
                             strokeWidth={1.5}
@@ -444,24 +471,22 @@ export function CircuitPage({
                         );
                       })}
                     </g>
-                    {/* LAYER 0+1 — severed-trace breaks, then road / ruin-pass traces.
-                        x goes through the §3.2 canvas map; y, radii and stroke widths
-                        stay authored. */}
+                    {/* Traces — the old roads, drawn between island positions at a
+                        whisper so the survey art reads first. */}
                     <g aria-hidden="true" style={{ pointerEvents: "none" }}>
                       {circuit.edges.map((e, i) => {
-                        const a = coordOf(circuit, e.from);
-                        const b = coordOf(circuit, e.to);
-                        const ax = px(a.x), bx = px(b.x);
+                        const a = islandPos(e.from);
+                        const b = islandPos(e.to);
                         const selected = sel !== null && (e.from === sel || e.to === sel);
                         if (e.kind === "severed") {
-                          const gx = bx - ax;
+                          const gx = b.x - a.x;
                           const gy = b.y - a.y;
-                          const p1 = { x: ax + gx * 0.42, y: a.y + gy * 0.42 };
-                          const p2 = { x: bx - gx * 0.42, y: b.y - gy * 0.42 };
+                          const p1 = { x: a.x + gx * 0.42, y: a.y + gy * 0.42 };
+                          const p2 = { x: b.x - gx * 0.42, y: b.y - gy * 0.42 };
                           return (
                             <g key={i}>
-                              <line x1={ax} y1={a.y} x2={p1.x} y2={p1.y} stroke={TRACE_COLORS.severed} strokeWidth="1.5" strokeOpacity="0.8" />
-                              <line x1={p2.x} y1={p2.y} x2={bx} y2={b.y} stroke={TRACE_COLORS.severed} strokeWidth="1.5" strokeOpacity="0.8" />
+                              <line x1={a.x} y1={a.y} x2={p1.x} y2={p1.y} stroke={TRACE_COLORS.severed} strokeWidth="1.5" strokeOpacity={selected ? 0.9 : ISLAND_TRACE.severedOpacity} />
+                              <line x1={p2.x} y1={p2.y} x2={b.x} y2={b.y} stroke={TRACE_COLORS.severed} strokeWidth="1.5" strokeOpacity={selected ? 0.9 : ISLAND_TRACE.severedOpacity} />
                             </g>
                           );
                         }
@@ -470,10 +495,10 @@ export function CircuitPage({
                         return (
                           <line
                             key={i}
-                            x1={ax} y1={a.y} x2={bx} y2={b.y}
+                            x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                             stroke={e.kind === "road" ? (nearEdge ? TRACE_COLORS.roadNear : TRACE_COLORS.road) : TRACE_COLORS.ruin}
-                            strokeWidth={selected ? 3 : e.kind === "road" ? (nearEdge ? 1.5 : 2) : 2}
-                            strokeOpacity={selected ? 0.95 : e.kind === "road" ? 0.55 : 0.7}
+                            strokeWidth={selected ? 3 : e.kind === "road" ? ISLAND_TRACE.roadWidth : 2}
+                            strokeOpacity={selected ? 0.95 : e.kind === "road" ? (nearEdge ? ISLAND_TRACE.roadOpacity * 0.8 : ISLAND_TRACE.roadOpacity) : ISLAND_TRACE.ruinOpacity}
                             strokeDasharray={e.kind === "ruinPass" ? "5 5" : undefined}
                           />
                         );
@@ -485,7 +510,9 @@ export function CircuitPage({
                       {circuit.nodes.map((n) => {
                         const dim = n.kind === "near";
                         const r = nodeRadius(n);
-                        const nx = px(n.x);
+                        const ip = islandPos(n.id);
+                        const nx = ip.x;
+                        const ny = ip.y;
                         const place = labels.get(n.id);
                         // §1.4 — names, sub-label and pips are all TEXT: they share
                         // the 11px floor (fontUnits × scale ≥ 11) and the halo.
@@ -497,25 +524,27 @@ export function CircuitPage({
                         };
                         return (
                           <g key={n.id} style={{ opacity: dim ? 0.6 : 1 }}>
-                            {/* zone fill — tier @ 22% over surf-0 (§2.4 layer 2) */}
+                            {/* zone fill — tier wash over terrain (denser than
+                                the old 22%-over-surf-0 recipe, which vanishes
+                                over ice and farmland) */}
                             <circle
-                              cx={nx} cy={n.y} r={r}
+                              cx={nx} cy={ny} r={r}
                               fill={nodeFill(n)}
-                              fillOpacity={n.kind === "rim" ? TIER_FILL_OPACITY : 1}
+                              fillOpacity={n.kind === "rim" ? ISLAND_RIM_FILL_OPACITY : 1}
                               stroke={sel === n.id ? "rgba(255,255,255,0.95)" : nodeRing(n)}
                               strokeWidth={sel === n.id ? 3 : n.kind === "heart" ? 3 : 1.5}
                               className={n.kind === "heart" ? "animate-pulse" : undefined}
                             />
                             {/* sigils (layer 5) — symbols, not text: authored sizes */}
-                            {n.kind === "heart" && <text x={nx} y={n.y + 5} textAnchor="middle" fontSize="15">🔥</text>}
-                            {n.kind === "cradle" && <text x={nx} y={n.y + 5} textAnchor="middle" fontSize="13">🔰</text>}
+                            {n.kind === "heart" && <text x={nx} y={ny + 5} textAnchor="middle" fontSize="15">🔥</text>}
+                            {n.kind === "cradle" && <text x={nx} y={ny + 5} textAnchor="middle" fontSize="13">🔰</text>}
                             {n.kind === "rim" && n.importance && (
-                              <text className="cl-pip" x={nx + 14 * canvas.kx} y={n.y - 12} textAnchor="middle" fontSize={fontUnits} fontWeight="bold" fill={TIER_COLORS[n.importance.tier]} {...halo}>
+                              <text className="cl-pip" x={nx + 14} y={ny - 12} textAnchor="middle" fontSize={fontUnits} fontWeight="bold" fill={TIER_COLORS[n.importance.tier]} {...halo}>
                                 {tierPip(t, n.importance.tier)}
                               </text>
                             )}
                             {n.kind === "rim" && n.id === "shattered-academies" && (
-                              <text x={nx} y={n.y - 14} textAnchor="middle" fontSize="11" fill={SIGIL_COLORS.heartZoneStar}>★</text>
+                              <text x={nx} y={ny - 14} textAnchor="middle" fontSize="11" fill={SIGIL_COLORS.heartZoneStar}>★</text>
                             )}
                             {/* ORBITAL WATCH dishes (design/satellites.md §0.5) —
                                 status + stage numeral, never color alone. Red =
@@ -528,7 +557,7 @@ export function CircuitPage({
                               const stage = satelliteStage(state, n.id);
                               const awake = stage > 0;
                               return (
-                                <g key={`sat-${n.id}`} transform={`translate(${nx - r - 14},${n.y - r - 10})`}>
+                                <g key={`sat-${n.id}`} transform={`translate(${nx - r - 14},${ny - r - 10})`}>
                                   <circle
                                     r={7}
                                     fill={awake ? SATELLITE_COLORS.activeFill : SATELLITE_COLORS.dormantFill}
@@ -557,11 +586,8 @@ export function CircuitPage({
                                 {place.text}
                               </text>
                             )}
-                            {n.kind === "heart" && (
-                              <text className="cl-sub" x={nx} y={n.y - 38} textAnchor="middle" fontSize={fontUnits} fill={SIGIL_COLORS.heartSub} letterSpacing="1.5" {...halo}>
-                                {t("circuit.heartSub", "THE PRIZE · THE THREAT")}
-                              </text>
-                            )}
+                            {/* the heart's "THE PRIZE · THE THREAT" line now lives
+                                on the 3.2% seam band above — no duplicate. */}
                           </g>
                         );
                       })}
@@ -570,6 +596,7 @@ export function CircuitPage({
                         events; the r26 circle is the 44px tap floor (§2.1 rule 4). */}
                     <g>
                       {circuit.nodes.map((n) => {
+                        const ip = islandPos(n.id);
                         const title = nodeTitle(t, n);
                         return (
                           <g
@@ -589,7 +616,7 @@ export function CircuitPage({
                             }}
                             style={{ opacity: n.kind === "near" ? 0.6 : 1 }}
                           >
-                            <circle cx={px(n.x)} cy={n.y} r={HIT_RADIUS} fill="transparent" />
+                            <circle cx={ip.x} cy={ip.y} r={HIT_RADIUS} fill="transparent" />
                             <title>{title}</title>
                           </g>
                         );
@@ -694,10 +721,6 @@ export function CircuitPage({
 }
 
 /* ---------------- map node helpers ---------------- */
-function coordOf(g: AtlasGraph, id: string): { x: number; y: number } {
-  const n = nodeById(g, id);
-  return n ? { x: n.x, y: n.y } : { x: 180, y: 480 };
-}
 function nodeRadius(n: AtlasNode): number {
   return LABEL_NODE_RADIUS[n.kind]; // single source (circuit-labels.ts)
 }
