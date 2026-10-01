@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import InstallAffordance from "~/components/shell/InstallAffordance";
 import { useT } from "~/components/i18n/I18n";
 import { LandingLangPicker } from "~/components/i18n/LandingLangPicker";
+import { HeroCard, HERO_ORDER } from "~/components/HeroCard";
 import { sound } from "~/game/sound";
 import {
   startLandingMusic,
@@ -268,6 +269,23 @@ function LandingPage() {
               loading="lazy"
             />
           </div>
+        </div>
+      </section>
+
+      {/* meet the heroes — one legend per race, portrait plates in HTML */}
+      <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+        <h2 className="text-3xl font-bold text-white sm:text-4xl">
+          {t("heroes.stripTitle", "Meet the Heroes")}
+        </h2>
+        <p className="mt-3 leading-relaxed text-zinc-400">
+          {t("heroes.stripSub", "Every race has a legend. These are the faces the colonies tell stories about.")}
+        </p>
+        <div className="mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 md:grid md:grid-cols-4 md:overflow-visible lg:grid-cols-7">
+          {HERO_ORDER.map((id) => (
+            <div key={id} className="w-36 shrink-0 snap-start md:w-auto">
+              <HeroCard heroId={id} size="fill" />
+            </div>
+          ))}
         </div>
       </section>
 

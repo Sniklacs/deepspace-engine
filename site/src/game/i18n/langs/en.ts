@@ -109,6 +109,25 @@ export const en: Catalogue = {
   // ---- the Cradle overview (owner 2026-09-30): scientists, leaders, active
   // builds, exploration progress, honest speedups, alliance help -------------
   "overview.title": "Cradle overview",
+  // ---- hero portraits (owner 2026-10-01): name + title ride the HTML overlay
+  // plate on HeroCard — never baked into pixels. Other langs fall back to the
+  // English literal via t(key, "…") until translated. -------------------------
+  "heroes.stripTitle": "Meet the Heroes",
+  "heroes.stripSub": "Every race has a legend. These are the faces the colonies tell stories about.",
+  "heroes.grays.name": "Ilyra Voss",
+  "heroes.grays.title": "High Strategist of the Conclave",
+  "heroes.draconians.name": "Kaaroth",
+  "heroes.draconians.title": "War-Captain of the Ashen Host",
+  "heroes.watchers.name": "Seraphel",
+  "heroes.watchers.title": "Watcher of the Threshold",
+  "heroes.ashtar.name": "Mira Solenne",
+  "heroes.ashtar.title": "Emissary of the Accord",
+  "heroes.anunnaki.name": "Ensharra",
+  "heroes.anunnaki.title": "Sovereign of the Gilded Court",
+  "heroes.nephilim.name": "Garruk Stonebrow",
+  "heroes.nephilim.title": "Hammer of the Highlands",
+  "heroes.unbound.name": "Aurelia Dawn",
+  "heroes.unbound.title": "First of the Unbound",
   // ---- the Loadout page (owner 2026-09-30): dress heroes & leaders --------
   "loadout.roster": "Roster",
   "loadout.title": "Battle dress",

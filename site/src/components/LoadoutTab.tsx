@@ -14,17 +14,11 @@ import type { ForgeItem, LoadoutSlot } from "../game/forge";
 import { forgeGrade } from "../game/forge";
 import { raceText } from "../game/races";
 import { useT } from "./i18n/I18n";
+import { racePortrait } from "./HeroCard";
 import { Sheet, SheetHeader } from "./Sheet";
 
-/** Race portrait SVGs live in public/art/races (ashtar's file is "asart.svg"). */
-const RACE_PORTRAIT: Record<string, string> = {
-  anunnaki: "/art/races/anunnaki.svg",
-  ashtar: "/art/races/asart.svg",
-  draconians: "/art/races/draconians.svg",
-  grays: "/art/races/grays.svg",
-  nephilim: "/art/races/nephilim.svg",
-  watchers: "/art/races/watchers.svg",
-};
+/** Race portrait WebPs live in public/art/races (correct RaceId spellings). */
+const RACE_PORTRAIT = (raceId: string): string => racePortrait(raceId);
 
 /** Downscaled weapon thumbnails: public/art/loadout/weapons/{race}-{family}.webp */
 function weaponThumb(item: ForgeItem): string | null {
@@ -165,7 +159,7 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
         <h3 className="text-sm font-semibold text-text-1">{t("loadout.roster")}</h3>
         <div className="mt-2 space-y-1">
           {roster.map((r) => {
-            const portrait = r.race ? RACE_PORTRAIT[r.race] : undefined;
+            const portrait = r.race ? RACE_PORTRAIT(r.race) : undefined;
             const selected = bearer?.id === r.id;
             return (
               <div
@@ -344,7 +338,7 @@ function PortraitSheet({
   onClose: () => void;
 }) {
   const t = useT();
-  const portrait = race ? RACE_PORTRAIT[race] : undefined;
+  const portrait = race ? RACE_PORTRAIT(race) : undefined;
   const kindLabel = kind === "hero" ? t("loadout.hero") : t("loadout.leader");
   const raceLabel = race ? raceText(t, { id: race }, "name", race) : null;
   const subtitle = raceLabel ? `${kindLabel} · ${raceLabel}` : kindLabel;

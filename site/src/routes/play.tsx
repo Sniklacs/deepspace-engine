@@ -64,6 +64,7 @@ import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
 import BattlesTab from "../components/BattlesTab";
 import LoadoutTab from "../components/LoadoutTab";
+import { HeroCard, weaponThumbUrl } from "../components/HeroCard";
 import { diffResolvedEventsT } from "../game/report-events";
 import { tip, tipT, RESOURCE_TIPS, DOMAIN_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
 import type { GameState, RaceId, DomainId, Zone, FeedbackRecord, FeedbackCategory, FeedbackSeverity } from "../game/types";
@@ -1005,29 +1006,42 @@ function RaceSelect({ busy, onStart, resetNote }: { busy: boolean; onStart: (nam
                 selected === r.id ? "border-amber-400 bg-amber-400/10" : "border-white/10 bg-white/5 hover:border-white/30"
               }`}
             >
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="font-bold text-white">{r.name}</span>
-                <span className="text-xs text-gray-400">{r.title}</span>
+              <div className="flex items-start gap-3">
+                <HeroCard heroId={rid} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-bold text-white">{r.name}</span>
+                    <span className="text-xs text-gray-400">{r.title}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-300">{r.blurb}</p>
+                </div>
               </div>
-              <p className="mt-1 text-sm text-gray-300">{r.blurb}</p>
             </button>
           );
           })}
           {/* locked Unbound preview */}
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 opacity-70">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="font-bold text-amber-200">{t("play.races.unboundName", "The Unbound")}</span>
-              <span className="rounded bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold uppercase text-amber-200">{t("play.races.unboundEarned", "Earned")}</span>
+            <div className="flex items-start gap-3">
+              <HeroCard heroId="unbound" size="sm" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-bold text-amber-200">{t("play.races.unboundName", "The Unbound")}</span>
+                  <span className="rounded bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold uppercase text-amber-200">{t("play.races.unboundEarned", "Earned")}</span>
+                </div>
+                <p className="mt-1 text-sm text-gray-300">{UNBOUND_LEGEND.blurb}</p>
+                <p className="mt-2 text-xs text-text-3">
+                  {t("play.races.unboundBlurb", "Not pickable at start. The Unbound are a rare, ascended inner circle earned only through a long track of special missions and badges of honor — the proof that a colony can rebuild without being rebuilt by what it used.")}
+                </p>
+              </div>
             </div>
-            <p className="mt-1 text-sm text-gray-300">{UNBOUND_LEGEND.blurb}</p>
-            <p className="mt-2 text-xs text-text-3">
-              {t("play.races.unboundBlurb", "Not pickable at start. The Unbound are a rare, ascended inner circle earned only through a long track of special missions and badges of honor — the proof that a colony can rebuild without being rebuilt by what it used.")}
-            </p>
           </div>
         </div>
 
         {/* selected race detail */}
         <div className="mt-8 rounded-2xl border border-white/10 bg-black/40 p-6">
+          <div className="flex flex-col gap-5 sm:flex-row">
+            <HeroCard heroId={selected} size="lg" lazy={false} />
+            <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-3">
             <h2 className="text-2xl font-bold text-white">{race.name}</h2>
             <span className="text-sm text-gray-400">{race.title}</span>
@@ -1087,6 +1101,8 @@ function RaceSelect({ busy, onStart, resetNote }: { busy: boolean; onStart: (nam
             >
               {t("play.races.foundCradle", "Found The Cradle")}
             </button>
+          </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1969,11 +1985,16 @@ function ArmoryTab({ state, now, onBuild, onRefine, onForgeMelt, busy }: {
               const model = tier >= 1 ? modelName(state.race ?? "watchers", f, tier) : null;
               return (
                 <div key={f.id} className={`relative rounded-2xl border p-4 ${unlocked ? "border-white/10 bg-black/40" : "border-white/5 bg-black/20 opacity-75"}`}>
-                  {/* race-sigil block */}
+                  {/* weapon thumbnail — public/art/loadout/weapons/{race}-{family}.webp */}
                   <div className="flex items-start gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl" style={{ background: race ? race.accent + "22" : "#ffffff14", border: `1px solid ${race ? race.accent + "55" : "#ffffff22"}` }}>
-                      {f.icon}
-                    </div>
+                    <img
+                      src={weaponThumbUrl(state.race ?? "watchers", f.id)}
+                      alt=""
+                      aria-hidden="true"
+                      loading="lazy"
+                      decoding="async"
+                      className="h-14 w-14 shrink-0 rounded-xl border border-white/15 object-cover"
+                    />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <Tooltip content={tip({ what: model ?? t("play.armory.notBuilt", "Not built yet"), does: f.identity, how: t("play.armory.familyHow", "Researched: {tech}. Built in real time at the Cradle — upgrades require the current tier's resources.", { tech: unlockTech ? unlockTech.name : "" }) })}>

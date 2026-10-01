@@ -19,6 +19,7 @@ import { Panel } from "../ui/Panel";
 import { ActionButton } from "../ui/ActionButton";
 import { StatTile } from "../ui/StatTile";
 import { RosterCard, RosterEmpty } from "../ui/RosterCard";
+import { HEROES, racePortrait } from "../HeroCard";
 import { RowButton } from "../ui/RowButton";
 import { Sheet, SheetHeader } from "../Sheet";
 import { Icon } from "../icons";
@@ -271,6 +272,7 @@ export default function CradleScreen({
                     level={engineHelpers.leaderLevel(l)}
                     pct={engineHelpers.xpProgress(l) * 100}
                     accent={race.accent}
+                    portrait={state.race ? racePortrait(state.race) : undefined}
                     onClick={() => setSheet({ kind: "leader", id: l.id })}
                   />
                 ))
@@ -293,6 +295,7 @@ export default function CradleScreen({
                     }
                     accent={race.accent}
                     badge={DEED_BY_ID[h.earnedBy]?.name}
+                    portrait={state.race ? HEROES[state.race].file : undefined}
                     onClick={() => setSheet({ kind: "hero", id: h.id })}
                   />
                 ))

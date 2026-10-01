@@ -20,6 +20,7 @@ import { Panel, PanelHeader } from "./ui/Panel";
 import { ActionButton } from "./ui/ActionButton";
 import { RowButton } from "./ui/RowButton";
 import { useT } from "./i18n/I18n";
+import { weaponThumbUrl } from "./HeroCard";
 import {
   FORGE_GRADES,
   FORGE_RECIPES,
@@ -136,8 +137,20 @@ function RecipeCard({
       : undefined;
   return (
     <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-      <p className="text-sm font-semibold text-text-1">{t(`forge.recipe.${recipe.id}`)}</p>
-      <p className="text-[11px] text-text-3">{t(`forge.recipe.${recipe.id}Sub`)}</p>
+      <div className="flex items-start gap-3">
+        <img
+          src={weaponThumbUrl(state.race ?? "watchers", recipe.family)}
+          alt=""
+          aria-hidden="true"
+          loading="lazy"
+          decoding="async"
+          className="h-16 w-16 shrink-0 rounded-xl border border-white/10 object-cover"
+        />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-text-1">{t(`forge.recipe.${recipe.id}`)}</p>
+          <p className="text-[11px] text-text-3">{t(`forge.recipe.${recipe.id}Sub`)}</p>
+        </div>
+      </div>
       <p className="mt-2 text-[11px] text-text-3">{t("forge.cost")}</p>
       <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
         <span className="pill border border-line bg-surf-2 text-text-2">

@@ -2,9 +2,10 @@
 //
 // G4 STRUCTURAL NEVER-LIST: this component has no price slot, no pack slot, no
 // "get / unlock" affordance, no RNG shape and no timer. A hero is earned by a
-// deed or an Oracle's vouch; there is nothing here to buy. The portrait is a
-// DELIBERATE placeholder (sigil plate + initial on the race-accent tint) until
-// real art exists — §2.6 lists the portraits to commission.
+// deed or an Oracle's vouch; there is nothing here to buy. The sigil-plate
+// placeholder was DELIBERATE until real art existed (§2.6) — it now survives
+// only as the fallback when no art URL is passed; callers feed real race and
+// hero portraits (owner 2026-10-01).
 import { Icon } from "../icons";
 import type { IconName } from "../icons";
 import { useLang, useT } from "../i18n/I18n";
@@ -15,12 +16,28 @@ export function PortraitFrame({
   accent,
   name,
   className = "",
+  portrait,
 }: {
   /** `race.accent` — identity tint only, never a literal */
   accent: string;
   name: string;
   className?: string;
+  /** Real art URL (race portrait / hero card). When set, the sigil-plate
+      placeholder is replaced by the image — the monogram never renders. */
+  portrait?: string;
 }) {
+  if (portrait) {
+    return (
+      <img
+        src={portrait}
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        decoding="async"
+        className={`h-12 w-12 flex-none rounded-xl border border-line object-cover ${className}`}
+      />
+    );
+  }
   const initial = (name.trim()[0] ?? "?").toUpperCase();
   return (
     <span
@@ -42,6 +59,7 @@ export function RosterCard({
   pct,
   accent,
   badge,
+  portrait,
   onClick,
 }: {
   kind: "leader" | "hero";
@@ -53,13 +71,15 @@ export function RosterCard({
   accent: string;
   /** the optional provenance line (a deed's NAME only — never a raw id) */
   badge?: string;
+  /** real art URL — race portrait for leaders, the race's hero card for heroes */
+  portrait?: string;
   onClick?: () => void;
 }) {
   const t = useT();
   const lang = useLang();
   const inner = (
     <>
-      <PortraitFrame accent={accent} name={name} />
+      <PortraitFrame accent={accent} name={name} portrait={portrait} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold text-text-1">{name}</p>
         <p className="truncate text-[11px] text-text-3">{roleLine}</p>
