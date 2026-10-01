@@ -261,6 +261,8 @@ export const en: Catalogue = {
 
   // ---- landing page (the door) --------------------------------------------
   "landing.brand": "The Unbound",
+  "landing.mute": "Mute",
+  "landing.unmute": "Unmute",
   "landing.play": "Play the Cradle",
   "landing.kicker": "A persistent online strategy game",
   "landing.h1a": "The war against the machines",

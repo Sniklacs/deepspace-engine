@@ -136,6 +136,7 @@ export const fa: Catalogue = {
   "cradle.claimSub": "اندوخته از کار انجام‌شده",
   "cradle.claimLocked": "کار در جریان است — هنوز چیزی برای اندوختن نیست.",
   "cradle.devotionNote": "نیایش روزانه، اعتماد دیرپا — اوراکل به آنچه می‌کنید می‌نگرد، نه به آنچه می‌خرید.",
+  "cradle.supplyGrantWords": "دریافت شد",
 
   // ---- building tiles -----------------------------------------------------
   "tile.workshop": "کارگاه",
@@ -209,6 +210,8 @@ export const fa: Catalogue = {
 
   // ---- landing page -------------------------------------------------------
   "landing.brand": "The Unbound",
+  "landing.mute": "بی‌صدا",
+  "landing.unmute": "با صدا",
   "landing.play": "گهواره را بازی کن",
   "landing.kicker": "یک بازی راهبردی آنلاین و ماندگار",
   "landing.h1a": "جنگ علیه ماشین‌ها",

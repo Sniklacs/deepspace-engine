@@ -125,6 +125,7 @@ export const es: Catalogue = {
   "cradle.claimSub": "acumulado del trabajo ya hecho",
   "cradle.claimLocked": "Trabajo en curso — todavía no hay nada que acumular.",
   "cradle.devotionNote": "Devoción diaria, confianza a largo plazo — el Oráculo mira lo que haces, no lo que compras.",
+  "cradle.supplyGrantWords": "reclamado",
 
   "tile.workshop": "Taller",
   "tile.workshopDesc": "Equipo cotidiano, forjado con Suministros.",
@@ -204,6 +205,8 @@ export const es: Catalogue = {
   "lang.firstRunTitle": "Bienvenido — elige tu idioma",
 
   "landing.brand": "The Unbound",
+  "landing.mute": "Silenciar",
+  "landing.unmute": "Activar sonido",
   "landing.play": "Jugar la Cuna",
   "landing.kicker": "Un juego de estrategia en línea y persistente",
   "landing.h1a": "La guerra contra las máquinas",

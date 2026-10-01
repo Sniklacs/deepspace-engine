@@ -25,7 +25,9 @@ function TheFallPage() {
   async function takeTheField() {
     const token = readToken();
     if (!token) {
-      setError("Sign in first — the chair at the Ashline is yours, but it is still yours.");
+      // No seat yet — the honest door is the sign-in on /play, not an error
+      // message on a button that looks dead (owner bug report 2026-10-01).
+      window.location.assign("/play");
       return;
     }
     setBusy(true);

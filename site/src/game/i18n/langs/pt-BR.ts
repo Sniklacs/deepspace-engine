@@ -120,6 +120,7 @@ export const ptBR: Catalogue = {
   "cradle.claimSub": "acumulado pelo trabalho já feito",
   "cradle.claimLocked": "Trabalho em andamento — ainda não há nada para acumular.",
   "cradle.devotionNote": "Devoção diária, confiança de longo prazo — o Oráculo observa o que você faz, não o que você compra.",
+  "cradle.supplyGrantWords": "resgatado",
 
   "tile.workshop": "Oficina",
   "tile.workshopDesc": "Equipamento do dia a dia, forjado com Suprimentos.",
@@ -199,6 +200,8 @@ export const ptBR: Catalogue = {
   "lang.firstRunTitle": "Bem-vindo — escolha seu idioma",
 
   "landing.brand": "The Unbound",
+  "landing.mute": "Silenciar",
+  "landing.unmute": "Ativar som",
   "landing.play": "Jogar o Berço",
   "landing.kicker": "Um jogo de estratégia online e persistente",
   "landing.h1a": "A guerra contra as máquinas",

@@ -120,6 +120,7 @@ export const ru: Catalogue = {
   "cradle.claimSub": "накоплено за уже сделанную работу",
   "cradle.claimLocked": "Работа идёт — пока нечего накапливать.",
   "cradle.devotionNote": "Ежедневное служение, долгое доверие — Оракул смотрит на то, что вы делаете, а не на то, что вы покупаете.",
+  "cradle.supplyGrantWords": "получено",
 
   "tile.workshop": "Мастерская",
   "tile.workshopDesc": "Повседневное снаряжение, выкованное из припасов.",
@@ -199,6 +200,8 @@ export const ru: Catalogue = {
   "lang.firstRunTitle": "Добро пожаловать — выберите язык",
 
   "landing.brand": "The Unbound",
+  "landing.mute": "Выключить звук",
+  "landing.unmute": "Включить звук",
   "landing.play": "Играть в Колыбель",
   "landing.kicker": "Сетевая стратегия с постоянным миром",
   "landing.h1a": "Война против машин",
