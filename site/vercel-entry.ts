@@ -11,6 +11,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import handler from "./dist/server/server.js";
+import {
+  XSOLLA_WEBHOOK_PATH,
+  handleXsollaWebhookRequest,
+  webhookResponse,
+} from "./src/game/payments/webhook-route";
 
 const fetchHandler = handler as {
   fetch: (request: Request) => Response | Promise<Response>;
@@ -39,6 +44,38 @@ export default async function vercelHandler(
   res: ServerResponse
 ): Promise<void> {
   try {
+    // The Xsolla webhook is intercepted at the transport layer, exactly like
+    // serve.ts does: TanStack Start route files are not the seam for a route
+    // that must read the UNPARSED body (the signature is over the exact bytes)
+    // and answer with status codes rather than a page.
+    const pathname = new URL(
+      req.url ?? "/",
+      `https://${req.headers.host ?? "localhost"}`
+    ).pathname;
+    if (pathname === XSOLLA_WEBHOOK_PATH) {
+      if (req.method !== "POST") {
+        res.statusCode = 405;
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.setHeader("cache-control", "no-store");
+        res.setHeader("allow", "POST");
+        res.end(JSON.stringify({ ok: false, error: "method_not_allowed" }));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const rawBody = Buffer.concat(chunks).toString("utf-8");
+      const signatureHeader =
+        typeof req.headers.authorization === "string"
+          ? req.headers.authorization
+          : null;
+      const webRes = webhookResponse(
+        await handleXsollaWebhookRequest({ rawBody, signatureHeader })
+      );
+      res.statusCode = webRes.status;
+      webRes.headers.forEach((value, key) => res.setHeader(key, value));
+      res.end(await webRes.text());
+      return;
+    }
     const webRes = await fetchHandler.fetch(toWebRequest(req));
     res.statusCode = webRes.status;
     webRes.headers.forEach((value, key) => res.setHeader(key, value));
