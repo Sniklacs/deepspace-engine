@@ -388,14 +388,14 @@ export default function CradleScreen({
             <button
               type="button"
               onClick={() => { setSheet({ kind: "forge", id: "forge" }); sound.tab(); }}
-              className="flex min-h-tap w-full items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2 text-left"
+              className="flex min-h-tap w-full items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2 text-start"
               aria-label={t("cradle.forgedGearAria", { n: (state.forgeItems ?? []).length })}
             >
               <Icon name="star" size={16} className="shrink-0 text-amber-300" aria-hidden="true" />
               <span className="min-w-0 flex-1 text-[12px] text-text-2">
                 {t("cradle.forgedGear")}
                 {(state.forgeItems ?? []).some((it) => it.grade === "prewar") && (
-                  <span className="ml-2 rounded-full border border-amber-300/40 px-1.5 py-0.5 text-[10px] text-amber-200">
+                  <span className="ms-2 rounded-full border border-amber-300/40 px-1.5 py-0.5 text-[10px] text-amber-200">
                     {t("cradle.prewar", { n: (state.forgeItems ?? []).filter((it) => it.grade === "prewar").length })}
                   </span>
                 )}

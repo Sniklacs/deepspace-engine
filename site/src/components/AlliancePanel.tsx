@@ -374,7 +374,7 @@ function Members({ me, alliance, isLeader, isOfficer, token, onAction }: {
           <li key={m.colonyId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surf-1 px-3 py-1.5">
             <span className="text-sm text-text-1">
               {m.colonyName} {m.colonyId === me && <span className="text-xs text-text-2">(you)</span>}
-              <span className="ml-2 rounded-full border border-line px-2 py-0.5 text-[10px] text-text-2">{ROLE_LABEL[m.role]}</span>
+              <span className="ms-2 rounded-full border border-line px-2 py-0.5 text-[10px] text-text-2">{ROLE_LABEL[m.role]}</span>
             </span>
             {m.colonyId !== me && (isLeader || (isOfficer && m.role === "member")) && (
               <span className="flex gap-1">

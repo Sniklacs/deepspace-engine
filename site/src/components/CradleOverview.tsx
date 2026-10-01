@@ -257,7 +257,7 @@ function TimerRow({
       <div className="flex items-baseline justify-between gap-2">
         <div className="min-w-0 text-xs text-text-1">
           <span className="font-medium">{label}</span>
-          {sub && <span className="ml-2 text-text-3">{sub}</span>}
+          {sub && <span className="ms-2 text-text-3">{sub}</span>}
         </div>
         <div className="shrink-0 text-[11px] text-amber-200/90">
           <Bdi dir="ltr">{fmtDuration(t, left)}</Bdi>

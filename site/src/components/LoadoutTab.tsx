@@ -140,7 +140,7 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
           className="h-full w-full object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-        <h2 className="absolute bottom-3 left-4 text-lg font-bold text-amber-100">{t("loadout.title")}</h2>
+        <h2 className="absolute bottom-3 start-4 text-lg font-bold text-amber-100">{t("loadout.title")}</h2>
       </div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-[220px_1fr_280px]">
@@ -155,7 +155,7 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
                 key={r.id}
                 onClick={() => setBearerId(r.id)}
                 aria-pressed={bearer?.id === r.id}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ${
+                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-start text-sm ${
                   bearer?.id === r.id ? "bg-amber-400/20 text-amber-100" : "text-text-2 hover:bg-white/5"
                 }`}
               >
@@ -163,7 +163,7 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
                   <img src={portrait} alt="" aria-hidden className="h-9 w-9 shrink-0 rounded-full object-cover" />
                 )}
                 <span>
-                  <span className="mr-2 text-xs text-text-3">{r.kind === "hero" ? t("loadout.hero") : t("loadout.leader")}</span>
+                  <span className="me-2 text-xs text-text-3">{r.kind === "hero" ? t("loadout.hero") : t("loadout.leader")}</span>
                   {r.name}
                 </span>
               </button>
@@ -202,7 +202,7 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
                   onClick={() => setSlotId(s.id)}
                   disabled={locked}
                   aria-pressed={selected}
-                  className="flex-1 text-left"
+                  className="flex-1 text-start"
                 >
                   <div className="text-xs uppercase tracking-wider text-text-3">{t(`loadout.slot.${s.id}`)}</div>
                   {locked ? (
@@ -219,7 +219,7 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
                   <button
                     onClick={() => onUnequip(it.id)}
                     disabled={busy}
-                    className="ml-2 rounded-lg border border-white/15 px-2 py-1 text-xs text-text-2 hover:bg-white/10 disabled:opacity-50"
+                    className="ms-2 rounded-lg border border-white/15 px-2 py-1 text-xs text-text-2 hover:bg-white/10 disabled:opacity-50"
                     aria-label={t("loadout.remove", { name: it.name })}
                   >
                     {t("loadout.removeShort")}
@@ -263,7 +263,7 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
                 key={it.id}
                 onClick={() => bearer && onEquip(it.id, bearer, activeSlot.id)}
                 disabled={busy || !bearer}
-                className="flex w-full items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-2 py-2 text-left hover:border-amber-400/50 disabled:opacity-50"
+                className="flex w-full items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-2 py-2 text-start hover:border-amber-400/50 disabled:opacity-50"
               >
                 {thumb && <img src={thumb} alt="" aria-hidden className="h-10 w-10 shrink-0 rounded-md object-cover" />}
                 <span>

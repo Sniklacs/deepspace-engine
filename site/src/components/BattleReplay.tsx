@@ -359,7 +359,7 @@ export default function BattleReplay({ battle, plan = null }: { battle: Battle; 
             ● Live
           </button>
         )}
-        <span className="ml-auto text-[11px] text-text-3">{Math.round(elapsedFrac * 100)}% of the battle</span>
+        <span className="ms-auto text-[11px] text-text-3">{Math.round(elapsedFrac * 100)}% of the battle</span>
       </div>
 
       {/* chapters — the key moments, jumpable */}

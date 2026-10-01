@@ -40,7 +40,7 @@ function ReplaySandbox() {
             key={p.id}
             onClick={() => setPreset(p.id)}
             title={p.blurb}
-            className={`rounded-lg border px-3 py-1.5 text-left ${preset === p.id ? "border-ember bg-ember/10" : "border-surf-3"}`}
+            className={`rounded-lg border px-3 py-1.5 text-start ${preset === p.id ? "border-ember bg-ember/10" : "border-surf-3"}`}
           >
             <span className={`block text-sm font-semibold ${preset === p.id ? "text-ember-soft" : "text-text-1"}`}>{p.label}</span>
             <span className="block text-[11px] text-text-3">{p.blurb}</span>
@@ -48,7 +48,7 @@ function ReplaySandbox() {
         ))}
         <button
           onClick={() => setStaging(!staging)}
-          className={`ml-auto rounded-lg border px-3 py-1.5 text-sm ${staging ? "border-amber-400/60 text-amber-200" : "border-surf-3 text-text-3"}`}
+          className={`ms-auto rounded-lg border px-3 py-1.5 text-sm ${staging ? "border-amber-400/60 text-amber-200" : "border-surf-3 text-text-3"}`}
           title="Show the pre-loaded plan view: the locked plan counting down to launch"
         >
           {staging ? "● Staging view" : "○ Staging view"}
