@@ -276,7 +276,6 @@ function PlayPage() {
   useEffect(() => {
     const onFirst = () => {
       sound.prime();
-      sound.startMusic();
       voiceEngine.arm();
       window.removeEventListener("pointerdown", onFirst);
       window.removeEventListener("keydown", onFirst);
@@ -350,9 +349,6 @@ function PlayPage() {
 
   const switchTab = (t: Tab) => {
     setTab(t);
-    // The music follows the fiction: battle screens get the driving battle
-    // mood, everything else drifts in the Below-the-Asteroids-style ambient.
-    sound.setMood(t === "battles" ? "battle" : "drift");
     // Mobile-game convention (§1.1 rule 5): a tab switch lands at the top of the
     // new screen. Focus stays on the nav slot the player pressed (native), so
     // keyboard users are not thrown and the nav never moves under them.
