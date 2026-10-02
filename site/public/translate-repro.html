@@ -3,6 +3,14 @@
      Removed after the "null function" phone failure is diagnosed. Not linked anywhere. -->
 <html><head><meta charset="utf-8"><title>WAIT</title></head><body><pre id="log">starting
 </pre><script type="module">
+// Transformers.js joins remoteHost + "/" + remotePathTemplate + "/" + file,
+// which yields a "//" when the template is empty (our app heals this in its
+// custom cache key normaliser; this bare page has no cache, so heal the fetch).
+const _fetch = globalThis.fetch.bind(globalThis);
+globalThis.fetch = (input, init) => {
+  if (typeof input === "string" && input.includes(".r2.dev//")) input = input.replace(".r2.dev//", ".r2.dev/");
+  return _fetch(input, init);
+};
 import { env, pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.js";
 // Same pack the phone uses, served from the public R2 bucket (CORS-enabled).
 env.remoteHost = "https://pub-06ebde2d7f0340d79319d029ddcb06aa.r2.dev";
