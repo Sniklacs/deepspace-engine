@@ -279,15 +279,28 @@ a ship and have its replacement before the next day's session. The season is
 - (Ships 4–6 to be timed when defined — scale by role, cap at ~12h for the
   largest.)
 
+### Who can build what (Hans, 2026-10-02)
+- **Scout:** buildable solo. One person, no alliance needed. This is the only
+  ship an individual can build alone.
+- **All other ships** (Frigate, Bulwark, Vanguard, Fat Cat, Herald): **alliance
+  only.** Built through an **alliance ship factory.**
+- You want warships? Join an alliance. The real military power requires
+  organization. Solo players get eyes (scouts); alliances get fists.
+- Design note: this is the alliance recruitment engine. The scout lets you see
+  the war; the alliance lets you fight it.
+
 ### Build costs
 - **Supplies** as the base (the universal currency).
 - **Race materials** for the hull (your own + alloys for bigger ships).
 - **No Codices** — ships are industry, not knowledge. Research unlocks the
   blueprint; building is just materials + time.
 - Proposed:
-  - Scout: 500 supplies + 10 of your race material
-  - Frigate: 1,000 supplies + 20 of your race material + 2 alloys
-  - Bulwark: 2,000 supplies + 40 of your race material + 5 alloys
+  - Scout: 500 supplies + 10 of your race material (solo-buildable)
+  - Frigate: 1,000 supplies + 20 of your race material + 2 alloys (alliance)
+  - Bulwark: 2,000 supplies + 40 of your race material + 5 alloys (alliance)
+  - Vanguard: 1,500 supplies + 30 of your race material + 3 alloys (alliance)
+  - Fat Cat: 3,000 supplies + 50 of your race material + 8 alloys (alliance)
+  - Herald: 1,200 supplies + 25 of your race material + 2 alloys (alliance)
 
 ### Why fast works
 - The 10,000 starting supplies (Hans's "get into the action fast" rule) means

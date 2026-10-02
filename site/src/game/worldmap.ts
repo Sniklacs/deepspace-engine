@@ -365,6 +365,11 @@ export const SHIP_COST: Record<ShipClass, ShipCost> = {
   herald: { supplies: 1200, raceMaterial: 25, alloys: 2 },
 };
 
+/** True if the ship class requires alliance membership (all except scout). */
+export function shipNeedsAlliance(shipClass: ShipClass): boolean {
+  return shipClass !== "scout";
+}
+
 /** A built jump ship. */
 export interface JumpShip {
   id: string;
