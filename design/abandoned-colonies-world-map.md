@@ -289,6 +289,18 @@ a ship and have its replacement before the next day's session. The season is
 - Design note: this is the alliance recruitment engine. The scout lets you see
   the war; the alliance lets you fight it.
 
+### Alliance ship factory (Hans, 2026-10-02)
+- **Build efficiency scales with active contributors.** The more alliance members
+  actively contributing to a ship build, the faster it completes. A dead
+  alliance builds slow; a live one builds fast.
+- This is the activity engine: alliances MUST have enough people active every
+  day to build ships. No activity, no fleet.
+- **Alliance cap: 100 members** (up from 50). With the 1500 soft cap per planet,
+  that's 15 alliances per planet. Hans: "100 members is better than 50."
+- **Beachheads are cross-alliance.** A beachhead doesn't care about alliance
+  tags — it'll take everybody from a planet/race. The invasion is bigger than
+  any one alliance.
+
 ### Build costs
 - **Supplies** as the base (the universal currency).
 - **Race materials** for the hull (your own + alloys for bigger ships).
