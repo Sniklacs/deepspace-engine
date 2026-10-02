@@ -61,8 +61,20 @@ try {
     log("RESULT: " + resultOf(out));
   } else {
     const redispose = device === "wasm-redispose";
-    const dev = redispose ? "wasm" : device;
-    log("building pipeline device=" + dev + (redispose ? " (dispose + rebuild test)" : ""));
+    const nojsep = device === "wasm-nojsep";
+    const dev = redispose || nojsep ? "wasm" : device;
+    if (nojsep) {
+      // Non-JSEP ORT build (no JavaScript Promise Integration): the phone's
+      // WASM inference crashes inside the jsep build with
+      // "RuntimeError: null function". Same ORT version, no JSPI dependency.
+      const ORT = "https://the-unbound-chi.vercel.app/ort";
+      env.backends.onnx.wasm.wasmPaths = {
+        mjs: `${ORT}/ort-wasm-simd-threaded.mjs`,
+        wasm: `${ORT}/ort-wasm-simd-threaded.wasm`,
+      };
+      log("using non-JSEP ORT WASM build from " + ORT);
+    }
+    log("building pipeline device=" + dev + (redispose ? " (dispose + rebuild test)" : "") + (nojsep ? " (non-JSEP)" : ""));
     let pipe = await build(dev);
     log("built ok");
     if (redispose) {
