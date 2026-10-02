@@ -28,6 +28,17 @@ rm -rf .vercel/output
 mkdir -p .vercel/output/functions/render.func
 cp -R dist/client .vercel/output/static
 rm -f .vercel/output/static/index.html   # SSR owns "/", not a static shell
+# Stamp the service worker's build token. public/sw.js ships with the literal
+# @@BUILD@@ and only serve.ts's stampBuildToken replaces it — but serve.ts
+# never runs on Vercel (static files are served directly), so without this
+# every deploy ships a byte-identical /sw.js, the browser never fires
+# `updatefound`, the update banner never appears, and the installed app sits
+# stale until a full reinstall (owner report 2026-10-01). A new deploy must
+# produce a different sw.js.
+if [ -f .vercel/output/static/sw.js ]; then
+  sed -i "s/@@BUILD@@/${VITE_BUILD_SHA}/g" .vercel/output/static/sw.js
+  echo "stamped sw.js build: ${VITE_BUILD_SHA}"
+fi
 
 echo "[3/3] bundle SSR handler + deps into the render function"
 bun build vercel-entry.ts --target node \
