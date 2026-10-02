@@ -138,6 +138,21 @@ async function realDeps(ctx: TranslatorRuntimeContext): Promise<PipelineDeps> {
       let lastError: unknown = null;
       for (const device of devices) {
         try {
+          // WASM runs on the game's own non-JSEP ORT build (no JavaScript
+          // Promise Integration): the default JSEP build's inference crashes
+          // on some phones with "RuntimeError: null function" inside
+          // ort-wasm-simd-threaded.jsep.wasm. Same ORT version, served from
+          // the game's own /ort/ — no JSPI dependency. WebGPU keeps the
+          // default JSEP build; it needs JSEP for GPU tensor interop.
+          const onnxEnv = env.backends.onnx as { wasm?: { wasmPaths?: { mjs: string; wasm: string } } };
+          if (device === "wasm") {
+            (onnxEnv.wasm ??= {}).wasmPaths = {
+              mjs: `${location.origin}/ort/ort-wasm-simd-threaded.mjs`,
+              wasm: `${location.origin}/ort/ort-wasm-simd-threaded.wasm`,
+            };
+          } else if (onnxEnv.wasm) {
+            delete onnxEnv.wasm.wasmPaths;
+          }
           const created = (await pipeline("translation", TRANSFORMERS_MODEL_ID, {
             dtype: "q8",
             device,
