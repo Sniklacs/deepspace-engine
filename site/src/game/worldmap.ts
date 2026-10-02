@@ -32,6 +32,9 @@ export const SCOUT_TECH_ID = "scout-probes";
 /** Supplies cost to BUILD one probe (one-time use). Tunable. */
 export const SCOUT_PROBE_COST_SUPPLIES = 500;
 
+/** How long a gleaning expedition takes (out and back). Tunable. */
+export const GLEAN_DURATION_MS = 2 * 3600_000; // 2 hours
+
 /** Jump charge is fuel/supplies, never real money (forward-base.md §4). */
 export const WORLD_JUMP_FUEL = 10;
 export const WORLD_JUMP_SUPPLIES = 200;
@@ -78,6 +81,15 @@ export interface KnownColony {
   approxTroops?: number;
   /** Observed remaining loot (abandoned only; may be stale — no guarantees). */
   lootObserved?: ColonyLoot;
+  /** AUTHORITATIVE remaining loot (abandoned only). First-come-first-served;
+   *  reduced by gleaning. When empty + no mercenaries, colony is a husk. */
+  loot?: ColonyLoot;
+  /** Mercenary band camped at an abandoned colony (troops that were there at
+   *  abandonment). Hireable with supplies. Null when none/hired. */
+  mercenaries?: MercenaryBand | null;
+  /** Planetary reverb (overall strength signature) — only from a visit, never
+   *  a probe. Reverb tells you HOW MUCH, not WHAT (design §14). */
+  reverb?: number;
 }
 
 /** A scout probe in flight. One-time use: launched → returns → consumed. */
@@ -298,6 +310,90 @@ export function isHusk(loot: ColonyLoot, mercenaries: MercenaryBand | null): boo
 /** True if the tech ID is the scout probe research. */
 export function isScoutProbeTech(techId: string): boolean {
   return techId === SCOUT_TECH_ID;
+}
+
+// ---------------------------------------------------------------------------
+// Gleaning expeditions (pure functions — design/abandoned-colonies-world-map.md §3)
+// ---------------------------------------------------------------------------
+
+/** Begin a gleaning expedition: validates the colony, creates the run. */
+export function beginGleanRun(
+  wm: WorldMapState,
+  key: string,
+  now: number,
+): { ok: boolean; run?: GleanRun; error?: string } {
+  const colony = wm.known[key];
+  if (!colony) return { ok: false, error: "That colony isn't on your map — scout it first." };
+  if (colony.status !== "abandoned") {
+    return {
+      ok: false,
+      error: colony.status === "active"
+        ? "That colony is still active — gleaning is for abandoned colonies only."
+        : "That colony is a husk — nothing left to glean.",
+    };
+  }
+  const loot = colony.loot ?? EMPTY_LOOT;
+  const mercs = colony.mercenaries ?? null;
+  if (isHusk(loot, mercs)) {
+    colony.status = "husk";
+    return { ok: false, error: "That colony is a husk — already fully gleaned." };
+  }
+  const existing = wm.gleanRuns.find(
+    (r) => r.colonyId === colony.id && r.serverId === colony.serverId && r.status === "out"
+  );
+  if (existing) return { ok: false, error: "A gleaning expedition is already out to that colony." };
+  
+  const run: GleanRun = {
+    id: `glean-${wm.seq}`,
+    colonyId: colony.id,
+    serverId: colony.serverId,
+    startedAt: now,
+    durationMs: GLEAN_DURATION_MS,
+    status: "out",
+  };
+  wm.seq += 1;
+  wm.gleanRuns.push(run);
+  return { ok: true, run };
+}
+
+/** True when a gleaning expedition has completed its run. */
+export function gleanReady(run: GleanRun, now: number): boolean {
+  return run.status === "out" && now >= run.startedAt + run.durationMs;
+}
+
+/** Resolve a gleaning expedition: returns the loot taken (caller transfers it). */
+export function resolveGleanRun(
+  wm: WorldMapState,
+  runId: string,
+  now: number,
+): { ok: boolean; lootTaken?: ColonyLoot; colony?: KnownColony; error?: string } {
+  const run = wm.gleanRuns.find((r) => r.id === runId);
+  if (!run) return { ok: false, error: "Gleaning expedition not found." };
+  if (run.status !== "out") return { ok: false, error: "That expedition already returned." };
+  if (!gleanReady(run, now)) return { ok: false, error: "The expedition is still out." };
+  
+  const key = colonyKey(run.serverId, run.colonyId);
+  const colony = wm.known[key];
+  if (!colony) return { ok: false, error: "The target colony vanished from your map." };
+  
+  // Take all remaining loot (v1: full take; convoy capacity limits come later)
+  const loot = colony.loot ?? EMPTY_LOOT;
+  const taken = { ...loot };
+  
+  // Update colony loot
+  colony.loot = lootAfterTake(loot, taken);
+  colony.lootObserved = { ...colony.loot };
+  
+  run.status = "complete";
+  run.lootTaken = taken;
+  
+  // Check if now a husk
+  const mercs = colony.mercenaries ?? null;
+  if (isHusk(colony.loot, mercs)) {
+    colony.status = "husk";
+  }
+  
+  return { ok: true, lootTaken: taken, colony };
 }
 
 /** Scout probe research cost (codices) and duration. Tunable. */

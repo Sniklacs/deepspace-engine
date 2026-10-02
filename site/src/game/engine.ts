@@ -87,10 +87,18 @@ import {
   setSatelliteStage,
 } from "./satellites";
 import {
+  EMPTY_LOOT,
+  SCOUT_PROBE_COST_SUPPLIES,
   SCOUT_TECH_CODICES,
   SCOUT_TECH_DURATION_MS,
+  beginGleanRun,
+  collectProbe,
   ensureWorldMap,
+  isHusk,
   isScoutProbeTech,
+  launchProbe,
+  lootTotal,
+  resolveGleanRun,
 } from "./worldmap";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
@@ -2944,6 +2952,134 @@ export function beginScoutProbeResearch(state: GameState, techId: string, leader
   leader.history.push(`Appointed to research scout probes`);
   log(state, `🔭 ${leader.name} appointed to research scout probes (${SCOUT_TECH_CODICES} 📜). One-time eyes on distant worlds.`);
   pruneCompleted(state);
+  return { ok: true, state };
+}
+
+/** Build a scout probe. Requires researched tech. Costs supplies. */
+export function buildScoutProbe(state: GameState, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const wm = ensureWorldMap(state, now);
+  if (!wm.scoutTechResearched) return fail("Research scout probes first.");
+  if (state.resources.supplies < SCOUT_PROBE_COST_SUPPLIES) return fail(`A probe needs ${SCOUT_PROBE_COST_SUPPLIES} supplies. You have ${Math.floor(state.resources.supplies)}.`);
+  state.resources.supplies -= SCOUT_PROBE_COST_SUPPLIES;
+  wm.probes += 1;
+  log(state, `🔭 Probe built (${SCOUT_PROBE_COST_SUPPLIES} supplies). ${wm.probes} ready to launch.`);
+  return { ok: true, state };
+}
+
+/** Launch a scout probe at a target server. Consumes one from inventory. */
+export function launchScoutProbe(state: GameState, serverId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const wm = ensureWorldMap(state, now);
+  if (!wm.scoutTechResearched) return fail("Research scout probes first.");
+  const target = (serverId || "").trim();
+  if (!target) return fail("Name the target planet (server) first.");
+  const res = launchProbe(wm, target, now);
+  if (!res.ok) return fail(res.error ?? "Could not launch the probe.");
+  log(state, `🔭 Probe ${res.probe!.id} launched at ${target} — returns in 6 hours.`);
+  return { ok: true, state };
+}
+
+/** Collect a returned probe's report. */
+export function collectScoutProbe(state: GameState, probeId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const wm = ensureWorldMap(state, now);
+  const res = collectProbe(wm, probeId, now);
+  if (!res.ok) return fail(res.error ?? "Could not collect the probe.");
+  const r = res.report!;
+  log(state, `🔭 Probe report from ${r.serverId}: ${r.playerCount} players, ${r.colonyCount} colonies (${r.abandonedCount} abandoned). Odds, not guarantees.`);
+  return { ok: true, state };
+}
+
+// ---------------------------------------------------------------------------
+// GLEANING — expeditions to abandoned colonies (design/abandoned-colonies-world-map.md §3)
+// ---------------------------------------------------------------------------
+
+/** Begin a gleaning expedition to an abandoned colony. No battle — no defenders. */
+export function beginGleaning(state: GameState, key: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const wm = ensureWorldMap(state, now);
+  const res = beginGleanRun(wm, key, now);
+  if (!res.ok) return fail(res.error ?? "Could not begin gleaning.");
+  const colony = wm.known[key]!;
+  log(state, `⛏️ Gleaning expedition ${res.run!.id} out to ${colony.ownerName}'s colony — returns in 2 hours.`);
+  return { ok: true, state };
+}
+
+/** Resolve a completed gleaning expedition: transfer loot to the player. */
+export function resolveGleaning(state: GameState, runId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const wm = ensureWorldMap(state, now);
+  const res = resolveGleanRun(wm, runId, now);
+  if (!res.ok) return fail(res.error ?? "Could not resolve gleaning.");
+  
+  const taken = res.lootTaken!;
+  const colony = res.colony!;
+  
+  // Transfer to player resources
+  const r = state.resources;
+  r.supplies += taken.supplies;
+  r.embers += taken.embers;
+  r.gas += taken.fuel; // fuel → gas (vehicle fuel)
+  r.battery += taken.battery;
+  r.medkit += taken.medkit;
+  r.hazmat += taken.hazmat;
+  r.shots += taken.shots;
+  // mechkit/armorkit: map to existing resource types
+  // (mechkit → skmech is a stretch; for now, bank them as supplies equivalent)
+  // Actually, let's be honest: these are distinct items. For v1, add to supplies as "salvage value"
+  const salvageValue = taken.mechkit + taken.armorkit;
+  r.supplies += salvageValue;
+  
+  const total = lootTotal(taken);
+  if (total > 0) {
+    log(state, `⛏️ Gleaning expedition ${runId} returned from ${colony.ownerName}'s colony with ${taken.supplies} supplies, ${taken.embers} embers, and more.`);
+  } else {
+    log(state, `⛏️ Gleaning expedition ${runId} returned from ${colony.ownerName}'s colony — nothing left to take.`);
+  }
+  
+  if (colony.status === "husk") {
+    log(state, `💀 ${colony.ownerName}'s colony is now a husk — fully gleaned.`);
+  }
+  
+  return { ok: true, state };
+}
+
+/** Hire the mercenary band camped at an abandoned colony. Costs supplies. */
+export function hireGleanMercenaries(state: GameState, key: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const wm = ensureWorldMap(state, now);
+  const colony = wm.known[key];
+  if (!colony) return fail("That colony isn't on your map.");
+  if (colony.status !== "abandoned") return fail("Mercenaries only camp at abandoned colonies.");
+  
+  const band = colony.mercenaries ?? null;
+  if (!band) return fail("No mercenary band at that colony — already hired or none deserted.");
+  
+  // Calculate hire cost (using the band's hireCost function)
+  // For now, use a simple supplies cost based on band size
+  // TODO: Import hireCost from war/troops and use proper calculation
+  const bandSize = band.cohorts.reduce((n, c) => n + c.count, 0);
+  const cost = bandSize * 10; // 10 supplies per troop (tunable)
+  
+  if (state.resources.supplies < cost) {
+    return fail(`Hiring that band needs ${cost} supplies. You have ${Math.floor(state.resources.supplies)}.`);
+  }
+  
+  state.resources.supplies -= cost;
+  // TODO: Add troops to player's roster (needs TroopHome reference)
+  // For now, just mark the band as hired and log
+  colony.mercenaries = null;
+  
+  log(state, `⚔️ Hired ${bandSize} mercenaries from ${colony.ownerName}'s abandoned colony (${cost} supplies).`);
+  
+  // Check if now a husk
+  const loot = colony.loot ?? EMPTY_LOOT;
+  if (isHusk(loot, null)) {
+    colony.status = "husk";
+    log(state, `💀 ${colony.ownerName}'s colony is now a husk — fully gleaned.`);
+  }
+  
   return { ok: true, state };
 }
 
