@@ -303,3 +303,84 @@ export function isScoutProbeTech(techId: string): boolean {
 /** Scout probe research cost (codices) and duration. Tunable. */
 export const SCOUT_TECH_CODICES = 10;
 export const SCOUT_TECH_DURATION_MS = 60_000;
+
+/* ── Jump ships (design/abandoned-colonies-world-map.md §10) ── */
+
+/** Six ship classes. Each race builds their own variant with a unique name. */
+export type ShipClass = "scout" | "frigate" | "bulwark" | "vanguard" | "fatcat" | "herald";
+
+export const SHIP_CLASSES: ShipClass[] = ["scout", "frigate", "bulwark", "vanguard", "fatcat", "herald"];
+
+/** Race-specific ship names. Key: `${raceId}:${shipClass}`. */
+export const SHIP_RACE_NAMES: Record<string, string> = {
+  // Scout (name TBD at class level — race names stand alone)
+  "gray:scout": "Gray Scout", "draconian:scout": "Ashen Eye", "watcher:scout": "Threshold Eye",
+  "astar:scout": "Accord Scout", "annunaki:scout": "Gilded Eye", "nephilim:scout": "Stone Eye",
+  "unbound:scout": "Dawn Scout",
+  // Frigate (name TBD at class level)
+  "gray:frigate": "Gray Frigate", "draconian:frigate": "Ashen Claw", "watcher:frigate": "Seraph Wing",
+  "astar:frigate": "Accord Wing", "annunaki:frigate": "Gilded Claw", "nephilim:frigate": "Stone Fist",
+  "unbound:frigate": "Dawn Wing",
+  // Bulwark
+  "gray:bulwark": "Warden Lattice", "draconian:bulwark": "Ashen Bulwark", "watcher:bulwark": "Threshold Bastion",
+  "astar:bulwark": "Accord Aegis", "annunaki:bulwark": "Gilded Rampart", "nephilim:bulwark": "Stoneshield",
+  "unbound:bulwark": "Radiant Bulwark",
+  // Vanguard
+  "gray:vanguard": "Calculus Vanguard", "draconian:vanguard": "Ashen Vanguard", "watcher:vanguard": "Seraph Vanguard",
+  "astar:vanguard": "Accord Vanguard", "annunaki:vanguard": "Gilded Vanguard", "nephilim:vanguard": "Stone Vanguard",
+  "unbound:vanguard": "Radiant Vanguard",
+  // Fat Cat (Hans named the class)
+  "gray:fatcat": "Ledger Hauler", "draconian:fatcat": "Hoard Drake", "watcher:fatcat": "Tithe Bearer",
+  "astar:fatcat": "Compact Hauler", "annunaki:fatcat": "Golden Belly", "nephilim:fatcat": "Mountain's Maw",
+  "unbound:fatcat": "Cornucopia",
+  // Herald
+  "gray:herald": "Array Herald", "draconian:herald": "War-Drum", "watcher:herald": "Trumpet Herald",
+  "astar:herald": "Concord Herald", "annunaki:herald": "Royal Signal", "nephilim:herald": "Thunder Call",
+  "unbound:herald": "Dawn Herald",
+};
+
+/** Get the race-specific name for a ship class. Falls back to class id. */
+export function shipName(raceId: string, shipClass: ShipClass): string {
+  return SHIP_RACE_NAMES[`${raceId}:${shipClass}`] ?? shipClass;
+}
+
+/** Ship build time in ms (tunable). Hans: hours, not days. */
+export const SHIP_BUILD_MS: Record<ShipClass, number> = {
+  scout: 2 * 3600_000,      // 2 hours
+  frigate: 4 * 3600_000,    // 4 hours
+  bulwark: 8 * 3600_000,    // 8 hours
+  vanguard: 6 * 3600_000,   // 6 hours (tunable — between frigate and bulwark)
+  fatcat: 10 * 3600_000,   // 10 hours (big, heavy, slow to print)
+  herald: 5 * 3600_000,    // 5 hours (complex systems, no weapons)
+};
+
+/** Ship build cost: supplies + race material + alloys (tunable). */
+export interface ShipCost { supplies: number; raceMaterial: number; alloys: number; }
+export const SHIP_COST: Record<ShipClass, ShipCost> = {
+  scout: { supplies: 500, raceMaterial: 10, alloys: 0 },
+  frigate: { supplies: 1000, raceMaterial: 20, alloys: 2 },
+  bulwark: { supplies: 2000, raceMaterial: 40, alloys: 5 },
+  vanguard: { supplies: 1500, raceMaterial: 30, alloys: 3 },
+  fatcat: { supplies: 3000, raceMaterial: 50, alloys: 8 },
+  herald: { supplies: 1200, raceMaterial: 25, alloys: 2 },
+};
+
+/** A built jump ship. */
+export interface JumpShip {
+  id: string;
+  class: ShipClass;
+  raceId: RaceId;
+  /** Display name (race-specific). */
+  name: string;
+  status: "building" | "ready" | "deployed" | "destroyed" | "stranded";
+  /** When building completes (if status === "building"). */
+  doneAt?: number;
+  /** If stranded: beacon info (position only — no comms, §11). */
+  beacon?: { serverId: string; at: number };
+}
+
+/** Stranded ship: beacon only, no comms. Rescue is a combat op (§11). */
+export interface StrandedShip extends JumpShip {
+  status: "stranded";
+  beacon: { serverId: string; at: number };
+}

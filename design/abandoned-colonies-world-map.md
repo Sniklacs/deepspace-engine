@@ -127,7 +127,8 @@ This is going to bring in different types of ships they can build."
 
 ### Open ship questions (for Hans)
 
-1. **Ship roster:** six types. Scout ✓, Frigate ✓, four to go.
+1. **Ship roster:** all six defined ✓ (Scout, Frigate, Bulwark, Vanguard,
+   Fat Cat, Herald). Race variants named for all.
 2. **Stranded:** LOCKED (Hans, 2026-10-02) — see §11.
 3. **Defense emplacements:** are they a new buildable (turrets, shields), or
    do troops double as defense? (Recommend: troops + a buildable turret line.)
@@ -201,6 +202,66 @@ When a jump ship is destroyed, its crew is **stranded**. They wait for rescue.
   - Unbound: **Radiant Bulwark** — light-wrought, transcendent design
 
 ### Ships 4–6: TBD (Hans defining)
+
+### Ship 4: Vanguard (heavy escort / all-rounder)
+- **Role:** a step above the frigate. Carries troops AND defenses.
+- **Armament:** decent turret and shield package — withstands light to
+  medium-heavy fire.
+- **Primary job:** escorts drill ships and mining ships extracting minerals,
+  materials, chipsets, and embers.
+- **Secondary:** site and colony raiding. An all-around good ship for any party.
+- **Exposure:** HIGH. Any stage-2 satellite recognizes it as a ship to be
+  dealt with. Bringing a Vanguard means you've decided stealth is over.
+- **Race variants:**
+  - Grays: **Calculus Vanguard** — cold math, optimal coverage
+  - Draconians: **Ashen Vanguard** — burns bright, hits hard
+  - Watchers: **Seraph Vanguard** — wings spread, unbroken line
+  - Astar: **Accord Vanguard** — peace through superior firepower
+  - Annunaki: **Gilded Vanguard** — gold and thunder
+  - Nephilim: **Stone Vanguard** — the mountain moves
+  - Unbound: **Radiant Vanguard** — dawn's iron fist
+
+### Ship 5: Fat Cat (heavy hauler)
+- **Role:** the prize. Packing armor, digging rigs, and enough cargo to haul
+  supplies back in substantial amounts.
+- **Can raid:** goes on colony raids too — but that's not its job. Its job is
+  to carry the loot home.
+- **Exposure:** MASSIVE. Definitely recognized, definitely targeted. The
+  residents of a planet will jump on a Fat Cat if they can — killing one is
+  a trophy. "They would love nothing more than to get themselves a fat cat
+  kill."
+- **Design note:** the Fat Cat is the risk/reward engine. Bring it and you can
+  haul a fortune — but everyone on the planet knows it's there, and they all
+  want it dead.
+- **Race variants:**
+  - Grays: **Ledger Hauler** — every gram accounted for
+  - Draconians: **Hoard Drake** — dragons hoard, it's what they do
+  - Watchers: **Tithe Bearer** — heaven's quartermaster
+  - Astar: **Compact Hauler** — the Accord's purse
+  - Annunaki: **Golden Belly** — fat with the king's gold
+  - Nephilim: **Mountain's Maw** — swallows whole
+  - Unbound: **Cornucopia** — abundance, radiant and heavy
+
+### Ship 6: Herald (logistics / command)
+- **Role:** the one that saves everybody's ass. No weapons — all logistics.
+- **Systems:**
+  - **Radar:** ample warning time of incoming attack. Sees them coming.
+  - **Radar jamming:** blinds their eyes while yours stay open.
+  - **Target painting:** coordinates defenses — paints targets so every gun
+    on the ground knows what to hit.
+  - **Multiple modules:** all logistics, no guns. Coordination is the weapon.
+- **Purpose:** coordinates troops and defenses on the ground. The Herald doesn't
+  fight — it makes everyone else fight better.
+- **Exposure:** moderate. No weapons means satellites don't flag it as a
+  warship — but anyone who's seen one work knows what it does.
+- **Race variants:**
+  - Grays: **Array Herald** — the mind that sees all
+  - Draconians: **War-Drum** — the beat the army marches to
+  - Watchers: **Trumpet Herald** — the last bell, rung early
+  - Astar: **Concord Herald** — harmony of fire
+  - Annunaki: **Royal Signal** — the king's voice, carried on light
+  - Nephilim: **Thunder Call** — the mountain speaks, the army listens
+  - Unbound: **Dawn Herald** — radiance that organizes
 
 ## 12. Ship build times & costs (Hans, 2026-10-02)
 
