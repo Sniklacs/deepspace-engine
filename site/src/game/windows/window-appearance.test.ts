@@ -72,4 +72,15 @@ describe("window-appearance", () => {
       expect(p.hex).toMatch(/^#[0-9a-fA-F]{6}$/);
     }
   });
+
+  test("the snapshot is referentially stable between changes (useSyncExternalStore contract)", () => {
+    // A fresh object on every read looks like a change on every render and
+    // React spirals into "Maximum update depth exceeded" (#185) the moment
+    // Settings opens. The reference must survive quiet reads.
+    expect(getWindowAppearance()).toBe(getWindowAppearance());
+    setWindowAppearance({ opacity: 0.8 });
+    const after = getWindowAppearance();
+    expect(after).toBe(getWindowAppearance());
+    expect(after.opacity).toBe(0.8);
+  });
 });

@@ -68,6 +68,12 @@ function applyToDocument(a: WindowAppearance): void {
 }
 
 let current: WindowAppearance = { ...DEFAULT_APPEARANCE };
+/** The snapshot React reads: the SAME reference until the look changes.
+// useSyncExternalStore re-renders whenever getSnapshot's return is not
+// Object.is-equal to the last one — a fresh `{ ...current }` on every read
+// looks like a change on every render and React spirals into "Maximum update
+// depth exceeded" (#185). This is only ever replaced, never mutated. */
+let snapshot: WindowAppearance = { ...current };
 const listeners = new Set<() => void>();
 
 function readStored(): WindowAppearance {
@@ -88,12 +94,14 @@ function readStored(): WindowAppearance {
 /** Load the saved look (call once at boot) and paint it. */
 export function initWindowAppearance(): WindowAppearance {
   current = readStored();
+  snapshot = { ...current };
   applyToDocument(current);
   return { ...current };
 }
 
 export function getWindowAppearance(): WindowAppearance {
-  return { ...current };
+  // Stable reference: see the note on `snapshot` above.
+  return snapshot;
 }
 
 export function setWindowAppearance(patch: Partial<WindowAppearance>): WindowAppearance {
@@ -101,6 +109,7 @@ export function setWindowAppearance(patch: Partial<WindowAppearance>): WindowApp
     opacity: clampOpacity(patch.opacity ?? current.opacity),
     tint: isHex(patch.tint) ? patch.tint : current.tint,
   };
+  snapshot = { ...current };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
   } catch {
