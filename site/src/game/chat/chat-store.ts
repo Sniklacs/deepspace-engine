@@ -34,6 +34,12 @@ import { chatSyncFn, sendWorldFn } from "./chat-api";
 import { sound } from "../sound";
 import { deviceSnapshot } from "../i18n/device";
 import {
+  openWindow,
+  closeWindowsOfKind,
+  isWindowOpen,
+  subscribeWindows,
+} from "../windows/window-store";
+import {
   CHAT_SURFACES,
   unreadChip,
   type ChatMessage,
@@ -205,19 +211,33 @@ export function watchChatVisibility(): void {
   });
 }
 
-// ── the sheet ───────────────────────────────────────────────────────────────
-/** Open the sheet on a surface (default: the last one the player used). */
+// ── the window ──────────────────────────────────────────────────────────────
+// Chat is a first-class window (owner 2026-10-01): the window manager owns
+// open/minimized/focus, this store owns the data. The `open` flag stays in
+// sync via the subscription below, so every existing reader (the poll gate,
+// the chime rule, the dock) keeps working unchanged.
+/** Open the chat window on a surface (default: the last one the player used). */
 export function openChat(surface?: ChatSurface): void {
   watchChatVisibility();
-  set({ open: true, ...(surface ? { surface, lastSurface: surface } : {}) });
+  set({ ...(surface ? { surface, lastSurface: surface } : {}) });
+  openWindow("chat", { titleKey: "windows.chatTitle", titleFallback: "Chat" });
   syncTimer();
   void refreshChat();
 }
 
 export function closeChat(): void {
-  set({ open: false });
+  closeWindowsOfKind("chat");
   syncTimer();
 }
+
+// One source of truth: the window manager's registry drives `open`.
+subscribeWindows(() => {
+  const open = isWindowOpen("chat");
+  if (open !== state.open) {
+    set({ open });
+    syncTimer();
+  }
+});
 
 /** Switch tabs. The bar follows the player's last choice when nothing is unread. */
 export function setChatSurface(surface: ChatSurface): void {

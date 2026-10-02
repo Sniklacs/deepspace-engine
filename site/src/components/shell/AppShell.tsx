@@ -17,6 +17,7 @@ import type { ReactNode } from "react";
 import Ribbon from "./Ribbon";
 import BottomNav from "./BottomNav";
 import ChatDock from "./ChatDock";
+import { WindowHost, type WindowCtx } from "../windows/WindowHost";
 import type { Tab } from "../../game/nav-slots";
 import type { NavBadge } from "../../game/nav-badges";
 import type { GameState } from "../../game/types";
@@ -36,6 +37,7 @@ export default function AppShell({
   onOpenStores,
   onAlertGo,
   children,
+  windowCtx,
 }: {
   state: GameState;
   tab: Tab;
@@ -51,6 +53,12 @@ export default function AppShell({
   onOpenStores: () => void;
   onAlertGo: () => void;
   children: ReactNode;
+  /**
+   * The window framework's game context (owner 2026-10-01): EVE-style windows
+   * mount here, in the frame, so they survive tab switches and route changes.
+   * Windows never auto-close — the store is the truth.
+   */
+  windowCtx?: WindowCtx | null;
 }) {
   const t = useT();
   return (
@@ -82,6 +90,9 @@ export default function AppShell({
           compete with the narrator (game-ui-shell-spec §1.6). */}
       <ChatDock suppressed={state.prologue?.stage === "height"} />
       <BottomNav tab={tab} onSwitch={onSwitch} badges={badges} />
+      {/* The window layer — above nav/dock, below toasts. Mounted in the frame
+          so windows outlive tab switches and route changes. */}
+      <WindowHost ctx={windowCtx ?? null} />
     </div>
   );
 }

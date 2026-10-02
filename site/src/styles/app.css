@@ -417,6 +417,101 @@
   from { transform: translateY(24px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
+
+/* EVE-STYLE WINDOWS (owner 2026-10-01) — persistent panels, not modals.
+   No backdrop, no auto-close: a window stays open until the player closes it.
+   Phone: near-full-screen. Desktop (sm+): centered, narrower. */
+.win-frame {
+  position: fixed;
+  left: 0.5rem;
+  right: 0.5rem;
+  top: calc(0.5rem + var(--safe-inset-top));
+  bottom: calc(var(--spacing-nav) + var(--dock-h, 0px) + env(safe-area-inset-bottom) + 0.5rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--surf-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  animation: sheetIn 250ms var(--ease-out);
+  overflow: hidden;
+}
+@media (min-width: 640px) {
+  .win-frame {
+    left: 0;
+    right: 0;
+    margin-inline: auto;
+    width: min(42rem, calc(100vw - 3rem));
+    top: 8vh;
+    bottom: 8vh;
+  }
+}
+.win-titlebar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--line);
+  padding: 0.625rem 0.75rem;
+  background: var(--surf-2);
+}
+.win-chrome-btn {
+  display: flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  color: var(--text-2);
+}
+.win-chrome-btn:hover {
+  background: var(--surf-4);
+  color: var(--text-1);
+}
+.win-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* The tray: minimized windows park here as chips, above the nav/dock. */
+.win-tray {
+  position: fixed;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: calc(var(--spacing-nav) + var(--dock-h, 0px) + env(safe-area-inset-bottom) + 0.5rem);
+  z-index: 69;
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.25rem;
+}
+.win-tray-chip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surf-2);
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0.5rem 0.75rem;
+  min-height: 2.75rem;
+}
+/* Chat window keyboard clamp — the same rule the old sheet lived by: while
+   the on-screen keyboard is up, the window rides above it instead of sliding
+   underneath. The composer stays visible. */
+@media (max-width: 639px) {
+  .win-frame[data-kind="chat"] {
+    bottom: calc(var(--chat-vk, 0px) + var(--spacing-nav) + var(--dock-h, 0px) + env(safe-area-inset-bottom) + 0.5rem);
+  }
+}
 @keyframes sheetZoomIn {
   from { transform: translate(-50%, -46%); opacity: 0; }
   to { transform: translate(-50%, -50%); opacity: 1; }

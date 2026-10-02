@@ -26,6 +26,7 @@ export type IconName =
   | "coin" // currency
   | "ledger" // the Cradle Ledger
   | "x" // close
+  | "minus" // window minimize
   | "shield" // trust / G1–G4 footer
   | "card" // pass
   | "spark" // earned
@@ -150,6 +151,7 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   x: <path d="M6 6l12 12M18 6L6 18" />,
+  minus: <path d="M5 12h14" />,
   shield: (
     <>
       <path d="M12 3l7 2.5V11c0 4.6-3 7.6-7 9-4-1.4-7-4.4-7-9V5.5L12 3z" />

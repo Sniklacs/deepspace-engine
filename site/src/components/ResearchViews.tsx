@@ -166,14 +166,6 @@ function SatelliteSection({ state, now, freeLeaders, onBeginResearch }: {
   );
   const ids = useMemo(() => coveredNodeIds(WORLD_CONFIG_PUBLIC.worldId), []);
   const awake = ids.filter((id) => satelliteStage(state, id) > 0).length;
-  const revealFor = (intel: "none" | "presence" | "identity" | "full") =>
-    intel === "none"
-      ? t("circuit.satRevealNone", "Nothing — arrivals are fully invisible: no alarm, no ping.")
-      : intel === "presence"
-        ? t("circuit.satRevealPresence", "An alarm when someone arrives here — but not who.")
-        : intel === "identity"
-          ? t("circuit.satRevealIdentity", "An alarm that names who arrived, and roughly how many — but not what they bring.")
-          : t("circuit.satRevealFull", "The full picture: amounts and troop types on every arrival.");
   return (
     <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -189,74 +181,106 @@ function SatelliteSection({ state, now, freeLeaders, onBeginResearch }: {
       <div className="mt-2 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
         {ids.map((id) => {
           const node = nodeById(circuit, id);
-          const stage = satelliteStage(state, id);
-          const intel = satelliteIntelFor(state, id);
-          const nextStage = stage < 3 ? ((stage + 1) as 1 | 2 | 3) : null;
-          const techId = nextStage ? satelliteTechId(id, nextStage) : null;
-          const next = nextStage ? satelliteTechFor(id, nextStage) : null;
-          const job = techId ? state.researchJobs.find((j) => j.techId === techId && j.status === "researching") ?? null : null;
-          const leaderOnIt = job ? state.leaders.find((l) => l.id === job.leaderId) ?? null : null;
-          const available = techId ? engineHelpers.satelliteAvailable(state, techId) : false;
           return (
-            <div key={id} className="rounded-lg border border-white/10 bg-black/30 p-2.5">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-sm font-semibold text-white">
-                  <span
-                    className="me-1.5 inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ background: stage > 0 ? SATELLITE_COLORS.activeFill : SATELLITE_COLORS.dormantFill }}
-                  />
-                  {node?.name ?? id}
-                </span>
-                <span className="flex gap-0.5" role="img" aria-label={t("rviews.satStageAria", "Stage {stage} of 3", { stage })}>
-                  {[1, 2, 3].map((s) => (
-                    <span
-                      key={s}
-                      className="flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold"
-                      style={s <= stage
-                        ? { background: SATELLITE_COLORS.activeFill, color: SATELLITE_COLORS.activeInk }
-                        : { background: "rgba(255,255,255,0.08)", color: "#9ca3af" }}
-                    >
-                      {s}
-                    </span>
-                  ))}
-                </span>
-              </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
-                <b className="text-gray-200">{t("rviews.satReveals", "Reveals:")}</b> {revealFor(intel)}
-              </p>
-              {job && leaderOnIt && (
-                <>
-                  <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-                    <span>🫂 {leaderName(t, leaderOnIt)}</span>
-                    <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
-                  </div>
-                  <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-cyan-400" style={{ width: `${Math.min(100, ((now - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
-                  <p className="mt-1 text-[10px] text-cyan-200/60">{t("rviews.satNoHasten", "The sky opens on research time alone — no token hastens it.")}</p>
-                </>
-              )}
-              {next && !job && available && (
-                <div className="mt-2">
-                  {state.codices < next.codicesCost ? (
-                    <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: next.codicesCost })}</div>
-                  ) : freeLeaders.length === 0 ? (
-                    <div className="text-[11px] text-text-3">{t("rviews.noFreeLeader", "No free Leader")}</div>
-                  ) : (
-                    <button
-                      onClick={() => { sound.click(); onBeginResearch(techId!, freeLeaders[0].id); }}
-                      className="w-full rounded border border-cyan-400/30 bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-400/25"
-                    >
-                      {stage === 0
-                        ? t("rviews.satAppoint", "Appoint {name} — bring it online ({cost} 📜)", { name: freeLeaders[0].name, cost: next.codicesCost })
-                        : t("rviews.satAppointStage", "Appoint {name} — climb to stage {stage} ({cost} 📜)", { name: freeLeaders[0].name, stage: nextStage ?? 3, cost: next.codicesCost })}
-                    </button>
-                  )}
-                </div>
-              )}
-              {stage === 3 && <p className="mt-1 text-[11px] text-cyan-200/80">{t("rviews.satComplete", "Full picture — this sky is yours.")}</p>}
-            </div>
+            <SatelliteResearchCard
+              key={id}
+              state={state}
+              now={now}
+              nodeId={id}
+              nodeName={node?.name ?? id}
+              freeLeaders={freeLeaders}
+              onBeginResearch={onBeginResearch}
+            />
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   SATELLITE RESEARCH CARD — one satellite's full research surface, exported
+   for the window framework (owner 2026-10-01: tap a satellite on the circuit
+   map → research window opens right there). The SAME card the Lab's
+   SatelliteSection renders — one component, two homes, zero drift.
+   ========================================================================== */
+export function SatelliteResearchCard({ state, now, nodeId, nodeName, freeLeaders, onBeginResearch }: {
+  state: GameState; now: number; nodeId: string; nodeName: string;
+  freeLeaders: Leader[]; onBeginResearch: (techId: string, leaderId: string) => void;
+}) {
+  const t = useT();
+  const stage = satelliteStage(state, nodeId);
+  const intel = satelliteIntelFor(state, nodeId);
+  const nextStage = stage < 3 ? ((stage + 1) as 1 | 2 | 3) : null;
+  const techId = nextStage ? satelliteTechId(nodeId, nextStage) : null;
+  const next = nextStage ? satelliteTechFor(nodeId, nextStage) : null;
+  const job = techId ? state.researchJobs.find((j) => j.techId === techId && j.status === "researching") ?? null : null;
+  const leaderOnIt = job ? state.leaders.find((l) => l.id === job.leaderId) ?? null : null;
+  const available = techId ? engineHelpers.satelliteAvailable(state, techId) : false;
+  const revealFor = (i: "none" | "presence" | "identity" | "full") =>
+    i === "none"
+      ? t("circuit.satRevealNone", "Nothing — arrivals are fully invisible: no alarm, no ping.")
+      : i === "presence"
+        ? t("circuit.satRevealPresence", "An alarm when someone arrives here — but not who.")
+        : i === "identity"
+          ? t("circuit.satRevealIdentity", "An alarm that names who arrived, and roughly how many — but not what they bring.")
+          : t("circuit.satRevealFull", "The full picture: amounts and troop types on every arrival.");
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/30 p-2.5">
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-sm font-semibold text-white">
+          <span
+            className="me-1.5 inline-block h-2.5 w-2.5 rounded-full"
+            style={{ background: stage > 0 ? SATELLITE_COLORS.activeFill : SATELLITE_COLORS.dormantFill }}
+          />
+          {nodeName}
+        </span>
+        <span className="flex gap-0.5" role="img" aria-label={t("rviews.satStageAria", "Stage {stage} of 3", { stage })}>
+          {[1, 2, 3].map((s) => (
+            <span
+              key={s}
+              className="flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold"
+              style={s <= stage
+                ? { background: SATELLITE_COLORS.activeFill, color: SATELLITE_COLORS.activeInk }
+                : { background: "rgba(255,255,255,0.08)", color: "#9ca3af" }}
+            >
+              {s}
+            </span>
+          ))}
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+        <b className="text-gray-200">{t("rviews.satReveals", "Reveals:")}</b> {revealFor(intel)}
+      </p>
+      {job && leaderOnIt && (
+        <>
+          <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
+            <span>🫂 {leaderName(t, leaderOnIt)}</span>
+            <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
+          </div>
+          <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-cyan-400" style={{ width: `${Math.min(100, ((now - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
+          <p className="mt-1 text-[10px] text-cyan-200/60">{t("rviews.satNoHasten", "The sky opens on research time alone — no token hastens it.")}</p>
+        </>
+      )}
+      {next && !job && available && (
+        <div className="mt-2">
+          {state.codices < next.codicesCost ? (
+            <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: next.codicesCost })}</div>
+          ) : freeLeaders.length === 0 ? (
+            <div className="text-[11px] text-text-3">{t("rviews.noFreeLeader", "No free Leader")}</div>
+          ) : (
+            <button
+              onClick={() => { sound.click(); onBeginResearch(techId!, freeLeaders[0].id); }}
+              className="w-full rounded border border-cyan-400/30 bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-400/25"
+            >
+              {stage === 0
+                ? t("rviews.satAppoint", "Appoint {name} — bring it online ({cost} 📜)", { name: freeLeaders[0].name, cost: next.codicesCost })
+                : t("rviews.satAppointStage", "Appoint {name} — climb to stage {stage} ({cost} 📜)", { name: freeLeaders[0].name, stage: nextStage ?? 3, cost: next.codicesCost })}
+            </button>
+          )}
+        </div>
+      )}
+      {stage === 3 && <p className="mt-1 text-[11px] text-cyan-200/80">{t("rviews.satComplete", "Full picture — this sky is yours.")}</p>}
     </div>
   );
 }

@@ -51,7 +51,7 @@ import { Sheet, SheetHeader } from "../components/Sheet";
 import AppShell from "../components/shell/AppShell";
 import CradleSheet from "../components/shell/CradleSheet";
 import SettingsSheet from "../components/shell/SettingsSheet";
-import ChatSheet from "../components/chat/ChatSheet";
+
 import { configureChat } from "../game/chat/chat-store";
 import { useT, useLang } from "../components/i18n/I18n";
 import { navBadges } from "../game/nav-badges";
@@ -586,6 +586,11 @@ function PlayPage() {
         onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }}
         onOpenStores={() => { setCradleOpen(true); sound.click(); }}
         onAlertGo={() => switchTab("colony")}
+        windowCtx={{
+          state,
+          now,
+          onBeginResearch: (t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research"),
+        }}
       >
       {firstRunNotice && tab !== "battles" && <FirstRunNudge onDismiss={dismissNudge} />}
       {toast && <div className="fixed bottom-[calc(var(--spacing-nav)+var(--dock-h,0px)+env(safe-area-inset-bottom)+12px)] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
@@ -630,10 +635,6 @@ function PlayPage() {
       {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} />}
       </AppShell>
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      {/* The chat surface lives OUTSIDE AppShell's frame, like every other sheet:
-          the dock bar is chrome (inside the shell's stack), the conversation is a
-          modal. Both read the same store, so they cannot disagree. */}
-      <ChatSheet />
         </>
       )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}

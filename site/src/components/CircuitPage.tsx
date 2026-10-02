@@ -32,6 +32,7 @@ import { getZone, zoneFlavor, zoneName } from "../game/zones";
 import { getContributionFn } from "../game/api";
 import type { ContributionView, ContributionRow } from "../game/api";
 import { sound } from "../game/sound";
+import { openWindow } from "../game/windows/window-store";
 import { SegmentedControl } from "./SegmentedControl";
 import PageBanner from "./PageBanner";
 import { LedgerButton } from "./LedgerButton";
@@ -1111,10 +1112,10 @@ function SatelliteSheetSection({ state, nodeId, onOpenLab }: {
       )}
       {next && onOpenLab && (
         <button
-          onClick={onOpenLab}
+          onClick={() => { sound.click(); openWindow("satellite-research", { key: nodeId, props: { nodeId } }); }}
           className="mt-1 w-full rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20"
         >
-          {t("circuit.satOpenLab", "Open the Lab — restore this satellite")}
+          {t("circuit.satOpenLab", "🛰️ Research this satellite — opens right here")}
         </button>
       )}
     </div>

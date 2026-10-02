@@ -2314,5 +2314,13 @@ export const en: Catalogue = {
   "rviews.attrDoes.economy": "Tends the colony's yield — embers and supplies (1% per point, colony-wide).",
   "rviews.attrDoes.combat": "Sharper field leadership — survivors fight harder (1% per point, colony-wide).",
   "rviews.attrDoes.engineering": "Makes the Workshop's work go further (crafting −0.5% per point, colony-wide).",
+  /* EVE-style windows (owner 2026-10-01) */
+  "windows.chatTitle": "Chat",
+  "windows.satResearchTitle": "Satellite research",
+  "windows.minimize": "Minimize",
+  "windows.close": "Close",
+  "windows.restore": "Restore {title}",
+  "windows.trayLabel": "Minimized windows",
+  "windows.satResearchIntro": "Restore this satellite without leaving the map. Appoint a Leader to bring it online, then climb it through stages 1–3. The window stays open until you close it.",
 };
 export default en;
