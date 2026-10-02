@@ -157,6 +157,27 @@ describe("createRuntime", () => {
     expect(rt!.lastError as string).toMatch("out of memory");
   });
 
+  test("the engine note names the device trail, stage, and error", async () => {
+    // Hans 2026-10-02: the Settings note said only "null function" — no
+    // device, no stage, no error name. The note must carry the full trail so
+    // the next phone failure is diagnosable from a screenshot.
+    const deps = createTestRuntime(async (forceDevice) => {
+      if (forceDevice === "wasm") throw new Error("WASM: out of memory");
+      return async (): Promise<{ translation_text: string }[]> => {
+        const e = new Error("null function");
+        e.name = "RuntimeError";
+        throw e;
+      };
+    }, "webgpu");
+    const rt = await createRuntime(ctx(), deps);
+    expect(await rt!.translate("Hello", "en", "es")).toBeNull();
+    const errNote = rt!.lastError as string;
+    expect(errNote).toMatch("webgpu infer");
+    expect(errNote).toMatch("wasm build");
+    expect(errNote).toMatch("RuntimeError");
+    expect(errNote).toMatch("out of memory");
+  });
+
   test("dispose does not throw", async () => {
     const { deps } = fakeDeps();
     const rt = await createRuntime(ctx(), deps);

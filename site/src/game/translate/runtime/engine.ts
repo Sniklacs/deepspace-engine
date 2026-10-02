@@ -195,7 +195,49 @@ export async function createRuntime(
   // The first inference that throws on WebGPU rebuilds the pipeline on WASM
   // once and retries — the player never sees the seam.
   let inferenceFellBack = false;
+
+  // THE DIAGNOSTICS TRAIL. A bare message ("null function") is undebuggable:
+  // the note must say WHICH device, WHICH stage, and WHAT the error was,
+  // including the error name and the first stack frames. `lastError` stays a
+  // plain string so the Settings row needs no new plumbing; the message text
+  // itself is always embedded verbatim.
+  interface FailureNote {
+    /** one "stage — name: message" entry per failed attempt, in order */
+    entries: string[];
+    stack: string | null;
+  }
+  let note: FailureNote | null = null;
   let lastError: string | null = null;
+
+  function formatNote(n: FailureNote): string {
+    let s = n.entries.join(" → ");
+    if (n.stack) s += ` — ${n.stack}`;
+    return s;
+  }
+
+  function recordFailure(stage: string, err: unknown): void {
+    const e = err instanceof Error ? err : new Error(String(err));
+    const stack =
+      typeof e.stack === "string"
+        ? e.stack
+            .split("\n")
+            .slice(0, 4)
+            .join(" | ")
+            .slice(0, 400)
+        : null;
+    const entry = `${stage} — ${e.name || "Error"}: ${e.message || String(err)}`;
+    note = {
+      entries: [...(note?.entries ?? []), entry],
+      // the stack belongs to the latest failure; earlier entries keep their messages
+      stack,
+    };
+    lastError = formatNote(note);
+  }
+
+  function clearNote(): void {
+    note = null;
+    lastError = null;
+  }
 
   // A hung inference is worse than a failed one: "Translating…" forever with no
   // way out. Bound the wait — on a phone the WASM fallback can legitimately
@@ -239,20 +281,29 @@ export async function createRuntime(
       try {
         const line = await runInference(clean, src, tgt);
         // A success clears the slate: a recovered fallback is not an error.
-        if (line !== null) lastError = null;
+        if (line !== null) clearNote();
         return line;
       } catch (err) {
-        lastError = err instanceof Error ? err.message : String(err);
+        recordFailure(`${resolved.device ?? "?"} infer`, err);
         if (!inferenceFellBack && resolved.device === "webgpu") {
           inferenceFellBack = true;
           try {
             resolved.disposePipeline();
+          } catch {
+            /* a dying pipeline is not an error */
+          }
+          try {
             active = await resolved.loadPipeline("wasm");
+          } catch (errBuild) {
+            recordFailure("wasm build", errBuild);
+            return null;
+          }
+          try {
             const line = await runInference(clean, src, tgt);
-            if (line !== null) lastError = null;
+            if (line !== null) clearNote();
             return line;
           } catch (err2) {
-            lastError = err2 instanceof Error ? err2.message : String(err2);
+            recordFailure("wasm infer", err2);
           }
         }
         return null;
