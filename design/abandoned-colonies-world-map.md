@@ -127,13 +127,29 @@ This is going to bring in different types of ships they can build."
 
 ### Open ship questions (for Hans)
 
-1. **Ship roster:** how many types? (Starter idea: shuttle / frigate / hauler —
-   scout-fast, fight-balanced, cargo-fat. Hans to name them.)
-2. **Stranded:** if the jump ship is destroyed, what happens? (Options: pay a
-   rescue jump charge, wait for an alliance pickup, lose the expedition force.)
+1. **Ship roster:** six types. Scout ✓, Frigate ✓, four to go.
+2. **Stranded:** LOCKED (Hans, 2026-10-02) — see §11.
 3. **Defense emplacements:** are they a new buildable (turrets, shields), or
    do troops double as defense? (Recommend: troops + a buildable turret line.)
 4. **Ship building cost:** supplies + materials? Research-gated per type?
+
+## 11. Stranded & rescue (Hans, 2026-10-02)
+
+When a jump ship is destroyed, its crew is **stranded**. They wait for rescue.
+
+- **Self-rescue:** you can send your OWN rescue team. You don't have to wait.
+- **Alliance alert:** alliance members are alerted that a member is down and
+  stranded. They can send a pickup too.
+- **THE BEACON:** when the ship goes down, **communication is lost**. All that
+  goes out is a beacon — position, nothing else.
+- **You don't know what's waiting.** Enemies can camp a rescue beacon. The force
+  that destroyed your ship might still be there. Or someone else found it first.
+- **Rescue is a combat operation.** You're not sending a shuttle — you're sending
+  a fighting force: troops to sweep and hold while you load the leader, the
+  survivors, and whatever supplies you can grab.
+- Design note: the beacon turns every ship loss into a potential ambush — for
+  BOTH sides. Campers risk the rescue force; rescuers risk the campers. The
+  information blackout (beacon only, no comms) is what makes it sing.
 
 ## 10. Ship roster (Hans, 2026-10-02 — defining all six)
 
@@ -142,8 +158,12 @@ This is going to bring in different types of ships they can build."
 - **Speed:** fast. **Observability:** hard to pick up on satellite (low signature).
 - **Cargo:** light troops ONLY. No siege. No defense emplacements — in fact no
   defense at all.
-- **Complement:** mostly logistics troops, a few guards to protect the logistics,
-  one or two scientists, one leader.
+- **Complement:** a small amount of troops — T1 guards up to T4 veteran guards
+  (per the veteran-vs-newbie spec), mostly logistics, a few guards to protect
+  the logistics, one scientist, one leader. (Hans: "they literally have troops,
+  one scientist and one leader.")
+- **Defense:** the troops ARE the defense. No shields, no turrets to speak of.
+  If the scout gets caught, its guards fight — that's it.
 - **Purpose:** goes and gets honest real information. Two jobs:
   1. Probe for targets (scout colonies — is it worth sending the real force?).
   2. Assay a site (make sure you're not landing where someone's already working
@@ -151,8 +171,6 @@ This is going to bring in different types of ships they can build."
 - **Relationship to probes:** the planetary probe (§8) gives you colony-vs-player
   counts (odds). The scout ship gives you ground truth. Probes stay — they're
   cheap and wide. The scout is expensive and precise.
-
-### Ships 2–6: TBD (Hans defining)
 
 ### Ship 2: Frigate (name TBD)
 - **Role:** escort. Flies cover for the scout ship.
@@ -165,3 +183,137 @@ This is going to bring in different types of ships they can build."
   time to lift.
 - **Design note:** the frigate/scout pair is the core tactical unit — stealth +
   overwatch, with the exposure trade-off as the decision point.
+
+### Ship 3: Bulwark (troop / defense ship)
+- **Role:** the workhorse. Carries troops AND defense (turrets + shields).
+- **Loadout:** configurable within capacity — mix turrets/shields/troops as you
+  like, or go heavy on one. The capacity is the constraint; the mix is the
+  strategy.
+- **Purpose:** lands, deploys a perimeter, holds ground. This is the ship that
+  puts boots on a foreign world and keeps them alive.
+- **Race variants** (each race builds their own, with their own name):
+  - Grays: **Warden Lattice** — interlocking tech, precise coverage
+  - Draconians: **Ashen Bulwark** — heavy armor, built to take punishment
+  - Watchers: **Threshold Bastion** — celestial geometry, holds the line
+  - Astar: **Accord Aegis** — peacekeeper design, defense-first
+  - Annunaki: **Gilded Rampart** — gold-trimmed, built like a palace wall
+  - Nephilim: **Stoneshield** — massive, blunt, unmovable
+  - Unbound: **Radiant Bulwark** — light-wrought, transcendent design
+
+### Ships 4–6: TBD (Hans defining)
+
+## 12. Ship build times & costs (Hans, 2026-10-02)
+
+Hans: "we don't want long times... if we want the action to actually roll in
+this game they need to be building shit quickly. 12 weeks isn't much time."
+
+Principle: **ships build in hours, not days.** A player should be able to lose
+a ship and have its replacement before the next day's session. The season is
+12 weeks — a 3-day build is 1/28th of the season for one hull. Unacceptable.
+
+### Build times (tunable)
+- **Scout:** 2 hours — it's small, fast to print.
+- **Frigate:** 4 hours — light turrets/shields, still lean.
+- **Bulwark:** 8 hours — the big one. Troops + turrets + shields take time.
+- (Ships 4–6 to be timed when defined — scale by role, cap at ~12h for the
+  largest.)
+
+### Build costs
+- **Supplies** as the base (the universal currency).
+- **Race materials** for the hull (your own + alloys for bigger ships).
+- **No Codices** — ships are industry, not knowledge. Research unlocks the
+  blueprint; building is just materials + time.
+- Proposed:
+  - Scout: 500 supplies + 10 of your race material
+  - Frigate: 1,000 supplies + 20 of your race material + 2 alloys
+  - Bulwark: 2,000 supplies + 40 of your race material + 5 alloys
+
+### Why fast works
+- The 10,000 starting supplies (Hans's "get into the action fast" rule) means
+  a new player can have a scout flying within hours of starting.
+- Losing a ship stings (materials + time) but doesn't bench you for a week.
+- Fast builds = more jumps = more gleaning/raiding = more action = the game
+  Hans wants.
+
+### T4 troops (Hans, 2026-10-02)
+- **Research to T4:** ~38 days via the research tree (mid-season unlock).
+
+### Troop build rates (Hans, 2026-10-02 — "honest, memorable numbers")
+- **T1:** 1,000/day — the horde. Cheap, fast, endless.
+- **T2:** 50/day — real soldiers. Twenty times scarcer than T1.
+- **T3:** 10/day — elites. Five times scarcer than T2.
+- **T4:** 2/day — legends. Five times scarcer than T3.
+- **These rates are per unit type.** Every troop type builds at its tier's rate —
+  guards, logistics, and the rest each get their own 1000/50/10/2 pipeline.
+- The curve (1000 → 50 → 10 → 2) is the point: T1 is cannon fodder you can
+  drown the map in; T4 is two precious units a day that you protect with your
+  life. Losing a T4 hurts because you can't just print another hundred.
+
+### Why all tiers stay buildable (Hans, 2026-10-02)
+- T1s aren't obsolete — they're **fast, agile, lightweight**. They die easy,
+  but they're **harder to track and hit**. Speed IS their armor.
+- Each tier is a tactical choice, not a straight upgrade:
+  - **T1:** speed and evasion. Hard to hit, dies when hit. Scouts, harassment,
+    flanking, screening.
+  - **T2:** the balanced line. Real soldiers.
+  - **T3:** elites. Heavy hitters.
+  - **T4:** legends. Slow, devastating, precious — the hammer you protect.
+- You don't stop building T1s when you unlock T4. You build T1s BECAUSE
+  they're fast and slippery, and T4s because they end fights. Different jobs.
+
+### Scale: mass & damage drama (Hans, 2026-10-02)
+- Troop counts in the **tens of thousands**. "Oh my God, he's got 30,000 troops
+  on the ground" — that's the reaction we're designing for.
+- Losses must feel massive. Losing 5,000 troops in a bad drop should hurt.
+- The scale is what makes the rescue beacon, the ambush, and the gleaning
+  dramatic. Small numbers don't create stories; 30,000 troops do.
+
+## 13. Beachhead vs raiding party (Hans, 2026-10-02)
+
+These are **different operations**. Don't confuse them.
+
+### Beachhead: the invasion
+- **Builds troops.** This is what makes it a real invasion — you plant, you
+  build, you sustain.
+- **Planned and coordinated.** Supplies brought in, multiple players
+  contributing. A beachhead is a logistics operation.
+- **Scales to thousands.** A beachhead can bring in thousands of players if
+  coordinated correctly. A thousand people with supplies coming in — that's
+  enough to sustain a real invasion. The beachhead is where the supply lines
+  live.
+- **Sustained presence.** Without a beachhead, you're just visiting. With one,
+  you're staying.
+- (See design/forward-base.md for the full beachhead spec.)
+
+### Raiding party: the heist
+- **Max 5 players.** Small group, hit-and-run.
+- **Pre-coordinated.** The five must coordinate BEFORE they go — who's bringing
+  what, who's hitting which colony, what's the exfil plan.
+- **Cannot sustain.** No troop building. What you brought is what you have.
+  (This is why the ship cargo constraint matters — §9.)
+- **Purpose:** glean abandoned colonies, raid active colonies (loot-only v1),
+  get out. A raiding party that tries to stay becomes a stranded beacon (§11).
+- Design note: the 5-player cap forces coordination. You can't zerg a raid —
+  you have to plan it. The beachhead is where the zerg lives.
+
+## 14. Planetary reverb (Hans, 2026-10-02)
+
+**Not** the artifact reverb (named-gear reverb is different — see
+design/named-gear-reverb.md). Planetary reverb is a planet's **overall
+strength signature**.
+
+- **What feeds it:** colonies + active members + their builds + troops. Troops
+  add reverb — more troops, more reverb. Better troops, more reverb per head.
+- **Trackable.** Reverb is a number you can watch. It moves.
+- **Under attack, reverb drops.** A planet taking heavy losses and bleeding
+  troops shows falling reverb. That's your signal it's weakening.
+- **But reverb doesn't reveal composition.** A planet full of T1s can show big
+  reverb — it doesn't mean it's easy, it means you've got a lot of pew-pew to
+  do to chew through that volume. A planet stacked with T4s showing the same
+  reverb is a completely different fight — tough all the way through.
+- **The tactical puzzle:** reverb tells you HOW MUCH. It doesn't tell you WHAT.
+  That's what the scout ship is for (ground truth). Probes give you odds;
+  reverb gives you strength; only landing tells you composition.
+- Design note: reverb turns the world map into a living threat board. Watching
+  a rival planet's reverb crater in real time while someone else hits them —
+  that's the kind of thing that starts wars.

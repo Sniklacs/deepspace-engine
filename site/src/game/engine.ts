@@ -86,6 +86,12 @@ import {
   satelliteTechFor,
   setSatelliteStage,
 } from "./satellites";
+import {
+  SCOUT_TECH_CODICES,
+  SCOUT_TECH_DURATION_MS,
+  ensureWorldMap,
+  isScoutProbeTech,
+} from "./worldmap";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
@@ -2008,6 +2014,10 @@ function resolveResearch(state: GameState, j: ResearchJob, now: number) {
     resolveSatelliteTech(state, j, now);
     return;
   }
+  if (isScoutProbeTech(j.techId)) {
+    resolveScoutProbeTech(state, j, now);
+    return;
+  }
   const tech = getTech(j.techId);
   const leader = state.leaders.find((l) => l.id === j.leaderId)!;
   if (leader) {
@@ -2670,6 +2680,7 @@ export function beginResearch(state: GameState, techId: string, leaderId: string
   if (isRevelationId(techId)) return beginRevelation(state, techId, leaderId, now);
   if (isArmoryTech(techId)) return beginArmoryResearch(state, techId, leaderId, now);
   if (isSatelliteTech(techId)) return beginSatelliteResearch(state, techId, leaderId, now);
+  if (isScoutProbeTech(techId)) return beginScoutProbeResearch(state, techId, leaderId, now);
   const tech = getTech(techId);
   if (!tech) return fail("Unknown research project.");
   if (state.techsResearched.includes(techId)) return fail(`${tech.name} is already researched.`);
@@ -2913,6 +2924,28 @@ export function beginSatelliteResearch(state: GameState, techId: string, leaderI
   return { ok: true, state };
 }
 
+/** Appoint a Leader to research scout probes. Unlocks probe building. Costs
+ *  Codices only (earned, never bought). Single tech — no tree. */
+export function beginScoutProbeResearch(state: GameState, techId: string, leaderId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  ensureWorldMap(state);
+  if (state.worldMap!.scoutTechResearched) return fail("Scout probes are already researched.");
+  if (techInProgress(state, techId)) return fail("Scout probe research is already underway.");
+  if (state.codices < SCOUT_TECH_CODICES) return fail(`Scout probes need ${SCOUT_TECH_CODICES} 📜 Codices. You have ${state.codices} — earn more through clean recoveries and deeds.`);
+  const leader = state.leaders.find((l) => l.id === leaderId);
+  if (!leader) return fail("That Leader isn't in your Council.");
+  if (leader.status !== "active") return fail(leader.status === "lost" ? `${leader.name} is lost.` : `${leader.name} is recovering and cannot oversee research.`);
+  if (leader.assignment) return fail(`${leader.name} is already overseeing ${getTechSafe(leader.assignment)}.`);
+  const durationMs = SCOUT_TECH_DURATION_MS;
+  state.codices -= SCOUT_TECH_CODICES;
+  const id = "rs-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+  state.researchJobs.push({ id, techId, leaderId, startedAt: now, durationMs, status: "researching" });
+  leader.assignment = techId;
+  leader.history.push(`Appointed to research scout probes`);
+  log(state, `🔭 ${leader.name} appointed to research scout probes (${SCOUT_TECH_CODICES} 📜). One-time eyes on distant worlds.`);
+  pruneCompleted(state);
+  return { ok: true, state };
+}
+
 /** Resolve a completed satellite climb: set the stage, free the Leader, award
  *  the standard research XP. No breakthrough roll — the sky has no specialty
  *  to align (same carve-out as the soul path and the forge line). */
@@ -2934,6 +2967,17 @@ function resolveSatelliteTech(state: GameState, j: ResearchJob, now: number) {
       ? "it is TRACKING — the alarm now names who, and roughly how many"
       : "the FULL PICTURE is in — amounts and troop types on every arrival";
   log(state, `🛰️ ${leader ? leader.name : "A leader"} woke the satellite over ${p.nodeId} — stage ${p.stage}: ${what}.`);
+  if (leader) researchXp(state, leader, false, now);
+  noteDailyEvent(state, "research_complete", now);
+}
+
+/** Resolve completed scout probe research: unlock probe building, free the
+ *  Leader, award standard research XP. */
+function resolveScoutProbeTech(state: GameState, j: ResearchJob, now: number) {
+  ensureWorldMap(state);
+  const leader = state.leaders.find((l) => l.id === j.leaderId);
+  state.worldMap!.scoutTechResearched = true;
+  log(state, `🔭 ${leader ? leader.name : "A leader"} completed scout probe research — probes can now be built. One-time eyes on distant worlds.`);
   if (leader) researchXp(state, leader, false, now);
   noteDailyEvent(state, "research_complete", now);
 }

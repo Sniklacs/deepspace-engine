@@ -119,6 +119,8 @@ export interface WorldMapState {
   /** This colony's last authenticated activity (server authoritative; the
    *  client mirrors it for "abandons in Xd" UI). */
   lastActive: number;
+  /** True once scout probe research completes (unlocks probe building). */
+  scoutTechResearched: boolean;
   /** Built probes sitting in inventory, ready to launch. */
   probes: number;
   /** Probes currently flying. */
@@ -138,6 +140,7 @@ export interface WorldMapState {
 export function emptyWorldMap(now: number): WorldMapState {
   return {
     lastActive: now,
+    scoutTechResearched: false,
     probes: 0,
     inflight: [],
     reports: {},
@@ -146,6 +149,12 @@ export function emptyWorldMap(now: number): WorldMapState {
     visited: [],
     seq: 1,
   };
+}
+
+/** Ensure state.worldMap exists (for migration compatibility). */
+export function ensureWorldMap(state: { worldMap?: WorldMapState }, now: number = Date.now()): WorldMapState {
+  if (!state.worldMap) state.worldMap = emptyWorldMap(now);
+  return state.worldMap;
 }
 
 /** True when `now - lastActive` has crossed the 30-day abandonment threshold. */
@@ -285,3 +294,12 @@ export function lootTotal(loot: ColonyLoot): number {
 export function isHusk(loot: ColonyLoot, mercenaries: MercenaryBand | null): boolean {
   return lootTotal(loot) === 0 && mercenaries === null;
 }
+
+/** True if the tech ID is the scout probe research. */
+export function isScoutProbeTech(techId: string): boolean {
+  return techId === SCOUT_TECH_ID;
+}
+
+/** Scout probe research cost (codices) and duration. Tunable. */
+export const SCOUT_TECH_CODICES = 10;
+export const SCOUT_TECH_DURATION_MS = 60_000;
