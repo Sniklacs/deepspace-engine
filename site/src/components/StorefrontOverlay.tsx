@@ -33,6 +33,7 @@ import { useLang, useT } from "./i18n/I18n";
 import { formatNumber, formatUsd } from "../game/i18n/format";
 import { SplitValue } from "./i18n/SplitValue";
 import type { ReactNode } from "react";
+import { useState } from "react";
 import {
   MONETIZATION_CONFIG,
   HEAD_START_PACKS,
@@ -153,11 +154,13 @@ function PackCard({
   storeOpen,
   signedIn,
   onBuy,
+  buying,
 }: {
   pack: HeadStartPackDef;
   storeOpen: boolean;
   signedIn: boolean;
   onBuy: (skuId: string) => void;
+  buying: boolean;
 }) {
   const t = useT();
   // A SKU with no Xsolla catalog row configured is NEVER presented as buyable, and a
@@ -191,11 +194,15 @@ function PackCard({
         <button
           type="button"
           onClick={() => onBuy(pack.id)}
-          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-semibold text-text-1"
+          disabled={buying}
+          aria-disabled={buying}
+          data-testid={buying ? "store-buy-busy" : "store-buy"}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-semibold text-text-1 disabled:opacity-70"
         >
           <Icon name="card" size={14} className="shrink-0 text-ember-soft" />
-          {t("store.buy", "Buy")} ·{" "}
-          <Bdi dir="ltr" className="num">{"$" + formatUsd(pack.priceUsd)}</Bdi>
+          {buying
+            ? t("store.buyOpening", "Opening checkout…")
+            : (<>{t("store.buy", "Buy")} ·{" "}<Bdi dir="ltr" className="num">{"$" + formatUsd(pack.priceUsd)}</Bdi></>)}
         </button>
       ) : (
         <button
@@ -225,11 +232,13 @@ function VotiveCard({
   storeOpen,
   signedIn,
   onBuy,
+  buying,
 }: {
   pack: VotivePackDef;
   storeOpen: boolean;
   signedIn: boolean;
   onBuy: (skuId: string) => void;
+  buying: boolean;
 }) {
   const t = useT();
   const lang = useLang();
@@ -260,9 +269,12 @@ function VotiveCard({
         <button
           type="button"
           onClick={() => onBuy(pack.id)}
-          className="shrink-0 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-semibold text-text-1"
+          disabled={buying}
+          aria-disabled={buying}
+          data-testid={buying ? "store-buy-busy" : "store-buy"}
+          className="shrink-0 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-semibold text-text-1 disabled:opacity-70"
         >
-          {t("store.buy", "Buy")}
+          {buying ? t("store.buyOpening", "Opening checkout…") : t("store.buy", "Buy")}
         </button>
       ) : (
         <button
@@ -416,6 +428,19 @@ export function StorefrontOverlay({
   const hasWallet = !!state.currency;
 
   /**
+   * Which SKU is mid-checkout (the async Xsolla token mint is in flight).
+   * While set: that card's button reads "Opening checkout…", is disabled, and
+   * further taps are ignored — no double-submits, no dead-feeling silence.
+   */
+  const [buyingSku, setBuyingSku] = useState<string | null>(null);
+  /**
+   * The last checkout failure, kept VISIBLE in the sheet until dismissed.
+   * The buy flow used to fail into a toast that was easy to miss — the player
+   * tapped Buy and the button just sat there. Now the reason stays on screen.
+   */
+  const [buyError, setBuyError] = useState<string | null>(null);
+
+  /**
    * OPEN CHECKOUT — the entire client half of the money path.
    *
    * The server mints an Xsolla Pay Station token bound to this account and
@@ -429,8 +454,11 @@ export function StorefrontOverlay({
   const buy = async (skuId: string) => {
     const fail = (msg: string) => {
       console.warn(`[storefront] checkout failed for ${skuId}: ${msg}`);
+      setBuyError(msg);
       onError?.(msg);
     };
+    // No double-submits: a tap while a checkout is already opening is ignored.
+    if (buyingSku) return;
     if (!isSellable(skuId)) {
       fail(t("store.buyNotSellable", "That item isn't for sale right now."));
       return;
@@ -439,6 +467,8 @@ export function StorefrontOverlay({
       fail(t("store.buySignIn", "Sign in to purchase."));
       return;
     }
+    setBuyingSku(skuId);
+    setBuyError(null);
     // A private note to self about what the wallet looked like at the click, so
     // the return panel can tell "it landed" from "we haven't seen it" honestly.
     // Granting happens in the webhook; this changes nothing on the server.
@@ -464,6 +494,8 @@ export function StorefrontOverlay({
       }
     } catch (err) {
       fail(`${t("store.buyFailed", "Checkout failed — try again in a moment.")} (${(err as Error)?.message ?? err})`);
+    } finally {
+      setBuyingSku(null);
     }
   };
 
@@ -501,6 +533,27 @@ export function StorefrontOverlay({
         {/* ---- Back from a purchase: the webhook decides, this only re-reads ---- */}
         {purchaseReturn && <PurchaseReturnPanel view={purchaseReturn} />}
 
+        {/* ---- Checkout failure: stays on screen until dismissed. The tap-to-buy
+            used to die into a toast; now the reason is impossible to miss. ---- */}
+        {buyError && (
+          <div
+            role="alert"
+            data-testid="store-buy-error"
+            className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/50 bg-red-950/50 px-3 py-2.5"
+          >
+            <Icon name="bell" size={16} className="mt-0.5 shrink-0 text-red-300" aria-hidden="true" />
+            <p className="min-w-0 flex-1 text-[13px] leading-snug text-red-100">{buyError}</p>
+            <button
+              type="button"
+              onClick={() => setBuyError(null)}
+              aria-label={t("store.dismissError", "Dismiss")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-red-300 hover:bg-red-900/50"
+            >
+              <Icon name="x" size={14} />
+            </button>
+          </div>
+        )}
+
         {/* ---- Votives (real money, Xsolla Pay Station) ---- */}
         <div className="pt-5">
           <SectionHeading>{t("store.votivesHeading", "Votives")}</SectionHeading>
@@ -512,7 +565,7 @@ export function StorefrontOverlay({
           </p>
           <div className="mt-2 space-y-2">
             {VOTIVE_PACKS.map((p) => (
-              <VotiveCard key={p.id} pack={p} storeOpen={enabled} signedIn={signedIn} onBuy={buy} />
+              <VotiveCard key={p.id} pack={p} storeOpen={enabled} signedIn={signedIn} onBuy={buy} buying={buyingSku === p.id} />
             ))}
           </div>
         </div>
@@ -528,7 +581,7 @@ export function StorefrontOverlay({
           </p>
           <div className="mt-2 space-y-2">
             {HEAD_START_PACKS.map((p) => (
-              <PackCard key={p.id} pack={p} storeOpen={enabled} signedIn={signedIn} onBuy={buy} />
+              <PackCard key={p.id} pack={p} storeOpen={enabled} signedIn={signedIn} onBuy={buy} buying={buyingSku === p.id} />
             ))}
           </div>
         </div>

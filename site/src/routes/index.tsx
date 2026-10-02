@@ -1,16 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import InstallAffordance from "~/components/shell/InstallAffordance";
 import { useT } from "~/components/i18n/I18n";
 import { LandingLangPicker } from "~/components/i18n/LandingLangPicker";
 import { HeroCard, HERO_ORDER } from "~/components/HeroCard";
 import { sound } from "~/game/sound";
-import {
-  startLandingMusic,
-  stopLandingMusic,
-  setLandingMuted,
-  isLandingMuted,
-} from "~/game/landing-music";
 
 export const Route = createFileRoute("/")({
   component: LandingPage,
@@ -31,15 +25,13 @@ function Emblem() {
 
 function LandingPage() {
   const t = useT();
-  const [muted, setMuted] = useState(() => isLandingMuted());
 
-  // The first tap primes the UI sound effects and starts the landing music —
-  // browser autoplay rules forbid audio before a gesture. ("Last light", the
-  // upbeat summer-pop loop built from Hans's "Pulse & R" reference, Oct 2026.)
+  // The first tap primes the UI sound effects — browser autoplay rules forbid
+  // audio before a gesture. (The generative music is gone on the owner's
+  // order 2026-10-01 — he'll put his own music together.)
   useEffect(() => {
     const onFirst = () => {
       sound.prime();
-      startLandingMusic();
       window.removeEventListener("pointerdown", onFirst);
       window.removeEventListener("keydown", onFirst);
     };
@@ -48,15 +40,8 @@ function LandingPage() {
     return () => {
       window.removeEventListener("pointerdown", onFirst);
       window.removeEventListener("keydown", onFirst);
-      stopLandingMusic();
     };
   }, []);
-
-  const toggleMute = () => {
-    const next = !muted;
-    setLandingMuted(next);
-    setMuted(next);
-  };
 
   return (
     <div className="safe-area-top min-h-screen bg-[#07070c] text-zinc-100">
@@ -69,26 +54,6 @@ function LandingPage() {
           </Link>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <LandingLangPicker />
-            <button
-              onClick={toggleMute}
-              aria-label={muted ? t("landing.unmute", "Unmute") : t("landing.mute", "Mute")}
-              title={muted ? t("landing.unmute", "Unmute") : t("landing.mute", "Mute")}
-              className="rounded-lg border border-white/15 bg-white/5 p-2 text-zinc-300 hover:bg-white/10"
-            >
-              {muted ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-                  <path d="M11 5 6 9H2v6h4l5 4V5z" />
-                  <line x1="23" y1="9" x2="17" y2="15" />
-                  <line x1="17" y1="9" x2="23" y2="15" />
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-                  <path d="M11 5 6 9H2v6h4l5 4V5z" />
-                  <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-                  <path d="M18.5 5.5a9.4 9.4 0 0 1 0 13" />
-                </svg>
-              )}
-            </button>
             <Link
               to="/play"
               className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-black hover:brightness-110 sm:px-4 sm:text-sm"
