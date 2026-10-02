@@ -104,3 +104,21 @@ describe("createRuntime", () => {
     expect(rt!.name.includes("m2m100-418m-q8")).toBe(true);
   });
 });
+
+describe("applyPackEnv", () => {
+  test("enables the custom cache — without the flag the game's 640 MB is ignored", async () => {
+    const { applyPackEnv } = await import("./engine");
+    const env: Record<string, unknown> = {};
+    applyPackEnv(env, { pack: TRANSLATE_PACK, cacheName: "dse-model-v1" });
+    // THE live bug of 2026-10-01: customCache was set but useCustomCache stayed
+    // false, so Transformers.js used its default bucket and the downloaded pack
+    // sat unused while chat said "preparing" forever.
+    expect(env.useCustomCache).toBe(true);
+    expect(typeof (env.customCache as Record<string, unknown>).match).toBe("function");
+    expect(typeof (env.customCache as Record<string, unknown>).put).toBe("function");
+    expect(env.remoteHost).toBe("https://pub-06ebde2d7f0340d79319d029ddcb06aa.r2.dev");
+    expect(env.remotePathTemplate).toBe("");
+    expect(env.allowLocalModels).toBe(false);
+    expect(env.allowRemoteModels).toBe(true);
+  });
+});

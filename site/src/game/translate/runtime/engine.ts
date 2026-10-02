@@ -56,6 +56,40 @@ function normalizeCacheKey(name: string): string {
   return name.replace(/([^:])\/{2,}/g, "$1/");
 }
 
+/**
+ * Point Transformers.js at the game's own pack: the files live in Cache
+ * Storage (`dse-model-v1`, put there by weights.ts, hash-verified) under their
+ * R2 URLs, and the bucket is the network fallback.
+ *
+ * THE FLAG THAT MATTERS: `useCustomCache` must be true, or Transformers.js
+ * ignores `customCache` entirely and uses its default `transformers-cache`
+ * bucket — the game's 640 MB would sit unused while the pipeline re-downloads
+ * (or fails) elsewhere. This was the live bug of 2026-10-01: the pack showed
+ * as downloaded in Settings while chat said "preparing" forever.
+ */
+export function applyPackEnv(
+  env: {
+    useCustomCache?: boolean;
+    customCache?: { match: (name: string) => Promise<Response | undefined>; put: (name: string, response: Response) => Promise<void> };
+    remoteHost?: string;
+    remotePathTemplate?: string;
+    allowLocalModels?: boolean;
+    allowRemoteModels?: boolean;
+  },
+  ctx: TranslatorRuntimeContext,
+): void {
+  env.useCustomCache = true;
+  env.customCache = {
+    match: (name: string) => caches.open(ctx.cacheName).then((c) => c.match(normalizeCacheKey(name))),
+    put: (name: string, response: Response) =>
+      caches.open(ctx.cacheName).then((c) => c.put(normalizeCacheKey(name), response)),
+  };
+  env.remoteHost = R2_BASE_URL;
+  env.remotePathTemplate = "";
+  env.allowLocalModels = false;
+  env.allowRemoteModels = true;
+}
+
 type TranslationPipe = (
   text: string,
   opts: { src_lang: string; tgt_lang: string; max_new_tokens: number },
@@ -86,17 +120,7 @@ async function realDeps(ctx: TranslatorRuntimeContext): Promise<PipelineDeps> {
   // asks for is already on the device under its R2 URL (put there by weights.ts,
   // hash-verified). The key normaliser heals the double slash Transformers.js
   // builds when the remote path template is empty.
-  const cache = await caches.open(ctx.cacheName);
-  const match = cache.match.bind(cache);
-  const put = cache.put.bind(cache);
-  env.customCache = {
-    match: (name: string) => match(normalizeCacheKey(name)),
-    put: (name: string, response: Response) => put(normalizeCacheKey(name), response),
-  };
-  env.remoteHost = R2_BASE_URL;
-  env.remotePathTemplate = "";
-  env.allowLocalModels = false;
-  env.allowRemoteModels = true;
+  applyPackEnv(env, ctx);
 
   let pipe: { (text: string, opts: object): Promise<unknown>; dispose?: () => void } | null = null;
 
