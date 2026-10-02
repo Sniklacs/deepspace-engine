@@ -429,7 +429,9 @@
   bottom: calc(var(--spacing-nav) + var(--dock-h, 0px) + env(safe-area-inset-bottom) + 0.5rem);
   display: flex;
   flex-direction: column;
-  background: var(--surf-3);
+  /* Player-customizable: --win-bg is painted by window-appearance.ts
+     (tint + opacity); falls back to the shipped solid surface. */
+  background: var(--win-bg, var(--surf-3));
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-xl);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
@@ -454,7 +456,8 @@
   gap: 0.75rem;
   border-bottom: 1px solid var(--line);
   padding: 0.625rem 0.75rem;
-  background: var(--surf-2);
+  /* Player-customizable (see .win-frame): a touch more solid than the body. */
+  background: var(--win-titlebar-bg, var(--surf-2));
 }
 .win-chrome-btn {
   display: flex;
@@ -496,16 +499,25 @@
 }
 .win-resize-handle::after {
   content: "";
-  width: 11px;
-  height: 11px;
-  border-right: 2px solid var(--line-strong);
-  border-bottom: 2px solid var(--line-strong);
-  border-bottom-right-radius: 3px;
-  opacity: 0.75;
+  width: 16px;
+  height: 16px;
+  /* Classic diagonal grip lines, clipped to the corner triangle — visible on
+     dark chrome at phone distance, not a whisper of a border. */
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 3px,
+    var(--text-3) 3px 4.5px
+  );
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  opacity: 0.9;
 }
 .win-resize-handle:active::after {
   opacity: 1;
-  border-color: var(--text-1);
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 3px,
+    var(--text-1) 3px 4.5px
+  );
 }
 /* The tray: minimized windows park here as chips, above the nav/dock. */
 .win-tray {

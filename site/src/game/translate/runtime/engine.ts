@@ -32,6 +32,8 @@ export interface TranslatorRuntimeContext {
   pack: ModelPack;
   /** the Cache Storage bucket the pack lives in (`dse-model-v1`) */
   cacheName: string;
+  /** test seam: bound the inference wait (default 150s) */
+  inferenceTimeoutMs?: number;
 }
 
 export interface TranslatorRuntime {
@@ -195,12 +197,30 @@ export async function createRuntime(
   let inferenceFellBack = false;
   let lastError: string | null = null;
 
+  // A hung inference is worse than a failed one: "Translating…" forever with no
+  // way out. Bound the wait — on a phone the WASM fallback can legitimately
+  // take a minute on its first run, but past this it is stuck, not slow.
+  const INFERENCE_TIMEOUT_MS = ctx.inferenceTimeoutMs ?? 150_000;
+
   async function runInference(clean: string, src: string, tgt: string): Promise<string | null> {
     // Chat lines are short; bound the generation so a pathological input
     // cannot spin the decoder on a phone.
-    const out = await active(clean, { src_lang: src, tgt_lang: tgt, max_new_tokens: 256 });
-    const line = Array.isArray(out) ? out[0]?.translation_text : out?.translation_text;
-    return typeof line === "string" && line.trim().length > 0 ? line : null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const out = await Promise.race([
+        active(clean, { src_lang: src, tgt_lang: tgt, max_new_tokens: 256 }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`translation timed out after ${INFERENCE_TIMEOUT_MS / 1000}s`)),
+            INFERENCE_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      const line = Array.isArray(out) ? out[0]?.translation_text : out?.translation_text;
+      return typeof line === "string" && line.trim().length > 0 ? line : null;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   return {

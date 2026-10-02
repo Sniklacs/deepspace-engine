@@ -12,6 +12,7 @@ import { LanguageRows } from "../i18n/LanguagePicker";
 import InstallAffordance from "./InstallAffordance";
 import StorageNote from "./StorageNote";
 import TranslatorNote from "./TranslatorNote";
+import WindowLookNote from "./WindowLookNote";
 import { BUILD_SHA } from "../../game/build-info";
 import {
   langMeta,
@@ -129,6 +130,10 @@ export default function SettingsSheet({ open, onClose }: { open: boolean; onClos
           <h4 className="eyebrow pt-1">{t("translator.title")}</h4>
           <p className="text-[11px] leading-snug text-text-3">{t("translator.sub")}</p>
           <TranslatorNote />
+          {/* 7 · Window look — Hans 2026-10-02: the EVE-style boxes carry a
+                 translucent look he can change: opacity + tint, live. */}
+          <h4 className="eyebrow pt-1">{t("windows.title", "Window look")}</h4>
+          <WindowLookNote />
           {/* The build stamp: which version of the app is this copy? If the app
               ever stops updating, read this — it names the exact build. */}
           <p className="px-1 pt-2 text-[11px] text-text-3" data-testid="build-stamp">

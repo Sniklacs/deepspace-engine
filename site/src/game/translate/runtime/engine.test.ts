@@ -19,6 +19,10 @@ function ctx(): TranslatorRuntimeContext {
   return { pack: TRANSLATE_PACK, cacheName: "dse-model-v1" };
 }
 
+function fastCtx(): TranslatorRuntimeContext {
+  return { ...ctx(), inferenceTimeoutMs: 50 };
+}
+
 interface Call {
   text: string;
   src: string;
@@ -117,6 +121,23 @@ describe("createRuntime", () => {
     // a second translation rides the WASM pipeline: no further rebuilds
     expect(await rt!.translate("Adios", "es", "en")).toBe("[en] Adios");
     expect(loads).toEqual([undefined, "wasm"]);
+  });
+
+  test("a hung inference fails honestly instead of spinning forever", async () => {
+    // Hans 2026-10-02: "Translating…" never resolved. A pipe that never
+    // settles must reject by the timeout so the UI can say so.
+    const never = async (): Promise<{ translation_text: string }[]> => {
+      await new Promise(() => {});
+      throw new Error("unreachable");
+    };
+    const deps = createTestRuntime(async () => never, "wasm");
+    const rt = await createRuntime(fastCtx(), deps);
+    expect(rt).not.toBeNull();
+    const start = Date.now();
+    expect(await rt!.translate("Hello", "en", "es")).toBeNull();
+    expect(Date.now() - start).toBeLessThan(5000);
+    expect(typeof rt!.lastError).toBe("string");
+    expect(rt!.lastError as string).toMatch("timed out");
   });
 
   test("when WASM also fails, the real error is recorded for Settings", async () => {

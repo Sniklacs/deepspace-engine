@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import appCss from "~/styles/app.css?url";
 import { bootScript } from "~/game/i18n";
 import { prepareTranslator } from "~/game/translate";
+import { initWindowAppearance } from "~/game/windows/window-appearance";
 import { registerServiceWorker } from "~/game/pwa/register";
 import UpdateBanner from "~/components/shell/UpdateBanner";
 import { I18nProvider, LanguageGate } from "~/components/i18n/I18n";
@@ -62,6 +63,9 @@ function RootComponent() {
   // It precaches the shell and never touches game state (see public/sw.js).
   useEffect(() => {
     void registerServiceWorker();
+    // The player's window chrome (Hans 2026-10-02): paint the saved
+    // translucency + tint before anything else draws a window.
+    initWindowAppearance();
     // THE BUNDLED TRANSLATOR (owner: ship it with the app for every player, no
     // opt-in). Effect-scoped and client-only, like the worker above: it looks at
     // the device, downloads the weights if they are not there yet — with visible
