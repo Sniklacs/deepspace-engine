@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- TEMPORARY diagnostic page for the on-device translation repro (Oct 2 2026).
+     Removed after the "null function" phone failure is diagnosed. Not linked anywhere. -->
+<html><head><meta charset="utf-8"><title>WAIT</title></head><body><pre id="log">starting
+</pre><script type="module">
+import { env, pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.js";
+// Same pack the phone uses, served from the public R2 bucket (CORS-enabled).
+env.remoteHost = "https://pub-06ebde2d7f0340d79319d029ddcb06aa.r2.dev/";
+env.remotePathTemplate = "";
+env.allowLocalModels = false;
+env.allowRemoteModels = true;
+const log = (m) => { document.getElementById("log").textContent += m + "\n"; };
+try {
+  const device = new URLSearchParams(location.search).get("device") || "wasm";
+  log("building pipeline device=" + device);
+  const pipe = await pipeline("translation", "unbound/m2m100-418m-q8", { dtype: "q8", device });
+  log("built ok");
+  const out = await pipe("¡Hola Hans! Soy Gibbletits. ¿Puedes ver el botón de traducir en este mensaje?", { src_lang: "es", tgt_lang: "en", max_new_tokens: 256 });
+  const text = Array.isArray(out) ? out[0]?.translation_text : out?.translation_text;
+  log("RESULT: " + JSON.stringify(text));
+} catch (e) {
+  log("ERROR name=" + e?.name);
+  log("ERROR message=" + e?.message);
+  log("ERROR stack=" + String(e?.stack).split("\n").slice(0,6).join(" | ").slice(0,700));
+}
+log("DONE");
+document.title = "DONE";
+</script></body></html>
