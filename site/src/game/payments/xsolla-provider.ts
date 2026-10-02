@@ -105,6 +105,16 @@ export async function mintXsollaPaymentToken(input: {
   };
   if (input.returnUrl) settings.return_url = input.returnUrl;
 
+  const user: Record<string, unknown> = {
+    // the value Xsolla echoes in user_validation AND order_paid — this is
+    // the only thing the webhook verifier trusts to name the buyer
+    id: { value: encodeAccountRef(input.accountId) },
+    country: { value: "US", allow_modify: true },
+    // NOTE: email is deliberately OMITTED when we have none. Xsolla's token
+    // endpoint 422s on an explicitly empty email string; Pay Station collects
+    // it at checkout instead.
+  };
+
   const url = `${XSOLLA_TOKEN_API}/project/${encodeURIComponent(input.projectId)}/admin/payment/token`;
   let res: Response;
   try {
@@ -115,13 +125,7 @@ export async function mintXsollaPaymentToken(input: {
         Authorization: xsollaBasicAuth(input.projectId, input.apiKey),
       },
       body: JSON.stringify({
-        user: {
-          // the value Xsolla echoes in user_validation AND order_paid — this is
-          // the only thing the webhook verifier trusts to name the buyer
-          id: { value: encodeAccountRef(input.accountId) },
-          country: { value: "US", allow_modify: true },
-          email: { value: "", hide: true },
-        },
+        user,
         purchase: { items: [{ sku: xsollaSkuFor(input.skuId), quantity: 1 }] },
         sandbox: input.sandbox === true,
         settings,
@@ -137,8 +141,21 @@ export async function mintXsollaPaymentToken(input: {
   if (!res.ok) {
     let detail = "";
     try {
-      const j = (await res.json()) as { message?: string; errorMessage?: string };
+      const j = (await res.json()) as {
+        message?: string;
+        errorMessage?: string;
+        errorMessageExtended?: unknown;
+      };
       detail = j.message ?? j.errorMessage ?? "";
+      // Xsolla's 422s name the offending property in errorMessageExtended —
+      // surface it so the store banner says WHAT failed, not just that it did.
+      if (j.errorMessageExtended !== undefined && j.errorMessageExtended !== null) {
+        const ext =
+          typeof j.errorMessageExtended === "string"
+            ? j.errorMessageExtended
+            : JSON.stringify(j.errorMessageExtended);
+        if (ext && !detail.includes(ext)) detail += ` ${ext}`;
+      }
     } catch {
       detail = "";
     }
