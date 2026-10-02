@@ -216,7 +216,6 @@ export function SatelliteResearchCard({ state, now, nodeId, nodeName, freeLeader
   const next = nextStage ? satelliteTechFor(nodeId, nextStage) : null;
   const job = techId ? state.researchJobs.find((j) => j.techId === techId && j.status === "researching") ?? null : null;
   const leaderOnIt = job ? state.leaders.find((l) => l.id === job.leaderId) ?? null : null;
-  const available = techId ? engineHelpers.satelliteAvailable(state, techId) : false;
   const revealFor = (i: "none" | "presence" | "identity" | "full") =>
     i === "none"
       ? t("circuit.satRevealNone", "Nothing — arrivals are fully invisible: no alarm, no ping.")
@@ -262,7 +261,7 @@ export function SatelliteResearchCard({ state, now, nodeId, nodeName, freeLeader
           <p className="mt-1 text-[10px] text-cyan-200/60">{t("rviews.satNoHasten", "The sky opens on research time alone — no token hastens it.")}</p>
         </>
       )}
-      {next && !job && available && (
+      {next && !job && (
         <div className="mt-2">
           {state.codices < next.codicesCost ? (
             <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: next.codicesCost })}</div>
