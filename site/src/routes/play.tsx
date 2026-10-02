@@ -568,9 +568,11 @@ function PlayPage() {
           onLedger={() => { setLedgerOpen(true); sound.click(); }}
           unread={Math.max(0, reports.length - reportsSeen)}
           onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }}
-          // ORBITAL WATCH: the NodeSheet's satellite section opens the Lab so
-          // the player can appoint a Leader to the restoration line.
+          // ORBITAL WATCH: the NodeSheet's satellite section upgrades the
+          // satellite right in the pop-up — appoint a Leader, no detour.
           onOpenLab={() => { switchTab("lab"); sound.click(); }}
+          now={now}
+          onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")}
         />
       ) : (
         <>

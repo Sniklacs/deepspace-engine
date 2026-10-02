@@ -44,7 +44,10 @@ import {
   satelliteStage,
   satelliteIntelFor,
   satelliteTechFor,
+  satelliteTechId,
 } from "../game/satellites";
+import { fmtDuration } from "../game/i18n/format";
+import { leaderName } from "../game/research";
 import {
   resolveLabels,
   DISPLAY_NAMES,
@@ -95,6 +98,10 @@ export interface CircuitPageProps {
   /** ORBITAL WATCH: open the Lab (Research) tab so the player can appoint a
    *  Leader to a satellite climb. play.tsx wires this to setTab("lab"). */
   onOpenLab?: () => void;
+  /** ORBITAL WATCH: upgrade a satellite straight from the node sheet pop-up —
+   *  no detour through the Lab or the research window. */
+  now?: number;
+  onBeginResearch?: (techId: string, leaderId: string) => void;
 }
 
 type Seg = "map" | "world";
@@ -111,6 +118,8 @@ export function CircuitPage({
   unread,
   onReports,
   onOpenLab,
+  now,
+  onBeginResearch,
 }: CircuitPageProps) {
   const t = useT();
   const circuit: AtlasGraph = useMemo(
@@ -731,7 +740,7 @@ export function CircuitPage({
       </Sheet>
 
       {/* node Sheet — the territory's story + published ground data (no war state) */}
-      <NodeSheet node={selNode} state={state} satCovered={satCovered} onOpenLab={onOpenLab} onClose={() => { setSel(null); }} />
+      <NodeSheet node={selNode} state={state} now={now} satCovered={satCovered} onOpenLab={onOpenLab} onBeginResearch={onBeginResearch} onClose={() => { setSel(null); }} />
     </div>
   );
 
@@ -981,11 +990,13 @@ function ColonySheet({ row, total, onClose }: { row: ContributionRow | null; tot
 }
 
 /* ---------------- node Sheet (the territory's story — no war state) ---------------- */
-function NodeSheet({ node, state, satCovered, onOpenLab, onClose }: {
+function NodeSheet({ node, state, now, satCovered, onOpenLab, onBeginResearch, onClose }: {
   node?: AtlasNode;
   state: GameState;
+  now?: number;
   satCovered: Set<string>;
   onOpenLab?: () => void;
+  onBeginResearch?: (techId: string, leaderId: string) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -1052,7 +1063,7 @@ function NodeSheet({ node, state, satCovered, onOpenLab, onClose }: {
                 point: dish status, what this ground's sky reveals today, and the
                 next climb. Sanctioned land carries no watch. */}
             {node && (satCovered.has(node.id)
-              ? <SatelliteSheetSection state={state} nodeId={node.id} onOpenLab={onOpenLab} />
+              ? <SatelliteSheetSection state={state} now={now} nodeId={node.id} onOpenLab={onOpenLab} onBeginResearch={onBeginResearch} />
               : <p className="text-xs text-text-3">{t("circuit.satSanctioned", "Sanctioned land — no satellite watch. The sky does not need to look here.")}</p>
             )}
           </div>
@@ -1068,15 +1079,24 @@ function NodeSheet({ node, state, satCovered, onOpenLab, onClose }: {
    door: dish status, what the sky over this ground reveals today, and the
    next climb. The Lab (onOpenLab) holds the actual research line.
    ========================================================================== */
-function SatelliteSheetSection({ state, nodeId, onOpenLab }: {
+function SatelliteSheetSection({ state, now, nodeId, onOpenLab, onBeginResearch }: {
   state: GameState;
+  now?: number;
   nodeId: string;
   onOpenLab?: () => void;
+  onBeginResearch?: (techId: string, leaderId: string) => void;
 }) {
   const t = useT();
   const stage = satelliteStage(state, nodeId);
   const intel = satelliteIntelFor(state, nodeId);
   const next = stage < 3 ? satelliteTechFor(nodeId, (stage + 1) as 1 | 2 | 3) : null;
+  const techId = next ? satelliteTechId(nodeId, (stage + 1) as 1 | 2 | 3) : null;
+  const job = techId ? state.researchJobs.find((j) => j.techId === techId && j.status === "researching") ?? null : null;
+  const leaderOnIt = job ? state.leaders.find((l) => l.id === job.leaderId) ?? null : null;
+  const freeLeaders = state.leaders.filter((l) => l.status === "active" && !l.assignment);
+  // The upgrade happens HERE in the pop-up — no detour through the Lab or the
+  // research window. Needs the live clock and the research handler from play.
+  const canUpgradeHere = !!next && !!onBeginResearch && now !== undefined;
   return (
     <div className="space-y-1.5 rounded-xl border border-white/10 bg-black/30 p-3 text-xs">
       <div className="flex items-center justify-between gap-2">
@@ -1110,7 +1130,34 @@ function SatelliteSheetSection({ state, nodeId, onOpenLab }: {
           {t("circuit.satNextCost", "{codices} 📜 Codices, research time alone — no token can hasten the sky.", { codices: next.codicesCost })}
         </p>
       )}
-      {next && onOpenLab && (
+      {canUpgradeHere && job && leaderOnIt && (
+        <>
+          <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
+            <span>🫂 {leaderName(t, leaderOnIt)}</span>
+            <span><span dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now!))}</span> {t("circuit.satTimeLeft", "left")}</span>
+          </div>
+          <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-cyan-400" style={{ width: `${Math.min(100, ((now! - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
+        </>
+      )}
+      {canUpgradeHere && !job && (
+        <div className="mt-1">
+          {state.codices < next!.codicesCost ? (
+            <div className="text-[11px] text-text-3">{t("circuit.satNeedCodices", "Need {n} 📜", { n: next!.codicesCost })}</div>
+          ) : freeLeaders.length === 0 ? (
+            <div className="text-[11px] text-text-3">{t("circuit.satNoFreeLeader", "No free Leader")}</div>
+          ) : (
+            <button
+              onClick={() => { sound.click(); onBeginResearch!(techId!, freeLeaders[0].id); }}
+              className="w-full rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20"
+            >
+              {stage === 0
+                ? t("circuit.satUpgradeBring", "🛰️ Appoint {name} — bring it online ({cost} 📜)", { name: freeLeaders[0].name, cost: next!.codicesCost })
+                : t("circuit.satUpgradeClimb", "🛰️ Appoint {name} — upgrade to stage {stage} ({cost} 📜)", { name: freeLeaders[0].name, stage: stage + 1, cost: next!.codicesCost })}
+            </button>
+          )}
+        </div>
+      )}
+      {!canUpgradeHere && next && onOpenLab && (
         <button
           onClick={() => { sound.click(); openWindow("satellite-research", { key: nodeId, props: { nodeId } }); }}
           className="mt-1 w-full rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20"
