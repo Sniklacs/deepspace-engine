@@ -1793,6 +1793,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureArena(state); // ARENA: challenges + bout ledger (additive)
   ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
   ensureSatellites(state, (m) => log(state, m)); // ORBITAL WATCH: constellation init + season re-roll
+  ensureWorldMap(state, now); // WORLD MAP: abandonment tracking + scout probes + ships (additive)
   ensureReTime(state, now); // RE-TIME: energy pool + deploy slot (no-op on a fresh save)
   // V7 daily rollover: when the UTC day turned since the last advance, finalize
   // yesterday (streak exactly-once + TD3 banked-forever claims), roll the fresh
