@@ -12,8 +12,9 @@
 // touches the alliance store (alliances.md §9).
 
 import type { GameState } from "../types";
+import type { ArenaBout, ArenaChallenge } from "./arena";
 import { commitRosterWeight, rosterForCommit, stampRosterSegment } from "./roster-commit";
-import type { Battle, BattleSide } from "./war-types";
+import type { Battle, BattleSide, CommittedForce } from "./war-types";
 import type { Rally, RallyPledge } from "./rallies";
 import {
   applyCommittedCasualties,
@@ -254,6 +255,34 @@ export type AllianceFx =
        *  the battle engine — the lock just lifts). Idempotent. */
       rallyId: string;
       heroIds: string[];
+      key: string;
+    }
+  // ---- ARENA (arena-market.md Part I; appliers live in war/arena.ts) ----
+  | {
+      kind: "arena-challenge";
+      /** The CHALLENGED colony — receives the incoming proposal. */
+      colonyId: string;
+      challenge: ArenaChallenge;
+      key: string;
+    }
+  | {
+      kind: "arena-accept";
+      /** The CHALLENGER's colony — canonical challenge holder; builds the battle. */
+      colonyId: string;
+      challengeId: string;
+      guestForce: CommittedForce;
+      guestStakes: boolean;
+      key: string;
+    }
+  | { kind: "arena-decline"; colonyId: string; challengeId: string; key: string }
+  | { kind: "arena-cancel"; colonyId: string; challengeId: string; key: string }
+  | {
+      kind: "arena-result";
+      /** The GUEST colony — records the bout + unlocks heroes. */
+      colonyId: string;
+      bout: ArenaBout;
+      heroIds: string[];
+      challengeId: string;
       key: string;
     };
 

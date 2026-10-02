@@ -226,6 +226,13 @@ export interface CreateBattleInput {
   zoneName: string;
   attacker: CommittedForce;
   defender: CommittedForce;
+  /** ARENA stakes toggles per side (arena-market.md Part I + owner 2026-10-01:
+   *  troop loss ONLY when BOTH sides opt in). Absent = a normal real battle
+   *  (bloodless false). The effective mode is derived, never trusted from a
+   *  single side's claim. */
+  stakes?: { attacker: boolean; defender: boolean };
+  /** ARENA bout marker — set when this battle is an arena bout. */
+  arena?: { challengeId: string; season: string; hostColonyId: string; guestColonyId: string };
 }
 
 /** Build the battle entity purely: snapshot forces in, strength+duration+
@@ -244,6 +251,12 @@ export function createBattle(input: CreateBattleInput, now: number): Battle {
   const pd = computeForcePower(def);
   const durationMs = battleDurationMs(pa, pd);
   const id = `bat-${now}-${att.colonyId}-${def.colonyId}-${input.zoneId}`;
+  // ARENA mode derivation (owner 2026-10-01): troop loss applies ONLY when
+  // BOTH sides toggled stakes on. One bloodless side (or a non-arena battle
+  // with no stakes input) = the bout is bloodless. Non-arena battles keep
+  // bloodless=false so their casualties bill through the normal paths.
+  const st = input.stakes;
+  const mutualStakes = !!input.arena && !!st && !!st.attacker && !!st.defender;
   return {
     id,
     zoneId: input.zoneId,
@@ -255,6 +268,10 @@ export function createBattle(input: CreateBattleInput, now: number): Battle {
     startedAt: now,
     status: "active",
     result: null,
+    bloodless: !input.arena ? false : !mutualStakes,
+    arena: input.arena
+      ? { challengeId: input.arena.challengeId, season: input.arena.season, stakes: mutualStakes }
+      : undefined,
     casualties: {
       attacker: finalCasualties(input.attacker, input.defender, pa, pd),
       defender: finalCasualties(input.defender, input.attacker, pd, pa),

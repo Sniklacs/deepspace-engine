@@ -263,6 +263,24 @@ export interface Battle {
   /** Rally battles: which alliance's war band marched (alliances.md §2). The
    *  memorial plaques read this + the per-pledger roster segments. */
   allianceId?: string;
+  /** ARENA (arena-market.md Part I): true unless BOTH sides opted into troop
+   *  stakes on a mutual-stakes bout. Bloodless battles compute casualties
+   *  (the engine runs for real) but never apply them — no roster kills, no
+   *  tolls, no loot/XP/supply movement. Ships in the public view so the UI
+   *  can label the mode unmistakably. Defaults true for non-arena battles
+   *  (their casualties bill through the normal paths). */
+  bloodless: boolean;
+  /** ARENA (arena-market.md Part I): set on arena bouts only. Marks the
+   *  battle as a practice/stakes bout: never grants loot/XP/supplies, never
+   *  charges decision energy, artifacts and heroes are never at risk. Ships
+   *  in the public view (top-level, not internal) for the same reason. */
+  arena?: {
+    challengeId: string;
+    /** The season key the bout counts toward (seasonFor at creation). */
+    season: string;
+    /** Mutual-stakes bouts only: both colonies agreed troops die. */
+    stakes: boolean;
+  };
   /** Server-only internals — STRIPPED from every public payload
    *  (battlePublicView). Nothing about power/odds is hidden; this block is
    *  reserved for future server-private bookkeeping (reinforcement queues,

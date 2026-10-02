@@ -64,6 +64,7 @@ import {
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
 import { ensureAlliances, guestsAt, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
 import { advanceRallies, ensureRallies } from "./war/rallies";
+import { ensureArena, expireArenaChallenges, resolveArenaBattles } from "./war/arena";
 import {
   advanceTroopHome,
   emptyTroopHome,
@@ -1783,6 +1784,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureForwardBases(state, now); // BEACHHEADS: forward bases + shared server band pools (additive)
   ensureAlliances(state); // WAR BAND: alliance store + help budget + reinforcements (additive; never wiped by seasons)
   ensureRallies(state); // RALLIES: rally board (additive)
+  ensureArena(state); // ARENA: challenges + bout ledger (additive)
   ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
   ensureSatellites(state, (m) => log(state, m)); // ORBITAL WATCH: constellation init + season re-roll
   ensureReTime(state, now); // RE-TIME: energy pool + deploy slot (no-op on a fresh save)
@@ -1887,6 +1889,12 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // actual cohorts (newest-first) and lands in the memorial feed. Idempotent
   // per battle; no-op until a creator stamps a commit.
   resolveRosterCasualties(state);
+  // ARENA (war/arena.ts): sweep stale challenges (locks release) and record
+  // resolved arena bouts — the bout ledger feeds the public ladder; the
+  // `arena-result` fx tells the guest's save. Runs AFTER
+  // resolveRosterCasualties so stakes-mode bodies are already billed.
+  expireArenaChallenges(state, now);
+  resolveArenaBattles(state, now, (fx) => queueAllianceFx(state, fx));
   // RALLIES (war/rallies.ts): fire rally timers whose moment came (the pool
   // marches even if the caller's away) and resolve launched rallies whose
   // battles finished — contribution-locked loot, per-colony loss ledger.

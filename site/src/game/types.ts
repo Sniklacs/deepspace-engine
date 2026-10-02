@@ -1,6 +1,7 @@
 // Shared game types for Deepspace Engine MVP.
 
 import type { Battle, BattleReport, WarReserve } from "./war/war-types";
+import type { ArenaBout, ArenaChallenge } from "./war/arena";
 import type { CasualtyRecord, MercenaryBand, TroopHome } from "./war/troops";
 import type { ForwardBase } from "./war/forward-bases";
 import type { PrologueBlock } from "./prologue/prologue-state";
@@ -389,6 +390,10 @@ export interface GameState {
   // stripped by publicState via battlePublicView (api.ts).
   battles: Battle[];
   battleReports: BattleReport[];
+  /** ARENA (arena-market.md Part I): challenges + recorded bouts. Ships in
+   *  publicState (nothing secret — the ladder is public by design). */
+  arenaChallenges?: ArenaChallenge[];
+  arenaBouts?: ArenaBout[];
   /** The colony's deployable war reserve (B12/B11 server-verified seam) —
    *  supply-weighted troops + the §6 weekly energy pool + locked hero
    *  commitments + the co-op aid recognition ledger. Grows only from play;

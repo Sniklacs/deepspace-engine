@@ -1,6 +1,16 @@
 # Spec — Arena & Market (authoritative build doc, forward design)
 
-> Status: **forward design only — nothing is built.** This document specifies
+> Status (2026-10-01): **Part I §§1–3 BUILT** — bloodless mock battles +
+> consensual stakes toggle (owner addition: troops at risk only when BOTH
+> sides opt in, default bloodless, mode unmistakable in UI, ladder records
+> the mode) + public ladder with seasonal titles + proving ground.
+> Implementation: `site/src/game/war/arena.ts` (+ tests), `bloodless` flag
+> on the battle entity, roster-commit bloodless paths, arena fx kinds on the
+> alliance outbox, `arena*Fn` server actions, `ArenaPanel` in the Battles tab.
+> **§4 duels are v2** (need escrow + world-speaker broadcast). Part II market
+> unbuilt. The original "nothing is built" line below is kept for history.
+>
+> Status (original): **forward design only — nothing is built.** This document specifies
 > the structure, rules, and engine seams the engineer will implement **later**,
 > in the same standard as the other build docs: concrete, buildable,
 > self-contained.

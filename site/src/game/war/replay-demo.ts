@@ -154,6 +154,7 @@ export function buildDemoBattle(preset: ReplayPreset, now: number, staging = fal
     status: "active",
     result: null,
     casualties: { attacker: 150, defender: 190 },
+    bloodless: false,
     windows: [],
     decisions: decisionsFor(preset, startedAt),
     aidCalls: [],

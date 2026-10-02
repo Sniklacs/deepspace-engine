@@ -25,7 +25,8 @@ import type { ForgeItem } from "./forge";
 import { RACES } from "./races";
 import { ZONES } from "./zones";
 import * as engine from "./engine";
-import { worldRaceError } from "./world-config";
+import { worldRaceError, WORLD_CONFIG } from "./world-config";
+import { snapshotHero } from "./prologue/act1-battle";
 import {
   MONETIZATION_CONFIG,
   walletView,
@@ -55,6 +56,18 @@ import {
 import { availableWeight, releaseWeight } from "./war/troops";
 import type { BattlePlan } from "./war/maneuvers";
 import type { PlannedManeuver } from "./war/maneuvers";
+import {
+  acceptArenaChallenge,
+  arenaBoutsOf,
+  arenaSeason,
+  buildLadderEntries,
+  cancelArenaChallenge,
+  challengeArena,
+  declineArenaChallenge,
+  ensureArena,
+  type ArenaBout,
+  type ArenaForceInput,
+} from "./war/arena";
 import {
   acceptMembership,
   allianceById,
@@ -1098,8 +1111,11 @@ const battleIssueFn = createServerFn({ method: "POST" }).validator(
   const r = st.warReserve;
   const e = res.decision.effects;
   const dup = res.duplicate === true;
+  // ARENA (arena-market.md §1): the arena costs nothing but (mutually-agreed)
+  // troops — no energy, no supplies, ever. The toll IS virtual here too.
+  const arenaBout = !!battle.arena;
   if (!dup && e.kind === "reinforce") {
-    r.energy = Math.max(0, r.energy - e.energySpent);
+    if (!arenaBout) r.energy = Math.max(0, r.energy - e.energySpent);
     for (const h of heroes) r.lockedHeroes[h.id] = { battleId: battle.id, until: battleEndAt(battle) };
     const home = sideHomeFor(battle, data.side);
     const committed = home ? commitRosterWeight(st, home, e.troopsAdded) : 0;
@@ -1115,7 +1131,7 @@ const battleIssueFn = createServerFn({ method: "POST" }).validator(
     // (Withdrawal itself costs no energy — the toll IS the price.)
     settleToll(st, battle, data.side, e.rearguardCasualties);
   } else if (!dup && e.kind === "callAid") {
-    r.energy = Math.max(0, r.energy - e.energySpent);
+    if (!arenaBout) r.energy = Math.max(0, r.energy - e.energySpent);
   }
   if (res.decision.action === "retreat") {
     appendReportOnce(st, battle);
@@ -1263,6 +1279,175 @@ const battlePlanFn = createServerFn({ method: "POST" }).validator(
   if (!res.ok) return { ok: false, error: res.error };
   await saveAccountSaves(accountId, saves);
   return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
+// ------- ARENA (arena-market.md Part I §§1–3; §4 duels are v2) -------
+const arenaForceSchema = z.object({
+  troops: z.number().int().min(0).max(100000),
+  heroes: z.array(battleHeroSchema).max(5),
+  weapons: z.array(z.object({
+    family: z.enum(["frontline", "assault", "precision", "siege", "engine"]),
+    tier: z.number().int().min(1).max(4),
+    count: z.number().int().min(1).max(1000),
+  })).max(20).optional(),
+});
+
+const arenaPlanSchema = z.object({
+  id: z.string().max(64),
+  maneuvers: z.array(z.object({
+    id: z.string().max(64),
+    vector: z.enum(["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR", "RESERVE"]),
+    enterAtMin: z.number().nonnegative().max(480),
+    composition: z.record(z.string(), z.number()),
+  })).min(1).max(4),
+}).nullable().optional();
+
+/** Server-AUTHORITATIVE hero snapshots: the client's hero list is names
+ *  only — attributes/skills rebuild from the colony's own prologue records
+ *  (a tampered client can't invent stats), then equipment resolves
+ *  (proving ground: the loadout's artifacts ride the snapshot — zero risk,
+ *  the arena never takes them). Unknown ids reject the call. */
+function resolveArenaHeroes(
+  st: GameState,
+  heroes: z.infer<typeof battleHeroSchema>[],
+): { ok: true; value: BattleHeroSnapshot[] } | { ok: false; error: string } {
+  const roster = st.prologue?.heroes ?? [];
+  const out: BattleHeroSnapshot[] = [];
+  for (const h of heroes) {
+    const rec = roster.find((r) => r.id === h.id);
+    if (!rec) return { ok: false, error: "One of your heroes doesn't exist." };
+    const snap = snapshotHero(rec);
+    const eq = engine.resolveHeroEquipment(st, { kind: "hero", id: snap.id });
+    if (eq) snap.equipped = eq;
+    out.push(snap);
+  }
+  return { ok: true, value: out };
+}
+
+const arenaChallengeFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+token: z.string(),
+    challengedId: z.string().min(1).max(64),
+    challengedName: z.string().min(1).max(60),
+    force: arenaForceSchema,
+    stakes: z.boolean(),
+    plan: arenaPlanSchema,
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => {
+    const rh = resolveArenaHeroes(st, data.force.heroes);
+    if (!rh.ok) return rh;
+    const heroes = rh.value;
+    const res = challengeArena(
+      st,
+      { id: ctx.colonyId, name: ctx.colonyName },
+      { id: data.challengedId, name: data.challengedName },
+      { troops: data.force.troops, heroes, weapons: data.force.weapons ?? [] } as ArenaForceInput,
+      data.stakes,
+      (data.plan ?? null) as BattlePlan | null,
+      ctx.now,
+    );
+    if (!res.ok) return res;
+    queueAllianceFx(st, res.value.fx);
+    return { ok: true as const, value: { challengeId: res.value.challenge.id } };
+  }),
+);
+
+const arenaAcceptFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+token: z.string(),
+    challengeId: z.string().min(1).max(64),
+    force: arenaForceSchema,
+    stakes: z.boolean(),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => {
+    const rh = resolveArenaHeroes(st, data.force.heroes);
+    if (!rh.ok) return rh;
+    const heroes = rh.value;
+    const res = acceptArenaChallenge(
+      st,
+      data.challengeId,
+      { id: ctx.colonyId, name: ctx.colonyName },
+      { troops: data.force.troops, heroes, weapons: data.force.weapons ?? [] } as ArenaForceInput,
+      data.stakes,
+      ctx.now,
+    );
+    if (!res.ok) return res;
+    queueAllianceFx(st, res.value.fx);
+    return { ok: true as const };
+  }),
+);
+
+const arenaDeclineFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), challengeId: z.string().min(1).max(64) })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => {
+    const res = declineArenaChallenge(st, data.challengeId, ctx.colonyId, ctx.now);
+    if (!res.ok) return res;
+    queueAllianceFx(st, res.value.fx);
+    return { ok: true as const };
+  }),
+);
+
+const arenaCancelFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), challengeId: z.string().min(1).max(64) })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) => {
+    const res = cancelArenaChallenge(st, data.challengeId, ctx.colonyId, ctx.now);
+    if (!res.ok) return res;
+    queueAllianceFx(st, res.value.fx);
+    return { ok: true as const };
+  }),
+);
+
+/** The public arena ladder: every colony's bouts aggregated server-side
+ *  (boutId dedupe — host and guest each hold a copy). Seasonal titles are
+ *  cosmetic. Reset wires into the future season-rollover job (the season
+ *  key is stamped on every bout). */
+const arenaLadderFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string().optional() })
+).handler(async (): Promise<{ ok: boolean; entries?: ReturnType<typeof buildLadderEntries>; season?: string; serverName?: string; error?: string }> => {
+  const bouts: ArenaBout[] = [];
+  let season = "s1";
+  for (const { saves } of await loadAllSaves()) {
+    for (const gid in saves.games) {
+      const g = saves.games[gid];
+      if (!g || typeof g !== "object" || !g.race || !g.gameId) continue;
+      try {
+        ensureArena(g as GameState);
+        const bs = arenaBoutsOf(g as GameState);
+        for (const b of bs) {
+          if (b && typeof b.boutId === "string") bouts.push(b);
+        }
+        const s = arenaSeason(g as GameState);
+        if (s > season) season = s;
+      } catch (e) {
+        console.error("Failed to read arena bouts:", gid, e);
+      }
+    }
+  }
+  const entries = buildLadderEntries(bouts.filter((b) => b.season === season));
+  return { ok: true, entries, season, serverName: WORLD_CONFIG.worldName };
+});
+
+/** Opponent directory: every colony on this world (id + name + race) so a
+ *  challenger can pick a bout. Read-only, eventually consistent. */
+const arenaDirectoryFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string() })
+).handler(async ({ data }): Promise<GameResult & { colonies?: { id: string; name: string; race: string }[] }> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const colonies: { id: string; name: string; race: string }[] = [];
+  for (const { saves } of await loadAllSaves()) {
+    for (const gid in saves.games) {
+      const g = saves.games[gid] as GameState;
+      if (!g || typeof g !== "object" || !g.race || !g.gameId) continue;
+      colonies.push({ id: g.gameId, name: g.playerName || "An unnamed colony", race: String(g.race) });
+    }
+  }
+  colonies.sort((a, b) => a.name.localeCompare(b.name));
+  return { ok: true, colonies };
 });
 
 // ------- monetization seams (survey-only; NO storefront ships now) -------// The catalog/ledger/entitlement layer is fully implemented (§7 of the spec);
@@ -2028,6 +2213,12 @@ export {
   battleRespondFn,
   battleScreenFn,
   battlePlanFn,
+  arenaChallengeFn,
+  arenaAcceptFn,
+  arenaDeclineFn,
+  arenaCancelFn,
+  arenaLadderFn,
+  arenaDirectoryFn,
   musterTroopsFn,
   hireMercenariesFn,
   plantForwardBaseFn,

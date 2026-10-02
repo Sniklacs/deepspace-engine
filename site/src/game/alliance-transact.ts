@@ -63,6 +63,13 @@ import {
   rallyOf,
   removeRemotePledge,
 } from "./war/rallies";
+import {
+  applyArenaAcceptFx,
+  applyArenaCancelFx,
+  applyArenaChallengeFx,
+  applyArenaDeclineFx,
+  applyArenaResult,
+} from "./war/arena";
 
 /** Storage backend — the real store by default, injectable for tests. */
 export interface ColonyStore {
@@ -407,6 +414,12 @@ function fxIdentity(fx: AllianceFx): string {
       return fx.key;
     case "bill-foreign-casualties":
       return fx.key ?? `casualty:${fx.battleId}:${fx.segmentId}`;
+    case "arena-challenge":
+    case "arena-accept":
+    case "arena-decline":
+    case "arena-cancel":
+    case "arena-result":
+      return fx.key;
   }
 }
 
@@ -483,6 +496,21 @@ export function applyOneFx(target: GameState, fx: AllianceFx, now: number): void
       break;
     case "unlock-rally-heroes":
       applyUnlockRallyHeroes(target, fx.rallyId, fx.heroIds, fx.key);
+      break;
+    case "arena-challenge":
+      applyArenaChallengeFx(target, fx.challenge);
+      break;
+    case "arena-accept":
+      applyArenaAcceptFx(target, fx.challengeId, fx.guestForce, fx.guestStakes, fx.key, now);
+      break;
+    case "arena-decline":
+      applyArenaDeclineFx(target, fx.challengeId, now);
+      break;
+    case "arena-cancel":
+      applyArenaCancelFx(target, fx.challengeId, now);
+      break;
+    case "arena-result":
+      applyArenaResult(target, fx.bout, fx.heroIds, fx.challengeId, fx.key, now);
       break;
   }
 }

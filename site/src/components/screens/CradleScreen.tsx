@@ -314,6 +314,8 @@ export default function CradleScreen({
               <h3 className="text-[15px] font-semibold text-text-1">{t("cradle.stores")}</h3>
               <span className="text-[11px] text-text-3">{t("cradle.storesSub")}</span>
             </div>
+            {/* owner 2026-10-01: the shelf scrolls — rows stay put, the panel never grows */}
+            <div className="max-h-56 space-y-2 overflow-y-auto pe-1">
             {/* THE HOLDINGS (owner 2026-09-27: "we're missing an embers inventory I
                 don't see how many embers I have"): the colony's OWN stock, in the same
                 Panel and the same shape as the alloy row, so the shelf reads as one
@@ -378,6 +380,7 @@ export default function CradleScreen({
                 <Bdi dir="ltr" className="num">{(state.forgeItems ?? []).length}</Bdi>
               </b>
             </button>
+            </div>
           </Panel>
 
           {/* ---- B8 · the stores band ------------------------------------- */}

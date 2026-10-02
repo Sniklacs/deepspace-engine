@@ -247,6 +247,9 @@ export function settleToll(
   tollWeight: number,
   season?: string,
 ): number {
+  // ARENA bloodless: the rearguard walks home too — a withdrawal in a
+  // bloodless bout costs no bodies (the toll IS virtual, like the rest).
+  if (battle.bloodless && battle.arena) return 0;
   const segs = segmentsFor(battle, side).filter((s) => s.weight > 0);
   const total = segs.reduce((s, x) => s + x.weight, 0);
   const toll = Math.max(0, Math.trunc(tollWeight) || 0);
@@ -396,6 +399,42 @@ export function stampBattlePlan(
  *
  * Returns the number of battles whose losses were applied.
  */
+/**
+ * ARENA lock release (decline/cancel/expiry): free `weight` of committed
+ * troops back to the home garrison WITHOUT killing anyone. The arena's
+ * honesty lock, undone.
+ */
+export function releaseArenaLocksFor(state: GameState, home: RosterHome, weight: number): void {
+  const r = rosterForCommit(state, home);
+  if (!r) return;
+  const w = Math.max(0, Math.trunc(weight) || 0);
+  if (w > 0) releaseWeight(r, w);
+}
+/**
+ * ARENA bloodless release (arena-market.md §0.1): every segment's lock
+ * releases and every troop walks home — nobody died, nothing is billed.
+ * Foreign segments release through the seam (same fx the rally-survivor
+ * path uses). Idempotent via the caller's rosterResolved stamp.
+ */
+function releaseArenaLocks(state: GameState, battle: Battle): void {
+  for (const side of ["attacker", "defender"] as BattleSide[]) {
+    for (const s of segmentsFor(battle, side)) {
+      if (s.weight <= 0) continue;
+      if (isForeignSegment(state, s)) {
+        queueFx(state, {
+          kind: "release-troop-lock",
+          colonyId: s.colonyId!,
+          weight: s.weight,
+          key: `casualty:${battle.id}:${s.id}:arena-release`,
+        });
+      } else {
+        const r = rosterForCommit(state, s.home);
+        if (r) releaseWeight(r, s.weight);
+      }
+      s.weight = 0;
+    }
+  }
+}
 export function resolveRosterCasualties(state: GameState, season?: string): number {
   // No season engine exists yet (seasons.md) — the caller may pass one
   // explicitly; otherwise read the battle-pass window, else the pre-season
@@ -406,6 +445,15 @@ export function resolveRosterCasualties(state: GameState, season?: string): numb
   for (const b of state.battles) {
     if (b.status === "active") continue;
     if (b.internal.rosterResolved) continue;
+    // ARENA bloodless (arena-market.md §0.1 + owner 2026-10-01): casualties
+    // were computed for the report, but nobody dies — every segment's lock
+    // releases and every troop walks home. Foreign segments release through
+    // the same seam as rally survivors.
+    if (b.bloodless && b.arena) {
+      releaseArenaLocks(state, b);
+      b.internal.rosterResolved = true;
+      continue;
+    }
     let touched = false;
     for (const side of ["attacker", "defender"] as BattleSide[]) {
       const segs = segmentsFor(b, side).filter((s) => s.weight > 0 || s.tollsPaid > 0);
