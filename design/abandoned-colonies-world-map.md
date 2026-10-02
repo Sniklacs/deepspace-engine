@@ -295,8 +295,9 @@ a ship and have its replacement before the next day's session. The season is
   alliance builds slow; a live one builds fast.
 - This is the activity engine: alliances MUST have enough people active every
   day to build ships. No activity, no fleet.
-- **Alliance cap: 100 members** (up from 50). With the 1500 soft cap per planet,
-  that's 15 alliances per planet. Hans: "100 members is better than 50."
+- **Alliance cap: 100 members** (up from 50). Hans: "100 members is better than 50."
+- **No cap on alliance count per planet.** Could be 15, could be 1,000 — we
+  don't have any say on that. Players organize how they want.
 - **Beachheads are cross-alliance.** A beachhead doesn't care about alliance
   tags — it'll take everybody from a planet/race. The invasion is bigger than
   any one alliance.
