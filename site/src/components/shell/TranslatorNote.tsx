@@ -9,7 +9,7 @@
 //   • `TranslateAffordance` — the per-string Translate control (the live prose in the
 //     tutorial caption is the first caller). When the engine is not answerable it does
 //     NOT vanish into a dead button: it says translation is preparing IN THE PLAYER'S
-//     OWN LANGUAGE. That is the owner's requirement — nobody gets a 603 MB surprise,
+//     OWN LANGUAGE. That is the owner's requirement — nobody gets a 600 MB surprise,
 //     and nobody gets a button that does nothing.
 //
 // WHAT THIS FILE MAY NOT DO (the owner's truth rule, 2026-09-26): it may not decide
@@ -73,15 +73,12 @@ export default function TranslatorNote() {
   const size = row.sizeBytes === null ? null : formatBytes(row.sizeBytes);
   const done = formatBytes(row.doneBytes);
   const ready = row.kind === "ready";
-  // The phone's own translator: ready, but there is no download to name a size for.
-  const browserReady = ready && status.engineKind === "browser";
   const sizedReady = ready && size !== null;
   const failed = row.kind === "failed" && size !== null;
   const progress = row.showProgress && size !== null;
 
   return (
     <div className="space-y-1" data-testid="translator-note" data-translator-phase={row.kind}>
-      {browserReady && <p className={ROW}>{t("translator.browserReady", "Translation is ready — your device handles it.")}</p>}
       {sizedReady && <p className={ROW}>{t("translator.ready", { size })}</p>}
       {failed && <p className={ROW}>{t("translator.failed", { done, size })}</p>}
       {progress && (

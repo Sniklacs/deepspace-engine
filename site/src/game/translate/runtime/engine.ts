@@ -1,143 +1,203 @@
 // runtime/engine.ts — THE BROWSER-NATIVE TRANSLATION RUNTIME.
 //
-// Updated 2026-10-01 (owner: the chat Translate button must actually work).
-// The 603 MB bundled-model plan stays intact in `model-manifest.ts` as the later
-// slice, but shipping it means every player downloads 600 MB — against the
-// lean-app rule — and no runtime for it exists in this repository. The phone's
-// OWN translator (the built-in Translator API: on-device after a language-pack
-// download, no server, no key, no app weight) answers the same seam, so the
-// button works today. The weights pipeline in `index.ts` remains the fallback:
-// where the browser has no translator, the pipeline ends in the honest
-// "translation is preparing" state, exactly as before.
+// The game-owned translator (owner 2026-10-01): Meta M2M100-418M (MIT), q8 ONNX
+// via Transformers.js v3, running on the device. The pack lives in Cache Storage
+// (`dse-model-v1`, put there by `weights.ts`); this module hands those bytes to
+// Transformers.js through its `env.customCache` hook, so the pipeline never
+// re-downloads what the game already fetched — and stays working offline.
 //
-// (The seam's old note rejected this API because it "does not work on mobile" —
-// that was true of the 2024 docs and is not true anymore: it ships in Chrome on
-// Android, the phones this game targets. Nothing cloud-based is involved: the
-// language packs live on the device.)
+// HOW THE PIECES FIT:
+//   - `createRuntime` is called only after `weights.ts` reports the pack ready.
+//   - Transformers.js is loaded with a DYNAMIC import, so its ~MBs of runtime
+//     never join the app's initial bundle — they load once, when the translator
+//     first initializes.
+//   - `env.remoteHost` points at the R2 bucket and `env.remotePathTemplate` is
+//     empty (files live at the bucket root). If a file ever missed the cache,
+//     the pipeline would fetch it from R2 itself — the game stays working.
+//   - WebGPU when the device offers it, WASM when it does not (or when WebGPU
+//     session creation fails — some drivers reject quantised sessions).
+//   - M2M100 translates DIRECTLY between any pair of its languages: no pivot
+//     through English. The game only ever asks for the 20 directions of
+//     en / es / pt-BR / ru / fa; chat already stamps the sender's UI locale,
+//     so there is no language detection here.
 //
-// HONESTY CONTRACT (unchanged): `createRuntime` returns null when the browser
-// has no translator, and `translate()` returns null for any pair the browser
-// cannot do — never the input echoed back, never a guess. The UI's preparing
-// state is the truth then, not a placeholder.
+// HONESTY CONTRACT: `createRuntime` returns null when the pipeline cannot be
+// built, and `translate()` returns null for anything it cannot answer — never
+// the input echoed back, never a guess. The UI's preparing state is the truth
+// then, not a placeholder.
 
-import type { ModelProfile } from "../model-manifest";
+import { R2_BASE_URL, TRANSFORMERS_MODEL_ID, type ModelPack } from "../model-manifest";
 
 export interface TranslatorRuntimeContext {
-  model: ModelProfile;
-  /** the cached weights, chunk by chunk and in order — never one 603 MB buffer */
-  readWeights: () => AsyncIterable<Uint8Array>;
-  /** the Cache Storage bucket the weights live in (`dse-model-v1`) */
+  pack: ModelPack;
+  /** the Cache Storage bucket the pack lives in (`dse-model-v1`) */
   cacheName: string;
 }
 
 export interface TranslatorRuntime {
-  /** for the diagnostics line, e.g. "browser-translator" */
+  /** for the diagnostics line, e.g. "m2m100-418m-q8 (webgpu)" */
   name: string;
   /** null when it cannot translate this string — never the input echoed back */
   translate(text: string, from: string, to: string): Promise<string | null>;
-  /**
-   * Optional: fill a translation key the catalogues are missing, given its English
-   * source. Synchronous by contract — `engine-seam.ts` consults it inside a render, so
-   * it may only answer what it already knows; return null when it cannot. A runtime
-   * that omits it is simply silent and the catalogue's own fallbacks take over.
-   */
-  key?(key: string, lang: string, englishSource: string): string | null;
   dispose?(): void;
 }
 
-/** The game's five codes -> the BCP-47 the browser API wants. */
-function apiLang(code: string): string {
-  return code === "pt-BR" ? "pt" : code;
+/** The game's five UI codes -> the M2M100 language token codes. */
+const M2M_LANG: Record<string, string> = {
+  en: "en",
+  es: "es",
+  "pt-BR": "pt",
+  ru: "ru",
+  fa: "fa",
+};
+
+/** Collapse the `//` Transformers.js leaves when the remote path template is empty. */
+function normalizeCacheKey(name: string): string {
+  return name.replace(/([^:])\/{2,}/g, "$1/");
 }
 
-type Availability = "available" | "downloadable" | "downloading" | "unavailable";
+type TranslationPipe = (
+  text: string,
+  opts: { src_lang: string; tgt_lang: string; max_new_tokens: number },
+) => Promise<{ translation_text: string }[] | { translation_text: string }>;
 
-interface BrowserTranslator {
-  translate(text: string): Promise<string>;
-  destroy(): void;
+interface PipelineDeps {
+  loadPipeline: () => Promise<TranslationPipe>;
+  disposePipeline: () => void;
+  /** set by loadPipeline: which device the pipeline actually built on */
+  device?: string;
 }
 
-/** Chrome 138+ shape (`window.Translator`), with the legacy adapter below. */
-interface TranslatorNS {
-  availability(opts: { sourceLanguage: string; targetLanguage: string }): Promise<Availability>;
-  createTranslator(opts: { sourceLanguage: string; targetLanguage: string }): Promise<BrowserTranslator>;
+/** Pick WebGPU when the device offers a real adapter, else WASM. */
+async function selectDevice(): Promise<"webgpu" | "wasm"> {
+  try {
+    const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+    if (gpu && (await gpu.requestAdapter())) return "webgpu";
+  } catch {
+    /* software WebGL / denied adapter: WASM below */
+  }
+  return "wasm";
 }
 
-function translatorNS(): TranslatorNS | null {
-  if (typeof window === "undefined") return null;
-  const w = window as unknown as {
-    Translator?: TranslatorNS;
-    translation?: { createTranslator: TranslatorNS["createTranslator"] };
+async function realDeps(ctx: TranslatorRuntimeContext): Promise<PipelineDeps> {
+  const { env, pipeline } = await import("@huggingface/transformers");
+
+  // Serve the pipeline from the game's own pack cache: every file the pipeline
+  // asks for is already on the device under its R2 URL (put there by weights.ts,
+  // hash-verified). The key normaliser heals the double slash Transformers.js
+  // builds when the remote path template is empty.
+  const cache = await caches.open(ctx.cacheName);
+  const match = cache.match.bind(cache);
+  const put = cache.put.bind(cache);
+  env.customCache = {
+    match: (name: string) => match(normalizeCacheKey(name)),
+    put: (name: string, response: Response) => put(normalizeCacheKey(name), response),
   };
-  if (w.Translator && typeof w.Translator.availability === "function") return w.Translator;
-  if (w.translation && typeof w.translation.createTranslator === "function") {
-    // Pre-138 shape: no availability() — creation itself fetches what it needs,
-    // and throws for a pair the browser cannot do (caught by the caller).
-    const create = w.translation.createTranslator.bind(w.translation);
-    return {
-      availability: () => Promise.resolve<Availability>("downloadable"),
-      createTranslator: (opts) => create(opts),
-    };
-  }
-  return null;
+  env.remoteHost = R2_BASE_URL;
+  env.remotePathTemplate = "";
+  env.allowLocalModels = false;
+  env.allowRemoteModels = true;
+
+  let pipe: { (text: string, opts: object): Promise<unknown>; dispose?: () => void } | null = null;
+
+  const deps: PipelineDeps = {
+    loadPipeline: async (): Promise<TranslationPipe> => {
+      // WebGPU first for speed; some drivers reject quantised sessions, so a
+      // failed WebGPU build falls back to WASM rather than failing the runtime.
+      const devices: ("webgpu" | "wasm")[] = [await selectDevice()];
+      if (devices[0] !== "wasm") devices.push("wasm");
+      let lastError: unknown = null;
+      for (const device of devices) {
+        try {
+          const created = (await pipeline("translation", TRANSFORMERS_MODEL_ID, {
+            dtype: "q8",
+            device,
+          })) as unknown as {
+            (text: string, opts: object): Promise<unknown>;
+            dispose?: () => void;
+          };
+          pipe = created;
+          deps.device = device;
+          return created as unknown as TranslationPipe;
+        } catch (err) {
+          lastError = err;
+          try {
+            pipe?.dispose?.();
+          } catch {
+            /* disposing a half-built pipeline is best-effort */
+          }
+          pipe = null;
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error("the translation pipeline could not be built");
+    },
+    disposePipeline: () => {
+      try {
+        pipe?.dispose?.();
+      } catch {
+        /* a dying pipeline is not an error */
+      }
+      pipe = null;
+    },
+  };
+  return deps;
 }
 
-export async function createRuntime(_ctx: TranslatorRuntimeContext): Promise<TranslatorRuntime | null> {
-  const maybeNS = translatorNS();
-  if (!maybeNS) return null; // no browser translator: the honest "preparing" state stands
-  // Bind to a non-null-typed const so the pair() closures below keep the type.
-  const NS: TranslatorNS = maybeNS;
-
-  const cache = new Map<string, Promise<BrowserTranslator | null>>();
-
-  function pair(from: string, to: string): Promise<BrowserTranslator | null> {
-    const f = apiLang(from);
-    const t = apiLang(to);
-    if (f === t) return Promise.resolve(null);
-    const key = `${f}::${t}`;
-    let p = cache.get(key);
-    if (!p) {
-      p = (async (): Promise<BrowserTranslator | null> => {
-        try {
-          const avail = await NS.availability({ sourceLanguage: f, targetLanguage: t });
-          if (avail === "unavailable") return null;
-          // "downloadable"/"downloading": creation pulls the language pack onto
-          // the device; the promise resolves when it is ready to translate.
-          return await NS.createTranslator({ sourceLanguage: f, targetLanguage: t });
-        } catch {
-          return null;
-        }
-      })();
-      cache.set(key, p);
-    }
-    return p;
+export async function createRuntime(
+  ctx: TranslatorRuntimeContext,
+  deps?: Promise<PipelineDeps>,
+): Promise<TranslatorRuntime | null> {
+  if (typeof window === "undefined") return null;
+  let resolved: PipelineDeps;
+  try {
+    resolved = deps ? await deps : await realDeps(ctx);
+  } catch {
+    return null;
   }
+
+  let pipe: TranslationPipe | null = null;
+  try {
+    pipe = await resolved.loadPipeline();
+  } catch {
+    return null;
+  }
+  const active = pipe;
+  const deviceNote = resolved.device ?? "wasm";
 
   return {
-    name: "browser-translator",
+    name: `m2m100-418m-q8 (${deviceNote})`,
     async translate(text: string, from: string, to: string): Promise<string | null> {
       const clean = text.trim();
       if (!clean) return null;
-      const tr = await pair(from, to);
-      if (!tr) return null;
+      const src = M2M_LANG[from];
+      const tgt = M2M_LANG[to];
+      if (!src || !tgt || src === tgt) return null;
       try {
-        const out = await tr.translate(clean);
-        return typeof out === "string" && out.trim().length > 0 ? out : null;
+        // Chat lines are short; bound the generation so a pathological input
+        // cannot spin the decoder on a phone.
+        const out = await active(clean, { src_lang: src, tgt_lang: tgt, max_new_tokens: 256 });
+        const line = Array.isArray(out) ? out[0]?.translation_text : out?.translation_text;
+        return typeof line === "string" && line.trim().length > 0 ? line : null;
       } catch {
         return null;
       }
     },
     dispose(): void {
-      for (const p of cache.values()) {
-        void p.then((tr) => {
-          try {
-            tr?.destroy();
-          } catch {
-            /* a dying translator is not an error */
-          }
-        });
-      }
-      cache.clear();
+      resolved.disposePipeline();
     },
   };
+}
+
+/** Harness seam: build a runtime around a fake pipeline (the app never calls this). */
+export function createTestRuntime(loadPipeline: () => Promise<TranslationPipe>): Promise<PipelineDeps> {
+  let pipe: TranslationPipe | null = null;
+  return Promise.resolve({
+    loadPipeline: async () => {
+      pipe = await loadPipeline();
+      return pipe;
+    },
+    disposePipeline: () => {
+      pipe = null;
+    },
+  });
 }

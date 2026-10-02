@@ -514,7 +514,7 @@ export const en: Catalogue = {
   "forge.depth.3": "Warplate: rich",
   // ---- the bundled translator (the weights, on this device) -----------------
   "translator.title": "Translation",
-  "translator.sub": "Bundled with the game and kept on this device. No cloud service, no account, and nothing to switch on.",
+  "translator.sub": "Bundled with the game and kept on this device. One download of about 600 MB — Wi-Fi recommended. No cloud service, no account, and nothing to switch on.",
   "translator.preparing": "Translation is preparing — {done} of {size} ({percent}%)",
   "translator.ready": "Ready on this device — {size}, kept after updates",
   "translator.failed": "The download stopped. {done} of {size} is kept — try again.",

@@ -14,6 +14,7 @@
     "format": "prettier --write ."
   },
   "dependencies": {
+    "@huggingface/transformers": "3",
     "@neondatabase/serverless": "^1.1.0",
     "@tanstack/react-router": "^1.158.1",
     "@tanstack/react-start": "^1.158.3",

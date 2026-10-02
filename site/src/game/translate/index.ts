@@ -2,19 +2,19 @@
 //
 // One import for the rest of the app. It owns three things and nothing else:
 //
-//   1. THE WEIGHTS. `prepareTranslator()` inspects the device, and if the model is
+//   1. THE WEIGHTS. `prepareTranslator()` inspects the device, and if the pack is
 //      not there yet it starts the download — unprompted, in the background, with
 //      real progress the Settings row subscribes to. That is the owner's rule:
 //      "build the Persian translator into where they have to download it — I don't
 //      want players getting disgruntled because they can't translate." No opt-in,
 //      no prompt, no pack to get wrong, nothing cloud-based.
 //
-//   2. THE ENGINE SEAM. Once the weights are on the device, the ML runtime is
-//      loaded with a DYNAMIC import (`./runtime/engine` — the effect-scoped
-//      precedent from `routes/__root.tsx`) and registered with `engine-seam.ts`.
-//      If no runtime can be created, NOTHING is registered — the seam keeps
-//      returning null and the UI says translation is preparing, in the player's
-//      own language. A null seam is the honest state; a fake translation is not.
+//   2. THE ENGINE SEAM. Once the pack is on the device, the ML runtime is loaded
+//      with a DYNAMIC import (`./runtime/engine` — the effect-scoped precedent
+//      from `routes/__root.tsx`) and registered with `engine-seam.ts`. If no
+//      runtime can be created, NOTHING is registered — the seam keeps returning
+//      null and the UI says translation is preparing, in the player's own
+//      language. A null seam is the honest state; a fake translation is not.
 //
 //   3. THE ASYNC BRIDGE. The seam is synchronous by contract ("the UI never awaits
 //      inside a render"), and a 418M model cannot answer in a render. So the
@@ -26,13 +26,12 @@
 // Nothing here renders anything, and nothing here knows about React.
 
 import { registerTranslationEngine, type TranslationEngine } from "../i18n/engine-seam";
-import { MODEL, SHIPS_REAL_WEIGHTS } from "./model-manifest";
+import { TRANSLATE_PACK } from "./model-manifest";
 import { MODEL_CACHE } from "../pwa/storage";
 import {
   clearWeights,
   ensureWeights,
   inspectWeights,
-  streamStoredWeights,
   subscribeWeights,
   weightsState,
   type WeightsEnvironment,
@@ -47,7 +46,6 @@ export {
   hashStoredWeights,
   inspectWeights,
   setWeightsEnvironment,
-  streamStoredWeights,
   subscribeWeights,
   weightsEnvironment,
   weightsState,
@@ -65,8 +63,8 @@ async function loadRuntime(ctx: TranslatorRuntimeContext): Promise<TranslatorRun
 let runtimeFactory: RuntimeFactory = loadRuntime;
 let runtime: TranslatorRuntime | null = null;
 let runtimeFailed: string | null = null;
-/** Where the registered engine came from: the phone itself, or the weights pipeline. */
-let engineKind: "browser" | "weights" | null = null;
+/** Where the registered engine came from — always the weights pipeline now. */
+let engineKind: "weights" | null = null;
 
 /** Harness seam only: the app never calls this. */
 export function __setRuntimeFactory(factory: RuntimeFactory | null): void {
@@ -119,10 +117,10 @@ export function translatorBlocker(): string | null {
   if (runtime) return null;
   if (runtimeFailed) return runtimeFailed;
   const phase = weightsState().phase;
-  if (phase === "ready") return "the weights are on this device; no inference runtime is installed yet";
+  if (phase === "ready") return "the pack is on this device; the translation engine failed to start";
   if (phase === "unsupported") return "this browser cannot keep the translator on the device";
   if (phase === "failed") return weightsState().error ?? "the download failed";
-  return "the weights are not on this device yet";
+  return "the translator pack is not on this device yet";
 }
 
 /** The state a Settings row renders. Derived, never stored twice. */
@@ -132,10 +130,10 @@ export interface TranslatorStatus {
   engine: string | null;
   /** true only when an engine is really answerable */
   available: boolean;
-  /** true when the manifest slot is the real 603 MB model, not the stand-in */
+  /** true — the shipped pack is always the real model now (no stand-in) */
   realWeights: boolean;
-  /** "browser" when the phone's own translator answered, "weights" for the pipeline */
-  engineKind: "browser" | "weights" | null;
+  /** "weights" when the on-device pipeline answered */
+  engineKind: "weights" | null;
   blocker: string | null;
 }
 
@@ -144,7 +142,7 @@ export function translatorStatus(): TranslatorStatus {
     weights: weightsState(),
     engine: translatorEngineName(),
     available: translatorAvailable(),
-    realWeights: SHIPS_REAL_WEIGHTS,
+    realWeights: true,
     engineKind,
     blocker: translatorBlocker(),
   };
@@ -167,12 +165,8 @@ export function prepareTranslator(env?: WeightsEnvironment): Promise<TranslatorS
 }
 
 async function run(env?: WeightsEnvironment): Promise<TranslatorStatus> {
-  // The phone's own translator first (2026-10-01): no weights to download, no
-  // server, no key. Where the browser has none, fall through to the weights
-  // pipeline, which ends in the honest "preparing" state.
-  if (await registerBrowserEngine()) return translatorStatus();
-  const state = await ensureWeights(MODEL, env);
-  if (state.phase === "ready") await registerEngine(env);
+  const state = await ensureWeights(TRANSLATE_PACK, env);
+  if (state.phase === "ready") await registerEngine();
   return translatorStatus();
 }
 
@@ -181,34 +175,15 @@ export function retryTranslator(env?: WeightsEnvironment): Promise<TranslatorSta
   return run(env);
 }
 
-/** Free the space: drop the cached weights (the runtime goes with them). */
+/** Free the space: drop the cached pack (the runtime goes with it). */
 export async function freeTranslatorSpace(env?: WeightsEnvironment): Promise<TranslatorStatus> {
   runtime?.dispose?.();
   runtime = null;
   engineKind = null;
   translated.clear();
-  await clearWeights(MODEL, env);
+  await clearWeights(TRANSLATE_PACK, env);
   announce();
   return translatorStatus();
-}
-
-/** The browser's built-in translator, when this browser has one. No weights involved. */
-async function registerBrowserEngine(): Promise<boolean> {
-  if (runtime) return true;
-  try {
-    const created = await runtimeFactory({
-      model: MODEL,
-      cacheName: MODEL_CACHE,
-      readWeights: () => streamStoredWeights(MODEL),
-    });
-    if (!created) return false;
-    installRuntime(created);
-    // Whatever the factory returned on this path came with no weights behind it.
-    engineKind = "browser";
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Put a created runtime behind the seam: the sync cache, the key filler, the announce. */
@@ -220,29 +195,20 @@ function installRuntime(created: TranslatorRuntime): void {
     // Synchronous by contract: answers only from what is already translated.
     text: (text, from, to) => translated.get(cacheKey(text, from, to)) ?? null,
   };
-  // A runtime that can also fill a KEY the catalogues are missing gets its chance:
-  // `engine-seam.ts` consults `key` ahead of the humanised fallback, so this bridge
-  // must forward it. (It used not to — a capability the seam documents and a runtime
-  // can implement was silently dropped on the way through, which is exactly the kind
-  // of quiet gap `translate-tests` §8 exists to catch. Still synchronous: a runtime
-  // may only answer a key it can answer without waiting, the same rule as `text`.)
-  const fillKey = created.key;
-  if (fillKey) engine.key = (k, lang, source) => fillKey(k, lang, source);
   registerTranslationEngine(engine);
   announce();
 }
 
-/** Load the ML runtime against the bytes on the device and register it. */
-async function registerEngine(env?: WeightsEnvironment): Promise<void> {
+/** Load the ML runtime against the pack on the device and register it. */
+async function registerEngine(): Promise<void> {
   if (runtime) return;
   try {
     const created = await runtimeFactory({
-      model: MODEL,
+      pack: TRANSLATE_PACK,
       cacheName: MODEL_CACHE,
-      readWeights: () => streamStoredWeights(MODEL, env),
     });
     if (!created) {
-      runtimeFailed = "the weights are on this device; no inference runtime is installed yet";
+      runtimeFailed = "the pack is on this device; the translation engine failed to start";
       announce();
       return;
     }
@@ -290,5 +256,5 @@ export function requestTranslation(
 
 /** Look at the device without starting anything (a Settings open, a harness). */
 export function inspectTranslator(env?: WeightsEnvironment): Promise<WeightsState> {
-  return inspectWeights(MODEL, env);
+  return inspectWeights(TRANSLATE_PACK, env);
 }

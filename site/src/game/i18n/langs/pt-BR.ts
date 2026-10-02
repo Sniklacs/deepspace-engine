@@ -347,7 +347,7 @@ export const ptBR: Catalogue = {
   "forge.depth.3": "Chapa de guerra: abundante",
   // ---- o tradutor incluído (os pesos, neste aparelho) ----------------------
   "translator.title": "Tradução",
-  "translator.sub": "Incluída no jogo e guardada neste aparelho. Sem serviço na nuvem, sem conta e nada para ativar.",
+  "translator.sub": "Incluída no jogo e guardada neste aparelho. Um download único de cerca de 600 MB — Wi-Fi recomendado. Sem serviço na nuvem, sem conta e nada para ativar.",
   "translator.preparing": "A tradução está sendo preparada — {done} de {size} ({percent}%)",
   "translator.ready": "Pronta neste aparelho — {size}, mantida depois das atualizações",
   "translator.failed": "O download parou. {done} de {size} foram mantidos — tente de novo.",
