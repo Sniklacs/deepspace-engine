@@ -123,6 +123,20 @@ export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameS
             the climbs are NEVER accelerable and never count toward research
             completions. */}
         <SatelliteSection state={state} now={now} freeLeaders={freeLeaders} onBeginResearch={onBeginResearch} />
+        {/* SCOUT PROBES (design/abandoned-colonies-world-map.md §8) — one-time
+            eyes on distant worlds. Research once, build probes, launch at planets. */}
+        <div className="mt-4">
+          <h3 className="font-semibold text-white">
+            {t("rviews.scoutProbeTitle", "🔭 Scout Probes")}
+            <span className="text-xs font-normal text-gray-400">{t("rviews.scoutProbeSub", " — eyes on distant worlds")}</span>
+          </h3>
+          <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+            {t("rviews.scoutProbeIntro", "Research once to unlock. Then build probes (500 supplies each, one-time use) and launch them at planets. After 6 hours they return with a report: player count vs colony count — odds, not guarantees.")}
+          </p>
+          <div className="mt-2 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+            <ScoutProbeCard state={state} now={now} freeLeaders={freeLeaders} onBeginResearch={onBeginResearch} />
+          </div>
+        </div>
         {state.revelations.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
             {REVELATION_TREE.filter((n) => state.revelations.includes(n.id)).map((n) => {
@@ -682,3 +696,94 @@ function AllocateModal({ leader, onPick, onClose }: {
 }
 
 export type { ReactNode };
+/** Scout probe research + building + launch UI (owner 2026-10-02).
+ *  Follows the tap-to-explain pattern: every button always tappable, tap shows
+ *  inline hint naming the missing requirement. */
+export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch }: {
+  state: GameState; now: number;
+  freeLeaders: Leader[]; onBeginResearch: (techId: string, leaderId: string) => void;
+}) {
+  const t = useT();
+  const [hint, setHint] = useState<string | null>(null);
+  const wm = state.worldMap;
+  const researched = wm?.scoutTechResearched ?? false;
+  const techId = "scout-probes";
+  const job = state.researchJobs.find((j) => j.techId === techId && j.status === "researching") ?? null;
+  const leaderOnIt = job ? state.leaders.find((l) => l.id === job.leaderId) ?? null : null;
+
+  if (!researched && !job) {
+    return (
+      <div className="rounded-lg border border-white/10 bg-black/30 p-2.5">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-white">🔭 {t("rviews.scoutProbe", "Scout Probes")}</span>
+          <span className="text-[10px] text-gray-400">10 📜</span>
+        </div>
+        <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+          {t("rviews.scoutProbeDesc", "One-time eyes on distant worlds. Research once, then build probes (500 supplies each) to scan planets for colony counts.")}
+        </p>
+        <div className="mt-2">
+          <button
+            onClick={() => {
+              sound.click();
+              if (state.codices < 10) {
+                setHint("codices");
+              } else if (freeLeaders.length === 0) {
+                setHint("leaders");
+              } else {
+                setHint(null);
+                onBeginResearch(techId, freeLeaders[0].id);
+              }
+            }}
+            className="w-full rounded border border-cyan-400/30 bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-400/25"
+          >
+            {t("rviews.appointLeader", "Appoint Leader")}
+          </button>
+          {hint === "codices" && (
+            <p className="mt-1 text-[10px] text-amber-200">
+              {t("rviews.needCodices", "Needs 10 📜 Codices. You have {n} — earn more through clean recoveries and deeds.", { n: state.codices })}
+            </p>
+          )}
+          {hint === "leaders" && (
+            <p className="mt-1 text-[10px] text-amber-200">
+              {t("rviews.needLeader", "Needs a free Leader. All your Leaders are busy or recovering.")}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (job && leaderOnIt) {
+    return (
+      <div className="rounded-lg border border-white/10 bg-black/30 p-2.5">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-white">🔭 {t("rviews.scoutProbe", "Scout Probes")}</span>
+          <span className="text-[10px] text-cyan-200">{t("rviews.researching", "Researching")}</span>
+        </div>
+        <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
+          <span>🫂 {leaderName(t, leaderOnIt)}</span>
+          <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
+        </div>
+        <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-cyan-400" style={{ width: `${Math.min(100, ((now - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
+      </div>
+    );
+  }
+
+  // Researched — show probe management (build/launch/status simplified for v1)
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/30 p-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-white">🔭 {t("rviews.scoutProbe", "Scout Probes")}</span>
+        <span className="text-[10px] text-emerald-200">{t("rviews.researched", "Researched")}</span>
+      </div>
+      <p className="mt-1 text-[11px] text-gray-400">
+        {t("rviews.probesHave", "Probes ready:")} <b className="text-white">{wm?.probes ?? 0}</b>
+        {" · "}
+        {t("rviews.probesFlying", "In flight:")} <b className="text-white">{wm?.inflight.length ?? 0}</b>
+      </p>
+      <p className="mt-1 text-[10px] text-gray-500">
+        {t("rviews.probeBuildNote", "Build probes (500 supplies each), launch at a planet, collect the report after 6 hours. Full launch UI coming soon.")}
+      </p>
+    </div>
+  );
+}
