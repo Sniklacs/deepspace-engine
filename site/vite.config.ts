@@ -76,6 +76,18 @@ function xsollaWebhookDevRoute(): Plugin {
 }
 
 export default defineConfig({
+  // Per-world identity baked at build time for the client bundle.
+  // The server (SSR/functions) reads process.env at runtime; the client gets
+  // these literals. Set WORLD_ID etc. in the build env.
+  define: {
+    __WORLD_ENV__: JSON.stringify({
+      WORLD_ID: process.env.WORLD_ID,
+      WORLD_NAME: process.env.WORLD_NAME,
+      RACE_LOCK: process.env.RACE_LOCK,
+      WORLD_TAGLINE: process.env.WORLD_TAGLINE,
+      DEBUG_WORLD: process.env.DEBUG_WORLD,
+    }),
+  },
   server: {
     port: 3000,
     host: true,

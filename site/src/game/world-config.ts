@@ -37,19 +37,32 @@ export interface WorldConfig {
 }
 
 function parseRaceLock(): RaceId | null {
-  const v = process.env.RACE_LOCK;
+  const v = env("RACE_LOCK");
   if (!v || v === "null" || v === "open") return null;
   return v as RaceId;
 }
 
+/** Read config from process.env (server/SSR runtime, local shell) or from
+ *  Vite-baked VITE_* vars (client build time). Falls back to watchers-beta. */
+declare const __WORLD_ENV__: Record<string, string> | undefined;
+function env(key: string): string | undefined {
+  if (typeof process !== "undefined" && process.env?.[key] !== undefined) {
+    return process.env[key];
+  }
+  if (typeof __WORLD_ENV__ !== "undefined" && __WORLD_ENV__[key] !== undefined) {
+    return __WORLD_ENV__[key];
+  }
+  return undefined;
+}
+
 export const WORLD_CONFIG: WorldConfig = {
-  worldId: process.env.WORLD_ID ?? "watchers-beta",
-  worldName: process.env.WORLD_NAME ?? "The Shattered Academies",
-  raceLock: process.env.RACE_LOCK !== undefined ? parseRaceLock() : "watchers",
+  worldId: env("WORLD_ID") ?? "watchers-beta",
+  worldName: env("WORLD_NAME") ?? "The Shattered Academies",
+  raceLock: env("RACE_LOCK") !== undefined ? parseRaceLock() : "watchers",
   tagline:
-    process.env.WORLD_TAGLINE ??
+    env("WORLD_TAGLINE") ??
     "The Watchers debug world — the beta test bed. This world belongs to the Fallen Teachers, and only Watcher colonies may be founded here.",
-  debugWorld: (process.env.DEBUG_WORLD ?? "true") === "true",
+  debugWorld: (env("DEBUG_WORLD") ?? "true") === "true",
 };
 
 /** Trimmed, non-secret view for the client UI. */
