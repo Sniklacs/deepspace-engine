@@ -71,6 +71,31 @@ function normalizeCacheKey(name: string): string {
  * (or fails) elsewhere. This was the live bug of 2026-10-01: the pack showed
  * as downloaded in Settings while chat said "preparing" forever.
  */
+/** Mobile phones: the JSEP ORT WASM build crashes during inference with
+ * "RuntimeError: null function", and WebGPU inference hangs. Use the game's
+ * own non-JSEP build from the start and skip WebGPU entirely. */
+function isMobileDevice(): boolean {
+  try {
+    return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+  } catch {
+    return false;
+  }
+}
+
+/** Point the ONNX WASM backend at the game's own non-JSEP build. Must run
+ * before any pipeline is built — the backend caches its WASM module on first
+ * use (WebGPU session creation pulls it in for interop). */
+function useNonJsepWasm(env: {
+  backends?: { onnx?: { wasm?: { wasmPaths?: { mjs: string; wasm: string } } } };
+}): void {
+  const wasm = ((env.backends ??= {}).onnx ??= {}).wasm ??= {};
+  const base = `${location.origin}/ort`;
+  wasm.wasmPaths = {
+    mjs: `${base}/ort-wasm-simd-threaded.mjs`,
+    wasm: `${base}/ort-wasm-simd-threaded.wasm`,
+  };
+}
+
 export function applyPackEnv(
   env: {
     useCustomCache?: boolean;
@@ -92,6 +117,11 @@ export function applyPackEnv(
   env.remotePathTemplate = "";
   env.allowLocalModels = false;
   env.allowRemoteModels = true;
+  // On phones the default JSEP WASM build crashes during inference; point the
+  // backend at the non-JSEP build before it initializes (see useNonJsepWasm).
+  if (isMobileDevice()) {
+    useNonJsepWasm(env as Parameters<typeof useNonJsepWasm>[0]);
+  }
 }
 
 type TranslationPipe = (
@@ -106,8 +136,10 @@ interface PipelineDeps {
   device?: string;
 }
 
-/** Pick WebGPU when the device offers a real adapter, else WASM. */
+/** Pick WebGPU when the device offers a real adapter, else WASM. Phones skip
+ * WebGPU: their drivers hang during translation inference. */
 async function selectDevice(): Promise<"webgpu" | "wasm"> {
+  if (isMobileDevice()) return "wasm";
   try {
     const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
     if (gpu && (await gpu.requestAdapter())) return "webgpu";
@@ -138,21 +170,6 @@ async function realDeps(ctx: TranslatorRuntimeContext): Promise<PipelineDeps> {
       let lastError: unknown = null;
       for (const device of devices) {
         try {
-          // WASM runs on the game's own non-JSEP ORT build (no JavaScript
-          // Promise Integration): the default JSEP build's inference crashes
-          // on some phones with "RuntimeError: null function" inside
-          // ort-wasm-simd-threaded.jsep.wasm. Same ORT version, served from
-          // the game's own /ort/ — no JSPI dependency. WebGPU keeps the
-          // default JSEP build; it needs JSEP for GPU tensor interop.
-          const onnxEnv = env.backends.onnx as { wasm?: { wasmPaths?: { mjs: string; wasm: string } } };
-          if (device === "wasm") {
-            (onnxEnv.wasm ??= {}).wasmPaths = {
-              mjs: `${location.origin}/ort/ort-wasm-simd-threaded.mjs`,
-              wasm: `${location.origin}/ort/ort-wasm-simd-threaded.wasm`,
-            };
-          } else if (onnxEnv.wasm) {
-            delete onnxEnv.wasm.wasmPaths;
-          }
           const created = (await pipeline("translation", TRANSFORMERS_MODEL_ID, {
             dtype: "q8",
             device,
