@@ -23,8 +23,10 @@ import type { MercenaryBand } from "./war/troops";
  *  everybody gets a fair chance to grow (30d ≈ 1/3 of a 12-week season). */
 export const ABANDON_MS = 30 * 24 * 3600_000;
 
-/** How long a scout probe takes to fly out, scan, and return. */
-export const SCOUT_DURATION_MS = 6 * 3600_000;
+/** How long a scout probe takes to fly out, scan, and return.
+ *  TEST VALUE: 30s for expedited testing (Hans Oct 2 2026).
+ *  PRODUCTION: 6 hours — restore before launch. */
+export const SCOUT_DURATION_MS = 30_000;
 
 /** Research tech id that unlocks scout probes (lives in the research tree). */
 export const SCOUT_TECH_ID = "scout-probes";
@@ -145,6 +147,8 @@ export interface WorldMapState {
   gleanRuns: GleanRun[];
   /** ServerIds this colony has visited (travel history). */
   visited: string[];
+  /** Personal shipyard for solo scout builds (warships need the alliance). */
+  shipyard?: import("./shipyard").PersonalShipyard;
   /** Monotonic counters for id generation. */
   seq: number;
 }
