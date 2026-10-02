@@ -62,7 +62,7 @@ import {
   freshDaily,
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
-import { ensureAlliances, guestsAt, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
+import { allianceOf, ensureAlliances, guestsAt, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
 import { advanceRallies, ensureRallies } from "./war/rallies";
 import { ensureArena, expireArenaChallenges, resolveArenaBattles } from "./war/arena";
 import {
@@ -100,6 +100,16 @@ import {
   lootTotal,
   resolveGleanRun,
 } from "./worldmap";
+import {
+  buildReady,
+  createShipBuild,
+  emptyPersonalShipyard,
+  ensureShipyard,
+  recalcBuildDoneAt,
+  shipBuildDurationMs,
+  shipFromBuild,
+} from "./shipyard";
+import { SHIP_COST, shipNeedsAlliance, shipName, type ShipClass } from "./worldmap";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
@@ -1887,6 +1897,9 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // expeditions: built AT THE CRADLE while the world was offline. The deed
   // dents fire here exactly once (build records are consumed on completion).
   resolveArmoryBuilds(state, now);
+  // Resolve completed ship builds (alliance ship factory + solo scouts) — same
+  // lazy, idempotent reconcile: builds whose doneAt passed move to the fleet.
+  resolveShipBuilds(state, now);
   // Resolve arrivals of Forge supply runs (the ~24h transit — lazy, idempotent).
   resolveForgeTransit(state, now);
 
@@ -3117,6 +3130,135 @@ function resolveScoutProbeTech(state: GameState, j: ResearchJob, now: number) {
   log(state, `🔭 ${leader ? leader.name : "A leader"} completed scout probe research — probes can now be built. One-time eyes on distant worlds.`);
   if (leader) researchXp(state, leader, false, now);
   noteDailyEvent(state, "research_complete", now);
+}
+
+/* ── Alliance Ship Factory (design/abandoned-colonies-world-map.md) ── */
+
+/** Get the player's colony id (for alliance membership checks). */
+function myColonyId(state: GameState): string {
+  return (state as unknown as { colonyId?: string }).colonyId ?? "colony";
+}
+
+function myColonyName(state: GameState): string {
+  return state.playerName ?? "Commander";
+}
+
+/** Order a ship build. Warships need alliance membership; scouts are solo-buildable.
+ *  Cost is deducted from the player's resources. */
+export function buildShip(
+  state: GameState,
+  shipClass: ShipClass,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const cost = SHIP_COST[shipClass];
+  const r = state.resources;
+
+  // Check resources first (tap-to-explain needs the specific missing resource)
+  if (r.supplies < cost.supplies) {
+    return fail(`Needs ${cost.supplies.toLocaleString()} supplies. You have ${Math.floor(r.supplies).toLocaleString()}.`);
+  }
+  const raceId = state.race;
+  if (!raceId) return fail("Choose a race first.");
+  if ((r.mats[raceId] ?? 0) < cost.raceMaterial) {
+    return fail(`Needs ${cost.raceMaterial} of your race material. You have ${r.mats[raceId] ?? 0}. Raid other worlds to gather more.`);
+  }
+  if (r.alloys < cost.alloys) {
+    return fail(`Needs ${cost.alloys} alloys. You have ${r.alloys}. Forge them from race materials.`);
+  }
+
+  const needsAlliance = shipNeedsAlliance(shipClass);
+  const alliance = allianceOf(state, myColonyId(state));
+
+  if (needsAlliance && !alliance) {
+    return fail(`The ${shipName(raceId, shipClass)} needs an alliance ship factory. Scouts are solo-buildable — warships aren't. Join an alliance first.`);
+  }
+
+  // Deduct cost
+  r.supplies -= cost.supplies;
+  r.mats[raceId] -= cost.raceMaterial;
+  r.alloys -= cost.alloys;
+
+  const name = shipName(raceId, shipClass);
+
+  if (alliance) {
+    const sy = ensureShipyard(alliance);
+    const build = createShipBuild(shipClass, raceId, myColonyId(state), myColonyName(state), 0, sy.level, now);
+    // The orderer auto-contributes
+    build.contributors.push(myColonyId(state));
+    build.doneAt = build.startedAt + shipBuildDurationMs(shipClass, 1, sy.level);
+    sy.queue.push(build);
+    sy.seq += 1;
+    alliance.version += 1;
+    log(state, `🚀 ${name} ordered at the alliance ship factory. ${build.contributors.length} contributor — more hands build faster.`);
+  } else {
+    // Solo scout build — personal shipyard on worldMap
+    ensureWorldMap(state, now);
+    const wm = state.worldMap!;
+    if (!wm.shipyard) wm.shipyard = emptyPersonalShipyard();
+    const psy = wm.shipyard;
+    const build = createShipBuild(shipClass, raceId, myColonyId(state), myColonyName(state), 1, 1, now);
+    build.contributors.push(myColonyId(state));
+    psy.queue.push(build);
+    psy.seq += 1;
+    log(state, `🚀 ${name} ordered (solo build). Scouts fly alone — warships need an alliance.`);
+  }
+
+  return { ok: true, state };
+}
+
+/** Contribute to an alliance ship build (speeds it up). */
+export function contributeToShipBuild(
+  state: GameState,
+  buildId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const alliance = allianceOf(state, myColonyId(state));
+  if (!alliance) return fail("Join an alliance to contribute to ship builds.");
+  const sy = ensureShipyard(alliance);
+  const build = sy.queue.find((b) => b.id === buildId);
+  if (!build) return fail("That build isn't in the queue.");
+  const me = myColonyId(state);
+  if (build.contributors.includes(me)) return fail("You're already on this build crew.");
+  build.contributors.push(me);
+  recalcBuildDoneAt(build, sy.level, now);
+  alliance.version += 1;
+  log(state, `🔧 ${myColonyName(state)} joined the ${shipName(build.raceId, build.shipClass)} build crew (${build.contributors.length} hands).`);
+  return { ok: true, state };
+}
+
+/** Resolve completed ship builds (alliance + personal). Call from advance(). */
+export function resolveShipBuilds(state: GameState, now: number): void {
+  // Alliance shipyard
+  const alliance = allianceOf(state, myColonyId(state));
+  if (alliance) {
+    const sy = ensureShipyard(alliance);
+    const done = sy.queue.filter((b) => buildReady(b, now));
+    for (const b of done) {
+      const ship = shipFromBuild(b, now);
+      sy.ships.push(ship);
+      log(state, `🚀 ${ship.name} is ready at the alliance ship factory.`);
+    }
+    if (done.length > 0) {
+      sy.queue = sy.queue.filter((b) => !buildReady(b, now));
+      alliance.version += 1;
+    }
+  }
+  // Personal shipyard (solo scouts)
+  if (state.worldMap?.shipyard) {
+    const psy = state.worldMap.shipyard;
+    const done = psy.queue.filter((b) => buildReady(b, now));
+    for (const b of done) {
+      const ship = shipFromBuild(b, now);
+      ship.status = "ready";
+      psy.ships.push(ship);
+      log(state, `🚀 Your ${ship.name} is ready.`);
+    }
+    if (done.length > 0) {
+      psy.queue = psy.queue.filter((b) => !buildReady(b, now));
+    }
+  }
 }
 /**
  * V6 core reconcile: resolve every weapon build whose `doneAt` has passed —

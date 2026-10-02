@@ -12,6 +12,7 @@
 // touches the alliance store (alliances.md §9).
 
 import type { GameState } from "../types";
+import type { ShipyardState } from "../shipyard";
 import type { ArenaBout, ArenaChallenge } from "./arena";
 import { commitRosterWeight, rosterForCommit, stampRosterSegment } from "./roster-commit";
 import type { Battle, BattleSide, CommittedForce } from "./war-types";
@@ -91,6 +92,9 @@ export interface Alliance {
    *  record on the founder's account; mirrors converge by taking the
    *  highest-version copy (sync-alliance). */
   version: number;
+  /** The alliance ship factory (design/abandoned-colonies-world-map.md).
+   *  Warships are built here; build speed scales with active contributors. */
+  shipyard?: ShipyardState;
 }
 
 /** A standing reinforcement: the sender's bodies stationed with an ally.
@@ -438,6 +442,11 @@ export function ensureAlliances(state: GameState): void {
   // Backfill the sync version on pre-sync records.
   for (const a of Object.values(s.alliances as Record<string, Alliance>)) {
     if (typeof a.version !== "number") a.version = 1;
+    // Backfill the shipyard on pre-shipyard records.
+    const rec = a as unknown as Record<string, unknown>;
+    if (!rec.shipyard || typeof rec.shipyard !== "object") {
+      rec.shipyard = { level: 1, queue: [], ships: [], seq: 1 };
+    }
   }
 }
 

@@ -2414,5 +2414,19 @@ export const en: Catalogue = {
   "glean.inFlight": "Expedition out — returns in {time}",
   "glean.noLoot": "Nothing left to glean",
   "glean.husk": "Husk — fully gleaned",
+  /* Alliance Ship Factory (owner 2026-10-02) */
+  "shipyard.title": "Ship Factory",
+  "shipyard.buildShip": "Build {ship}",
+  "shipyard.contribute": "Join Build Crew",
+  "shipyard.contributing": "{count} on crew",
+  "shipyard.inQueue": "Building — ready in {time}",
+  "shipyard.ready": "Ready",
+  "shipyard.noAlliance": "Join an alliance to build warships. Scouts are solo-buildable.",
+  "shipyard.hintSupplies": "Needs {need} supplies — you have {have}.",
+  "shipyard.hintMaterial": "Needs {need} race material — you have {have}. Raid to gather more.",
+  "shipyard.hintAlloys": "Needs {need} alloys — you have {have}. Forge them from race materials.",
+  "shipyard.hintAlliance": "Warships need an alliance ship factory. Join an alliance first — or build a scout solo.",
+  "shipyard.hintAlready": "You're already on this build crew.",
+  "shipyard.level": "Factory Level {level}",
 };
 export default en;

@@ -18,6 +18,7 @@
 
 import type { RaceId } from "./types";
 import type { MercenaryBand } from "./war/troops";
+import type { PersonalShipyard } from "./shipyard";
 
 /** 30 days of silence → abandoned. Hans: the first month has no gleaning so
  *  everybody gets a fair chance to grow (30d ≈ 1/3 of a 12-week season). */
@@ -148,7 +149,7 @@ export interface WorldMapState {
   /** ServerIds this colony has visited (travel history). */
   visited: string[];
   /** Personal shipyard for solo scout builds (warships need the alliance). */
-  shipyard?: import("./shipyard").PersonalShipyard;
+  shipyard?: PersonalShipyard;
   /** Monotonic counters for id generation. */
   seq: number;
 }
@@ -414,28 +415,28 @@ export const SHIP_CLASSES: ShipClass[] = ["scout", "frigate", "bulwark", "vangua
 /** Race-specific ship names. Key: `${raceId}:${shipClass}`. */
 export const SHIP_RACE_NAMES: Record<string, string> = {
   // Scout (name TBD at class level — race names stand alone)
-  "gray:scout": "Gray Scout", "draconian:scout": "Ashen Eye", "watcher:scout": "Threshold Eye",
-  "astar:scout": "Accord Scout", "annunaki:scout": "Gilded Eye", "nephilim:scout": "Stone Eye",
+  "grays:scout": "Gray Scout", "draconians:scout": "Ashen Eye", "watchers:scout": "Threshold Eye",
+  "ashtar:scout": "Accord Scout", "anunnaki:scout": "Gilded Eye", "nephilim:scout": "Stone Eye",
   "unbound:scout": "Dawn Scout",
   // Frigate (name TBD at class level)
-  "gray:frigate": "Gray Frigate", "draconian:frigate": "Ashen Claw", "watcher:frigate": "Seraph Wing",
-  "astar:frigate": "Accord Wing", "annunaki:frigate": "Gilded Claw", "nephilim:frigate": "Stone Fist",
+  "grays:frigate": "Gray Frigate", "draconians:frigate": "Ashen Claw", "watchers:frigate": "Seraph Wing",
+  "ashtar:frigate": "Accord Wing", "anunnaki:frigate": "Gilded Claw", "nephilim:frigate": "Stone Fist",
   "unbound:frigate": "Dawn Wing",
   // Bulwark
-  "gray:bulwark": "Warden Lattice", "draconian:bulwark": "Ashen Bulwark", "watcher:bulwark": "Threshold Bastion",
-  "astar:bulwark": "Accord Aegis", "annunaki:bulwark": "Gilded Rampart", "nephilim:bulwark": "Stoneshield",
+  "grays:bulwark": "Warden Lattice", "draconians:bulwark": "Ashen Bulwark", "watchers:bulwark": "Threshold Bastion",
+  "ashtar:bulwark": "Accord Aegis", "anunnaki:bulwark": "Gilded Rampart", "nephilim:bulwark": "Stoneshield",
   "unbound:bulwark": "Radiant Bulwark",
   // Vanguard
-  "gray:vanguard": "Calculus Vanguard", "draconian:vanguard": "Ashen Vanguard", "watcher:vanguard": "Seraph Vanguard",
-  "astar:vanguard": "Accord Vanguard", "annunaki:vanguard": "Gilded Vanguard", "nephilim:vanguard": "Stone Vanguard",
+  "grays:vanguard": "Calculus Vanguard", "draconians:vanguard": "Ashen Vanguard", "watchers:vanguard": "Seraph Vanguard",
+  "ashtar:vanguard": "Accord Vanguard", "anunnaki:vanguard": "Gilded Vanguard", "nephilim:vanguard": "Stone Vanguard",
   "unbound:vanguard": "Radiant Vanguard",
   // Fat Cat (Hans named the class)
-  "gray:fatcat": "Ledger Hauler", "draconian:fatcat": "Hoard Drake", "watcher:fatcat": "Tithe Bearer",
-  "astar:fatcat": "Compact Hauler", "annunaki:fatcat": "Golden Belly", "nephilim:fatcat": "Mountain's Maw",
+  "grays:fatcat": "Ledger Hauler", "draconians:fatcat": "Hoard Drake", "watchers:fatcat": "Tithe Bearer",
+  "ashtar:fatcat": "Compact Hauler", "anunnaki:fatcat": "Golden Belly", "nephilim:fatcat": "Mountain's Maw",
   "unbound:fatcat": "Cornucopia",
   // Herald
-  "gray:herald": "Array Herald", "draconian:herald": "War-Drum", "watcher:herald": "Trumpet Herald",
-  "astar:herald": "Concord Herald", "annunaki:herald": "Royal Signal", "nephilim:herald": "Thunder Call",
+  "grays:herald": "Array Herald", "draconians:herald": "War-Drum", "watchers:herald": "Trumpet Herald",
+  "ashtar:herald": "Concord Herald", "anunnaki:herald": "Royal Signal", "nephilim:herald": "Thunder Call",
   "unbound:herald": "Dawn Herald",
 };
 
