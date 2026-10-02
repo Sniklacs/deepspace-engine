@@ -150,6 +150,8 @@ function KitRow({ state, kind, recipe, onCraft }: {
 }) {
   const t = useT();
   const kit = CRAFT[kind];
+  // Defensive: if the kit definition is missing, don't render rather than crash.
+  if (!kit) return null;
   const cost = engineHelpers.craftCost(state, kind);
   const held = state.resources[CRAFT_RESOURCE_KEY[kind]] ?? 0;
   const supplies = Math.floor(state.resources.supplies);
