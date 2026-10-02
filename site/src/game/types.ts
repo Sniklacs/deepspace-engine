@@ -423,8 +423,11 @@ export interface GameState {
   forwardBases?: Record<string, ForwardBase>;
   serverBands?: Record<string, MercenaryBand[]>;
   lastJumpAt?: number | null;
-  /** ALLIANCES + RALLIES (design/alliances.md) — the war band. Server-shaped
-   *  records (keyed by id, members by colonyId) so a future multiplayer
+  /** WORLD MAP & ABANDONED COLONIES (design/abandoned-colonies-world-map.md) —
+   *  scout probes, known colonies, gleaning runs. Optional for migration:
+   *  pre-worldmap saves initialize via emptyWorldMap on first advance. */
+  worldMap?: import("./worldmap").WorldMapState;
+  /** ALLIANCES + RALLIES (design/alliances.md) — the war band. Server-shaped   *  records (keyed by id, members by colonyId) so a future multiplayer
    *  server migration is mechanical. Soul-level: membership PERSISTS across
    *  seasons — no reset path touches this store (alliances.md §9).
    *  Initialized by ensureAlliances/ensureRallies on first advance. */
