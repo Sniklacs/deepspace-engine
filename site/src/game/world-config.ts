@@ -36,13 +36,20 @@ export interface WorldConfig {
   debugWorld: boolean;
 }
 
+function parseRaceLock(): RaceId | null {
+  const v = process.env.RACE_LOCK;
+  if (!v || v === "null" || v === "open") return null;
+  return v as RaceId;
+}
+
 export const WORLD_CONFIG: WorldConfig = {
-  worldId: "watchers-beta",
-  worldName: "The Shattered Academies",
-  raceLock: "watchers",
+  worldId: process.env.WORLD_ID ?? "watchers-beta",
+  worldName: process.env.WORLD_NAME ?? "The Shattered Academies",
+  raceLock: process.env.RACE_LOCK !== undefined ? parseRaceLock() : "watchers",
   tagline:
+    process.env.WORLD_TAGLINE ??
     "The Watchers debug world — the beta test bed. This world belongs to the Fallen Teachers, and only Watcher colonies may be founded here.",
-  debugWorld: true,
+  debugWorld: (process.env.DEBUG_WORLD ?? "true") === "true",
 };
 
 /** Trimmed, non-secret view for the client UI. */
