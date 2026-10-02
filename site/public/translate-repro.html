@@ -1,45 +1,84 @@
 <!doctype html>
 <!-- TEMPORARY diagnostic page for the on-device translation repro (Oct 2 2026).
-     Removed after the "null function" phone failure is diagnosed. Not linked anywhere. -->
+     Removed after the "null function" phone failure is diagnosed. Not linked anywhere.
+     Modes (?device=): wasm | webgpu | wasm-redispose | wasm-cache
+     wasm-cache mirrors the phone exactly: files served from Cache Storage
+     through the game's customCache (with the // key normaliser). -->
 <html><head><meta charset="utf-8"><title>WAIT</title></head><body><pre id="log">starting
 </pre><script type="module">
-// Transformers.js joins remoteHost + "/" + remotePathTemplate + "/" + file,
-// which yields a "//" when the template is empty (our app heals this in its
-// custom cache key normaliser; this bare page has no cache, so heal the fetch).
+const R2 = "https://pub-06ebde2d7f0340d79319d029ddcb06aa.r2.dev";
 const _fetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = (input, init) => {
   if (typeof input === "string" && input.includes(".r2.dev//")) input = input.replace(".r2.dev//", ".r2.dev/");
   return _fetch(input, init);
 };
 import { env, pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.js";
-// Same pack the phone uses, served from the public R2 bucket (CORS-enabled).
-env.remoteHost = "https://pub-06ebde2d7f0340d79319d029ddcb06aa.r2.dev";
+env.remoteHost = R2;
 env.remotePathTemplate = "";
 env.allowLocalModels = false;
 env.allowRemoteModels = true;
 const log = (m) => { document.getElementById("log").textContent += m + "\n"; };
+const norm = (name) => name.replace(/([^:])\/{2,}/g, "$1/");
+const FILES = [
+  "config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json",
+  "special_tokens_map.json", "sentencepiece.bpe.model",
+  "onnx/encoder_model_quantized.onnx", "onnx/decoder_model_merged_quantized.onnx",
+];
 try {
   const device = new URLSearchParams(location.search).get("device") || "wasm";
-  const redispose = device === "wasm-redispose";
-  const dev = redispose ? "wasm" : device;
-  log("building pipeline device=" + dev + (redispose ? " (dispose + rebuild test)" : ""));
-  let pipe = await pipeline("translation", "unbound/m2m100-418m-q8", { dtype: "q8", device: dev });
-  log("built ok");
   const line = "¡Hola Hans! Soy Gibbletits. ¿Puedes ver el botón de traducir en este mensaje?";
   const opts = { src_lang: "es", tgt_lang: "en", max_new_tokens: 256 };
-  if (redispose) {
-    const out1 = await pipe(line, opts);
-    log("first infer RESULT: " + JSON.stringify(Array.isArray(out1) ? out1[0]?.translation_text : out1?.translation_text));
-    log("disposing...");
-    await pipe.dispose();
-    log("disposed ok");
-    log("rebuilding pipeline device=wasm");
-    pipe = await pipeline("translation", "unbound/m2m100-418m-q8", { dtype: "q8", device: "wasm" });
-    log("rebuilt ok");
+  const build = (dev) => pipeline("translation", "unbound/m2m100-418m-q8", { dtype: "q8", device: dev });
+  const resultOf = (out) => {
+    const t = Array.isArray(out) ? out[0]?.translation_text : out?.translation_text;
+    return JSON.stringify(t);
+  };
+
+  if (device === "wasm-cache") {
+    // Mirror the phone: populate a Cache Storage bucket with the pack, then
+    // serve the pipeline through the game's customCache + key normaliser.
+    const CACHE = "dse-repro-v1";
+    log("filling Cache Storage from R2...");
+    const c = await caches.open(CACHE);
+    for (const f of FILES) {
+      const url = `${R2}/${f}`;
+      const head = await c.match(url);
+      if (!head) {
+        const res = await _fetch(url);
+        if (!res.ok) throw new Error(`fetch ${f}: ${res.status}`);
+        await c.put(url, res);
+      }
+      log("cached " + f);
+    }
+    env.useCustomCache = true;
+    env.customCache = {
+      match: (name) => caches.open(CACHE).then((cc) => cc.match(norm(name))),
+      put: (name, response) => caches.open(CACHE).then((cc) => cc.put(norm(name), response)),
+    };
+    log("building pipeline device=wasm (via Cache Storage customCache)");
+    const pipe = await build("wasm");
+    log("built ok");
+    const out = await pipe(line, opts);
+    log("RESULT: " + resultOf(out));
+  } else {
+    const redispose = device === "wasm-redispose";
+    const dev = redispose ? "wasm" : device;
+    log("building pipeline device=" + dev + (redispose ? " (dispose + rebuild test)" : ""));
+    let pipe = await build(dev);
+    log("built ok");
+    if (redispose) {
+      const out1 = await pipe(line, opts);
+      log("first infer RESULT: " + resultOf(out1));
+      log("disposing...");
+      await pipe.dispose();
+      log("disposed ok");
+      log("rebuilding pipeline device=wasm");
+      pipe = await build("wasm");
+      log("rebuilt ok");
+    }
+    const out = await pipe(line, opts);
+    log("RESULT: " + resultOf(out));
   }
-  const out = await pipe(line, opts);
-  const text = Array.isArray(out) ? out[0]?.translation_text : out?.translation_text;
-  log("RESULT: " + JSON.stringify(text));
 } catch (e) {
   log("ERROR name=" + e?.name);
   log("ERROR message=" + e?.message);
