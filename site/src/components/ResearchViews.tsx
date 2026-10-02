@@ -305,6 +305,7 @@ function TechNode({ tech, done, inProg, available, now, job, leader, codices, fr
   freeLeaders: Leader[]; onBeginResearch: (techId: string, leaderId: string) => void;
 }) {
   const t = useT();
+  const [hint, setHint] = useState<"codices" | "leaders" | null>(null);
   const canAfford = codices >= tech.codicesCost;
   const hasLeader = freeLeaders.length > 0;
   const prv = TECH_TREE.filter((t) => t.domain === tech.domain).find((n) => n.index === tech.index - 1);
@@ -330,14 +331,31 @@ function TechNode({ tech, done, inProg, available, now, job, leader, codices, fr
       {done && <p className="mt-1 text-xs text-ember-soft/80">{t("rviews.researched", "Researched")}</p>}
       {!done && !inProg && available && (
         <div className="mt-2">
-          {!canAfford ? (
-            <div className="text-[11px] text-red-300">{t("rviews.needCodices", "Need {n} 📜", { n: tech.codicesCost })}</div>
-          ) : !hasLeader ? (
-            <div className="text-[11px] text-amber-300">{t("rviews.noFreeLeader", "No free Leader")}</div>
-          ) : (
-            <button onClick={() => { sound.click(); onBeginResearch(tech.id, (alignedFree ?? freeLeaders[0]).id); }} className="w-full rounded bg-purple-400 px-2 py-1 text-[11px] font-semibold text-black hover:bg-purple-300">
-              {t("rviews.appointLeader", "Appoint {name}", { name: alignedFree ? `✨ ${alignedFree.name}` : freeLeaders[0].name })}
-            </button>
+          <button
+            onClick={() => {
+              sound.click();
+              if (!canAfford) {
+                setHint("codices");
+              } else if (!hasLeader) {
+                setHint("leaders");
+              } else {
+                setHint(null);
+                onBeginResearch(tech.id, (alignedFree ?? freeLeaders[0]).id);
+              }
+            }}
+            className="w-full rounded bg-purple-400 px-2 py-1 text-[11px] font-semibold text-black hover:bg-purple-300"
+          >
+            {t("rviews.appointLeader", "Appoint {name}", { name: alignedFree ? `✨ ${alignedFree.name}` : (freeLeaders[0]?.name ?? t("rviews.satALeader", "a Leader")) })}
+          </button>
+          {hint === "codices" && (
+            <p className="mt-1 text-[11px] text-amber-200">
+              {t("rviews.hintCodices", "Out of Codices — you need {cost} 📜 but have {have}. Earn more through clean recoveries and deeds.", { cost: tech.codicesCost, have: codices })}
+            </p>
+          )}
+          {hint === "leaders" && (
+            <p className="mt-1 text-[11px] text-amber-200">
+              {t("rviews.hintLeaders", "No free Leader right now — free one up in the Lab, then appoint them here.")}
+            </p>
           )}
           {alignedFree && <p className="mt-1 text-xs text-purple-300">{t("rviews.alignedMatch", "✨ {name} matches — faster + breakthrough", { name: alignedFree.name })}</p>}
         </div>
@@ -360,6 +378,7 @@ function RevelationNode({ node, done, inProg, available, now, job, leader, codic
   freeLeaders: Leader[]; onBeginResearch: (techId: string, leaderId: string) => void;
 }) {
   const t = useT();
+  const [hint, setHint] = useState<"codices" | "leaders" | null>(null);
   const canAfford = codices >= node.codicesCost;
   const hasLeader = freeLeaders.length > 0;
   const pct = inProg && job && now ? Math.min(100, ((now - job.startedAt) / job.durationMs) * 100) : 0;
@@ -381,14 +400,31 @@ function RevelationNode({ node, done, inProg, available, now, job, leader, codic
       )}
       {!done && !inProg && available && (
         <div className="mt-2">
-          {!canAfford ? (
-            <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: node.codicesCost })}</div>
-          ) : !hasLeader ? (
-            <div className="text-[11px] text-text-3">{t("rviews.noFreeLeader", "No free Leader")}</div>
-          ) : (
-            <button onClick={() => { sound.click(); onBeginResearch(node.id, freeLeaders[0].id); }} className="w-full rounded bg-white/10 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:bg-white/20">
-              {t("rviews.appointLeader", "Appoint {name}", { name: freeLeaders[0].name })}
-            </button>
+          <button
+            onClick={() => {
+              sound.click();
+              if (!canAfford) {
+                setHint("codices");
+              } else if (!hasLeader) {
+                setHint("leaders");
+              } else {
+                setHint(null);
+                onBeginResearch(node.id, freeLeaders[0].id);
+              }
+            }}
+            className="w-full rounded bg-white/10 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:bg-white/20"
+          >
+            {t("rviews.appointLeader", "Appoint {name}", { name: freeLeaders[0]?.name ?? t("rviews.satALeader", "a Leader") })}
+          </button>
+          {hint === "codices" && (
+            <p className="mt-1 text-[11px] text-amber-200">
+              {t("rviews.hintCodices", "Out of Codices — you need {cost} 📜 but have {have}. Earn more through clean recoveries and deeds.", { cost: node.codicesCost, have: codices })}
+            </p>
+          )}
+          {hint === "leaders" && (
+            <p className="mt-1 text-[11px] text-amber-200">
+              {t("rviews.hintLeaders", "No free Leader right now — free one up in the Lab, then appoint them here.")}
+            </p>
           )}
         </div>
       )}

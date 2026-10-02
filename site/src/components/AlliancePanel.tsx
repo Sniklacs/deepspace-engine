@@ -40,6 +40,7 @@ import {
 } from "../game/api";
 import { Icon } from "./icons";
 import PageBanner from "./PageBanner";
+import { useT } from "./i18n/I18n";
 
 type Act = (fn: () => Promise<GameResult>, label: string) => void;
 
@@ -105,9 +106,11 @@ export default function AlliancePanel({
 // No alliance yet: found one, or answer a standing invite.
 // ---------------------------------------------------------------------------
 function NoAlliance({ state, me, token, onAction }: { state: GameState; me: string; token?: string; onAction: Act }) {
+  const t = useT();
   const [name, setName] = useState("");
   const [banner, setBanner] = useState("⚔️");
   const [motto, setMotto] = useState("");
+  const [hint, setHint] = useState<string | null>(null);
   const invites = useMemo(() => {
     const out: { alliance: Alliance; invite: Alliance["invites"][number] }[] = [];
     for (const a of Object.values(state.alliances ?? {})) {
@@ -150,15 +153,20 @@ function NoAlliance({ state, me, token, onAction }: { state: GameState; me: stri
           aria-label="Banner"
         />
         <button
-          className="rounded-lg bg-acc px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-          disabled={name.trim().length < 3}
-          onClick={() =>
-            post(() => allianceCreateFn({ data: { token: token!, name: name.trim(), banner: banner || undefined, motto: motto || undefined } }), "found")
-          }
+          className="rounded-lg bg-acc px-4 py-2 text-sm font-semibold text-white"
+          onClick={() => {
+            if (name.trim().length < 3) {
+              setHint(t("alliance.hintNameShort", "Give your alliance a name — at least 3 characters."));
+              return;
+            }
+            setHint(null);
+            post(() => allianceCreateFn({ data: { token: token!, name: name.trim(), banner: banner || undefined, motto: motto || undefined } }), "found");
+          }}
         >
           Found (500 supplies)
         </button>
       </div>
+      {hint && <p className="mb-2 text-xs text-amber-200">{hint}</p>}
       <input
         className="mb-4 w-full rounded-lg border border-line bg-surf-1 px-3 py-2 text-sm text-text-1"
         placeholder="Motto (optional)"
@@ -374,7 +382,9 @@ function AllianceHome({
 function Members({ me, alliance, isLeader, isOfficer, token, onAction }: {
   me: string; alliance: Alliance; isLeader: boolean; isOfficer: boolean; token?: string; onAction: Act;
 }) {
+  const t = useT();
   const [inviteId, setInviteId] = useState("");
+  const [hint, setHint] = useState<string | null>(null);
   const post = (fn: () => Promise<GameResult>, label: string) => { if (token) onAction(fn, label); };
   const sorted = [...alliance.members].sort((a, b) => ({ leader: 0, officer: 1, member: 2 }[a.role] - { leader: 0, officer: 1, member: 2 }[b.role]));
   return (
@@ -405,21 +415,31 @@ function Members({ me, alliance, isLeader, isOfficer, token, onAction }: {
         ))}
       </ul>
       {isOfficer && (
-        <div className="mt-2 flex gap-2">
-          <input
-            className="flex-1 rounded-lg border border-line bg-surf-1 px-3 py-1.5 text-sm text-text-1"
-            placeholder="Colony ID to invite"
-            value={inviteId}
-            onChange={(e) => setInviteId(e.target.value)}
-            aria-label="Colony ID to invite"
-          />
-          <button
-            className="rounded-lg bg-acc px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
-            disabled={!inviteId.trim()}
-            onClick={() => { post(() => allianceInviteFn({ data: { token: token!, allianceId: alliance.id, targetId: inviteId.trim(), targetName: inviteId.trim() } }), "invite"); setInviteId(""); }}
-          >
-            Invite
-          </button>
+        <div>
+          <div className="mt-2 flex gap-2">
+            <input
+              className="flex-1 rounded-lg border border-line bg-surf-1 px-3 py-1.5 text-sm text-text-1"
+              placeholder="Colony ID to invite"
+              value={inviteId}
+              onChange={(e) => setInviteId(e.target.value)}
+              aria-label="Colony ID to invite"
+            />
+            <button
+              className="rounded-lg bg-acc px-3 py-1.5 text-xs font-semibold text-white"
+              onClick={() => {
+                if (!inviteId.trim()) {
+                  setHint(t("alliance.hintInviteEmpty", "Enter a colony name or ID to invite."));
+                  return;
+                }
+                setHint(null);
+                post(() => allianceInviteFn({ data: { token: token!, allianceId: alliance.id, targetId: inviteId.trim(), targetName: inviteId.trim() } }), "invite");
+                setInviteId("");
+              }}
+            >
+              Invite
+            </button>
+          </div>
+          {hint && <p className="mt-1 text-xs text-amber-200">{hint}</p>}
         </div>
       )}
     </div>
@@ -450,11 +470,14 @@ function Applications({ alliance, token, onAction }: { alliance: Alliance; token
 function RallyBoard({ now, me, isOfficer, rallies, token, onAction }: {
   now: number; me: string; isOfficer: boolean; rallies: Rally[]; token?: string; onAction: Act;
 }) {
+  const t = useT();
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [leadMin, setLeadMin] = useState(60);
   const [pledgeAmt, setPledgeAmt] = useState<Record<string, string>>({});
   const [preset, setPreset] = useState<Record<string, PresetId>>({});
+  const [hint, setHint] = useState<string | null>(null);
+  const [pledgeHint, setPledgeHint] = useState<{ id: string; msg: string } | null>(null);
   const post = (fn: () => Promise<GameResult>, label: string) => { if (token) onAction(fn, label); };
   const myPledge = (r: Rally) => r.pledges.find((p) => p.colonyId === me);
   const canCall = isOfficer;
@@ -462,22 +485,32 @@ function RallyBoard({ now, me, isOfficer, rallies, token, onAction }: {
     <div>
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Rally board</h4>
       {canCall && (
-        <div className="mb-3 grid gap-2 rounded-lg border border-line bg-surf-1 p-3 sm:grid-cols-[1fr_1fr_auto_auto]">
-          <input className="rounded-lg border border-line bg-surf-2 px-3 py-1.5 text-sm text-text-1" placeholder="Rally name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} aria-label="Rally name" />
-          <input className="rounded-lg border border-line bg-surf-2 px-3 py-1.5 text-sm text-text-1" placeholder="Target (Chorus site)" value={target} onChange={(e) => setTarget(e.target.value)} maxLength={80} aria-label="Rally target" />
-          <select className="rounded-lg border border-line bg-surf-2 px-2 py-1.5 text-sm text-text-1" value={leadMin} onChange={(e) => setLeadMin(Number(e.target.value))} aria-label="Muster time">
-            {[30, 60, 180, 360, 720, 1440].map((m) => <option key={m} value={m}>{m >= 60 ? `${m / 60}h` : `${m}m`} muster</option>)}
-          </select>
-          <button
-            className="rounded-lg bg-acc px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
-            disabled={name.trim().length < 3 || !target.trim()}
-            onClick={() => {
-              post(() => rallyCreateFn({ data: { token: token!, name: name.trim(), targetKind: "chorus-site", targetLabel: target.trim(), zoneId: `chorus-${Date.now()}`, launchAt: Date.now() + leadMin * 60000 } }), "rally");
-              setName(""); setTarget("");
-            }}
-          >
-            Call rally
-          </button>
+        <div className="mb-3">
+          <div className="grid gap-2 rounded-lg border border-line bg-surf-1 p-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+            <input className="rounded-lg border border-line bg-surf-2 px-3 py-1.5 text-sm text-text-1" placeholder="Rally name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} aria-label="Rally name" />
+            <input className="rounded-lg border border-line bg-surf-2 px-3 py-1.5 text-sm text-text-1" placeholder="Target (Chorus site)" value={target} onChange={(e) => setTarget(e.target.value)} maxLength={80} aria-label="Rally target" />
+            <select className="rounded-lg border border-line bg-surf-2 px-2 py-1.5 text-sm text-text-1" value={leadMin} onChange={(e) => setLeadMin(Number(e.target.value))} aria-label="Muster time">
+              {[30, 60, 180, 360, 720, 1440].map((m) => <option key={m} value={m}>{m >= 60 ? `${m / 60}h` : `${m}m`} muster</option>)}
+            </select>
+            <button
+              className="rounded-lg bg-acc px-4 py-1.5 text-sm font-semibold text-white"
+              onClick={() => {
+                const missing: string[] = [];
+                if (name.trim().length < 3) missing.push(t("alliance.hintRallyName", "Rally needs a name (3+ characters)."));
+                if (!target.trim()) missing.push(t("alliance.hintRallyTarget", "Pick a target for the rally."));
+                if (missing.length > 0) {
+                  setHint(missing.join(" "));
+                  return;
+                }
+                setHint(null);
+                post(() => rallyCreateFn({ data: { token: token!, name: name.trim(), targetKind: "chorus-site", targetLabel: target.trim(), zoneId: `chorus-${Date.now()}`, launchAt: Date.now() + leadMin * 60000 } }), "rally");
+                setName(""); setTarget("");
+              }}
+            >
+              Call rally
+            </button>
+          </div>
+          {hint && <p className="mt-1 text-xs text-amber-200">{hint}</p>}
         </div>
       )}
       {rallies.length === 0 && <p className="text-xs text-text-2">No rallies called. The board is quiet — for now.</p>}
@@ -525,12 +558,19 @@ function RallyBoard({ now, me, isOfficer, rallies, token, onAction }: {
                         aria-label={`Troops to pledge to ${r.name}`}
                       />
                       <button
-                        className="rounded bg-acc px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
-                        disabled={!(Number(pledgeAmt[r.id]) > 0)}
-                        onClick={() => post(() => rallyPledgeFn({ data: { token: token!, rallyId: r.id, troops: Math.trunc(Number(pledgeAmt[r.id])) } }), "pledge")}
+                        className="rounded bg-acc px-3 py-1 text-[11px] font-semibold text-white"
+                        onClick={() => {
+                          if (!(Number(pledgeAmt[r.id]) > 0)) {
+                            setPledgeHint({ id: r.id, msg: t("alliance.hintPledgeAmt", "Enter how many troops to pledge.") });
+                            return;
+                          }
+                          setPledgeHint(null);
+                          post(() => rallyPledgeFn({ data: { token: token!, rallyId: r.id, troops: Math.trunc(Number(pledgeAmt[r.id])) } }), "pledge");
+                        }}
                       >
                         Pledge (locks now)
                       </button>
+                      {pledgeHint?.id === r.id && <p className="w-full text-xs text-amber-200">{pledgeHint.msg}</p>}
                     </>
                   )}
                   {(isCaller || isOfficer) && !r.plan && (
@@ -574,8 +614,10 @@ function RallyBoard({ now, me, isOfficer, rallies, token, onAction }: {
 function Reinforcements({ state, me, alliance, token, onAction }: {
   state: GameState; me: string; alliance: Alliance; token?: string; onAction: Act;
 }) {
+  const t = useT();
   const [toId, setToId] = useState("");
   const [troops, setTroops] = useState("");
+  const [hint, setHint] = useState<string | null>(null);
   const post = (fn: () => Promise<GameResult>, label: string) => { if (token) onAction(fn, label); };
   const all = state.reinforcements ?? [];
   // Stationed guests live on the HOST's save as mirrors (the sender's
@@ -615,23 +657,33 @@ function Reinforcements({ state, me, alliance, token, onAction }: {
         </div>
       )}
       {mates.length > 0 && (
-        <div className="flex gap-2">
-          <select className="flex-1 rounded-lg border border-line bg-surf-1 px-3 py-1.5 text-sm text-text-1" value={toId} onChange={(e) => setToId(e.target.value)} aria-label="Ally to reinforce">
-            <option value="">Reinforce an ally…</option>
-            {mates.map((m) => <option key={m.colonyId} value={m.colonyId}>{m.colonyName}</option>)}
-          </select>
-          <input className="w-24 rounded-lg border border-line bg-surf-1 px-2 py-1.5 text-sm text-text-1" type="number" min={1} max={spare} placeholder={`max ${spare}`} value={troops} onChange={(e) => setTroops(e.target.value)} aria-label="Troops to send" />
-          <button
-            className="rounded-lg bg-acc px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
-            disabled={!toId || !(Number(troops) > 0)}
-            onClick={() => {
-              const m = mates.find((x) => x.colonyId === toId)!;
-              post(() => reinforceSendFn({ data: { token: token!, toId: m.colonyId, toName: m.colonyName, troops: Math.trunc(Number(troops)) } }), "reinforce");
-              setTroops("");
-            }}
-          >
-            Send
-          </button>
+        <div>
+          <div className="flex gap-2">
+            <select className="flex-1 rounded-lg border border-line bg-surf-1 px-3 py-1.5 text-sm text-text-1" value={toId} onChange={(e) => setToId(e.target.value)} aria-label="Ally to reinforce">
+              <option value="">Reinforce an ally…</option>
+              {mates.map((m) => <option key={m.colonyId} value={m.colonyId}>{m.colonyName}</option>)}
+            </select>
+            <input className="w-24 rounded-lg border border-line bg-surf-1 px-2 py-1.5 text-sm text-text-1" type="number" min={1} max={spare} placeholder={`max ${spare}`} value={troops} onChange={(e) => setTroops(e.target.value)} aria-label="Troops to send" />
+            <button
+              className="rounded-lg bg-acc px-3 py-1.5 text-xs font-semibold text-white"
+              onClick={() => {
+                const missing: string[] = [];
+                if (!toId) missing.push(t("alliance.hintSendTo", "Choose who to send troops to."));
+                if (!(Number(troops) > 0)) missing.push(t("alliance.hintSendAmt", "Enter how many troops to send."));
+                if (missing.length > 0) {
+                  setHint(missing.join(" "));
+                  return;
+                }
+                setHint(null);
+                const m = mates.find((x) => x.colonyId === toId)!;
+                post(() => reinforceSendFn({ data: { token: token!, toId: m.colonyId, toName: m.colonyName, troops: Math.trunc(Number(troops)) } }), "reinforce");
+                setTroops("");
+              }}
+            >
+              Send
+            </button>
+          </div>
+          {hint && <p className="mt-1 text-xs text-amber-200">{hint}</p>}
         </div>
       )}
       {mirrors.length === 0 && abroad.length === 0 && mates.length === 0 && (

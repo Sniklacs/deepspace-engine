@@ -167,6 +167,7 @@ function ChallengeForm({ state, token, directory, onDone }: {
   const [stakes, setStakes] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
 
   const opp = directory.find((c) => c.id === oppId) ?? null;
   const troopsN = Math.max(0, Math.trunc(Number(troops) || 0));
@@ -266,13 +267,25 @@ function ChallengeForm({ state, token, directory, onDone }: {
       {error && <p className="text-xs text-red-400" role="alert">{error}</p>}
       <button
         type="button"
-        disabled={!opp || (!troopsN && heroIds.length === 0) || busy}
-        onClick={submit}
+        onClick={() => {
+          if (busy) return;
+          if (!opp) {
+            setHint(t("arena.hintNoOpponent", "Pick an opponent first — choose who you're challenging."));
+            return;
+          }
+          if (!troopsN && heroIds.length === 0) {
+            setHint(t("arena.hintNoForce", "Bring troops or heroes — a challenge needs a force to fight with."));
+            return;
+          }
+          setHint(null);
+          submit();
+        }}
         data-testid="arena-issue"
-        className="w-full rounded-lg bg-ember px-4 py-2.5 text-sm font-bold text-black hover:brightness-110 disabled:opacity-40"
+        className="w-full rounded-lg bg-ember px-4 py-2.5 text-sm font-bold text-black hover:brightness-110"
       >
         {busy ? t("arena.issuing", "Sending…") : t("arena.issue", "Issue the challenge")}
       </button>
+      {hint && <p className="text-xs text-amber-200">{hint}</p>}
       <p className="text-[11px] text-text-3">
         {t("arena.lockNote", "Your troops lock the moment you challenge — they can't be spent while the proposal stands. Decline or expiry frees them.")}
       </p>
@@ -294,6 +307,7 @@ function IncomingCard({ c, state, token, onAction }: {
   const [stakes, setStakes] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
   const troopsN = Math.max(0, Math.trunc(Number(troops) || 0));
   const effective: ArenaMode = c.challengerStakes && stakes ? "stakes" : "bloodless";
 
@@ -390,9 +404,18 @@ function IncomingCard({ c, state, token, onAction }: {
           {error && <p className="text-xs text-red-400" role="alert">{error}</p>}
           <div className="flex gap-2">
             <button
-              type="button" disabled={(!troopsN && heroIds.length === 0) || busy} onClick={accept}
+              type="button"
+              onClick={() => {
+                if (busy) return;
+                if (!troopsN && heroIds.length === 0) {
+                  setHint(t("arena.hintNoForce", "Bring troops or heroes — a challenge needs a force to fight with."));
+                  return;
+                }
+                setHint(null);
+                accept();
+              }}
               data-testid="arena-accept-confirm"
-              className="flex-1 rounded-lg bg-ember px-3 py-2 text-sm font-bold text-black hover:brightness-110 disabled:opacity-40"
+              className="flex-1 rounded-lg bg-ember px-3 py-2 text-sm font-bold text-black hover:brightness-110"
             >
               {busy ? t("arena.accepting", "Marching…") : effective === "stakes"
                 ? t("arena.acceptStakes", "Accept — TO BATTLE, troops at risk")
@@ -405,6 +428,7 @@ function IncomingCard({ c, state, token, onAction }: {
               {t("arena.back", "Back")}
             </button>
           </div>
+          {hint && <p className="text-xs text-amber-200">{hint}</p>}
         </div>
       )}
     </div>

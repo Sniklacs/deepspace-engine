@@ -433,6 +433,7 @@ export function StorefrontOverlay({
    * further taps are ignored — no double-submits, no dead-feeling silence.
    */
   const [buyingSku, setBuyingSku] = useState<string | null>(null);
+  const [premiumHint, setPremiumHint] = useState<string | null>(null);
   /**
    * The last checkout failure, kept VISIBLE in the sheet until dismissed.
    * The buy flow used to fail into a toast that was easy to miss — the player
@@ -604,15 +605,17 @@ export function StorefrontOverlay({
               {t("store.premiumOwned", "PREMIUM TRACK OWNED")}
             </span>
           ) : (
-            <button
-              type="button"
-              disabled
-              aria-disabled="true"
-              className="storef-disabled mt-2 flex w-full items-center justify-center gap-1.5 rounded-md bg-purity px-3 py-2.5 text-sm font-bold text-[#11161d]"
-            >
-              <Icon name="lock" size={14} className="shrink-0" />
-              {t("store.premiumTrack", "Premium Track · 750 Votives")}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setPremiumHint(t("store.premiumHint", "Premium Track isn't available yet — it unlocks when Season 0 begins. Your free track progress carries over."))}
+                className="storef-disabled mt-2 flex w-full items-center justify-center gap-1.5 rounded-md bg-purity px-3 py-2.5 text-sm font-bold text-[#11161d]"
+              >
+                <Icon name="lock" size={14} className="shrink-0" />
+                {t("store.premiumTrack", "Premium Track · 750 Votives")}
+              </button>
+              {premiumHint && <p className="mt-1 text-xs text-amber-200">{premiumHint}</p>}
+            </>
           )}
           <div className="mt-3">
             <PassRail state={state} />
