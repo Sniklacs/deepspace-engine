@@ -1087,6 +1087,7 @@ function SatelliteSheetSection({ state, now, nodeId, onOpenLab, onBeginResearch 
   onBeginResearch?: (techId: string, leaderId: string) => void;
 }) {
   const t = useT();
+  const [hint, setHint] = useState<"codices" | "leaders" | null>(null);
   const stage = satelliteStage(state, nodeId);
   const intel = satelliteIntelFor(state, nodeId);
   const next = stage < 3 ? satelliteTechFor(nodeId, (stage + 1) as 1 | 2 | 3) : null;
@@ -1141,31 +1142,33 @@ function SatelliteSheetSection({ state, now, nodeId, onOpenLab, onBeginResearch 
       )}
       {canUpgradeHere && !job && (
         <div className="mt-1">
-          {state.codices < next!.codicesCost ? (
-            <button
-              disabled
-              className="w-full cursor-not-allowed rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-gray-400"
-              title={t("circuit.satNeedCodicesHint", "Earn Codices through clean recoveries and deeds.")}
-            >
-              {t("circuit.satNeedCodicesButton", "Need {cost} 📜 — you have {have}", { cost: next!.codicesCost, have: state.codices })}
-            </button>
-          ) : freeLeaders.length === 0 ? (
-            <button
-              disabled
-              className="w-full cursor-not-allowed rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-gray-400"
-              title={t("circuit.satNoFreeLeaderHint", "Free a Leader up in the Lab to appoint one here.")}
-            >
-              {t("circuit.satNoFreeLeaderButton", "No free Leader — free one up in the Lab")}
-            </button>
-          ) : (
-            <button
-              onClick={() => { sound.click(); onBeginResearch!(techId!, freeLeaders[0].id); }}
-              className="w-full rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20"
-            >
-              {stage === 0
-                ? t("circuit.satUpgradeBring", "🛰️ Appoint {name} — bring it online ({cost} 📜)", { name: freeLeaders[0].name, cost: next!.codicesCost })
-                : t("circuit.satUpgradeClimb", "🛰️ Appoint {name} — upgrade to stage {stage} ({cost} 📜)", { name: freeLeaders[0].name, stage: stage + 1, cost: next!.codicesCost })}
-            </button>
+          <button
+            onClick={() => {
+              sound.click();
+              if (state.codices < next!.codicesCost) {
+                setHint("codices");
+              } else if (freeLeaders.length === 0) {
+                setHint("leaders");
+              } else {
+                setHint(null);
+                onBeginResearch!(techId!, freeLeaders[0].id);
+              }
+            }}
+            className="w-full rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/20"
+          >
+            {stage === 0
+              ? t("circuit.satUpgradeBring", "🛰️ Appoint {name} — bring it online ({cost} 📜)", { name: freeLeaders[0]?.name ?? t("circuit.satALeader", "a Leader"), cost: next!.codicesCost })
+              : t("circuit.satUpgradeClimb", "🛰️ Appoint {name} — upgrade to stage {stage} ({cost} 📜)", { name: freeLeaders[0]?.name ?? t("circuit.satALeader", "a Leader"), stage: stage + 1, cost: next!.codicesCost })}
+          </button>
+          {hint === "codices" && (
+            <p className="mt-1 text-[11px] text-amber-200">
+              {t("circuit.hintCodices", "Out of Codices — you need {cost} 📜 but have {have}. Earn more through clean recoveries and deeds.", { cost: next!.codicesCost, have: state.codices })}
+            </p>
+          )}
+          {hint === "leaders" && (
+            <p className="mt-1 text-[11px] text-amber-200">
+              {t("circuit.hintLeaders", "No free Leader right now — free one up in the Lab, then appoint them here.")}
+            </p>
           )}
         </div>
       )}
