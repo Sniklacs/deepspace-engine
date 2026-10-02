@@ -21,7 +21,6 @@ const log = (m) => { document.getElementById("log").textContent += m + "\n"; };
 const norm = (name) => name.replace(/([^:])\/{2,}/g, "$1/");
 const FILES = [
   "config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json",
-  "special_tokens_map.json", "sentencepiece.bpe.model",
   "onnx/encoder_model_quantized.onnx", "onnx/decoder_model_merged_quantized.onnx",
 ];
 try {
