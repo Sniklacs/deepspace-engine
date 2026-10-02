@@ -63,7 +63,7 @@ import type { IconName } from "./icons";
 import { useT } from "./i18n/I18n";
 import TutorialCueLayer from "./TutorialCueLayer";
 import AlliancePanel from "./AlliancePanel";
-import ArenaPanel, { ArenaModeBanner } from "./ArenaPanel";
+import { ArenaModeBanner } from "./ArenaPanel";
 import {
   TUTORIAL_CONFIG,
   activeCue,
@@ -1250,7 +1250,6 @@ export default function BattlesTab({ state, now, token, onDecision, tutorial, mu
         </div>
       </div>
       {onAction && <AlliancePanel state={state} now={now} token={token} onAction={onAction as (fn: () => Promise<GameResult>, label: string) => void} />}
-      {onAction && <ArenaPanel state={state} token={token} onAction={onAction} />}
       <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorial ?? true} muted={muted} />
       <div className="rounded-xl border border-line bg-surf-2/40 p-4">
         <h3 className="mb-2 text-sm font-semibold text-text-1">{t("battles.battleLogTitle", "Battle log")}</h3>

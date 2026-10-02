@@ -63,6 +63,7 @@ import { ForgedRack } from "../components/ForgeViews";
 import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
 import BattlesTab from "../components/BattlesTab";
+import ArenaPanel from "../components/ArenaPanel";
 import LoadoutTab from "../components/LoadoutTab";
 import { HeroCard, weaponThumbUrl } from "../components/HeroCard";
 import { diffResolvedEventsT } from "../game/report-events";
@@ -622,6 +623,14 @@ function PlayPage() {
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onCraft={(k, n) => act(() => craftFn({ data: { token: token!, kind: k, count: n } }), "success")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} busy={busy} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} onForgeMelt={(itemId) => act(() => forgeMeltFn({ data: { token: token!, itemId } }), "success")} />}
       {tab === "loadout" && <LoadoutTab state={state} busy={busy} onEquip={(itemId, bearer, slot) => act(() => equipForgeItemFn({ data: { token: token!, itemId, bearer, slot } }), "success")} onUnequip={(itemId) => act(() => unequipForgeItemFn({ data: { token: token!, itemId } }), "success")} />}
+      {/* The arena is a permanent fixture — its own tab, not war-gated (owner 2026-10-01). */}
+      {tab === "arena" && (
+        <ArenaPanel
+          state={state}
+          token={token ?? undefined}
+          onAction={(fn, label) => act(fn, label)}
+        />
+      )}
       {tab === "battles" && (
         <BattlesTab
           state={state}
