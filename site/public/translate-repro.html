@@ -20,10 +20,24 @@ env.allowRemoteModels = true;
 const log = (m) => { document.getElementById("log").textContent += m + "\n"; };
 try {
   const device = new URLSearchParams(location.search).get("device") || "wasm";
-  log("building pipeline device=" + device);
-  const pipe = await pipeline("translation", "unbound/m2m100-418m-q8", { dtype: "q8", device });
+  const redispose = device === "wasm-redispose";
+  const dev = redispose ? "wasm" : device;
+  log("building pipeline device=" + dev + (redispose ? " (dispose + rebuild test)" : ""));
+  let pipe = await pipeline("translation", "unbound/m2m100-418m-q8", { dtype: "q8", device: dev });
   log("built ok");
-  const out = await pipe("¡Hola Hans! Soy Gibbletits. ¿Puedes ver el botón de traducir en este mensaje?", { src_lang: "es", tgt_lang: "en", max_new_tokens: 256 });
+  const line = "¡Hola Hans! Soy Gibbletits. ¿Puedes ver el botón de traducir en este mensaje?";
+  const opts = { src_lang: "es", tgt_lang: "en", max_new_tokens: 256 };
+  if (redispose) {
+    const out1 = await pipe(line, opts);
+    log("first infer RESULT: " + JSON.stringify(Array.isArray(out1) ? out1[0]?.translation_text : out1?.translation_text));
+    log("disposing...");
+    await pipe.dispose();
+    log("disposed ok");
+    log("rebuilding pipeline device=wasm");
+    pipe = await pipeline("translation", "unbound/m2m100-418m-q8", { dtype: "q8", device: "wasm" });
+    log("rebuilt ok");
+  }
+  const out = await pipe(line, opts);
   const text = Array.isArray(out) ? out[0]?.translation_text : out?.translation_text;
   log("RESULT: " + JSON.stringify(text));
 } catch (e) {
