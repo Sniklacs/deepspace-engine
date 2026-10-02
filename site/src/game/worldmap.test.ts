@@ -179,3 +179,31 @@ describe("emptyWorldMap", () => {
     expect(wm.seq).toBe(1);
   });
 });
+
+describe("scout probe build", () => {
+  test("SCOUT_PROBE_COST_SUPPLIES is 500", async () => {
+    const { SCOUT_PROBE_COST_SUPPLIES } = await import("./worldmap");
+    expect(SCOUT_PROBE_COST_SUPPLIES).toBe(500);
+  });
+  test("scoutTechResearched starts false", () => {
+    const wm = emptyWorldMap(NOW);
+    expect(wm.scoutTechResearched).toBe(false);
+  });
+});
+
+describe("ships", () => {
+  test("shipNeedsAlliance: only scout is solo-buildable", async () => {
+    const { shipNeedsAlliance } = await import("./worldmap");
+    expect(shipNeedsAlliance("scout")).toBe(false);
+    expect(shipNeedsAlliance("frigate")).toBe(true);
+    expect(shipNeedsAlliance("bulwark")).toBe(true);
+    expect(shipNeedsAlliance("vanguard")).toBe(true);
+    expect(shipNeedsAlliance("fatcat")).toBe(true);
+    expect(shipNeedsAlliance("herald")).toBe(true);
+  });
+  test("shipName returns race variant", async () => {
+    const { shipName } = await import("./worldmap");
+    expect(shipName("draconian", "bulwark")).toBe("Ashen Bulwark");
+    expect(shipName("unbound", "fatcat")).toBe("Cornucopia");
+  });
+});

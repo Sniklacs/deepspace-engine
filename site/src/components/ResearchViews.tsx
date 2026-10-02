@@ -30,7 +30,7 @@ import { specText } from "../game/hero-xp";
 // day-scale keyed formatter, `fmtDuration(t, ms)` in `game/i18n/format.ts`,
 // rendered inside `<Bdi dir="ltr">` at every call site.
 
-export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameState; now: number; onBeginResearch: (techId: string, leaderId: string) => void }) {
+export function ResearchTreeView({ state, now, onBeginResearch, onBuildProbe, onLaunchProbe, onCollectProbe }: { state: GameState; now: number; onBeginResearch: (techId: string, leaderId: string) => void; onBuildProbe: () => void; onLaunchProbe: (serverId: string) => void; onCollectProbe: (probeId: string) => void }) {
   const t = useT();
   const freeLeaders = state.leaders.filter((l) => l.status === "active" && !l.assignment);
   return (
@@ -134,7 +134,7 @@ export function ResearchTreeView({ state, now, onBeginResearch }: { state: GameS
             {t("rviews.scoutProbeIntro", "Research once to unlock. Then build probes (500 supplies each, one-time use) and launch them at planets. After 6 hours they return with a report: player count vs colony count — odds, not guarantees.")}
           </p>
           <div className="mt-2 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-            <ScoutProbeCard state={state} now={now} freeLeaders={freeLeaders} onBeginResearch={onBeginResearch} />
+            <ScoutProbeCard state={state} now={now} freeLeaders={freeLeaders} onBeginResearch={onBeginResearch} onBuildProbe={onBuildProbe} onLaunchProbe={onLaunchProbe} onCollectProbe={onCollectProbe} />
           </div>
         </div>
         {state.revelations.length > 0 && (
@@ -699,12 +699,14 @@ export type { ReactNode };
 /** Scout probe research + building + launch UI (owner 2026-10-02).
  *  Follows the tap-to-explain pattern: every button always tappable, tap shows
  *  inline hint naming the missing requirement. */
-export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch }: {
+export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch, onBuildProbe, onLaunchProbe, onCollectProbe }: {
   state: GameState; now: number;
   freeLeaders: Leader[]; onBeginResearch: (techId: string, leaderId: string) => void;
+  onBuildProbe: () => void; onLaunchProbe: (serverId: string) => void; onCollectProbe: (probeId: string) => void;
 }) {
   const t = useT();
   const [hint, setHint] = useState<string | null>(null);
+  const [serverId, setServerId] = useState("");
   const wm = state.worldMap;
   const researched = wm?.scoutTechResearched ?? false;
   const techId = "scout-probes";
@@ -769,21 +771,130 @@ export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch }: {
     );
   }
 
-  // Researched — show probe management (build/launch/status simplified for v1)
+  // Researched — full probe management: build, launch, in-flight, reports
+  const probes = wm?.probes ?? 0;
+  const inflight = wm?.inflight ?? [];
+  const reports = wm ? Object.values(wm.reports) : [];
+  const canBuild = state.resources.supplies >= 500;
   return (
     <div className="rounded-lg border border-white/10 bg-black/30 p-2.5">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-white">🔭 {t("rviews.scoutProbe", "Scout Probes")}</span>
         <span className="text-[10px] text-emerald-200">{t("rviews.researched", "Researched")}</span>
       </div>
-      <p className="mt-1 text-[11px] text-gray-400">
-        {t("rviews.probesHave", "Probes ready:")} <b className="text-white">{wm?.probes ?? 0}</b>
-        {" · "}
-        {t("rviews.probesFlying", "In flight:")} <b className="text-white">{wm?.inflight.length ?? 0}</b>
-      </p>
-      <p className="mt-1 text-[10px] text-gray-500">
-        {t("rviews.probeBuildNote", "Build probes (500 supplies each), launch at a planet, collect the report after 6 hours. Full launch UI coming soon.")}
-      </p>
+
+      {/* Inventory + build */}
+      <div className="mt-2 flex items-center justify-between">
+        <p className="text-[11px] text-gray-400">
+          {t("rviews.probesHave", "Probes ready:")} <b className="text-white">{probes}</b>
+        </p>
+        <button
+          onClick={() => {
+            sound.click();
+            if (!canBuild) {
+              setHint("supplies");
+            } else {
+              setHint(null);
+              onBuildProbe();
+            }
+          }}
+          className="rounded border border-cyan-400/30 bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-400/25"
+        >
+          {t("rviews.buildProbe", "Build probe (500 supplies)")}
+        </button>
+      </div>
+      {hint === "supplies" && (
+        <p className="mt-1 text-[10px] text-amber-200">
+          {t("rviews.needSupplies", "Needs 500 supplies. You have {n}.", { n: Math.floor(state.resources.supplies) })}
+        </p>
+      )}
+
+      {/* Launch */}
+      <div className="mt-2">
+        <p className="text-[11px] font-semibold text-gray-300">{t("rviews.launchProbe", "Launch probe")}</p>
+        <div className="mt-1 flex gap-1">
+          <input
+            value={serverId}
+            onChange={(e) => setServerId(e.target.value)}
+            placeholder={t("rviews.serverIdPlaceholder", "Target planet / server")}
+            className="min-w-0 flex-1 rounded border border-white/15 bg-black/40 px-2 py-1 text-[11px] text-white placeholder:text-gray-500"
+          />
+          <button
+            onClick={() => {
+              sound.click();
+              if (probes < 1) {
+                setHint("noprobe");
+              } else if (!serverId.trim()) {
+                setHint("noserver");
+              } else {
+                setHint(null);
+                onLaunchProbe(serverId.trim());
+                setServerId("");
+              }
+            }}
+            className="shrink-0 rounded border border-cyan-400/30 bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-400/25"
+          >
+            {t("rviews.launch", "Launch")}
+          </button>
+        </div>
+        {hint === "noprobe" && (
+          <p className="mt-1 text-[10px] text-amber-200">{t("rviews.needProbe", "Build a probe first.")}</p>
+        )}
+        {hint === "noserver" && (
+          <p className="mt-1 text-[10px] text-amber-200">{t("rviews.needServer", "Name the target planet first.")}</p>
+        )}
+      </div>
+
+      {/* In-flight */}
+      {inflight.length > 0 && (
+        <div className="mt-2">
+          <p className="text-[11px] font-semibold text-gray-300">{t("rviews.inflight", "In flight ({n})", { n: inflight.length })}</p>
+          <div className="mt-1 space-y-1">
+            {inflight.map((p) => {
+              const ready = p.status === "returned" || now >= p.returnsAt;
+              const msLeft = Math.max(0, p.returnsAt - now);
+              return (
+                <div key={p.id} className="flex items-center justify-between rounded bg-white/5 px-2 py-1">
+                  <span className="text-[11px] text-gray-300">
+                    {p.targetServerId} · {ready ? (
+                      <span className="text-emerald-300">{t("rviews.probeReady", "Ready")}</span>
+                    ) : (
+                      <Bdi dir="ltr">{fmtDuration(t, msLeft)}</Bdi>
+                    )}
+                  </span>
+                  {ready && p.status === "inflight" && (
+                    <button
+                      onClick={() => { sound.click(); onCollectProbe(p.id); }}
+                      className="rounded border border-emerald-400/30 bg-emerald-400/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 hover:bg-emerald-400/25"
+                    >
+                      {t("rviews.collect", "Collect")}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Reports */}
+      {reports.length > 0 && (
+        <div className="mt-2">
+          <p className="text-[11px] font-semibold text-gray-300">{t("rviews.reports", "Reports ({n})", { n: reports.length })}</p>
+          <div className="mt-1 space-y-1">
+            {reports.map((r) => (
+              <div key={r.id} className="rounded bg-white/5 px-2 py-1 text-[11px] text-gray-300">
+                <b className="text-white">{r.serverId}</b>
+                {": "}
+                {t("rviews.reportLine", "{players} players, {colonies} colonies ({abandoned} abandoned)", {
+                  players: r.playerCount, colonies: r.colonyCount, abandoned: r.abandonedCount,
+                })}
+              </div>
+            ))}
+          </div>
+          <p className="mt-1 text-[10px] text-gray-500">{t("rviews.reportDisclaimer", "Odds, not guarantees — a probe never says whether loot remains.")}</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   getState, createGameFn, switchGameFn, resetGameFn, deleteGameFn, trashAccountFn,
   launchFn, studyFn, deployFn, purifyFn, craftFn, beginResearchFn, chooseRevelationFn,
+  buildProbeFn, launchProbeFn, collectProbeFn,
   allocateLeaderPointFn, chooseSpecializationFn,
   signupFn, loginFn, logoutFn, meFn,
   submitFeedbackFn, listMyFeedbackFn, dismissNoticeFn,
@@ -62,6 +63,7 @@ import PageBanner from "../components/PageBanner";
 import { ForgedRack } from "../components/ForgeViews";
 import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
+import WorldMapView from "../components/WorldMapView";
 import BattlesTab from "../components/BattlesTab";
 import ArenaPanel from "../components/ArenaPanel";
 import LoadoutTab from "../components/LoadoutTab";
@@ -633,6 +635,7 @@ function PlayPage() {
           onAction={(fn, label) => act(fn, label)}
         />
       )}
+      {tab === "world" && <WorldMapView state={state} now={now} />}
       {tab === "battles" && (
         <BattlesTab
           state={state}
@@ -643,7 +646,7 @@ function PlayPage() {
           muted={muted}
         />
       )}
-      {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} />}
+      {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} onBuildProbe={() => act(() => buildProbeFn({ data: { token: token! } }), "buildProbe")} onLaunchProbe={(sid) => act(() => launchProbeFn({ data: { token: token!, serverId: sid } }), "launchProbe")} onCollectProbe={(pid) => act(() => collectProbeFn({ data: { token: token!, probeId: pid } }), "collectProbe")} />}
       </AppShell>
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </>
@@ -1792,7 +1795,7 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
 
 /* ---------------- Lab tab ---------------- */
 
-function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoint, onChooseSpec, onChooseRevelation }: { state: GameState; now: number; onStudy: (k: "ember" | "chipset") => void; onDeploy: (d: DomainId) => void; onBeginResearch: (techId: string, leaderId: string) => void; onAllocatePoint: (leaderId: string, attr: "research" | "economy" | "combat" | "engineering") => void; onChooseSpec: (leaderId: string, path: "scholar" | "marshal" | "quartermaster") => void; onChooseRevelation: (choice: "sealed" | "open") => void }) {
+function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoint, onChooseSpec, onChooseRevelation, onBuildProbe, onLaunchProbe, onCollectProbe }: { state: GameState; now: number; onStudy: (k: "ember" | "chipset") => void; onDeploy: (d: DomainId) => void; onBeginResearch: (techId: string, leaderId: string) => void; onAllocatePoint: (leaderId: string, attr: "research" | "economy" | "combat" | "engineering") => void; onChooseSpec: (leaderId: string, path: "scholar" | "marshal" | "quartermaster") => void; onChooseRevelation: (choice: "sealed" | "open") => void; onBuildProbe: () => void; onLaunchProbe: (serverId: string) => void; onCollectProbe: (probeId: string) => void }) {
   const t = useT();
   const studying = engineHelpers.studying(state);
   const busy = studying.length >= state.scientists;
@@ -1825,7 +1828,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
         <Tooltip content={tipT(t, "lab", "scientists", LAB_TIPS.scientists)}><span className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-gray-300">{t("play.lab.scientists", "Scientists: {n}", { n: state.scientists })} <span className="text-text-3">{t("play.lab.scientistsBusy", "({busy} busy / {cap} cap)", { busy: studying.length, cap: engineHelpers.scientistCap(state) })}</span></span></Tooltip>
       </div>
 
-      {view === "research" && <ResearchTreeView state={state} now={now} onBeginResearch={onBeginResearch} />}
+      {view === "research" && <ResearchTreeView state={state} now={now} onBeginResearch={onBeginResearch} onBuildProbe={onBuildProbe} onLaunchProbe={onLaunchProbe} onCollectProbe={onCollectProbe} />}
       {engineHelpers.hasRevelation(state, "rv3") && !state.revelationAnswered && <RevelationChoiceModal onPick={onChooseRevelation} />}
       {view === "leaders" && <LeadersView state={state} now={now} onAllocatePoint={onAllocatePoint} onChooseSpec={onChooseSpec} />}
 

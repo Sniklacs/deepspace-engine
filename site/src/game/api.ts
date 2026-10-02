@@ -808,6 +808,43 @@ const chooseRevelationFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
+// Scout probes: build (supplies), launch at a server, collect the report.
+const buildProbeFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.buildScoutProbe(st, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const launchProbeFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), serverId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.launchScoutProbe(st, data.serverId, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const collectProbeFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), probeId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.collectScoutProbe(st, data.probeId, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
 // Leader progression: spend one earned attribute point (XP level-up) into one
 // attribute of one Leader. Purely earned — never purchasable.
 const allocateLeaderPointFn = createServerFn({ method: "POST" }).validator(
@@ -2194,6 +2231,9 @@ export {
   unequipForgeItemFn,
   beginResearchFn,
   chooseRevelationFn,
+  buildProbeFn,
+  launchProbeFn,
+  collectProbeFn,
   allocateLeaderPointFn,
   chooseSpecializationFn,
   signupFn,
