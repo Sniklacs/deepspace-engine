@@ -37,7 +37,7 @@ export interface XsollaCatalogRow {
 /** The Xsolla catalogue the game RECOGNISES: seven sellable SKUs plus the six
  *  time tokens, whose rows are recognised but not yet offered (see above).
  *
- *  SEVEN SELLABLE: votive-small $4.99 · votive-steady $9.99 · votive-grand
+ *  SEVEN SELLABLE: Votive-small $4.99 · votive-steady $9.99 · votive-grand
  *           $19.99 · votive-circuit $39.99 · scavengers-kit $4.99 ·
  *           expeditionary-kit $9.99 · long-haul-cart $12.99
  *  SIX TOKENS (ids only, not offered): 30m $2.99 · 1h $3.99 · 8h $7.99 ·
@@ -45,7 +45,7 @@ export interface XsollaCatalogRow {
  */
 export const XSOLLA_CATALOG: XsollaCatalogRow[] = [
   // ---- Votive packs (Cradle Ledger, monetization.ts §2.3) ----
-  { skuId: "votive-small", amountUsd: 4.99, enabled: true },
+  { skuId: "Votive-small", amountUsd: 4.99, enabled: true },
   { skuId: "votive-steady", amountUsd: 9.99, enabled: true },
   { skuId: "votive-grand", amountUsd: 19.99, enabled: true },
   { skuId: "votive-circuit", amountUsd: 39.99, enabled: true },

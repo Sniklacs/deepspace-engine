@@ -268,7 +268,7 @@ export interface VotivePackDef {
   providerSkuId: string; // "" until payments are wired
 }
 export const VOTIVE_PACKS: VotivePackDef[] = [
-  { id: "votive-small", name: "Small Offering", votives: 550, bonus: 0, priceUsd: 4.99, providerSkuId: "" },
+  { id: "Votive-small", name: "Small Offering", votives: 550, bonus: 0, priceUsd: 4.99, providerSkuId: "" },
   { id: "votive-steady", name: "Steady Devotion", votives: 1200, bonus: 80, priceUsd: 9.99, providerSkuId: "" },
   { id: "votive-grand", name: "Grand Vow", votives: 3000, bonus: 300, priceUsd: 19.99, providerSkuId: "" },
   { id: "votive-circuit", name: "The Complete Circuit", votives: 6500, bonus: 800, priceUsd: 39.99, providerSkuId: "" },
