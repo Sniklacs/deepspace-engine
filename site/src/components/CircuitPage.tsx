@@ -1130,10 +1130,10 @@ function SatelliteSheetSection({ state, now, nodeId, onOpenLab, onBeginResearch 
           {t("circuit.satNextCost", "{codices} 📜 Codices, research time alone — no token can hasten the sky.", { codices: next.codicesCost })}
         </p>
       )}
-      {canUpgradeHere && job && leaderOnIt && (
+      {canUpgradeHere && job && (
         <>
           <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-            <span>🫂 {leaderName(t, leaderOnIt)}</span>
+            <span>🫂 {leaderOnIt ? leaderName(t, leaderOnIt) : t("circuit.satLeaderEnRoute", "Leader en route")}</span>
             <span><span dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now!))}</span> {t("circuit.satTimeLeft", "left")}</span>
           </div>
           <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-cyan-400" style={{ width: `${Math.min(100, ((now! - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
@@ -1164,6 +1164,9 @@ function SatelliteSheetSection({ state, now, nodeId, onOpenLab, onBeginResearch 
         >
           {t("circuit.satOpenLab", "🛰️ Research this satellite — opens right here")}
         </button>
+      )}
+      {stage >= 3 && (
+        <div className="mt-1 text-[11px] text-text-3">{t("circuit.satMaxed", "Stage 3 — fully awake. The sky sees everything here.")}</div>
       )}
     </div>
   );

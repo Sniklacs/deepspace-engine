@@ -1798,6 +1798,8 @@ export const en: Catalogue = {
   "circuit.satTimeLeft": "left",
   "circuit.satNeedCodices": "Need {n} 📜",
   "circuit.satNoFreeLeader": "No free Leader",
+  "circuit.satLeaderEnRoute": "Leader en route",
+  "circuit.satMaxed": "Stage 3 — fully awake. The sky sees everything here.",
   "circuit.satUpgradeBring": "🛰️ Appoint {name} — bring it online ({cost} 📜)",
   "circuit.satUpgradeClimb": "🛰️ Appoint {name} — upgrade to stage {stage} ({cost} 📜)",
   "circuit.satSanctioned": "Sanctioned land — no satellite watch. The sky does not need to look here.",
