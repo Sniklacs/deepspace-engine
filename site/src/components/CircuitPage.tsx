@@ -1142,9 +1142,21 @@ function SatelliteSheetSection({ state, now, nodeId, onOpenLab, onBeginResearch 
       {canUpgradeHere && !job && (
         <div className="mt-1">
           {state.codices < next!.codicesCost ? (
-            <div className="text-[11px] text-text-3">{t("circuit.satNeedCodices", "Need {n} 📜", { n: next!.codicesCost })}</div>
+            <button
+              disabled
+              className="w-full cursor-not-allowed rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-gray-400"
+              title={t("circuit.satNeedCodicesHint", "Earn Codices through clean recoveries and deeds.")}
+            >
+              {t("circuit.satNeedCodicesButton", "Need {cost} 📜 — you have {have}", { cost: next!.codicesCost, have: state.codices })}
+            </button>
           ) : freeLeaders.length === 0 ? (
-            <div className="text-[11px] text-text-3">{t("circuit.satNoFreeLeader", "No free Leader")}</div>
+            <button
+              disabled
+              className="w-full cursor-not-allowed rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-gray-400"
+              title={t("circuit.satNoFreeLeaderHint", "Free a Leader up in the Lab to appoint one here.")}
+            >
+              {t("circuit.satNoFreeLeaderButton", "No free Leader — free one up in the Lab")}
+            </button>
           ) : (
             <button
               onClick={() => { sound.click(); onBeginResearch!(techId!, freeLeaders[0].id); }}

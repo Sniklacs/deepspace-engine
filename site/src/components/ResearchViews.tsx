@@ -264,9 +264,21 @@ export function SatelliteResearchCard({ state, now, nodeId, nodeName, freeLeader
       {next && !job && (
         <div className="mt-2">
           {state.codices < next.codicesCost ? (
-            <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: next.codicesCost })}</div>
+            <button
+              disabled
+              className="w-full cursor-not-allowed rounded border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-semibold text-gray-400"
+              title={t("rviews.needCodicesHint", "Earn Codices through clean recoveries and deeds.")}
+            >
+              {t("rviews.needCodicesButton", "Need {cost} 📜 — you have {have}", { cost: next.codicesCost, have: state.codices })}
+            </button>
           ) : freeLeaders.length === 0 ? (
-            <div className="text-[11px] text-text-3">{t("rviews.noFreeLeader", "No free Leader")}</div>
+            <button
+              disabled
+              className="w-full cursor-not-allowed rounded border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-semibold text-gray-400"
+              title={t("rviews.noFreeLeaderHint", "Free a Leader up in the Lab to appoint one here.")}
+            >
+              {t("rviews.noFreeLeaderButton", "No free Leader — free one up in the Lab")}
+            </button>
           ) : (
             <button
               onClick={() => { sound.click(); onBeginResearch(techId!, freeLeaders[0].id); }}
