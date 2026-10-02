@@ -35,6 +35,7 @@ function status(over: Partial<TranslatorStatus> = {}): TranslatorStatus {
     available: false,
     realWeights: true,
     engineKind: null,
+    engineError: null,
     blocker: "the translator pack is not on this device yet",
     ...over,
   };

@@ -135,6 +135,8 @@ export interface TranslatorStatus {
   /** "weights" when the on-device pipeline answered */
   engineKind: "weights" | null;
   blocker: string | null;
+  /** the last inference failure, when one happened — the diagnostics line */
+  engineError: string | null;
 }
 
 export function translatorStatus(): TranslatorStatus {
@@ -145,6 +147,7 @@ export function translatorStatus(): TranslatorStatus {
     realWeights: true,
     engineKind,
     blocker: translatorBlocker(),
+    engineError: runtime?.lastError ?? null,
   };
 }
 

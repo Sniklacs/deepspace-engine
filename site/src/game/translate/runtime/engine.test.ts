@@ -86,6 +86,56 @@ describe("createRuntime", () => {
     expect(await createRuntime(ctx(), deps)).toBeNull();
   });
 
+  test("WebGPU inference failure rebuilds once on WASM and retries the same request", async () => {
+    // Hans's phone: the WebGPU session BUILDS, then the first real inference
+    // throws (quantised op the driver cannot run). The runtime must dispose,
+    // rebuild explicitly on WASM, and retry — the player never sees the seam.
+    const loads: (string | undefined)[] = [];
+    const webgpuPipe = async (): Promise<{ translation_text: string }[]> => {
+      throw new Error("WebGPU: quantized op not supported by this driver");
+    };
+    const wasmPipe = async (
+      text: string,
+      opts: { src_lang: string; tgt_lang: string; max_new_tokens: number },
+    ): Promise<{ translation_text: string }[]> => {
+      return [{ translation_text: `[${opts.tgt_lang}] ${text}` }];
+    };
+    const deps = createTestRuntime(async (forceDevice) => {
+      loads.push(forceDevice);
+      return forceDevice === "wasm" ? wasmPipe : webgpuPipe;
+    }, "webgpu");
+    const rt = await createRuntime(ctx(), deps);
+    expect(rt).not.toBeNull();
+
+    const out = await rt!.translate("Hello", "en", "es");
+    expect(out).toBe("[es] Hello");
+    // initial build (unforced) + exactly one forced WASM rebuild
+    expect(loads).toEqual([undefined, "wasm"]);
+    // the recovered fallback clears the error slate — Settings stays clean
+    expect(rt!.lastError).toBeNull();
+
+    // a second translation rides the WASM pipeline: no further rebuilds
+    expect(await rt!.translate("Adios", "es", "en")).toBe("[en] Adios");
+    expect(loads).toEqual([undefined, "wasm"]);
+  });
+
+  test("when WASM also fails, the real error is recorded for Settings", async () => {
+    // The WebGPU session BUILDS (so the runtime exists) but its first
+    // inference throws; the forced WASM rebuild then fails too. translate()
+    // returns null and lastError names the WASM failure for Settings.
+    const deps = createTestRuntime(async (forceDevice) => {
+      if (forceDevice === "wasm") throw new Error("WASM: out of memory");
+      return async (): Promise<{ translation_text: string }[]> => {
+        throw new Error("WebGPU: quantized op not supported by this driver");
+      };
+    }, "webgpu");
+    const rt = await createRuntime(ctx(), deps);
+    expect(rt).not.toBeNull();
+    expect(await rt!.translate("Hello", "en", "es")).toBeNull();
+    expect(typeof rt!.lastError).toBe("string");
+    expect(rt!.lastError as string).toMatch("out of memory");
+  });
+
   test("dispose does not throw", async () => {
     const { deps } = fakeDeps();
     const rt = await createRuntime(ctx(), deps);

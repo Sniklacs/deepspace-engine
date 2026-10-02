@@ -112,6 +112,13 @@ export default function TranslatorNote() {
           {t("translator.freeSpace")}
         </button>
       )}
+      {/* Diagnostics: the last inference failure, when one happened. Never
+          silent — a "cannot translate" with no reason is undebuggable. */}
+      {status.engineError && (
+        <p className={ROW} data-testid="translator-engine-error">
+          {t("translator.engineError", "Engine note: {error}", { error: status.engineError })}
+        </p>
+      )}
     </div>
   );
 }

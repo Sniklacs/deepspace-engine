@@ -39,6 +39,8 @@ export interface TranslatorRuntime {
   name: string;
   /** null when it cannot translate this string — never the input echoed back */
   translate(text: string, from: string, to: string): Promise<string | null>;
+  /** the last inference failure, for the diagnostics line — null when none */
+  lastError: string | null;
   dispose?(): void;
 }
 
@@ -96,7 +98,7 @@ type TranslationPipe = (
 ) => Promise<{ translation_text: string }[] | { translation_text: string }>;
 
 interface PipelineDeps {
-  loadPipeline: () => Promise<TranslationPipe>;
+  loadPipeline: (forceDevice?: "webgpu" | "wasm") => Promise<TranslationPipe>;
   disposePipeline: () => void;
   /** set by loadPipeline: which device the pipeline actually built on */
   device?: string;
@@ -125,11 +127,12 @@ async function realDeps(ctx: TranslatorRuntimeContext): Promise<PipelineDeps> {
   let pipe: { (text: string, opts: object): Promise<unknown>; dispose?: () => void } | null = null;
 
   const deps: PipelineDeps = {
-    loadPipeline: async (): Promise<TranslationPipe> => {
+    loadPipeline: async (forceDevice?: "webgpu" | "wasm"): Promise<TranslationPipe> => {
       // WebGPU first for speed; some drivers reject quantised sessions, so a
       // failed WebGPU build falls back to WASM rather than failing the runtime.
-      const devices: ("webgpu" | "wasm")[] = [await selectDevice()];
-      if (devices[0] !== "wasm") devices.push("wasm");
+      // A forced device skips the preference list (the inference fallback below).
+      const devices: ("webgpu" | "wasm")[] = forceDevice ? [forceDevice] : [await selectDevice()];
+      if (!forceDevice && devices[0] !== "wasm") devices.push("wasm");
       let lastError: unknown = null;
       for (const device of devices) {
         try {
@@ -185,11 +188,28 @@ export async function createRuntime(
   } catch {
     return null;
   }
-  const active = pipe;
-  const deviceNote = resolved.device ?? "wasm";
+  let active = pipe;
+  // A driver can BUILD a WebGPU session it then cannot RUN (quantised ops).
+  // The first inference that throws on WebGPU rebuilds the pipeline on WASM
+  // once and retries — the player never sees the seam.
+  let inferenceFellBack = false;
+  let lastError: string | null = null;
+
+  async function runInference(clean: string, src: string, tgt: string): Promise<string | null> {
+    // Chat lines are short; bound the generation so a pathological input
+    // cannot spin the decoder on a phone.
+    const out = await active(clean, { src_lang: src, tgt_lang: tgt, max_new_tokens: 256 });
+    const line = Array.isArray(out) ? out[0]?.translation_text : out?.translation_text;
+    return typeof line === "string" && line.trim().length > 0 ? line : null;
+  }
 
   return {
-    name: `m2m100-418m-q8 (${deviceNote})`,
+    get name() {
+      return `m2m100-418m-q8 (${resolved.device ?? "wasm"})`;
+    },
+    get lastError() {
+      return lastError;
+    },
     async translate(text: string, from: string, to: string): Promise<string | null> {
       const clean = text.trim();
       if (!clean) return null;
@@ -197,12 +217,24 @@ export async function createRuntime(
       const tgt = M2M_LANG[to];
       if (!src || !tgt || src === tgt) return null;
       try {
-        // Chat lines are short; bound the generation so a pathological input
-        // cannot spin the decoder on a phone.
-        const out = await active(clean, { src_lang: src, tgt_lang: tgt, max_new_tokens: 256 });
-        const line = Array.isArray(out) ? out[0]?.translation_text : out?.translation_text;
-        return typeof line === "string" && line.trim().length > 0 ? line : null;
-      } catch {
+        const line = await runInference(clean, src, tgt);
+        // A success clears the slate: a recovered fallback is not an error.
+        if (line !== null) lastError = null;
+        return line;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        if (!inferenceFellBack && resolved.device === "webgpu") {
+          inferenceFellBack = true;
+          try {
+            resolved.disposePipeline();
+            active = await resolved.loadPipeline("wasm");
+            const line = await runInference(clean, src, tgt);
+            if (line !== null) lastError = null;
+            return line;
+          } catch (err2) {
+            lastError = err2 instanceof Error ? err2.message : String(err2);
+          }
+        }
         return null;
       }
     },
@@ -212,16 +244,24 @@ export async function createRuntime(
   };
 }
 
-/** Harness seam: build a runtime around a fake pipeline (the app never calls this). */
-export function createTestRuntime(loadPipeline: () => Promise<TranslationPipe>): Promise<PipelineDeps> {
+/** Harness seam: build a runtime around a fake pipeline (the app never calls this).
+ * The factory receives the forced device (undefined for the initial build),
+ * and `device` names what the initial build reports — "webgpu" lets a test
+ * drive the inference-fallback path. */
+export function createTestRuntime(
+  loadPipeline: (forceDevice?: "webgpu" | "wasm") => Promise<TranslationPipe>,
+  device: string = "wasm",
+): Promise<PipelineDeps> {
   let pipe: TranslationPipe | null = null;
-  return Promise.resolve({
-    loadPipeline: async () => {
-      pipe = await loadPipeline();
+  const deps: PipelineDeps = {
+    loadPipeline: async (forceDevice?: "webgpu" | "wasm") => {
+      pipe = await loadPipeline(forceDevice);
+      deps.device = forceDevice ?? device;
       return pipe;
     },
     disposePipeline: () => {
       pipe = null;
     },
-  });
+  };
+  return Promise.resolve(deps);
 }
