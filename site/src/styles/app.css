@@ -478,6 +478,35 @@
   flex-direction: column;
   overflow: hidden;
 }
+/* Resize grip — the EVE-style corner handle. A generous touch target with a
+   small visual grip; touch-action:none so the drag works on phones. */
+.win-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 7px;
+  cursor: nwse-resize;
+  touch-action: none;
+  z-index: 5;
+}
+.win-resize-handle::after {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border-right: 2px solid var(--line-strong);
+  border-bottom: 2px solid var(--line-strong);
+  border-bottom-right-radius: 3px;
+  opacity: 0.75;
+}
+.win-resize-handle:active::after {
+  opacity: 1;
+  border-color: var(--text-1);
+}
 /* The tray: minimized windows park here as chips, above the nav/dock. */
 .win-tray {
   position: fixed;

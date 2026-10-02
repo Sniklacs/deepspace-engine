@@ -11,11 +11,15 @@ import {
   minimizeWindow,
   restoreWindow,
   focusWindow,
+  resizeWindow,
+  resetWindowSize,
   isWindowOpen,
   visibleWindows,
   minimizedWindows,
   resetWindows,
   windowSnapshot,
+  WIN_MIN_W,
+  WIN_MIN_H,
 } from "./window-store";
 
 beforeEach(() => {
@@ -125,5 +129,66 @@ describe("persistence across navigation", () => {
     expect(after.windows).toHaveLength(before.windows.length);
     expect(after.windows.map((w) => w.id).sort()).toEqual(before.windows.map((w) => w.id).sort());
     expect(after.windows.find((w) => w.id === id)?.minimized).toBe(true);
+  });
+});
+
+describe("resize", () => {
+  test("resizeWindow sets an explicit size", () => {
+    const id = openWindow("chat");
+    resizeWindow(id, 500, 400);
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.size).toEqual({ w: 500, h: 400 });
+  });
+
+  test("resize clamps to the minimum size", () => {
+    const id = openWindow("chat");
+    resizeWindow(id, 10, 10);
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.size).toEqual({ w: WIN_MIN_W, h: WIN_MIN_H });
+  });
+
+  test("resizing an unknown id is a no-op", () => {
+    resizeWindow("chat::nope", 500, 400);
+    expect(windowSnapshot().windows).toHaveLength(0);
+  });
+
+  test("size is remembered per kind and restored on reopen", () => {
+    const id = openWindow("chat");
+    resizeWindow(id, 520, 430);
+    closeWindow(id);
+    openWindow("chat");
+    expect(isWindowOpen("chat")).toBe(true);
+    expect(windowSnapshot().windows[0]?.size).toEqual({ w: 520, h: 430 });
+  });
+
+  test("sizes are per-kind: satellite keeps its own", () => {
+    const chat = openWindow("chat");
+    resizeWindow(chat, 520, 430);
+    const sat = openWindow("satellite-research", { key: "rim-3", props: { nodeId: "rim-3" } });
+    resizeWindow(sat, 700, 600);
+    closeWindow(chat);
+    closeWindow(sat);
+    openWindow("chat");
+    openWindow("satellite-research", { key: "rim-3", props: { nodeId: "rim-3" } });
+    const wins = windowSnapshot().windows;
+    expect(wins.find((w) => w.kind === "chat")?.size).toEqual({ w: 520, h: 430 });
+    expect(wins.find((w) => w.kind === "satellite-research")?.size).toEqual({ w: 700, h: 600 });
+  });
+
+  test("resetWindowSize forgets the custom size", () => {
+    const id = openWindow("chat");
+    resizeWindow(id, 520, 430);
+    resetWindowSize(id);
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.size).toBeNull();
+    closeWindow(id);
+    openWindow("chat");
+    expect(windowSnapshot().windows[0]?.size).toBeNull();
+  });
+
+  test("resetWindows clears remembered sizes (test isolation)", () => {
+    const id = openWindow("chat");
+    resizeWindow(id, 520, 430);
+    closeWindow(id);
+    resetWindows();
+    openWindow("chat");
+    expect(windowSnapshot().windows[0]?.size).toBeNull();
   });
 });

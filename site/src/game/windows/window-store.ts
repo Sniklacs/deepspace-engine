@@ -17,9 +17,13 @@
 //   • Chat is a first-class window ("chat"). Its minimize collapses to the
 //     ChatDock bar (the dock IS chat's minimized state); other kinds minimize
 //     to the window tray.
+//   • Windows are resizable (owner 2026-10-01): the player drags the corner
+//     grip to scale a window bigger or smaller, EVE-style. Sizes are
+//     remembered per kind (in memory + localStorage) and restored on reopen;
+//     double-clicking the grip resets to the default size.
 //
-// This store owns chrome state ONLY (open/minimized/z-order). Window CONTENT
-// data (chat messages, research state) stays in its own store.
+// This store owns chrome state ONLY (open/minimized/z-order/size). Window
+// CONTENT data (chat messages, research state) stays in its own store.
 
 export type WindowKind = "chat" | "satellite-research";
 
@@ -42,7 +46,13 @@ export interface WindowInstance {
   minimized: boolean;
   /** stacking order — higher renders above */
   z: number;
+  /** player-chosen size (EVE-style resize); null = default CSS sizing */
+  size: { w: number; h: number } | null;
 }
+
+/** Minimum window size — below this the content is unusable. */
+export const WIN_MIN_W = 300;
+export const WIN_MIN_H = 240;
 
 interface WindowState {
   windows: WindowInstance[];
@@ -81,6 +91,47 @@ export function windowSnapshot(): WindowState {
 const SERVER_STATE: WindowState = initialState;
 export function windowServerSnapshot(): WindowState {
   return SERVER_STATE;
+}
+
+/** Per-kind remembered sizes — EVE remembers your window sizes. In-memory is
+ *  the source of truth (testable); localStorage mirrors it when available so
+ *  sizes survive a reload. */
+const rememberedSizes = new Map<WindowKind, { w: number; h: number }>();
+
+function sizeStorageKey(kind: WindowKind): string {
+  return `unbound:win-size:${kind}`;
+}
+
+function loadRememberedSize(kind: WindowKind): { w: number; h: number } | null {
+  const mem = rememberedSizes.get(kind);
+  if (mem) return { ...mem };
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(sizeStorageKey(kind));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<{ w: number; h: number }>;
+    if (typeof parsed.w !== "number" || typeof parsed.h !== "number") return null;
+    const size = {
+      w: Math.max(WIN_MIN_W, Math.round(parsed.w)),
+      h: Math.max(WIN_MIN_H, Math.round(parsed.h)),
+    };
+    rememberedSizes.set(kind, size);
+    return { ...size };
+  } catch {
+    return null;
+  }
+}
+
+function rememberSize(kind: WindowKind, size: { w: number; h: number }, persist: boolean): void {
+  rememberedSizes.set(kind, { ...size });
+  if (!persist) return;
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(sizeStorageKey(kind), JSON.stringify(size));
+    }
+  } catch {
+    /* private mode etc. — the in-memory size still works for the session */
+  }
 }
 
 function windowId(kind: WindowKind, key: string): string {
@@ -135,6 +186,8 @@ export function openWindow(kind: WindowKind, opts: OpenWindowOpts = {}): string 
           props: opts.props ?? {},
           minimized: false,
           z: seq,
+          // EVE remembers: reopen at the player's last size for this kind.
+          size: loadRememberedSize(kind),
         },
       ],
     };
@@ -193,6 +246,46 @@ export function focusWindow(id: string): void {
 }
 
 /**
+ * Resize a window (EVE-style: the player scales it). The size is remembered
+ * per kind and restored when the window reopens. Pass persist=false while a
+ * drag is in flight — the frame re-calls with persist=true on pointer-up so
+ * localStorage isn't hammered mid-drag.
+ */
+export function resizeWindow(id: string, w: number, h: number, persist = true): void {
+  const win = state.windows.find((x) => x.id === id);
+  if (!win) return;
+  const size = {
+    w: Math.max(WIN_MIN_W, Math.round(w)),
+    h: Math.max(WIN_MIN_H, Math.round(h)),
+  };
+  const changed = !win.size || win.size.w !== size.w || win.size.h !== size.h;
+  rememberSize(win.kind, size, persist);
+  if (!changed) return;
+  state = {
+    ...state,
+    windows: state.windows.map((x) => (x.id === id ? { ...x, size } : x)),
+  };
+  emit();
+}
+
+/** Forget a window's custom size (double-click the resize grip). */
+export function resetWindowSize(id: string): void {
+  const win = state.windows.find((x) => x.id === id);
+  if (!win || !win.size) return;
+  rememberedSizes.delete(win.kind);
+  try {
+    if (typeof localStorage !== "undefined") localStorage.removeItem(sizeStorageKey(win.kind));
+  } catch {
+    /* ignore */
+  }
+  state = {
+    ...state,
+    windows: state.windows.map((x) => (x.id === id ? { ...x, size: null } : x)),
+  };
+  emit();
+}
+
+/**
  * Patch a window's chrome fields (title, props). Used when content wants the
  * title bar to follow live state (e.g. chat naming its surface).
  */
@@ -236,5 +329,6 @@ export function minimizedWindows(): WindowInstance[] {
 /** Test/utility: reset the registry (used by tests and sign-out). */
 export function resetWindows(): void {
   state = initialState;
+  rememberedSizes.clear();
   emit();
 }
