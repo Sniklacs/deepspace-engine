@@ -148,10 +148,10 @@ describe("join flows", () => {
     expect(r.ok).toBe(false);
   });
 
-  test("member cap is 50", () => {
+  test("member cap is 100", () => {
     const { st, aid } = withAlliance();
     const a = allianceOf(st, "col-a")!;
-    for (let i = 0; i < 49; i++) {
+    for (let i = 0; i < 99; i++) {
       a.members.push({ colonyId: `x-${i}`, colonyName: `X${i}`, role: "member", joinedAt: NOW });
     }
     const r = applyToAlliance(st, aid, { id: "col-z", name: "Zed" }, NOW);

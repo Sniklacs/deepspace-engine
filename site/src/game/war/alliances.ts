@@ -6,7 +6,7 @@
 // as id/name references, exactly like the battle engine's aid flow.
 //
 // v1 scope: founding, membership (invite/apply/leave/kick/promote), the
-// 50-colony cap, help ticks (daily budget, Cradle-tier tick size), and
+// 100-colony cap, help ticks (daily budget, Cradle-tier tick size), and
 // standing reinforcements (sender-side locks + recall). Rallies live in
 // rallies.ts. Membership persists across seasons by design — no reset path
 // touches the alliance store (alliances.md §9).
@@ -35,8 +35,9 @@ function alog(state: GameState, msg: string): void {
 }
 
 export const ALLIANCE_CONFIG = {
-  /** Owner-confirmed: big enough for a war band, small enough to know names. */
-  sizeCap: 50,
+  /** Owner-confirmed Oct 2 2026: 100 members (up from 50). Big enough for ship
+   *  factory crews and raiding parties; no cap on alliance count per planet. */
+  sizeCap: 100,
   /** Officers: up to 5 under the leader. */
   officerCap: 5,
   /** Founding cost — enough to mean it, cheap enough to not gate it. */
@@ -582,7 +583,7 @@ export function applyToAlliance(
   const a = allianceStore(state)[allianceId];
   if (!a) return { ok: false, error: "That alliance doesn't exist." };
   if (allianceOf(state, applicant.id)) return { ok: false, error: "One flag at a time — leave your current alliance first." };
-  if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "Their war band is full (50)." };
+  if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "Their war band is full (100)." };
   if (a.applications.some((x) => x.colonyId === applicant.id)) return { ok: false, error: "Your application is already on their board." };
   a.applications.push({ colonyId: applicant.id, colonyName: applicant.name, appliedAt: now });
   touchAlliance(a);
@@ -601,7 +602,7 @@ export function inviteToAlliance(
   if (!a) return { ok: false, error: "That alliance doesn't exist." };
   if (!isOfficerOrAbove(a, actorId)) return { ok: false, error: "Only officers can invite." };
   if (allianceOf(state, target.id)) return { ok: false, error: "They already fly a flag." };
-  if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "The war band is full (50)." };
+  if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "The war band is full (100)." };
   if (a.invites.some((x) => x.colonyId === target.id)) return { ok: false, error: "They're already invited." };
   a.invites.push({ colonyId: target.id, colonyName: target.name, invitedAt: now, byColonyId: actorId });
   touchAlliance(a);
@@ -629,7 +630,7 @@ export function acceptMembership(
   if (viaInvite && !viaApplication && actorId !== colonyId && !isOfficerOrAbove(a, actorId)) {
     return { ok: false, error: "That's not your invite to accept." };
   }
-  if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "The war band is full (50)." };
+  if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "The war band is full (100)." };
   if (allianceOf(state, colonyId)) return { ok: false, error: "They already fly a flag." };
   const rec = a.invites.find((x) => x.colonyId === colonyId) ?? a.applications.find((x) => x.colonyId === colonyId)!;
   a.invites = a.invites.filter((x) => x.colonyId !== colonyId);
