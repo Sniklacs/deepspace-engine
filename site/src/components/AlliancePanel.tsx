@@ -448,7 +448,7 @@ function AllianceHome({
       <RallyBoard now={now} me={me} isOfficer={isOfficer} rallies={rallies} token={token} onAction={onAction} />
       <Reinforcements state={state} me={me} alliance={alliance} token={token} onAction={onAction} />
       <HelpBoard state={state} now={now} me={me} alliance={alliance} token={token} onAction={onAction} />
-      <AllianceShipyardSection alliance={alliance} now={now} />
+      <AllianceShipyardSection alliance={alliance} now={now} me={me} state={state} token={token} onAction={onAction} />
     </section>
   );
 }

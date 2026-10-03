@@ -463,6 +463,14 @@ export function shipName(raceId: string, shipClass: ShipClass): string {
   return SHIP_RACE_NAMES[`${raceId}:${shipClass}`] ?? shipClass;
 }
 
+/** Ship art URL. Only Draconians have an art set so far (v3, owner
+ *  2026-10-03 — Hans: scaly red hull, "make them look badass"). Other races
+ *  return null until their sets land; callers render no image then. */
+export function shipArtUrl(raceId: string, shipClass: ShipClass): string | null {
+  if (raceId !== "draconians") return null;
+  return `/art/ships/${shipClass}-v3.webp`;
+}
+
 /** Ship build time in ms (tunable). Hans: hours, not days. */
 export const SHIP_BUILD_MS: Record<ShipClass, number> = {
   scout: 2 * 3600_000,      // 2 hours

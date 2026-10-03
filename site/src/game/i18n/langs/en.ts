@@ -2546,6 +2546,16 @@ export const en: Catalogue = {
   "shipyard.personalTitle": "Personal Shipyard",
   "shipyard.personalSub": "Solo scout construction — no alliance needed.",
   "shipyard.personalFleet": "{count} scout(s) ready",
+  /* Shipyard donations + tithe (owner 2026-10-03) */
+  "shipyard.stockpile": "Factory Stockpile",
+  "shipyard.donate": "Donate to Shipyard",
+  "shipyard.donateSub": "Fund the factory — warships are built from donations.",
+  "shipyard.donateSupplies": "Supplies",
+  "shipyard.donateAlloys": "Alloys",
+  "shipyard.donateMats": "Race mat",
+  "shipyard.tithe": "Tithe",
+  "shipyard.titheHint": "of raid/glean loot auto-flows here",
+  "shipyard.setTithe": "Set",
   /* Server select (owner 2026-10-02) */
   "servers.title": "Choose Your World",
   "servers.subtitle": "Each race fights from its own world. Pick where your colony begins.",

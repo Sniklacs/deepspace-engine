@@ -93,6 +93,10 @@ export interface Alliance {
    *  "apply" = submit application, leader/officers review before joining.
    *  Defaults to "apply" for migration. */
   joinPolicy?: "open" | "apply";
+  /** Shipyard tithe rate (owner 2026-10-03): 0-100. % of raid loot and gleaning
+   *  that auto-flows to the shipyard stockpile. Set by leader/officers.
+   *  Defaults to 0 (pure voluntary donations). */
+  titheRate?: number;
   /** Monotonic mutation counter. Every write goes through the canonical
    *  record on the founder's account; mirrors converge by taking the
    *  highest-version copy (sync-alliance). */
@@ -651,6 +655,23 @@ export function setJoinPolicy(
   if (!a) return { ok: false, error: "That alliance doesn't exist." };
   if (!isOfficerOrAbove(a, actorId)) return { ok: false, error: "Only officers can change the join policy." };
   a.joinPolicy = policy;
+  touchAlliance(a);
+  syncAllianceTo(state, a);
+  return { ok: true, value: undefined };
+}
+
+/** Set the shipyard tithe rate (owner 2026-10-03): 0-100%. Officer+. */
+export function setTitheRate(
+  state: GameState,
+  allianceId: string,
+  actorId: string,
+  rate: number,
+): AllianceResult {
+  const a = allianceStore(state)[allianceId];
+  if (!a) return { ok: false, error: "That alliance doesn't exist." };
+  if (!isOfficerOrAbove(a, actorId)) return { ok: false, error: "Only officers can set the shipyard tithe." };
+  const r = Math.max(0, Math.min(100, Math.round(rate)));
+  a.titheRate = r;
   touchAlliance(a);
   syncAllianceTo(state, a);
   return { ok: true, value: undefined };

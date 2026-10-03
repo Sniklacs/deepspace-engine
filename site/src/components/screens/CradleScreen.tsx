@@ -56,6 +56,7 @@ import type { GameState, DomainId } from "../../game/types";
 import type { GameResult } from "../../game/api";
 import { Bdi } from "../ui/Bdi";
 import CradleAllianceSection from "../CradleAlliance";
+import { PersonalShipyardSection } from "../AllianceShipyard";
 import CradleSubColoniesSection from "../CradleSubColonies";
 
 const HERO_ROLE_WORD: Record<string, string> = {
@@ -204,6 +205,17 @@ export default function CradleScreen({
             token={token}
             onAction={onAction}
           />
+
+          {/* ---- B2b2 · personal shipyard (owner 2026-10-03): solo scout
+              construction — no alliance needed --------------------------- */}
+          <Panel testid="cradle-shipyard" className="space-y-3">
+            <PersonalShipyardSection
+              state={state}
+              now={now}
+              token={token}
+              onAction={onAction}
+            />
+          </Panel>
 
           {/* ---- B2c · sub colonies (owner 2026-10-03): husk claims in
               progress with a countdown ticker, plus active sub colonies --- */}

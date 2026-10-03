@@ -85,9 +85,19 @@ import {
   queueAllianceFx,
   removeAllianceMemberRecord,
   removeAllianceMirror,
+  setTitheRate,
   transferLeadership,
   unlockRallyHeroes,
 } from "./war/alliances";
+import {
+  contributeAllianceShip,
+  donateToShipyard,
+  ensurePersonalShipyard,
+  orderAllianceShip,
+  payShipCost,
+  shipCostBlocker,
+  shipNeedsAlliance,
+} from "./shipyard";
 import {
   addRemotePledge,
   cancelRally,
@@ -981,6 +991,112 @@ const shipSubColonySuppliesFn = createServerFn({ method: "POST" }).validator(
   }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
+
+// SHIP FACTORY (owner 2026-10-03): Hans's shipyard with donations + tithe.
+// Warships are ordered on the alliance factory. Scouts are solo-built.
+// Donations (manual) + tithe (auto % of raid/glean loot) fund the stockpile.
+const SHIP_CLASS_VALUES = ["scout", "frigate", "bulwark", "vanguard", "fatcat", "herald"] as const;
+
+const orderShipFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), shipClass: z.enum(SHIP_CLASS_VALUES) })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const blocker = shipCostBlocker(st, data.shipClass);
+    if (blocker) {
+      const label = blocker.kind === "supplies" ? "supplies" : blocker.kind === "alloys" ? "alloys" : "race material";
+      return { ok: false, error: `Need ${blocker.need.toLocaleString()} ${label} — you have ${blocker.have.toLocaleString()}.` };
+    }
+    // Solo scout: personal shipyard, no alliance needed.
+    if (!shipNeedsAlliance(data.shipClass)) {
+      const wm = st.worldMap ?? (st.worldMap = {} as unknown as typeof st.worldMap);
+      const psy = ensurePersonalShipyard(wm as unknown as { shipyard?: import("./shipyard").PersonalShipyard });
+      payShipCost(st, data.shipClass);
+      const { createShipBuild, recalcBuildDoneAt } = await import("./shipyard");
+      const build = createShipBuild(data.shipClass, (st.race ?? "draconians") as import("./types").RaceId, ctx.colonyId, ctx.colonyName, 0, 1, ctx.now);
+      recalcBuildDoneAt(build, 1, ctx.now);
+      psy.queue.push(build);
+      return { ok: true, value: build.id };
+    }
+    // Warship: alliance factory.
+    const a = allianceOf(st, ctx.colonyId);
+    if (!a || a.id !== data.allianceId) {
+      return { ok: false, error: "Join a war band first — warships are built at the alliance factory." };
+    }
+    payShipCost(st, data.shipClass);
+    const r = orderAllianceShip(a as unknown as import("./shipyard").ShipyardAlliance, {
+      shipClass: data.shipClass,
+      raceId: (st.race ?? "draconians") as import("./types").RaceId,
+      orderedBy: ctx.colonyId,
+      orderedByName: ctx.colonyName,
+      now: ctx.now,
+    });
+    if (!r.ok) return { ok: false, error: r.error ?? "Couldn't order that ship." };
+    const { touchAlliance, syncAllianceTo } = await import("./war/alliances");
+    touchAlliance(a);
+    syncAllianceTo(st, a);
+    return { ok: true, value: r.build?.id };
+  }),
+);
+
+const contributeShipFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), buildId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const a = allianceOf(st, ctx.colonyId);
+    if (!a || a.id !== data.allianceId) {
+      return { ok: false, error: "Join a war band first — warships are built at the alliance factory." };
+    }
+    const r = contributeAllianceShip(a as unknown as import("./shipyard").ShipyardAlliance, data.buildId, ctx.colonyId, ctx.now);
+    if (!r.ok) return { ok: false, error: r.error ?? "Couldn't join that crew." };
+    const { touchAlliance, syncAllianceTo } = await import("./war/alliances");
+    touchAlliance(a);
+    syncAllianceTo(st, a);
+    return { ok: true, value: "crewed" };
+  }),
+);
+
+const donateShipyardFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), supplies: z.number().min(0), alloys: z.number().min(0), raceMats: z.number().min(0) })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const a = allianceOf(st, ctx.colonyId);
+    if (!a || a.id !== data.allianceId) {
+      return { ok: false, error: "Join a war band first to donate to its shipyard." };
+    }
+    const haveSupplies = st.resources.supplies ?? 0;
+    const haveAlloys = (st.resources as unknown as { alloys?: number }).alloys ?? 0;
+    const race = st.race ?? "draconians";
+    const haveMats = (st.resources.mats?.[race] ?? 0);
+    if (data.supplies > haveSupplies) return { ok: false, error: `You only have ${haveSupplies.toLocaleString()} supplies.` };
+    if (data.alloys > haveAlloys) return { ok: false, error: `You only have ${haveAlloys.toLocaleString()} alloys.` };
+    if (data.raceMats > haveMats) return { ok: false, error: `You only have ${haveMats.toLocaleString()} race materials.` };
+    // Deduct from player.
+    st.resources.supplies = haveSupplies - data.supplies;
+    (st.resources as unknown as { alloys?: number }).alloys = haveAlloys - data.alloys;
+    if (st.resources.mats) st.resources.mats[race] = haveMats - data.raceMats;
+    // Add to shipyard stockpile.
+    const r = donateToShipyard(a as unknown as import("./shipyard").ShipyardAlliance, {
+      supplies: data.supplies,
+      alloys: data.alloys,
+      raceMats: data.raceMats,
+    });
+    if (!r.ok) return { ok: false, error: r.error ?? "Donation failed." };
+    const { touchAlliance, syncAllianceTo } = await import("./war/alliances");
+    touchAlliance(a);
+    syncAllianceTo(st, a);
+    return { ok: true, value: "donated" };
+  }),
+);
+
+const setTitheFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), rate: z.number().min(0).max(100) })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const r = setTitheRate(st, data.allianceId, ctx.colonyId, data.rate);
+    if (!r.ok) return { ok: false, error: r.error ?? "Couldn't set the tithe." };
+    return { ok: true, value: `${Math.round(data.rate)}%` };
+  }),
+);
 
 // Mailbox: mark one message read (owner 2026-10-03).
 const markMailReadFn = createServerFn({ method: "POST" }).validator(
@@ -2544,6 +2660,10 @@ export {
   collectProbeFn,
   claimHuskFn,
   shipSubColonySuppliesFn,
+  orderShipFn,
+  contributeShipFn,
+  donateShipyardFn,
+  setTitheFn,
   markMailReadFn,
   markAllMailReadFn,
   deleteMailFn,

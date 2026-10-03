@@ -63,6 +63,7 @@ import {
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
 import { allianceOf, ensureAlliances, guestsAt, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
+import { applyTithe, ensureStockpile } from "./shipyard";
 import { advanceRallies, ensureRallies } from "./war/rallies";
 import { ensureArena, expireArenaChallenges, resolveArenaBattles } from "./war/arena";
 import {
@@ -3067,7 +3068,20 @@ export function resolveGleaning(state: GameState, runId: string, now = Date.now(
   
   // Transfer to player resources
   const r = state.resources;
-  r.supplies += taken.supplies;
+  // Alliance tithe (owner 2026-10-03): % of gleaned supplies auto-flows to shipyard.
+  const myAllianceGlean = allianceOf(state, state.gameId ?? "");
+  const titheRateGlean = myAllianceGlean?.titheRate ?? 0;
+  const { tithed: tithedGlean, kept: keptGlean } = applyTithe(titheRateGlean, {
+    supplies: taken.supplies,
+    alloys: 0,
+    raceMats: 0,
+  });
+  if (myAllianceGlean && tithedGlean.supplies > 0) {
+    const syGlean = ensureShipyard(myAllianceGlean);
+    const spGlean = ensureStockpile(syGlean);
+    spGlean.supplies += tithedGlean.supplies;
+  }
+  r.supplies += keptGlean.supplies;
   r.embers += taken.embers;
   r.gas += taken.fuel; // fuel → gas (vehicle fuel)
   r.battery += taken.battery;
@@ -3404,7 +3418,20 @@ export function advanceRaids(state: GameState, now: number): void {
     if (raid.status === "returning" && raid.returnedAt != null && now >= raid.returnedAt) {
       const loot = raid.lootTaken ?? { ...EMPTY_RAID_LOOT };
       const r = state.resources;
-      r.supplies += loot.supplies;
+      // Alliance tithe (owner 2026-10-03): % of loot auto-flows to shipyard.
+      const myAlliance = allianceOf(state, state.gameId ?? "");
+      const titheRate = myAlliance?.titheRate ?? 0;
+      const { tithed, kept } = applyTithe(titheRate, {
+        supplies: loot.supplies,
+        alloys: 0, // raids don't yield alloys in v1
+        raceMats: 0, // raids don't yield race mats in v1
+      });
+      if (myAlliance && (tithed.supplies > 0)) {
+        const sy = ensureShipyard(myAlliance);
+        const sp = ensureStockpile(sy);
+        sp.supplies += tithed.supplies;
+      }
+      r.supplies += kept.supplies;
       r.embers += loot.embers;
       r.gas += loot.fuel;
       r.battery += loot.battery;

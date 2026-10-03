@@ -111,7 +111,7 @@ export default function CradleAllianceSection({
 
           <HelpBlock state={state} now={now} me={me} alliance={alliance} token={token} onAction={onAction} />
 
-          <AllianceShipyardSection alliance={alliance} now={now} />
+          <AllianceShipyardSection alliance={alliance} now={now} me={me} state={state} token={token} onAction={onAction} />
 
           <ResearchBlock state={state} now={now} />
 
