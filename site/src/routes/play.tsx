@@ -60,6 +60,8 @@ import type { Tab } from "../game/nav-slots";
 import CradleScreen from "../components/screens/CradleScreen";
 import CradlePlate from "../components/CradlePlate";
 import PageBanner from "../components/PageBanner";
+import ServerSelect from "../components/ServerSelect";
+import type { KnownServer } from "../game/servers";
 import { ForgedRack } from "../components/ForgeViews";
 import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
@@ -376,6 +378,7 @@ function PlayPage() {
     localLogout();
   };
 
+  const [showServerSelect, setShowServerSelect] = useState(false);
   const doSignup = async (username: string, password: string): Promise<string | null> => {
     const res = await signupFn({ data: { username, password } });
     if (res.ok && res.token) {
@@ -383,6 +386,7 @@ function PlayPage() {
       setToken(res.token);
       setSignedIn(true);
       setState(null);
+      setShowServerSelect(true);
       return null;
     }
     return res.error || t("play.auth.signupFailed", "Sign up failed.");
@@ -506,9 +510,29 @@ function PlayPage() {
   }
 
   // Signed in but has no active game:
+  //  - fresh signup → server select (pick a world = pick a race)
   //  - no colonies at all  → first-run "Found a Colony" (race select)
   //  - colonies exist but none active → colony picker screen
   if (!state) {
+    if (showServerSelect) {
+      const handleServerPick = (server: KnownServer) => {
+        // Same origin = this server: dismiss and continue to colony founding.
+        // Different origin = navigate there (separate deployment + database).
+        try {
+          const target = new URL(server.url);
+          if (target.origin === window.location.origin) {
+            setShowServerSelect(false);
+            return;
+          }
+        } catch { /* fall through to navigate */ }
+        window.location.href = server.url;
+      };
+      return (
+        <div className="min-h-screen bg-[#070910] text-gray-200">
+          <ServerSelect onSelect={handleServerPick} />
+        </div>
+      );
+    }
     if (!games || games.length === 0) {
       return (
         <div className="min-h-screen bg-[#070910] text-gray-200">
