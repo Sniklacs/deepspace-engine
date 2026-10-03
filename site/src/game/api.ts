@@ -169,6 +169,7 @@ import {
   withAccountLock,
 } from "./alliance-transact";
 import type { AllianceDirectoryEntry } from "./alliance-transact";
+import { sendMail } from "./mailbox";
 
 /** Lightweight summary of a game — never full state. */
 export interface GameSummary {
@@ -2295,11 +2296,35 @@ const allianceCreateFn = createServerFn({ method: "POST" }).validator(
 const allianceApplyFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), allianceId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, async (st, ctx) =>
-    canonicalAllianceTx(st, data.allianceId, (fst) =>
+  withColony(data.token, async (st, ctx) => {
+    const result = await canonicalAllianceTx(st, data.allianceId, (fst) =>
       applyToAlliance(fst, data.allianceId, { id: ctx.colonyId, name: ctx.colonyName }, ctx.now),
-    ),
-  ),
+    );
+    // Open-policy join grants instant membership — send welcome mail to the joiner.
+    // (For "apply" policy, this just creates an application; no mail yet.)
+    if (result && typeof result === "object" && "ok" in result && result.ok) {
+      const policy = allianceById(st, data.allianceId)?.joinPolicy ?? "apply";
+      if (policy === "open") {
+        try {
+          const allianceName = allianceById(st, data.allianceId)?.name ?? "the war band";
+          await transactColony(ctx.colonyId, (mst) => {
+            sendMail(mst, {
+              from: "alliance",
+              fromName: allianceName,
+              subject: `Welcome to ${allianceName}`,
+              body: `You've joined the war band "${allianceName}". Watch your mailbox for rally calls, help requests, and war-band announcements. Fight well.`,
+              category: "alliance",
+              sentAt: ctx.now,
+            });
+            return { ok: true as const, value: undefined };
+          });
+        } catch {
+          // Mail delivery failure shouldn't fail the join.
+        }
+      }
+    }
+    return result;
+  }),
 );
 
 const allianceInviteFn = createServerFn({ method: "POST" }).validator(
@@ -2325,13 +2350,34 @@ const allianceAnswerFn = createServerFn({ method: "POST" }).validator(
     accept: z.boolean(),
   })
 ).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, async (st, ctx) =>
-    canonicalAllianceTx(st, data.allianceId, (fst) =>
+  withColony(data.token, async (st, ctx) => {
+    const result = await canonicalAllianceTx(st, data.allianceId, (fst) =>
       data.accept
         ? acceptMembership(fst, data.allianceId, ctx.colonyId, data.colonyId, ctx.now)
         : declineMembership(fst, data.allianceId, ctx.colonyId, data.colonyId),
-    ),
-  ),
+    );
+    // Welcome mail goes to the NEW MEMBER's mailbox (not the founder's).
+    // Done via a separate transaction on the member's colony.
+    if (data.accept && result && typeof result === "object" && "ok" in result && result.ok) {
+      try {
+        const allianceName = allianceById(st, data.allianceId)?.name ?? "the war band";
+        await transactColony(data.colonyId, (mst) => {
+          sendMail(mst, {
+            from: "alliance",
+            fromName: allianceName,
+            subject: `Welcome to ${allianceName}`,
+            body: `You've joined the war band "${allianceName}". Watch your mailbox for rally calls, help requests, and war-band announcements. Fight well.`,
+            category: "alliance",
+            sentAt: ctx.now,
+          });
+          return { ok: true as const, value: undefined };
+        });
+      } catch {
+        // Mail delivery failure shouldn't fail the membership acceptance.
+      }
+    }
+    return result;
+  }),
 );
 
 const allianceLeaveFn = createServerFn({ method: "POST" }).validator(

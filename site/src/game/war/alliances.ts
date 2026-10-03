@@ -724,15 +724,9 @@ export function acceptMembership(
   a.members.push({ colonyId, colonyName: rec.colonyName, role: "member", joinedAt: now });
   touchAlliance(a);
   syncAllianceTo(state, a);
-  // Mailbox: welcome to the war band (owner 2026-10-03).
-  sendMail(state, {
-    from: "alliance",
-    fromName: a.name,
-    subject: `Welcome to ${a.name}`,
-    body: `You've joined the war band "${a.name}". Watch your mailbox for rally calls, help requests, and war-band announcements. Fight well.`,
-    category: "alliance",
-    sentAt: now,
-  });
+  // NOTE: welcome mail is sent by the API layer (allianceAnswerFn) via a
+  // separate transaction on the new member's colony — sending here would
+  // land in the founder's mailbox (state is the founder's GameState).
   return { ok: true, value: undefined };
 }
 
