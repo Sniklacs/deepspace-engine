@@ -266,7 +266,7 @@ export async function loadAccountSaves(accountId: string): Promise<AccountSaves 
   }
 }
 
-export async function saveAccountSaves(accountId: string, saves: AccountSaves): Promise<void> {
+export async function saveAccountSaves(accountId: string, saves: AccountSaves): Promise<boolean> {
   if (USE_DB) {
     try {
       await ensureTables();
@@ -274,16 +274,19 @@ export async function saveAccountSaves(accountId: string, saves: AccountSaves): 
         "INSERT INTO saves (account_id, data) VALUES ($1, $2) ON CONFLICT (account_id) DO UPDATE SET data = EXCLUDED.data",
         [accountId, saves as unknown as object]
       );
+      return true;
     } catch (e) {
       console.error("Failed to save account saves (db):", e);
+      return false;
     }
-    return;
   }
   try {
     ensureDir(SAVES_DIR);
     fs.writeFileSync(savePathFor(accountId), JSON.stringify(saves, null, 2), "utf8");
+    return true;
   } catch (e) {
     console.error("Failed to save account saves:", e);
+    return false;
   }
 }
 
