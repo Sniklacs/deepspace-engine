@@ -202,6 +202,13 @@ async function runSeed(): Promise<Record<string, any>> {
     game.resources.alloys = 1000;
     game.resources.mats = { grays: 500, nephilim: 500, draconians: 1000, anunnaki: 500, ashtar: 500, watchers: 500 };
     (game as any).codices = 100;
+    // Pre-mustered troops for raid testing (owner 2026-10-03)
+    const { addCohort } = await import("./src/game/war/troops.js");
+    const { ensureTroops } = await import("./src/game/engine.js");
+    ensureTroops(game as any, now);
+    for (const t of ["bulwark", "reaver", "longeye", "thunder", "warden"] as const) {
+      addCohort((game as any).troops.home.roster, t, 1000, now);
+    }
     // World map with mock colonies
     const wm = emptyWorldMap(now);
     wm.scoutTechResearched = true;
@@ -341,6 +348,13 @@ async function runSeedWarlord6(): Promise<Record<string, any>> {
     game.resources.alloys = 1000;
     game.resources.mats = { grays: 500, nephilim: 500, draconians: 1000, anunnaki: 500, ashtar: 500, watchers: 500 };
     (game as any).codices = 100;
+    // Pre-mustered troops for raid testing
+    const { addCohort: addCohort6 } = await import("./src/game/war/troops.js");
+    const { ensureTroops: ensureTroops6 } = await import("./src/game/engine.js");
+    ensureTroops6(game as any, now);
+    for (const t of ["bulwark", "reaver", "longeye", "thunder", "warden"] as const) {
+      addCohort6((game as any).troops.home.roster, t, 1000, now);
+    }
     const wm = emptyWorldMap(now);
     wm.scoutTechResearched = true;
     wm.probes = 5;
