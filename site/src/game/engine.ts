@@ -68,6 +68,10 @@ import { ensureArena, expireArenaChallenges, resolveArenaBattles } from "./war/a
 import {
   advanceTroopHome,
   emptyTroopHome,
+  addCohort,
+  removeTroopsNewestFirst,
+  supplyWeight,
+  type TroopType,
 } from "./war/troops";
 import {
   abandonAllForwardBases,
@@ -110,6 +114,20 @@ import {
   shipFromBuild,
 } from "./shipyard";
 import { SHIP_COST, shipNeedsAlliance, shipName, type ShipClass } from "./worldmap";
+import {
+  RAID_TRAVEL_MS,
+  commitRaidTroops as commitRaidTroopsPure,
+  createRaidParty,
+  mockDefenderLoot,
+  raidJumpCharge,
+  raidLaunchBlocker,
+  raidLootCapacity,
+  raidTroopCount,
+  resolveRaidBattle,
+  setRaidTarget as setRaidTargetPure,
+  EMPTY_RAID_LOOT,
+  type RaidParty,
+} from "./raids";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
@@ -1900,6 +1918,9 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // Resolve completed ship builds (alliance ship factory + solo scouts) — same
   // lazy, idempotent reconcile: builds whose doneAt passed move to the fleet.
   resolveShipBuilds(state, now);
+  // RAIDS: advance in_transit → landed (warn + battle) → returning → done.
+  // Same lazy, idempotent discipline — offline worlds resolve on next read.
+  advanceRaids(state, now);
   // Resolve arrivals of Forge supply runs (the ~24h transit — lazy, idempotent).
   resolveForgeTransit(state, now);
 
@@ -3094,6 +3115,247 @@ export function hireGleanMercenaries(state: GameState, key: string, now = Date.n
   }
   
   return { ok: true, state };
+}
+
+// ---------------------------------------------------------------------------
+// RAIDS — cross-server raiding parties (design/abandoned-colonies-world-map.md §§5,13; game/raids.ts)
+// ---------------------------------------------------------------------------
+
+/** All ships the player can put on a raid: personal scouts + alliance fleet. */
+function raidableShips(state: GameState): { id: string; class: ShipClass; status: string; setStatus: (s: "ready" | "deployed") => void }[] {
+  const out: { id: string; class: ShipClass; status: string; setStatus: (s: "ready" | "deployed") => void }[] = [];
+  const psy = state.worldMap?.shipyard;
+  if (psy) {
+    for (const s of psy.ships) {
+      out.push({ id: s.id, class: s.class, status: s.status, setStatus: (st) => { s.status = st; } });
+    }
+  }
+  const alliance = allianceOf(state, myColonyId(state));
+  if (alliance) {
+    const sy = ensureShipyard(alliance);
+    for (const s of sy.ships) {
+      out.push({ id: s.id, class: s.class, status: s.status, setStatus: (st) => { s.status = st; } });
+    }
+  }
+  return out;
+}
+
+function findRaid(state: GameState, raidId: string): RaidParty | undefined {
+  return ensureWorldMap(state).raids.find((r) => r.id === raidId);
+}
+
+/** Form a raiding party (leader = you). */
+export function createRaid(state: GameState, now = Date.now()): { ok: boolean; error?: string; state: GameState; raidId?: string } {
+  advance(state, now);
+  const wm = ensureWorldMap(state, now);
+  const raid = createRaidParty(myColonyId(state), state.playerName, wm.seq);
+  wm.seq += 1;
+  wm.raids.push(raid);
+  log(state, `⚔️ Raid party ${raid.id} forming — max 5. Pick a target on the world map, load ships and troops.`);
+  return { ok: true, state, raidId: raid.id };
+}
+
+/** Point a preparing raid at a known active colony. */
+export function setRaidTarget(state: GameState, raidId: string, key: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const wm = ensureWorldMap(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  const colony = wm.known[key];
+  if (!colony) return fail("That colony isn't on your map — scout it first.");
+  if (colony.status !== "active") return fail("Raids hit ACTIVE colonies. That one's " + colony.status + " — glean it instead.");
+  const res = setRaidTargetPure(raid, colony.serverId, colony.id, colony.ownerName);
+  if (!res.ok) return fail(res.error ?? "Could not set the target.");
+  log(state, `🎯 ${raid.id} targeting ${colony.ownerName}'s colony on ${colony.serverId}.`);
+  return { ok: true, state };
+}
+
+/** Assign ready jump ships to a preparing raid. */
+export function assignRaidShips(state: GameState, raidId: string, shipIds: string[], now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  if (raid.status !== "preparing") return fail("Ships lock when the raid launches.");
+  const fleet = raidableShips(state);
+  const picked: { id: string; class: ShipClass }[] = [];
+  for (const id of shipIds) {
+    const s = fleet.find((f) => f.id === id);
+    if (!s) return fail("Ship not found in your fleet.");
+    if (s.status !== "ready") return fail("That ship isn't ready — it's building, deployed, or stranded.");
+    if (picked.some((p) => p.id === id)) return fail("Ship assigned twice.");
+    picked.push({ id: s.id, class: s.class });
+  }
+  if (picked.length === 0) return fail("Assign at least one ship.");
+  raid.shipIds = picked.map((p) => p.id);
+  raid.shipClasses = picked.map((p) => p.class);
+  log(state, `🚀 ${raid.id}: ${picked.length} ship${picked.length === 1 ? "" : "s"} assigned.`);
+  return { ok: true, state };
+}
+
+/** Load troops onto the raid's ships (moves them OUT of the home roster). */
+export function loadRaidTroops(state: GameState, raidId: string, type: TroopType, count: number, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  ensureTroops(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  const n = Math.trunc(count);
+  if (!(n > 0)) return fail("Load at least one troop.");
+  const roster = state.troops!.home.roster;
+  const have = roster.cohorts.filter((c) => c.type === type).reduce((a, c) => a + c.count, 0);
+  if (have < n) return fail(`You only have ${have} ${type} mustered.`);
+  const res = commitRaidTroopsPure(raid, myColonyId(state), type, n);
+  if (!res.ok) return fail(res.error ?? "Could not load troops.");
+  removeTroopsNewestFirst(roster, n, type);
+  log(state, `⚔️ ${raid.id}: ${n} ${type} loaded. What you carry is all you have.`);
+  return { ok: true, state };
+}
+
+/** Launch the raid: pay the jump charge, ships deploy, party goes in_transit. */
+export function launchRaid(state: GameState, raidId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  const blocker = raidLaunchBlocker(raid);
+  if (blocker) return fail(blocker);
+  const charge = raidJumpCharge(raid);
+  if (state.resources.gas < charge.fuel) {
+    return fail(`The jump needs ${charge.fuel} fuel. You have ${Math.floor(state.resources.gas)}.`);
+  }
+  if (state.resources.supplies < charge.supplies) {
+    return fail(`The jump needs ${charge.supplies} supplies. You have ${Math.floor(state.resources.supplies)}.`);
+  }
+  // Mark ships deployed
+  const fleet = raidableShips(state);
+  for (const id of raid.shipIds) {
+    const s = fleet.find((f) => f.id === id);
+    if (!s || s.status !== "ready") return fail("A assigned ship isn't ready anymore — reassign.");
+  }
+  state.resources.gas -= charge.fuel;
+  state.resources.supplies -= charge.supplies;
+  for (const id of raid.shipIds) fleet.find((f) => f.id === id)!.setStatus("deployed");
+  raid.status = "in_transit";
+  raid.departedAt = now;
+  raid.landsAt = now + RAID_TRAVEL_MS;
+  log(state, `🚀 ${raid.id} JUMPED for ${raid.targetOwnerName}'s colony — touchdown in ~1 minute. The defender will be warned.`);
+  return { ok: true, state };
+}
+
+/** Advance raids: in_transit → landed (warn + battle) → returning → done (deliver). */
+export function advanceRaids(state: GameState, now: number): void {
+  const wm = state.worldMap;
+  if (!wm || wm.raids.length === 0) return;
+  ensureTroops(state, now);
+  const weights = {} as Record<TroopType, number>;
+  for (const t of ["bulwark", "reaver", "longeye", "thunder", "warden"] as TroopType[]) {
+    weights[t] = supplyWeight(t);
+  }
+
+  for (const raid of wm.raids) {
+    // --- touchdown: warn the defender, fight the battle ---
+    if (raid.status === "in_transit" && raid.landsAt != null && now >= raid.landsAt) {
+      const troops = raidTroopCount(raid);
+      wm.raidWarnings.push({
+        raidId: raid.id,
+        attackerNames: [...raid.memberNames],
+        shipCount: raid.shipIds.length,
+        troopCount: troops,
+        landedAt: now,
+        targetColonyId: raid.targetColonyId,
+        seen: false,
+      });
+
+      // Defender strength: what the map knows (approx troops from the visit).
+      const key = `${raid.targetServerId}:${raid.targetColonyId}`;
+      const colony = wm.known[key];
+      const defenderTroops = colony?.approxTroops ?? 1000;
+      const defenderLoot = mockDefenderLoot(raid.targetColonyId);
+
+      const attacker: Partial<Record<TroopType, number>> = {};
+      for (const byType of Object.values(raid.troops)) {
+        for (const [t, c] of Object.entries(byType) as [TroopType, number][]) {
+          attacker[t] = (attacker[t] ?? 0) + (c ?? 0);
+        }
+      }
+
+      const result = resolveRaidBattle({
+        attacker,
+        weights,
+        defenderTroops,
+        defenderLoot,
+        cargoCapacity: raidLootCapacity(raid),
+      });
+
+      raid.won = result.won;
+      raid.attackerLosses = result.attackerLosses;
+      raid.defenderLosses = result.defenderLosses;
+      raid.lootTaken = result.lootTaken;
+
+      // Defender bleeds on the map record (reverb drops — the threat board moves).
+      if (colony && colony.approxTroops != null) {
+        colony.approxTroops = Math.max(0, colony.approxTroops - result.defenderLosses);
+      }
+
+      // Survivors stay with the raid for the return leg.
+      for (const [t, lost] of Object.entries(result.attackerLosses) as [TroopType, number][]) {
+        let remaining = lost;
+        for (const mid of Object.keys(raid.troops)) {
+          if (remaining <= 0) break;
+          const have = raid.troops[mid][t] ?? 0;
+          const cut = Math.min(have, remaining);
+          raid.troops[mid][t] = have - cut;
+          if (raid.troops[mid][t] === 0) delete raid.troops[mid][t];
+          remaining -= cut;
+        }
+      }
+
+      raid.status = "returning";
+      raid.returnedAt = now + RAID_TRAVEL_MS;
+      const names = raid.memberNames.join(", ");
+      if (result.won) {
+        log(state, `⚔️ ${raid.id} TOUCHDOWN — ${names} hit ${raid.targetOwnerName}'s colony and took loot. Defender warned. Exfil in ~1 minute.`);
+      } else {
+        log(state, `⚔️ ${raid.id} TOUCHDOWN — ${names} hit ${raid.targetOwnerName}'s colony and were repelled. Defender warned. Survivors exfil in ~1 minute.`);
+      }
+    }
+
+    // --- homecoming: deliver loot, return survivors + ships ---
+    if (raid.status === "returning" && raid.returnedAt != null && now >= raid.returnedAt) {
+      const loot = raid.lootTaken ?? { ...EMPTY_RAID_LOOT };
+      const r = state.resources;
+      r.supplies += loot.supplies;
+      r.embers += loot.embers;
+      r.gas += loot.fuel;
+      r.battery += loot.battery;
+      r.medkit += loot.medkit;
+      r.hazmat += loot.hazmat;
+      r.shots += loot.shots;
+      // mechkit/armorkit have no resource slot — bank as salvage (supplies).
+      r.supplies += loot.mechkit + loot.armorkit;
+
+      // Survivors rejoin the home roster.
+      const roster = state.troops!.home.roster;
+      let survivors = 0;
+      for (const byType of Object.values(raid.troops)) {
+        for (const [t, c] of Object.entries(byType) as [TroopType, number][]) {
+          if ((c ?? 0) > 0) { addCohort(roster, t, c!, now); survivors += c!; }
+        }
+      }
+
+      // Ships come home.
+      const fleet = raidableShips(state);
+      for (const id of raid.shipIds) {
+        const s = fleet.find((f) => f.id === id);
+        if (s) s.setStatus("ready");
+      }
+
+      raid.status = "done";
+      if (raid.won) {
+        log(state, `🏴‍☠️ ${raid.id} returned with loot: ${Math.floor(loot.supplies)} supplies, ${Math.floor(loot.embers)} embers, and more. ${survivors} troops came home.`);
+      } else {
+        log(state, `🏴‍☠️ ${raid.id} limped home — repelled, no loot. ${survivors} survivors.`);
+      }
+    }
+  }
 }
 
 /** Resolve a completed satellite climb: set the stage, free the Leader, award

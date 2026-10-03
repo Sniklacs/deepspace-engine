@@ -845,6 +845,67 @@ const collectProbeFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
+// Raids: form a party, target a colony, assign ships, load troops, launch.
+const createRaidFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.createRaid(st, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const setRaidTargetFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), raidId: z.string(), key: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.setRaidTarget(st, data.raidId, data.key, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const assignRaidShipsFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), raidId: z.string(), shipIds: z.array(z.string()) })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.assignRaidShips(st, data.raidId, data.shipIds, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const loadRaidTroopsFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), raidId: z.string(), type: z.string(), count: z.number() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.loadRaidTroops(st, data.raidId, data.type as import("./war/troops").TroopType, data.count, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const launchRaidFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), raidId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.launchRaid(st, data.raidId, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
 // Leader progression: spend one earned attribute point (XP level-up) into one
 // attribute of one Leader. Purely earned — never purchasable.
 const allocateLeaderPointFn = createServerFn({ method: "POST" }).validator(
@@ -2234,6 +2295,11 @@ export {
   buildProbeFn,
   launchProbeFn,
   collectProbeFn,
+  createRaidFn,
+  setRaidTargetFn,
+  assignRaidShipsFn,
+  loadRaidTroopsFn,
+  launchRaidFn,
   allocateLeaderPointFn,
   chooseSpecializationFn,
   signupFn,

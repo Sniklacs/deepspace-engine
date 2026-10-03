@@ -4,6 +4,7 @@ import {
   getState, createGameFn, switchGameFn, resetGameFn, deleteGameFn, trashAccountFn,
   launchFn, studyFn, deployFn, purifyFn, craftFn, beginResearchFn, chooseRevelationFn,
   buildProbeFn, launchProbeFn, collectProbeFn,
+  createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, launchRaidFn,
   allocateLeaderPointFn, chooseSpecializationFn,
   signupFn, loginFn, logoutFn, meFn,
   submitFeedbackFn, listMyFeedbackFn, dismissNoticeFn,
@@ -659,7 +660,17 @@ function PlayPage() {
           onAction={(fn, label) => act(fn, label)}
         />
       )}
-      {tab === "world" && <WorldMapView state={state} now={now} />}
+      {tab === "world" && (
+        <WorldMapView
+          state={state}
+          now={now}
+          onFormRaid={() => act(() => createRaidFn({ data: { token: token! } }), "createRaid")}
+          onSetRaidTarget={(raidId, key) => act(() => setRaidTargetFn({ data: { token: token!, raidId, key } }), "setRaidTarget")}
+          onAssignRaidShips={(raidId, shipIds) => act(() => assignRaidShipsFn({ data: { token: token!, raidId, shipIds } }), "assignRaidShips")}
+          onLoadRaidTroops={(raidId, type, count) => act(() => loadRaidTroopsFn({ data: { token: token!, raidId, type, count } }), "loadRaidTroops")}
+          onLaunchRaid={(raidId) => act(() => launchRaidFn({ data: { token: token!, raidId } }), "launchRaid")}
+        />
+      )}
       {tab === "battles" && (
         <BattlesTab
           state={state}

@@ -19,6 +19,7 @@
 import type { RaceId } from "./types";
 import type { MercenaryBand } from "./war/troops";
 import type { PersonalShipyard } from "./shipyard";
+import type { RaidParty, RaidWarning } from "./raids";
 
 /** 30 days of silence → abandoned. Hans: the first month has no gleaning so
  *  everybody gets a fair chance to grow (30d ≈ 1/3 of a 12-week season). */
@@ -150,6 +151,10 @@ export interface WorldMapState {
   visited: string[];
   /** Personal shipyard for solo scout builds (warships need the alliance). */
   shipyard?: PersonalShipyard;
+  /** Raiding parties (raids.ts): preparing → in_transit → landed → returning → done. */
+  raids: RaidParty[];
+  /** Defender warnings, filed the moment a raid touches down (raids.ts). */
+  raidWarnings: RaidWarning[];
   /** Monotonic counters for id generation. */
   seq: number;
 }
@@ -164,6 +169,8 @@ export function emptyWorldMap(now: number): WorldMapState {
     known: {},
     gleanRuns: [],
     visited: [],
+    raids: [],
+    raidWarnings: [],
     seq: 1,
   };
 }
@@ -171,7 +178,10 @@ export function emptyWorldMap(now: number): WorldMapState {
 /** Ensure state.worldMap exists (for migration compatibility). */
 export function ensureWorldMap(state: { worldMap?: WorldMapState }, now: number = Date.now()): WorldMapState {
   if (!state.worldMap) state.worldMap = emptyWorldMap(now);
-  return state.worldMap;
+  const wm = state.worldMap;
+  if (!Array.isArray(wm.raids)) wm.raids = [];
+  if (!Array.isArray(wm.raidWarnings)) wm.raidWarnings = [];
+  return wm;
 }
 
 /** True when `now - lastActive` has crossed the 30-day abandonment threshold. */
