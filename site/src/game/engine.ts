@@ -115,6 +115,10 @@ import {
 } from "./shipyard";
 import { SHIP_COST, shipNeedsAlliance, shipName, type ShipClass } from "./worldmap";
 import {
+  claimHusk as claimHuskPure,
+  resolveSubColonies as resolveSubColoniesPure,
+} from "./subcolonies";
+import {
   RAID_TRAVEL_MS,
   commitRaidTroops as commitRaidTroopsPure,
   createRaidParty,
@@ -1921,6 +1925,9 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // RAIDS: advance in_transit → landed (warn + battle) → returning → done.
   // Same lazy, idempotent discipline — offline worlds resolve on next read.
   advanceRaids(state, now);
+  // SUB COLONIES: setting_up → sub_colony after the 24h setup. Same lazy,
+  // idempotent discipline — offline worlds resolve on next read.
+  resolveSubColoniesPure(state, now);
   // Resolve arrivals of Forge supply runs (the ~24h transit — lazy, idempotent).
   resolveForgeTransit(state, now);
 
@@ -3142,6 +3149,17 @@ function raidableShips(state: GameState): { id: string; class: ShipClass; status
 
 function findRaid(state: GameState, raidId: string): RaidParty | undefined {
   return ensureWorldMap(state).raids.find((r) => r.id === raidId);
+}
+
+/** Claim a husk as a sub colony (owner 2026-10-03). Planet-locked, 24h setup. */
+export function claimHusk(state: GameState, key: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const res = claimHuskPure(state, key, now);
+  if (!res.ok) return { ok: false, error: res.error, state };
+  const wm = ensureWorldMap(state, now);
+  const colony = wm.known[key];
+  log(state, `🏚️ Claimed ${colony?.ownerName ?? "a husk"} as a sub colony — 24h setup. First come, first serve.`);
+  return { ok: true, state };
 }
 
 /** Form a raiding party (leader = you). */

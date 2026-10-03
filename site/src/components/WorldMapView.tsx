@@ -18,6 +18,11 @@ import {
   type KnownColony,
 } from "../game/worldmap";
 import {
+  SUBCOLONY_CLAIM_COST,
+  setupRemaining,
+} from "../game/subcolonies";
+import { WORLD_CONFIG_PUBLIC } from "../game/world-config";
+import {
   RAID_MAX_MEMBERS,
   raidJumpCharge,
   raidLaunchBlocker,
@@ -35,12 +40,14 @@ import { Bdi } from "./ui/Bdi";
 // Pure helpers (tested in WorldMapView.test.ts)
 // ---------------------------------------------------------------------------
 
-/** Status dot color: green = active, amber = abandoned, gray = husk. */
+/** Status dot color: green = active/sub_colony, amber = abandoned/setting_up, gray = husk. */
 export function statusColor(status: ColonyStatus): string {
   switch (status) {
     case "active":
+    case "sub_colony":
       return "#34d399"; // emerald-400
     case "abandoned":
+    case "setting_up":
       return "#fbbf24"; // amber-400
     case "husk":
       return "#6b7280"; // gray-500
@@ -49,7 +56,8 @@ export function statusColor(status: ColonyStatus): string {
 
 /** Sort colonies: abandoned first (opportunity), then active, then husks. */
 export function sortColonies(colonies: KnownColony[]): KnownColony[] {
-  const rank = (s: ColonyStatus) => (s === "abandoned" ? 0 : s === "active" ? 1 : 2);
+  const rank = (s: ColonyStatus) =>
+    s === "abandoned" || s === "setting_up" ? 0 : s === "active" || s === "sub_colony" ? 1 : 2;
   return [...colonies].sort((a, b) => rank(a.status) - rank(b.status) || a.ownerName.localeCompare(b.ownerName));
 }
 
@@ -61,6 +69,22 @@ export function abandonCountdownText(ms: number): string {
   if (days > 0) return `${days}d ${hours}h`;
   const mins = Math.floor((ms % 3_600_000) / 60_000);
   return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+}
+
+/** Localized status label for a colony. */
+export function statusLabel(t: (k: string, f: string) => string, status: ColonyStatus): string {
+  switch (status) {
+    case "active":
+      return t("worldmap.statusActive", "Active");
+    case "abandoned":
+      return t("worldmap.statusAbandoned", "Abandoned");
+    case "husk":
+      return t("worldmap.statusHusk", "Husk");
+    case "setting_up":
+      return t("worldmap.statusSettingUp", "Setting up");
+    case "sub_colony":
+      return t("worldmap.statusSubColony", "Sub colony");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -384,11 +408,7 @@ function ColonyCard({
           </span>
         </span>
         <span className="shrink-0 text-[10px] uppercase tracking-wide" style={{ color }}>
-          {colony.status === "active"
-            ? t("worldmap.statusActive", "Active")
-            : colony.status === "abandoned"
-              ? t("worldmap.statusAbandoned", "Abandoned")
-              : t("worldmap.statusHusk", "Husk")}
+          {statusLabel(t, colony.status)}
         </span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
@@ -418,26 +438,33 @@ function ColonyDetail({
   colony,
   colonyKeyStr,
   now,
+  state,
   onClose,
   onExplore,
   onRaid,
+  onClaimHusk,
 }: {
   colony: KnownColony;
   colonyKeyStr: string;
   now: number;
+  state: GameState;
   onClose: () => void;
   onExplore: (colony: KnownColony) => void;
   onRaid?: (colony: KnownColony, key: string) => void;
+  onClaimHusk?: (colony: KnownColony, key: string) => void;
 }) {
   const t = useT();
   const [confirming, setConfirming] = useState(false);
+  const [claimConfirming, setClaimConfirming] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [raidHint, setRaidHint] = useState<string | null>(null);
+  const [claimHint, setClaimHint] = useState<string | null>(null);
   const color = statusColor(colony.status);
   const loot = colony.lootObserved;
   const lootLeft = loot ? lootTotal(loot) : 0;
   const hasMercs = colony.mercenaries != null && colony.mercenaries !== undefined;
   const explorable = colony.status !== "active";
+  const me = state.gameId ?? "";
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/50 p-4" role="dialog" aria-label={colonyMarkerName(colony.ownerName)}>
@@ -450,11 +477,7 @@ function ColonyDetail({
           <p className="mt-0.5 text-[11px] text-gray-400">
             {t("worldmap.server", "Server")}: <Bdi dir="ltr">{colony.serverId}</Bdi>
             {" · "}
-            {colony.status === "active"
-              ? t("worldmap.statusActive", "Active")
-              : colony.status === "abandoned"
-                ? t("worldmap.statusAbandoned", "Abandoned")
-                : t("worldmap.statusHusk", "Husk")}
+            {statusLabel(t, colony.status)}
           </p>
         </div>
         <button
@@ -519,7 +542,141 @@ function ColonyDetail({
             {t("worldmap.activeHint", "An active colony. No gleaning here — raiding an active colony is a separate operation, and its defenders will be warned.")}
           </p>
         )}
+        {colony.status === "setting_up" && colony.subClaim && (
+          <p className="text-amber-200/90">
+            {t(
+              "worldmap.settingUpHint",
+              "Being supplied by {name} — sub colony coming online.",
+              { name: colony.subClaim.claimedByName },
+            )}
+          </p>
+        )}
+        {colony.status === "sub_colony" && (
+          <p className="text-emerald-200/90">
+            {t("worldmap.subColonyHint", "Your sub colony — build troops here. It fights at your research level and feeds your reverb.")}
+          </p>
+        )}
       </div>
+
+      {/* Claim — husks only. Always tappable; tap explains (Hans's rule). */}
+      {colony.status === "husk" && (
+        <div className="mt-3">
+          {!claimConfirming ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  sound.click();
+                  if (!onClaimHusk) {
+                    setClaimHint("noHandler");
+                  } else if (colony.serverId !== WORLD_CONFIG_PUBLIC.worldId) {
+                    setClaimHint("offworld");
+                  } else if (colony.subClaim) {
+                    setClaimHint("claimed");
+                  } else if ((state.resources.supplies ?? 0) < SUBCOLONY_CLAIM_COST) {
+                    setClaimHint("poor");
+                  } else {
+                    setClaimHint(null);
+                    setClaimConfirming(true);
+                  }
+                }}
+                className="w-full rounded-xl border border-cyan-400/40 bg-cyan-400/15 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-400/25"
+              >
+                🏚️ {t("worldmap.claimHusk", "Claim as sub colony")}
+              </button>
+              {claimHint === "offworld" && (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200/80">
+                  {t(
+                    "worldmap.claimOffworld",
+                    "Sub colonies are planet-locked — you can only claim husks on your own world.",
+                  )}
+                </p>
+              )}
+              {claimHint === "claimed" && colony.subClaim && (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200/80">
+                  {t(
+                    "worldmap.alreadySupplied",
+                    "This colony is already being supplied by {name}.",
+                    { name: colony.subClaim.claimedByName },
+                  )}
+                </p>
+              )}
+              {claimHint === "poor" && (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200/80">
+                  {t(
+                    "worldmap.claimPoor",
+                    "Need {cost} supplies to kickstart a sub colony — you have {have}.",
+                    {
+                      cost: SUBCOLONY_CLAIM_COST.toLocaleString(),
+                      have: (state.resources.supplies ?? 0).toLocaleString(),
+                    },
+                  )}
+                </p>
+              )}
+              {claimHint === "noHandler" && (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-gray-400">
+                  {t("worldmap.claimSoon", "Sub colony claiming isn't wired up yet — the husk stays on your map.")}
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="rounded-xl border border-cyan-400/30 bg-cyan-400/5 p-3">
+              <p className="text-[13px] leading-relaxed text-cyan-100">
+                {t(
+                  "worldmap.claimPrompt",
+                  "Supply this husk and make it your sub colony? Costs {cost} supplies, 24h setup. First come, first serve.",
+                  { cost: SUBCOLONY_CLAIM_COST.toLocaleString() },
+                )}
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.click();
+                    setClaimConfirming(false);
+                    if (onClaimHusk) onClaimHusk(colony, colonyKeyStr);
+                  }}
+                  className="flex-1 rounded-lg border border-emerald-400/40 bg-emerald-400/15 px-3 py-1.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-400/25"
+                >
+                  {t("worldmap.yes", "Yes")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.click();
+                    setClaimConfirming(false);
+                  }}
+                  className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-gray-300 hover:bg-white/10"
+                >
+                  {t("worldmap.no", "No")}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Setting up — show progress. */}
+      {colony.status === "setting_up" && colony.subClaim && (
+        <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
+          <p className="text-[13px] text-amber-100">
+            {colony.subClaim.claimedBy === me
+              ? t(
+                  "worldmap.settingUpYours",
+                  "Setting up your sub colony — ready in {time}.",
+                  { time: abandonCountdownText(setupRemaining(colony, now)) },
+                )
+              : t(
+                  "worldmap.settingUpTheirs",
+                  "Being supplied by {name} — ready in {time}.",
+                  {
+                    name: colony.subClaim.claimedByName,
+                    time: abandonCountdownText(setupRemaining(colony, now)),
+                  },
+                )}
+          </p>
+        </div>
+      )}
 
       {/* Raid — active colonies only. Always tappable; tap explains. */}
       {colony.status === "active" && (
@@ -619,6 +776,7 @@ export default function WorldMapView({
   state,
   now,
   onExplore,
+  onClaimHusk,
   onFormRaid,
   onSetRaidTarget,
   onAssignRaidShips,
@@ -630,6 +788,8 @@ export default function WorldMapView({
   /** Called when the player confirms exploring an abandoned colony. v1: the
    *  parent may not wire gleaning yet — then the detail shows a "soon" note. */
   onExplore?: (colony: KnownColony) => void;
+  /** Called when the player confirms claiming a husk as a sub colony. */
+  onClaimHusk?: (colony: KnownColony, key: string) => void;
   /** Raid wiring (optional — unwired buttons explain inline per Hans's rule). */
   onFormRaid?: () => void;
   onSetRaidTarget?: (raidId: string, key: string) => void;
@@ -812,9 +972,11 @@ export default function WorldMapView({
           colony={selected}
           colonyKeyStr={selectedKey}
           now={now}
+          state={state}
           onClose={() => setSelectedKey(null)}
           onExplore={handleExplore}
           onRaid={handleRaid}
+          onClaimHusk={onClaimHusk ? (_colony, key) => onClaimHusk(selected, key) : undefined}
         />
       )}
 

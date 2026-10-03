@@ -4,6 +4,7 @@ import {
   getState, createGameFn, switchGameFn, resetGameFn, deleteGameFn, trashAccountFn,
   launchFn, studyFn, deployFn, purifyFn, craftFn, beginResearchFn, chooseRevelationFn,
   buildProbeFn, launchProbeFn, collectProbeFn,
+  claimHuskFn,
   createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, launchRaidFn,
   allocateLeaderPointFn, chooseSpecializationFn,
   signupFn, loginFn, logoutFn, meFn,
@@ -668,6 +669,7 @@ function PlayPage() {
         <WorldMapView
           state={state}
           now={now}
+          onClaimHusk={(_colony, key) => act(() => claimHuskFn({ data: { token: token!, key } }), "claimHusk")}
           onFormRaid={() => act(() => createRaidFn({ data: { token: token! } }), "createRaid")}
           onSetRaidTarget={(raidId, key) => act(() => setRaidTargetFn({ data: { token: token!, raidId, key } }), "setRaidTarget")}
           onAssignRaidShips={(raidId, shipIds) => act(() => assignRaidShipsFn({ data: { token: token!, raidId, shipIds } }), "assignRaidShips")}

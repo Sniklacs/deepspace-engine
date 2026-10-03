@@ -43,7 +43,7 @@ export const GLEAN_DURATION_MS = 2 * 3600_000; // 2 hours
 export const WORLD_JUMP_FUEL = 10;
 export const WORLD_JUMP_SUPPLIES = 200;
 
-export type ColonyStatus = "active" | "abandoned" | "husk";
+export type ColonyStatus = "active" | "abandoned" | "husk" | "setting_up" | "sub_colony";
 
 /** Lootable stores of an abandoned colony. First-come-first-served; partial
  *  takes allowed (take what the convoy carries, leave the rest). Artifacts
@@ -94,6 +94,9 @@ export interface KnownColony {
   /** Planetary reverb (overall strength signature) — only from a visit, never
    *  a probe. Reverb tells you HOW MUCH, not WHAT (design §14). */
   reverb?: number;
+  /** Sub-colony claim (subcolonies.ts). Set when a husk is claimed; the
+   *  colony's status moves husk → setting_up → sub_colony. */
+  subClaim?: import("./subcolonies").SubColonyClaim | null;
 }
 
 /** A scout probe in flight. One-time use: launched → returns → consumed. */
