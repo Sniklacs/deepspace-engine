@@ -268,8 +268,9 @@ async function runSeed(): Promise<Record<string, any>> {
   const tp1Saves = await sql`SELECT data FROM saves WHERE account_id = 'testwarlord1'`;
   if (tp1Saves.length > 0) {
     const data = tp1Saves[0].data;
-    if (data.games && data.games["0"]) {
-      data.games["0"].alliances = { [allianceId]: alliance };
+    const tp1GameKey = data.activeGameId || "testwarlord1";
+    if (data.games && data.games[tp1GameKey]) {
+      data.games[tp1GameKey].alliances = { [allianceId]: alliance };
       await sql`UPDATE saves SET data = ${JSON.stringify(data)}::jsonb WHERE account_id = 'testwarlord1'`;
     }
   }
