@@ -6,7 +6,7 @@
 // Tap a card → detail panel. Abandoned → the Explore Yes/No confirmation.
 // Hans's rule: every button is always tappable; a tap that can't proceed
 // shows the reason inline, right below the button.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { GameState } from "../game/types";
 import {
   abandonmentIn,
@@ -302,7 +302,20 @@ function RaidPanel({
               {t("raid.ships", "Ships")} ({raid.shipIds.length} {t("raid.assigned", "assigned")})
             </p>
             {ships.length === 0 ? (
-              <p className="mt-1 text-[11px] text-gray-500">{t("raid.noShips", "No jump ships ready. Build ships at the shipyard first.")}</p>
+              <div className="mt-1">
+                <p className="text-[11px] text-gray-500">{t("raid.noShips", "No jump ships ready. Build ships at the shipyard first.")}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.click();
+                    // Navigate to the shipyard (alliance ships or personal scout)
+                    window.location.hash = "#/shipyard";
+                  }}
+                  className="mt-1.5 rounded-lg border border-amber-400/40 bg-amber-400/15 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-400/25"
+                >
+                  🏭 {t("raid.goShipyard", "Go to Shipyard")}
+                </button>
+              </div>
             ) : (
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {ships.map((s) => {
@@ -853,6 +866,10 @@ export default function WorldMapView({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [exploreNote, setExploreNote] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // Pending raid target: when the user taps "Raid" with no party yet, we form
+  // the party and remember the colony — once the party appears (server round-trip),
+  // we auto-set it as the target so the user doesn't have to tap twice.
+  const [pendingRaidTarget, setPendingRaidTarget] = useState<string | null>(null);
   const wm = state.worldMap;
 
   const colonies = useMemo(() => {
@@ -900,10 +917,21 @@ export default function WorldMapView({
       if (onSetRaidTarget) onSetRaidTarget(preparing.id, key);
     } else if (onFormRaid) {
       onFormRaid();
-      // The new party targets this colony on the next tap (party id unknown
-      // until the server round-trips — the panel shows the "no target" hint).
+      // Remember the target — once the party appears (server round-trip),
+      // the effect below auto-sets it. No second tap needed.
+      setPendingRaidTarget(key);
     }
   };
+
+  // Auto-apply pending raid target once the new party appears.
+  useEffect(() => {
+    if (!pendingRaidTarget) return;
+    const preparing = wm?.raids.find((r) => r.status === "preparing" && !r.targetColonyId);
+    if (preparing && onSetRaidTarget) {
+      onSetRaidTarget(preparing.id, pendingRaidTarget);
+      setPendingRaidTarget(null);
+    }
+  }, [wm?.raids, pendingRaidTarget, onSetRaidTarget]);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-3 p-4 pb-24">

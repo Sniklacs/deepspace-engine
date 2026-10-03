@@ -195,11 +195,13 @@ async function runSeed(): Promise<Record<string, any>> {
       "t1_unlock", "t2_unlock", "t3_unlock", "t4_unlock",
       "scout_probe", "muster_1", "muster_2", "muster_3",
     ];
-    // Stockpiled resources
+    // Stockpiled resources (generous test amounts — Hans tests everything)
     game.resources.supplies = 500000;
     game.resources.embers = 5000;
     game.resources.chipsets = 500;
-    game.resources.alloys = 100;
+    game.resources.alloys = 1000;
+    game.resources.mats = { grays: 500, nephilim: 500, draconians: 1000, anunnaki: 500, ashtar: 500, watchers: 500 };
+    (game as any).codices = 100;
     // World map with mock colonies
     const wm = emptyWorldMap(now);
     wm.scoutTechResearched = true;
@@ -335,7 +337,9 @@ async function runSeedWarlord6(): Promise<Record<string, any>> {
     game.resources.supplies = 500000;
     game.resources.embers = 5000;
     game.resources.chipsets = 500;
-    game.resources.alloys = 100;
+    game.resources.alloys = 1000;
+    game.resources.mats = { grays: 500, nephilim: 500, draconians: 1000, anunnaki: 500, ashtar: 500, watchers: 500 };
+    (game as any).codices = 100;
     const wm = emptyWorldMap(now);
     wm.scoutTechResearched = true;
     wm.probes = 5;
