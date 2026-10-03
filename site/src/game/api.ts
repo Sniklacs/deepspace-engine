@@ -28,13 +28,7 @@ import * as engine from "./engine";
 import { worldRaceError, WORLD_CONFIG } from "./world-config";
 import { ensureWorldMap } from "./worldmap";
 import {
-  contributeAllianceShip,
   createShipBuild,
-  ensurePersonalShipyard,
-  orderAllianceShip,
-  payShipCost,
-  shipCostBlocker,
-  shipNeedsAlliance,
 } from "./shipyard";
 import { snapshotHero } from "./prologue/act1-battle";
 import {
@@ -434,7 +428,6 @@ async function flushRaidResultDeliveries(
   if (pending.length === 0) return;
   const { deliverRaidResult } = await import("./raid-delivery");
   const { WORLD_CONFIG } = await import("./world-config");
-  const { raidTroopCount } = await import("./raids");
   let dirty = false;
   for (const raid of pending as any[]) {
     const attackerLosses = raid.attackerLosses
@@ -2318,82 +2311,6 @@ const allianceDisbandFn = createServerFn({ method: "POST" }).validator(
   }),
 );
 
-// SHIP FACTORY (owner 2026-10-03): Hans couldn't find any way to build ships.
-// Warships are ordered on the alliance factory — the canonical record lives
-// on the founder's account and fans out via sync-alliance. Scouts are
-// solo-built on the personal shipyard (no alliance needed).
-const SHIP_CLASS_VALUES = ["scout", "frigate", "bulwark", "vanguard", "fatcat", "herald"] as const;
-
-const orderShipFn = createServerFn({ method: "POST" }).validator(
-  z.object({ token: z.string(), allianceId: z.string(), shipClass: z.enum(SHIP_CLASS_VALUES) })
-).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, async (st, ctx) => {
-    const blocker = shipCostBlocker(st, data.shipClass);
-    if (blocker) {
-      const label = blocker.kind === "supplies" ? "supplies" : blocker.kind === "alloys" ? "alloys" : "race material";
-      return { ok: false, error: `Need ${blocker.need.toLocaleString()} ${label} — you have ${blocker.have.toLocaleString()}.` };
-    }
-    if (!shipNeedsAlliance(data.shipClass)) {
-      // Solo scout: personal shipyard on the world map.
-      payShipCost(st, data.shipClass);
-      const wm = ensureWorldMap(st, ctx.now);
-      const psy = ensurePersonalShipyard(wm);
-      const build = createShipBuild(data.shipClass, st.race!, ctx.colonyId, ctx.colonyName, 0, 1, ctx.now);
-      psy.queue.push(build);
-      psy.seq += 1;
-      engine.log(st, `🔭 Scout under construction in your personal shipyard — ready in ~2h.`);
-      return { ok: true, value: build.id };
-    }
-    const a = allianceOf(st, ctx.colonyId);
-    if (!a || a.id !== data.allianceId) {
-      return { ok: false, error: "Join a war band first — warships are built at the alliance factory." };
-    }
-    type TxOut = { ok: true; value: string } | { ok: false; error: string };
-    const res: TxOut | { ok: false; error: string } = await canonicalAllianceTx(st, data.allianceId, (fst): TxOut => {
-      const ca = allianceById(fst, data.allianceId);
-      if (!ca) return { ok: false, error: "That alliance doesn't exist." };
-      const r = orderAllianceShip(ca, {
-        shipClass: data.shipClass,
-        raceId: st.race!,
-        orderedBy: ctx.colonyId,
-        orderedByName: ctx.colonyName,
-        now: ctx.now,
-      });
-      if (!r.ok) return { ok: false, error: r.error ?? "Couldn't order that ship." };
-      touchAlliance(ca);
-      syncAllianceTo(fst, ca);
-      return { ok: true, value: r.build!.id };
-    });
-    if (!res.ok) return { ok: false, error: res.error };
-    payShipCost(st, data.shipClass);
-    engine.log(st, `🚀 Warship ordered at the alliance factory — crew can join the build to speed it up.`);
-    return { ok: true, value: res.value };
-  }),
-);
-
-const contributeShipFn = createServerFn({ method: "POST" }).validator(
-  z.object({ token: z.string(), allianceId: z.string(), buildId: z.string() })
-).handler(async ({ data }): Promise<GameResult> =>
-  withColony(data.token, async (st, ctx) => {
-    const a = allianceOf(st, ctx.colonyId);
-    if (!a || a.id !== data.allianceId) {
-      return { ok: false, error: "Join a war band first — warships are built at the alliance factory." };
-    }
-    type TxOut = { ok: true; value: string } | { ok: false; error: string };
-    const res: TxOut | { ok: false; error: string } = await canonicalAllianceTx(st, data.allianceId, (fst): TxOut => {
-      const ca = allianceById(fst, data.allianceId);
-      if (!ca) return { ok: false, error: "That alliance doesn't exist." };
-      const r = contributeAllianceShip(ca, data.buildId, ctx.colonyId, ctx.now);
-      if (!r.ok) return { ok: false, error: r.error ?? "Couldn't join that crew." };
-      touchAlliance(ca);
-      syncAllianceTo(fst, ca);
-      return { ok: true, value: "crewed" };
-    });
-    if (!res.ok) return { ok: false, error: res.error };
-    return { ok: true, value: res.value };
-  }),
-);
-
 const rallyCreateFn = createServerFn({ method: "POST" }).validator(
   z.object({
     token: z.string(),
@@ -2633,8 +2550,6 @@ export {
   collectProbeFn,
   claimHuskFn,
   shipSubColonySuppliesFn,
-  orderShipFn,
-  contributeShipFn,
   markMailReadFn,
   markAllMailReadFn,
   deleteMailFn,
