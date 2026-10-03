@@ -74,7 +74,7 @@ import {
 /** Storage backend — the real store by default, injectable for tests. */
 export interface ColonyStore {
   loadAccountSaves(accountId: string): Promise<AccountSaves | null>;
-  saveAccountSaves(accountId: string, saves: AccountSaves): Promise<void>;
+  saveAccountSaves(accountId: string, saves: AccountSaves): Promise<boolean | void>;
   loadAllSaves(): Promise<Array<{ accountId: string; saves: AccountSaves }>>;
 }
 
