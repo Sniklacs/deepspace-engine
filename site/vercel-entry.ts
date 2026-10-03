@@ -355,6 +355,9 @@ async function runSeedWarlord6(): Promise<Record<string, any>> {
     for (const t of ["bulwark", "reaver", "longeye", "thunder", "warden"] as const) {
       addCohort6((game as any).troops.home.roster, t, 1000, now);
     }
+    // Stage-1 satellite for raid alarm testing (owner 2026-10-03)
+    const { setSatelliteStage: setSat6, colonyNodeId: nodeId6 } = await import("./src/game/satellites.js");
+    setSat6(game as any, nodeId6(game as any), 1);
     const wm = emptyWorldMap(now);
     wm.scoutTechResearched = true;
     wm.probes = 5;
