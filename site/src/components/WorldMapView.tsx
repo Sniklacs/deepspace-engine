@@ -640,12 +640,16 @@ export default function WorldMapView({
   const t = useT();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [exploreNote, setExploreNote] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const wm = state.worldMap;
 
   const colonies = useMemo(() => {
     if (!wm) return [];
-    return sortColonies(Object.values(wm.known));
-  }, [wm]);
+    const all = sortColonies(Object.values(wm.known));
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((c) => (c.ownerName ?? "").toLowerCase().includes(q));
+  }, [wm, searchQuery]);
 
   const selected = selectedKey ? (wm?.known[selectedKey] ?? null) : null;
 
@@ -767,6 +771,15 @@ export default function WorldMapView({
       )}
 
       {/* Colony list = the v1 world map */}
+      <div className="mb-2">
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={t("worldmap.searchPlaceholder", "Search colonies by owner name…")}
+          className="w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-white/30"
+        />
+      </div>
       {colonies.length === 0 ? (
         <div className="rounded-xl border border-dashed border-white/15 bg-black/20 p-6 text-center">
           <p className="text-sm text-gray-300">{t("worldmap.empty", "No colonies charted yet.")}</p>
