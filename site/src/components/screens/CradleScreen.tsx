@@ -194,16 +194,15 @@ export default function CradleScreen({
             onOpenAlliance={onOpenAlliance}
           />
 
-          {/* ---- B2b · the war band (owner 2026-10-02): TEMPORARILY DISABLED
-              due to crash — re-enable after fix ------------------- */}
-          {false && (
+          {/* ---- B2b · the war band (owner 2026-10-02): join button when
+              alone; the alliance dashboard (help, ship factory, research)
+              plus an "open alliance" sheet when sworn ------------------- */}
           <CradleAllianceSection
             state={state}
             now={now}
             token={token}
             onAction={onAction}
           />
-          )}
 
           {/* ---- B3 · the advance bar (the screen's middle action) ---------- */}
           <div data-testid="advance-bar">

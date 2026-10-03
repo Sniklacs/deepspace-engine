@@ -231,9 +231,9 @@ async function runSeed(): Promise<Record<string, any>> {
     banner: "🔥",
     motto: "From ash, victory.",
     members: testPlayers.map((tp, i) => ({
-      accountId: tp.name.toLowerCase(),
+      colonyId: tp.name.toLowerCase(),
       colonyName: tp.display,
-      role: i === 0 ? "founder" : "member",
+      role: i === 0 ? "leader" : "member",
       joinedAt: day60,
     })),
     applications: [],

@@ -190,7 +190,7 @@ function HelpBlock({
                 <span className="min-w-0 truncate text-sm text-text-1">
                   {m.colonyName}
                   <span className="ms-2 rounded-full border border-line px-2 py-0.5 text-[10px] text-text-2">
-                    {ROLE_LABEL[m.role]}
+                    {ROLE_LABEL[m.role] ?? m.role}
                   </span>
                 </span>
                 <button

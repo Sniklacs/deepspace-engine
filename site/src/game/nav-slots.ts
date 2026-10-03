@@ -1,14 +1,15 @@
 // NAV — the shell's slot table (game-ui-shell-spec §1.3, amendment A1).
 //
 // Pure data: id + label + icon. The Battles slot is the conditional WAR slot;
-// the other six are fixed (the rung-1 §E consolidation: Cradle · Expeditions ·
-// Lab · Armory · Loadout · Circuit). The label is the accessible name verbatim.
+// the others are fixed (the rung-1 §E consolidation: Cradle · Expeditions ·
+// Lab · Armory · Loadout · Circuit, plus World — the colony map). The label
+// is the accessible name verbatim.
 //
 // A10 (vocabulary): every label here is a ratified noun — no new player-facing
 // word is coined by the nav.
 import type { IconName } from "../components/icons";
 
-export const NAV_IDS = ["colony", "expeditions", "lab", "armory", "loadout", "arena", "battles", "circuit"] as const;
+export const NAV_IDS = ["colony", "expeditions", "lab", "armory", "loadout", "arena", "battles", "circuit", "world"] as const;
 export type NavTabId = (typeof NAV_IDS)[number];
 /** The Tab union the router/screens use — derived, so no screen can be orphaned. */
 export type Tab = NavTabId;
@@ -32,6 +33,9 @@ export const NAV: readonly NavSlot[] = [
   { id: "arena", label: "Arena", icon: "gamepad" },
   { id: "battles", label: "Battles", icon: "sword", war: true },
   { id: "circuit", label: "Circuit", icon: "map" },
+  // WORLD MAP (design/abandoned-colonies-world-map.md §2): colonies, not
+  // sites. Owner-named markers, abandonment states, scout reports.
+  { id: "world", label: "World", icon: "globe" },
 ];
 
 /** The five slots that always exist; Battles joins them while the war is on. */

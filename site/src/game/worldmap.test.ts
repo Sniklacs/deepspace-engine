@@ -203,7 +203,7 @@ describe("ships", () => {
   });
   test("shipName returns race variant", async () => {
     const { shipName } = await import("./worldmap");
-    expect(shipName("draconian", "bulwark")).toBe("Ashen Bulwark");
+    expect(shipName("draconians", "bulwark")).toBe("Ashen Bulwark");
     expect(shipName("unbound", "fatcat")).toBe("Cornucopia");
   });
 });
