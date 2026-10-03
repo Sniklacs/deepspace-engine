@@ -3539,7 +3539,9 @@ function resolveScoutProbeTech(state: GameState, j: ResearchJob, now: number) {
 
 /** Get the player's colony id (for alliance membership checks). */
 function myColonyId(state: GameState): string {
-  return (state as unknown as { colonyId?: string }).colonyId ?? "colony";
+  return (state as unknown as { colonyId?: string; gameId?: string }).colonyId
+    ?? (state as unknown as { gameId?: string }).gameId
+    ?? "colony";
 }
 
 function myColonyName(state: GameState): string {
