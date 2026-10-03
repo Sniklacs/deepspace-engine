@@ -210,11 +210,13 @@ async function runSeed(): Promise<Record<string, any>> {
     (game as any).worldMap = wm;
     // Mark as mock/test
     (game as any).isTestAccount = true;
+    // Unique colony ID per test account (prevents "0" collision across accounts)
+    (game as any).gameId = uname;
 
     const saves = {
       version: 2,
-      activeGameId: "0",
-      games: { "0": game },
+      activeGameId: uname,
+      games: { [uname]: game },
     };
     await sql`INSERT INTO saves (account_id, data)
       VALUES (${uname}, ${JSON.stringify(saves)}::jsonb)
@@ -386,9 +388,9 @@ async function runSeedWarlord6(): Promise<Record<string, any>> {
     }
     (game as any).worldMap = wm;
     (game as any).isTestAccount = true;
-    (game as any).gameId = "0";
+    (game as any).gameId = uname;
     // NOTE: no alliances field — testwarlord6 is NOT in any alliance.
-    const saves = { version: 2, activeGameId: "0", games: { "0": game } };
+    const saves = { version: 2, activeGameId: uname, games: { [uname]: game } };
     await sql`INSERT INTO saves (account_id, data)
       VALUES (${uname}, ${JSON.stringify(saves)}::jsonb)
       ON CONFLICT (account_id) DO UPDATE SET data = EXCLUDED.data`;
