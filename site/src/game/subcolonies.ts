@@ -148,6 +148,14 @@ export function claimHusk(
   };
   colony.subClaim = claim;
   colony.status = "setting_up";
+  // Mailbox: confirm the claim started (owner 2026-10-03).
+  sendMail(state, {
+    from: "system",
+    subject: `Claiming husk: ${colony.ownerName || "unnamed husk"}`,
+    body: `You invested 5,000 supplies to claim this husk as a sub colony. Setup takes 24 hours — supplies are flowing, getting everything running. You'll get another message when it's ready.`,
+    category: "alert",
+    sentAt: now,
+  });
   return { ok: true };
 }
 
