@@ -1244,6 +1244,28 @@ const launchRaidFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
+// Tactical deployment (owner 2026-10-03): player assigns troops to entry
+// vectors after touchdown. The battle resolves on the next tick.
+const deployRaidFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    raidId: z.string(),
+    deployment: z.record(z.string(), z.record(z.string(), z.number())),
+    shipsHoldOrbit: z.boolean(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.deployRaid(st, data.raidId, data.deployment, data.shipsHoldOrbit, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
 // Raid party joining via invite code (multiplayer, owner 2026-10-03).
 // Alliance members on the SAME world join the leader's party.
 const joinRaidFn = createServerFn({ method: "POST" }).validator(
@@ -2718,6 +2740,7 @@ export {
   assignRaidShipsFn,
   loadRaidTroopsFn,
   launchRaidFn,
+  deployRaidFn,
   joinRaidFn,
   allocateLeaderPointFn,
   chooseSpecializationFn,

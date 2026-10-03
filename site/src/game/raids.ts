@@ -13,6 +13,7 @@
 
 import type { TroopType } from "./war/troops";
 import { WORLD_JUMP_FUEL, WORLD_JUMP_SUPPLIES, type ShipClass } from "./worldmap";
+import type { ManeuverVector } from "./war/war-types";
 
 /** Max raiding party size. Hans: the 5-player cap forces coordination —
  *  you can't zerg a raid, you have to plan it. The beachhead is where
@@ -54,7 +55,8 @@ export const SHIP_LOOT_CAP: Record<ShipClass, number> = {
 export type RaidStatus =
   | "preparing" // forming up: members joining, troops loading
   | "in_transit" // jumped: flying to the target
-  | "landed" // touched down: defender warned, battle resolves
+  | "deploying" // touched down: player assigns troops to entry vectors (owner 2026-10-03)
+  | "landed" // battle resolved: defender warned, loot secured
   | "returning" // exfil: flying home with the loot
   | "done"; // delivered: loot in the attacker's stores
 
@@ -108,6 +110,14 @@ export interface RaidParty {
   targetServerId: string;
   targetColonyId: string;
   targetOwnerName: string;
+  /** Tactical deployment (owner 2026-10-03): player's troop assignments to
+   *  entry vectors, set during the "deploying" phase after touchdown.
+   *  Keys are ManeuverVector; values are troop counts by type. */
+  deployment?: Partial<Record<ManeuverVector, Partial<Record<TroopType, number>>>>;
+  /** Ship holding pattern (owner 2026-10-03): true = ships hold in orbit
+   *  (safe from ground defenses, fast extract); false = ships land with
+   *  troops (participate in battle, higher risk/reward). Default true. */
+  shipsHoldOrbit?: boolean;
   status: RaidStatus;
   departedAt?: number;
   landsAt?: number;
@@ -315,6 +325,54 @@ export function setRaidTarget(
   return { ok: true };
 }
 
+/** All five entry vectors (owner 2026-10-03). */
+export const RAID_VECTORS: ManeuverVector[] = ["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR", "RESERVE"];
+
+/** Validate a raid deployment. Returns the first blocker. */
+export function raidDeployBlocker(
+  raid: RaidParty,
+  deployment: Partial<Record<ManeuverVector, Partial<Record<TroopType, number>>>>,
+): string | null {
+  if (raid.status !== "deploying") return "That raid isn't deploying troops right now.";
+  // At least one troop assigned somewhere.
+  let total = 0;
+  for (const troops of Object.values(deployment)) {
+    for (const n of Object.values(troops ?? {})) total += n ?? 0;
+  }
+  if (total === 0) return "Assign at least one troop group to a vector.";
+  // Can't deploy more than the raid carries.
+  const carried = raidTroopCount(raid);
+  if (total > carried) return `That's ${total.toLocaleString()} troops — the raid only carries ${carried.toLocaleString()}.`;
+  // REAR requires 20% Warden escort (locked design).
+  const rear = deployment.REAR;
+  if (rear) {
+    let rearTotal = 0;
+    let rearWardens = 0;
+    for (const [t, n] of Object.entries(rear) as [TroopType, number][]) {
+      rearTotal += n ?? 0;
+      if (t === "warden") rearWardens += n ?? 0;
+    }
+    if (rearTotal > 0 && rearWardens < rearTotal * 0.2) {
+      return "REAR entry needs a 20% Warden escort — the rear is exposed without them.";
+    }
+  }
+  return null;
+}
+
+/** Commit the player's tactical deployment. The battle resolves on the next tick. */
+export function deployRaidTroops(
+  raid: RaidParty,
+  deployment: Partial<Record<ManeuverVector, Partial<Record<TroopType, number>>>>,
+  shipsHoldOrbit: boolean,
+): { ok: boolean; error?: string } {
+  const blocker = raidDeployBlocker(raid, deployment);
+  if (blocker) return { ok: false, error: blocker };
+  raid.deployment = deployment;
+  raid.shipsHoldOrbit = shipsHoldOrbit;
+  raid.status = "landed"; // battle resolves on next tick with the player's deployment
+  return { ok: true };
+}
+
 /** Validate a raid is launchable. Returns the first blocker. */
 export function raidLaunchBlocker(raid: RaidParty): string | null {
   if (raid.status !== "preparing") return "That raid already launched.";
@@ -338,6 +396,13 @@ export interface RaidBattleInput {
   attacker: Partial<Record<TroopType, number>>;
   /** Attacker supply weight per type. */
   weights: Record<TroopType, number>;
+  /** Tactical deployment (owner 2026-10-03): troop assignments to entry vectors.
+   *  When provided, surprise bonuses apply per vector. When omitted, all troops
+   *  fight at base strength (v1 auto-resolve behavior). */
+  deployment?: Partial<Record<ManeuverVector, Partial<Record<TroopType, number>>>>;
+  /** Ship posture (owner 2026-10-03): true = ships hold in orbit (safe);
+   *  false = ships land and add 10% fire support but risk ground-fire losses. */
+  shipsHoldOrbit?: boolean;
   /** Defender approximate headcount. */
   defenderTroops: number;
   /** What's lootable at the colony (supplies/embers/materials). */
@@ -369,8 +434,41 @@ export interface RaidBattleResult {
  * Artifacts are never in the loot pool (locked rule).
  */
 export function resolveRaidBattle(input: RaidBattleInput): RaidBattleResult {
-  const attackerPower = (Object.entries(input.attacker) as [TroopType, number][])
+  // Base power from troops.
+  let attackerPower = (Object.entries(input.attacker) as [TroopType, number][])
     .reduce((p, [type, count]) => p + (count ?? 0) * (input.weights[type] ?? 1), 0);
+
+  // Tactical deployment bonuses (owner 2026-10-03): entry vectors grant
+  // surprise multipliers on the troops assigned to them.
+  //   MAIN: 1.0x (no bonus, frontal assault)
+  //   FLANK_LEFT/RIGHT: 1.25x (hidden until entry)
+  //   REAR: 1.5x (highest surprise, hardest to pull off)
+  //   RESERVE: 1.0x (held back, no surprise but no extra risk)
+  if (input.deployment) {
+    const VECTOR_BONUS: Record<ManeuverVector, number> = {
+      MAIN: 1.0,
+      FLANK_LEFT: 1.25,
+      FLANK_RIGHT: 1.25,
+      REAR: 1.5,
+      RESERVE: 1.0,
+    };
+    let deployedPower = 0;
+    for (const [vector, troops] of Object.entries(input.deployment) as [ManeuverVector, Partial<Record<TroopType, number>>][]) {
+      const bonus = VECTOR_BONUS[vector] ?? 1.0;
+      const vecPower = (Object.entries(troops) as [TroopType, number][])
+        .reduce((p, [type, count]) => p + (count ?? 0) * (input.weights[type] ?? 1), 0);
+      deployedPower += vecPower * bonus;
+    }
+    // Use the deployed power if a deployment was provided (it should cover
+    // all troops; fall back to base power if the deployment is empty).
+    if (deployedPower > 0) attackerPower = deployedPower;
+  }
+
+  // Ship posture: landed ships add 10% fire support.
+  if (input.shipsHoldOrbit === false) {
+    attackerPower *= 1.10;
+  }
+
   const defenderPower = Math.max(1, input.defenderTroops); // avg weight 1
   const ratio = attackerPower / defenderPower;
 
@@ -381,6 +479,12 @@ export function resolveRaidBattle(input: RaidBattleInput): RaidBattleResult {
   else if (ratio >= 1) { lossRate = 0.25; lootShare = 0.50; won = true; }
   else if (ratio >= 0.5) { lossRate = 0.60; lootShare = 0.20; won = true; }
   else { lossRate = 0.90; lootShare = 0; won = false; }
+
+  // Ships that land risk ground-fire losses: 15% of ships are damaged
+  // (abstracted as a loot penalty — the ships themselves survive).
+  if (input.shipsHoldOrbit === false && won) {
+    lootShare *= 0.95; // 5% of loot spent on field repairs
+  }
 
   const attackerLosses: Partial<Record<TroopType, number>> = {};
   for (const [type, count] of Object.entries(input.attacker) as [TroopType, number][]) {

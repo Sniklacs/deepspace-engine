@@ -62,6 +62,7 @@ import {
   freshDaily,
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
+import type { ManeuverVector } from "./war/war-types";
 import { allianceOf, ensureAlliances, guestsAt, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
 import { applyTithe, ensureStockpile } from "./shipyard";
 import { advanceRallies, ensureRallies } from "./war/rallies";
@@ -127,6 +128,7 @@ import {
   RAID_TRAVEL_MS,
   commitRaidTroops as commitRaidTroopsPure,
   createRaidParty,
+  deployRaidTroops,
   joinRaidParty as joinRaidPartyPure,
   mockDefenderLoot,
   raidJumpCharge,
@@ -3333,6 +3335,24 @@ export function launchRaid(state: GameState, raidId: string, now = Date.now()): 
   return { ok: true, state };
 }
 
+/** Commit the player's tactical deployment after touchdown (owner 2026-10-03).
+ *  The battle resolves on the next advanceRaids tick. */
+export function deployRaid(
+  state: GameState,
+  raidId: string,
+  deployment: Partial<Record<ManeuverVector, Partial<Record<TroopType, number>>>>,
+  shipsHoldOrbit: boolean,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  const res = deployRaidTroops(raid, deployment, shipsHoldOrbit);
+  if (!res.ok) return fail(res.error ?? "Deployment failed.");
+  log(state, `⚔️ ${raid.id} DEPLOYED — troops committed to their vectors. The battle begins.`);
+  return { ok: true, state };
+}
+
 /** Advance raids: in_transit → landed (warn + battle) → returning → done (deliver). */
 export function advanceRaids(state: GameState, now: number): void {
   const wm = state.worldMap;
@@ -3344,7 +3364,7 @@ export function advanceRaids(state: GameState, now: number): void {
   }
 
   for (const raid of wm.raids) {
-    // --- touchdown: warn the defender, fight the battle ---
+    // --- touchdown: warn the defender, wait for player deployment (owner 2026-10-03) ---
     if (raid.status === "in_transit" && raid.landsAt != null && now >= raid.landsAt) {
       const troops = raidTroopCount(raid);
       wm.raidWarnings.push({
@@ -3357,6 +3377,16 @@ export function advanceRaids(state: GameState, now: number): void {
         seen: false,
       });
 
+      // Player deploys troops tactically — battle waits for their orders.
+      raid.status = "deploying";
+      // Default: ships hold in orbit (safe). Player can change this in the deployment UI.
+      if (raid.shipsHoldOrbit === undefined) raid.shipsHoldOrbit = true;
+      const names = raid.memberNames.join(", ");
+      log(state, `🛬 ${raid.id} TOUCHDOWN — ${names} are on the ground at ${raid.targetOwnerName}'s colony. Deploy your troops to attack.`);
+    }
+
+    // --- battle resolution: player has deployed, fight the battle ---
+    if (raid.status === "landed" && raid.deployment) {
       // Defender strength: what the map knows (approx troops from the visit).
       const key = `${raid.targetServerId}:${raid.targetColonyId}`;
       const colony = wm.known[key];
@@ -3376,6 +3406,8 @@ export function advanceRaids(state: GameState, now: number): void {
         defenderTroops,
         defenderLoot,
         cargoCapacity: raidLootCapacity(raid),
+        deployment: raid.deployment,
+        shipsHoldOrbit: raid.shipsHoldOrbit ?? true,
       });
 
       raid.won = result.won;

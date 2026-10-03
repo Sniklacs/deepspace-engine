@@ -4,6 +4,7 @@ import {
   advance,
   assignRaidShips,
   createRaid,
+  deployRaid,
   launchRaid,
   loadRaidTroops,
   newGame,
@@ -78,23 +79,32 @@ describe("full raid flow", () => {
     advance(s, NOW + RAID_TRAVEL_MS - 1000);
     expect(wm.raids[0].status).toBe("in_transit");
 
-    // Touchdown: warning filed, battle resolved, returning
+    // Touchdown: warning filed, raid waits for player deployment (owner 2026-10-03)
     advance(s, NOW + RAID_TRAVEL_MS + 1000);
     const raid = wm.raids[0];
-    expect(raid.status).toBe("returning");
+    expect(raid.status).toBe("deploying");
     expect(wm.raidWarnings).toHaveLength(1);
     expect(wm.raidWarnings[0].attackerNames).toEqual(["Hans"]);
     expect(wm.raidWarnings[0].shipCount).toBe(2);
+
+    // Player deploys: 1000 reavers to MAIN, ships hold in orbit
+    const dep = deployRaid(s, raidId!, { MAIN: { reaver: 1000 } }, true, NOW + RAID_TRAVEL_MS + 2000);
+    expect(dep.ok).toBe(true);
+    expect(wm.raids[0].status).toBe("landed");
+
+    // Battle resolves on next tick
+    advance(s, NOW + RAID_TRAVEL_MS + 3000);
     // 1000 reavers vs ~1000 defenders → win (ratio ≥ 1)
     expect(raid.won).toBe(true);
     expect(raid.lootTaken).toBeDefined();
+    expect(raid.status).toBe("returning");
 
     // Defender bled on the map
     const colony = wm.known[key];
     expect(colony.approxTroops!).toBeLessThan(1000);
 
     // Homecoming: loot delivered, survivors return, ships ready
-    advance(s, NOW + RAID_TRAVEL_MS * 2 + 2000);
+    advance(s, NOW + RAID_TRAVEL_MS * 2 + 4000);
     expect(wm.raids[0].status).toBe("done");
     expect(wm.shipyard!.ships[0].status).toBe("ready");
     // Survivors came home (1000 loaded, 25% lost in a win = 750 back)
@@ -138,16 +148,85 @@ describe("full raid flow", () => {
     loadRaidTroops(s, raidId!, "reaver", 100, NOW); // 100 vs 100k
     launchRaid(s, raidId!, NOW);
 
+    // Touchdown → deploying
     advance(s, NOW + RAID_TRAVEL_MS + 1000);
+    expect(wm.raids[0].status).toBe("deploying");
+
+    // Deploy and resolve
+    deployRaid(s, raidId!, { MAIN: { reaver: 100 } }, true, NOW + RAID_TRAVEL_MS + 2000);
+    advance(s, NOW + RAID_TRAVEL_MS + 3000);
     const raid = wm.raids[0];
     expect(raid.won).toBe(false);
     const lootTotal = Object.values(raid.lootTaken!).reduce((a, b) => a + b, 0);
     expect(lootTotal).toBe(0);
 
-    advance(s, NOW + RAID_TRAVEL_MS * 2 + 2000);
+    advance(s, NOW + RAID_TRAVEL_MS * 2 + 4000);
     expect(wm.raids[0].status).toBe("done");
     // 90% of 100 lost = 10 survivors
     const homeFinal = s.troops!.home.roster.cohorts.reduce((a, c) => a + c.count, 0);
     expect(homeFinal).toBe(4900 + 10);
+  });
+
+  test("deploy blocked with empty deployment", () => {
+    const s = testState();
+    const wm = ensureWorldMap(s);
+    const key = colonyKey("draconians-world", "col-x");
+    const { raidId } = createRaid(s, NOW);
+    setRaidTarget(s, raidId!, key, NOW);
+    assignRaidShips(s, raidId!, ["ship-1"], NOW);
+    loadRaidTroops(s, raidId!, "reaver", 100, NOW);
+    launchRaid(s, raidId!, NOW);
+    advance(s, NOW + RAID_TRAVEL_MS + 1000);
+    expect(wm.raids[0].status).toBe("deploying");
+    // Empty deployment fails
+    const res = deployRaid(s, raidId!, {}, true, NOW + RAID_TRAVEL_MS + 2000);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/at least one/i);
+    expect(wm.raids[0].status).toBe("deploying"); // still waiting
+  });
+
+  test("deploy blocked when not in deploying status", () => {
+    const s = testState();
+    const { raidId } = createRaid(s, NOW);
+    // Still preparing — can't deploy yet
+    const res = deployRaid(s, raidId!, { MAIN: { reaver: 10 } }, true, NOW);
+    expect(res.ok).toBe(false);
+  });
+
+  test("REAR requires 20% warden escort", () => {
+    const s = testState();
+    ensureWorldMap(s);
+    const key = colonyKey("draconians-world", "col-x");
+    const { raidId } = createRaid(s, NOW);
+    setRaidTarget(s, raidId!, key, NOW);
+    assignRaidShips(s, raidId!, ["ship-1", "ship-2"], NOW);
+    loadRaidTroops(s, raidId!, "reaver", 500, NOW);
+    loadRaidTroops(s, raidId!, "warden", 100, NOW);
+    launchRaid(s, raidId!, NOW);
+    advance(s, NOW + RAID_TRAVEL_MS + 1000);
+    // 500 reavers to REAR with 0 wardens → blocked
+    const bad = deployRaid(s, raidId!, { REAR: { reaver: 500 } }, true, NOW + RAID_TRAVEL_MS + 2000);
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toMatch(/warden/i);
+    // Add wardens: 100 wardens / 500 total = 20% → OK
+    const good = deployRaid(s, raidId!, { REAR: { reaver: 400, warden: 100 } }, true, NOW + RAID_TRAVEL_MS + 2000);
+    expect(good.ok).toBe(true);
+  });
+
+  test("flank surprise bonus improves outcome", () => {
+    const s = testState();
+    const wm = ensureWorldMap(s);
+    const key = colonyKey("draconians-world", "col-x");
+    wm.known[key].approxTroops = 1200; // defender slightly stronger than 1000 attackers
+    const { raidId } = createRaid(s, NOW);
+    setRaidTarget(s, raidId!, key, NOW);
+    assignRaidShips(s, raidId!, ["ship-1", "ship-2"], NOW);
+    loadRaidTroops(s, raidId!, "reaver", 1000, NOW);
+    launchRaid(s, raidId!, NOW);
+    advance(s, NOW + RAID_TRAVEL_MS + 1000);
+    // Deploy all to FLANK_LEFT (1.25x): 1000 * 1.25 = 1250 > 1200 → win
+    deployRaid(s, raidId!, { FLANK_LEFT: { reaver: 1000 } }, true, NOW + RAID_TRAVEL_MS + 2000);
+    advance(s, NOW + RAID_TRAVEL_MS + 3000);
+    expect(wm.raids[0].won).toBe(true);
   });
 });

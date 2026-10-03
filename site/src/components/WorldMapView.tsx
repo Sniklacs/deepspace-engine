@@ -141,6 +141,7 @@ function RaidPanel({
   onAssignShips,
   onLoadTroops,
   onLaunch,
+  onDeploy,
 }: {
   state: GameState;
   raid: RaidParty | null;
@@ -152,6 +153,7 @@ function RaidPanel({
   onAssignShips?: (raidId: string, shipIds: string[]) => void;
   onLoadTroops?: (raidId: string, type: TroopType, count: number) => void;
   onLaunch?: (raidId: string) => void;
+  onDeploy?: (raidId: string, deployment: Record<string, Record<string, number>>, shipsHoldOrbit: boolean) => void;
 }) {
   const t = useT();
   const [hint, setHint] = useState<string | null>(null);
@@ -246,6 +248,7 @@ function RaidPanel({
         >
           {raid.status === "preparing" ? t("raid.partyForming", "Party forming — max 5 raiders.")
             : raid.status === "in_transit" ? t("raid.inTransit", "In transit — touchdown soon.")
+            : raid.status === "deploying" ? t("raid.deploying", "TOUCHDOWN — deploy your troops!")
             : raid.status === "returning" ? t("raid.returning", "Returning with the loot.")
             : raid.status === "done" ? (raid.won ? t("raid.won", "Raid succeeded — loot delivered.") : t("raid.lost", "Raid repelled — survivors came home."))
             : raid.status}
@@ -427,6 +430,198 @@ function RaidPanel({
             <p className="mt-1.5 text-[11px] leading-relaxed text-red-200/90">{blocker}</p>
           )}
         </>
+      )}
+
+      {raid.status === "deploying" && (
+        <DeploymentPanel raid={raid} onDeploy={(dep, hold) => onDeploy?.(raid.id, dep, hold)} />
+      )}
+    </div>
+  );
+}
+
+/** Tactical deployment UI (owner 2026-10-03): assign troops to entry vectors after touchdown. */
+function DeploymentPanel({
+  raid,
+  onDeploy,
+}: {
+  raid: RaidParty;
+  onDeploy: (deployment: Record<string, Record<string, number>>, shipsHoldOrbit: boolean) => void;
+}) {
+  const t = useT();
+  // deployment[vector][troopType] = count
+  const [deployment, setDeployment] = useState<Record<string, Record<string, number>>>({});
+  const [shipsHoldOrbit, setShipsHoldOrbit] = useState(true);
+  const [hint, setHint] = useState<string | null>(null);
+
+  // Flatten raid troops into a by-type total for the UI.
+  const troopsByType = useMemo(() => {
+    const out: Partial<Record<TroopType, number>> = {};
+    for (const byType of Object.values(raid.troops)) {
+      for (const [type, n] of Object.entries(byType) as [TroopType, number][]) {
+        out[type] = (out[type] ?? 0) + (n ?? 0);
+      }
+    }
+    return out;
+  }, [raid.troops]);
+
+  const totalDeployed = useMemo(() => {
+    let total = 0;
+    for (const vec of Object.values(deployment)) {
+      for (const n of Object.values(vec)) total += n ?? 0;
+    }
+    return total;
+  }, [deployment]);
+
+  const totalCarried = useMemo(() => {
+    let total = 0;
+    for (const n of Object.values(troopsByType)) total += n ?? 0;
+    return total;
+  }, [troopsByType]);
+
+  const VECTORS: { id: string; label: string; desc: string; bonus: string }[] = [
+    { id: "MAIN", label: t("raid.vecMain", "MAIN"), desc: t("raid.vecMainDesc", "Frontal assault. No surprise bonus, but straightforward."), bonus: "×1.0" },
+    { id: "FLANK_LEFT", label: t("raid.vecFlankL", "FLANK L"), desc: t("raid.vecFlankDesc", "Hidden until entry. Surprise bonus if unscreened."), bonus: "×1.25" },
+    { id: "FLANK_RIGHT", label: t("raid.vecFlankR", "FLANK R"), desc: t("raid.vecFlankDesc", "Hidden until entry. Surprise bonus if unscreened."), bonus: "×1.25" },
+    { id: "REAR", label: t("raid.vecRear", "REAR"), desc: t("raid.vecRearDesc", "Highest surprise. Requires 20% Warden escort."), bonus: "×1.5" },
+    { id: "RESERVE", label: t("raid.vecReserve", "RESERVE"), desc: t("raid.vecReserveDesc", "Held back. Deploys in wave 2, no surprise bonus."), bonus: "×1.0" },
+  ];
+
+  const setTroop = (vector: string, type: TroopType, count: number) => {
+    setDeployment((prev) => {
+      const next = { ...prev };
+      const vec = { ...(next[vector] ?? {}) };
+      if (count <= 0) delete vec[type];
+      else vec[type] = count;
+      if (Object.keys(vec).length === 0) delete next[vector];
+      else next[vector] = vec;
+      return next;
+    });
+    setHint(null);
+  };
+
+  const assignAll = (vector: string) => {
+    // Assign all unassigned troops to this vector.
+    const assigned: Partial<Record<TroopType, number>> = {};
+    for (const vec of Object.values(deployment)) {
+      for (const [type, n] of Object.entries(vec) as [TroopType, number][]) {
+        assigned[type] = (assigned[type] ?? 0) + (n ?? 0);
+      }
+    }
+    const next: Record<string, Record<string, number>> = { ...deployment };
+    const vec: Record<string, number> = { ...(next[vector] ?? {}) };
+    for (const [type, have] of Object.entries(troopsByType) as [TroopType, number][]) {
+      const already = assigned[type] ?? 0;
+      const remaining = (have ?? 0) - already;
+      if (remaining > 0) vec[type] = (vec[type] ?? 0) + remaining;
+    }
+    next[vector] = vec;
+    setDeployment(next);
+    setHint(null);
+  };
+
+  return (
+    <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-950/20 p-3">
+      <h4 className="text-[12px] font-bold text-amber-100">
+        🛬 {t("raid.deployTitle", "Touchdown — deploy your troops")}
+      </h4>
+      <p className="mt-1 text-[11px] text-gray-400">
+        {t("raid.deployIntro", "Assign your troops to entry vectors. Ships hold in orbit by default.")}
+        {" "}{totalDeployed.toLocaleString()} / {totalCarried.toLocaleString()} {t("raid.assigned", "assigned")}
+      </p>
+
+      {VECTORS.map((v) => {
+        const vecTroops = deployment[v.id] ?? {};
+        const vecTotal = Object.values(vecTroops).reduce((a, b) => a + (b ?? 0), 0);
+        return (
+          <div key={v.id} className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-gray-200">
+                {v.label} <span className="text-amber-300">{v.bonus}</span>
+                {vecTotal > 0 && <span className="ml-1 text-gray-400">({vecTotal.toLocaleString()})</span>}
+              </span>
+              <button
+                type="button"
+                onClick={() => { sound.click(); assignAll(v.id); }}
+                className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-gray-300 hover:bg-white/10"
+              >
+                {t("raid.assignAll", "All")}
+              </button>
+            </div>
+            <p className="mt-0.5 text-[10px] text-gray-500">{v.desc}</p>
+            <div className="mt-1.5 space-y-1">
+              {(Object.entries(troopsByType) as [TroopType, number][]).filter(([, n]) => (n ?? 0) > 0).map(([type, have]) => {
+                const val = vecTroops[type] ?? 0;
+                return (
+                  <div key={type} className="flex items-center gap-2 text-[11px]">
+                    <span className="w-20 truncate text-gray-300">{type}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={have}
+                      value={val === 0 ? "" : val}
+                      placeholder="0"
+                      onChange={(e) => {
+                        const n = Math.max(0, Math.min(have ?? 0, parseInt(e.target.value) || 0));
+                        setTroop(v.id, type, n);
+                      }}
+                      className="w-20 rounded border border-white/10 bg-black/50 px-1.5 py-0.5 text-[11px] text-white"
+                    />
+                    <span className="text-gray-500">/ {(have ?? 0).toLocaleString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Ship holding pattern */}
+      <div className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2">
+        <p className="text-[11px] font-semibold text-gray-200">{t("raid.shipsTitle", "Ships")}</p>
+        <div className="mt-1 flex gap-2">
+          <button
+            type="button"
+            onClick={() => { sound.click(); setShipsHoldOrbit(true); }}
+            className={`flex-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold ${
+              shipsHoldOrbit ? "border-amber-400/60 bg-amber-400/15 text-amber-100" : "border-white/10 bg-white/5 text-gray-400"
+            }`}
+          >
+            🛰️ {t("raid.holdOrbit", "Hold in orbit")}
+            <span className="block text-[10px] font-normal opacity-70">{t("raid.holdOrbitDesc", "Safe from ground fire. Fast extract.")}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { sound.click(); setShipsHoldOrbit(false); }}
+            className={`flex-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold ${
+              !shipsHoldOrbit ? "border-amber-400/60 bg-amber-400/15 text-amber-100" : "border-white/10 bg-white/5 text-gray-400"
+            }`}
+          >
+            🛬 {t("raid.landShips", "Land with troops")}
+            <span className="block text-[10px] font-normal opacity-70">{t("raid.landShipsDesc", "+10% fire support. Risk ground fire.")}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Deploy button — always tappable per Hans's UI rule */}
+      <button
+        type="button"
+        onClick={() => {
+          sound.click();
+          if (totalDeployed === 0) {
+            setHint("empty");
+            return;
+          }
+          setHint(null);
+          onDeploy(deployment, shipsHoldOrbit);
+        }}
+        className="mt-2 w-full rounded-xl border border-red-400/50 bg-red-400/20 px-3 py-2 text-sm font-bold text-red-50 hover:bg-red-400/30"
+      >
+        ⚔️ {t("raid.deploy", "Deploy — Attack!")}
+      </button>
+      {hint === "empty" && (
+        <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200">
+          {t("raid.deployEmpty", "Assign at least one troop group to a vector first.")}
+        </p>
       )}
     </div>
   );
@@ -846,6 +1041,7 @@ export default function WorldMapView({
   onLoadRaidTroops,
   onLaunchRaid,
   onJoinRaid,
+  onDeployRaid,
 }: {
   state: GameState;
   now: number;
@@ -861,6 +1057,7 @@ export default function WorldMapView({
   onLoadRaidTroops?: (raidId: string, type: TroopType, count: number) => void;
   onLaunchRaid?: (raidId: string) => void;
   onJoinRaid?: (inviteCode: string) => void;
+  onDeployRaid?: (raidId: string, deployment: Record<string, Record<string, number>>, shipsHoldOrbit: boolean) => void;
 }) {
   const t = useT();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -972,6 +1169,7 @@ export default function WorldMapView({
         onAssignShips={onAssignRaidShips}
         onLoadTroops={onLoadRaidTroops}
         onLaunch={onLaunchRaid}
+        onDeploy={onDeployRaid}
       />
 
       {/* Incoming cross-server raids (defender warnings, owner 2026-10-03) */}
