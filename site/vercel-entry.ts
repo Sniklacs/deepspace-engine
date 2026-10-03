@@ -315,8 +315,10 @@ async function runSeedWarlord6(): Promise<Record<string, any>> {
     results.created = true;
   }
 
-  const existingSaves = await sql`SELECT account_id FROM saves WHERE account_id = ${uname}`;
-  if (existingSaves.length === 0) {
+  // testwarlord6 is a disposable QA account: always (re)build its game state so
+  // re-running the seed repairs or resets it. The account row itself is only
+  // created once.
+  {
     const { newGame } = await import("./src/game/engine.js");
     const { emptyWorldMap } = await import("./src/game/worldmap.js");
     const game = newGame("TestWarlord6", "draconians", day60);
