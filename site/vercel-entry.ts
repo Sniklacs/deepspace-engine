@@ -389,7 +389,7 @@ async function runSeedWarlord6(): Promise<Record<string, any>> {
     const saves = { version: 2, activeGameId: "0", games: { "0": game } };
     await sql`INSERT INTO saves (account_id, data)
       VALUES (${uname}, ${JSON.stringify(saves)}::jsonb)
-      ON CONFLICT (account_id) DO NOTHING`;
+      ON CONFLICT (account_id) DO UPDATE SET data = EXCLUDED.data`;
     results.stateCreated = true;
   }
 
