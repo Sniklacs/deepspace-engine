@@ -60,7 +60,7 @@ import type { Tab } from "../game/nav-slots";
 import CradleScreen from "../components/screens/CradleScreen";
 import CradlePlate from "../components/CradlePlate";
 import PageBanner from "../components/PageBanner";
-import ServerSelect from "../components/ServerSelect";
+import StarMap from "../components/StarMap";
 import type { KnownServer } from "../game/servers";
 import { ForgedRack } from "../components/ForgeViews";
 import { JournalButton } from "../components/JournalButton";
@@ -529,7 +529,7 @@ function PlayPage() {
       };
       return (
         <div className="min-h-screen bg-[#070910] text-gray-200">
-          <ServerSelect onSelect={handleServerPick} />
+          <StarMap onSelect={handleServerPick} />
         </div>
       );
     }

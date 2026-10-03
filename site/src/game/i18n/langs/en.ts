@@ -2441,5 +2441,10 @@ export const en: Catalogue = {
   "servers.statusDown": "Offline",
   "servers.statusChecking": "Checking…",
   "servers.claimHere": "Claim Colony Here",
+  "starmap.title": "The Sealed System",
+  "starmap.subtitle": "Six worlds, one quarantine. Drag to spin — tap a world to claim it.",
+  "starmap.mute": "Mute",
+  "starmap.unmute": "Unmute",
+  "starmap.close": "Close",
 };
 export default en;
