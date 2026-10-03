@@ -23,6 +23,8 @@
 // Math.random — the constellation roll is seeded.
 // ----------------------------------------------------------------------------
 import type { GameState } from "./types";
+import type { IncomingRaidAlert, RaidAlarm } from "./raid-protocol";
+import type { ShipClass } from "./worldmap";
 import { hashSeed, mulberry32, generateAtlas, nodeById } from "./map";
 import { WORLD_CONFIG_PUBLIC } from "./world-config";
 
@@ -193,4 +195,130 @@ export type SatelliteIntel = "none" | "presence" | "identity" | "full";
 export function satelliteIntelFor(state: GameState, nodeId: string): SatelliteIntel {
   const stage = satelliteStage(state, nodeId);
   return stage === 0 ? "none" : stage === 1 ? "presence" : stage === 2 ? "identity" : "full";
+}
+
+// ---- colony ground — which node a colony sits on --------------------------------
+// Raids head for colonies; satellites watch nodes. Every colony stands on one
+// covered (rim/heart) node — assigned at founding, backfilled deterministically
+// for older saves (stable: hash of gameId, so every load agrees).
+
+/** Deterministic node for a colony id (no stored state needed). */
+export function nodeForColonyId(colonyId: string, worldId: string = WORLD_CONFIG_PUBLIC.worldId, raceId: string | null = WORLD_CONFIG_PUBLIC.raceLock): string {
+  const ids = coveredNodeIds(worldId, raceId);
+  if (ids.length === 0) return "rim-1";
+  const rng = mulberry32(hashSeed(`colony-node:v1:${worldId}:${colonyId}`));
+  return ids[Math.floor(rng() * ids.length)];
+}
+
+/** The node this colony stands on. Backfills homeNodeId on old saves. */
+export function colonyNodeId(state: GameState): string {
+  if (typeof state.homeNodeId === "string" && state.homeNodeId) {
+    return state.homeNodeId;
+  }
+  const id = state.gameId || state.playerName || "colony";
+  const nodeId = nodeForColonyId(id);
+  state.homeNodeId = nodeId;
+  return nodeId;
+}
+
+// ---- the raid alarm ------------------------------------------------------------
+// Satellite-only detection (owner 2026-10-03): an incoming raid heading for
+// this colony's node fires the klaxon iff the node's satellite sits at
+// stage >= 1. Stage 0 = blind: no alarm, no ping, nothing.
+//
+// Detail is stage-gated (owner refinement 2026-10-03):
+//   stage 1: "UNIDENTIFIED SIGNATURE" + node name. Nothing else.
+//   stage 2: + identity (attacker names/world) + PARTIAL ship classes
+//            (50–70% of classes present, randomly picked, never 100%).
+//   stage 3: + every ship class + troop count.
+
+/** Deterministic partial ship-class reveal for stage-2 intel. Picks 50–70%
+ *  of the distinct classes present (seeded by raidId — stable across loads
+ *  and identical for every alliance member). Never reveals all classes when
+ *  more than one is present; a lone class is shown (the count stays hidden). */
+export function partialShipIntel(shipClasses: ShipClass[] | undefined, raidId: string): ShipClass[] {
+  const uniq: ShipClass[] = [];
+  for (const c of shipClasses ?? []) if (!uniq.includes(c)) uniq.push(c);
+  if (uniq.length === 0) return [];
+  if (uniq.length === 1) return uniq;
+  const rng = mulberry32(hashSeed(`raid-intel:v1:${raidId}`));
+  // Shuffle deterministically, then reveal 50–70% (at least 1, never all).
+  const order = [...uniq];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const frac = 0.5 + rng() * 0.2; // 50–70%
+  const n = Math.max(1, Math.min(order.length - 1, Math.round(order.length * frac)));
+  return order.slice(0, n);
+}
+
+/** Build the raid alarm for an incoming raid, or null when blind
+ *  (stage 0) or the raid already fired / resolved. Pure w.r.t. the alarm —
+ *  callers persist the result and mark the raid alarmed. */
+export function checkRaidAlarm(state: GameState, raid: IncomingRaidAlert, now: number): RaidAlarm | null {
+  if (!raid || raid.alarmFired || raid.resolved) return null;
+  if (typeof raid.landsAt === "number" && raid.landsAt <= now) return null; // already down
+  const nodeId = colonyNodeId(state);
+  const intel = satelliteIntelFor(state, nodeId);
+  if (intel === "none") return null; // blind is blind
+  const alarm: RaidAlarm = {
+    raidId: raid.raidId,
+    nodeId,
+    nodeName: coveredNodeName(nodeId),
+    intel,
+    targetColonyId: raid.targetColonyId,
+    targetOwnerName: (raid as any).targetOwnerName ?? "",
+    landsAt: raid.landsAt,
+    launchedAt: raid.launchedAt,
+    triggeredAt: now,
+  };
+  if (intel === "identity" || intel === "full") {
+    alarm.attackerWorldName = raid.attackerWorldName;
+    alarm.attackerNames = [...(raid.attackerNames ?? [])];
+  }
+  if (intel === "identity") {
+    const revealed = partialShipIntel(raid.shipClasses, raid.raidId);
+    if (revealed.length > 0) alarm.revealedShipClasses = revealed;
+    const total = new Set(raid.shipClasses ?? []).size;
+    alarm.shipsPartial = total > revealed.length;
+  }
+  if (intel === "full") {
+    const all: ShipClass[] = [];
+    for (const c of raid.shipClasses ?? []) if (!all.includes(c)) all.push(c);
+    if (all.length > 0) alarm.revealedShipClasses = all;
+    alarm.shipsPartial = false;
+    alarm.shipCount = raid.shipCount;
+    alarm.troopCount = raid.troopCount;
+  }
+  return alarm;
+}
+
+/** Tick/load sweep: fire alarms for incoming raids the satellite now sees.
+ *  Covers raids that arrived while blind and later came under watch (a dish
+ *  brought online before touchdown), plus any receipt the server path missed.
+ *  Idempotent — alarmed raids are marked and never re-fire. Also clears a
+ *  live alarm whose raid has landed or resolved.
+ *  Returns the newly-fired alarm (for alliance broadcast), if any. */
+export function sweepRaidAlarms(state: GameState, now: number): RaidAlarm | null {
+  const wm = state.worldMap;
+  const raids: IncomingRaidAlert[] | undefined = wm?.incomingRaids ?? (state as any).incomingRaids;
+  // Expire a live alarm whose raid is done.
+  const live = state.raidAlarm;
+  if (live) {
+    const rec = raids?.find((r) => r.raidId === live.raidId);
+    const done = !rec || rec.resolved || (typeof rec.landsAt === "number" && rec.landsAt <= now);
+    if (done) state.raidAlarm = null;
+  }
+  if (state.raidAlarm || !Array.isArray(raids)) return null; // one klaxon at a time
+  for (const r of raids) {
+    if (r.alarmFired || r.resolved) continue;
+    const alarm = checkRaidAlarm(state, r, now);
+    if (alarm) {
+      state.raidAlarm = alarm;
+      r.alarmFired = true;
+      return alarm;
+    }
+  }
+  return null;
 }

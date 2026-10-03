@@ -14,6 +14,8 @@ class SoundManager {
   private ctx: Ctx | null = null;
   private master: GainNode | null = null;
   muted = false;
+  // Raid-alarm siren nodes (started/stopped as a unit).
+  private siren: { osc: OscillatorNode; lfo: OscillatorNode; gain: GainNode } | null = null;
 
   // Resume/create the AudioContext on a user gesture. Safe to call repeatedly.
   start(): void {
@@ -99,6 +101,52 @@ class SoundManager {
     this.tone(1174.66, { type: "sine", dur: 0.22, gain: 0.08, delay: 0.11 });
   }
 
+  /** RAID KLAXON (owner 2026-10-03): a wailing siren — sawtooth carrier swept
+   *  by a slow LFO, looping until sirenStop(). No audio files; pure WebAudio.
+   *  Silent when muted (never starts). Safe to call repeatedly. */
+  sirenStart(): void {
+    if (this.siren) return;
+    this.start();
+    if (!this.ctx || !this.master || this.muted) return;
+    const osc = this.ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.value = 750;
+    const lfo = this.ctx.createOscillator();
+    lfo.type = "sine";
+    lfo.frequency.value = 0.6; // one wail ≈ 1.7s
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 320; // sweep ±320 Hz around the carrier
+    const g = this.ctx.createGain();
+    g.gain.value = 0.055; // loud but not ear-bleeding
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    osc.connect(g);
+    g.connect(this.master);
+    osc.start();
+    lfo.start();
+    this.siren = { osc, lfo, gain: g };
+  }
+
+  /** Stop the raid klaxon. Safe to call when not sounding. */
+  sirenStop(): void {
+    const s = this.siren;
+    this.siren = null;
+    if (!s || !this.ctx) return;
+    try {
+      const t = this.ctx.currentTime;
+      s.gain.gain.setTargetAtTime(0.0001, t, 0.05);
+      s.osc.stop(t + 0.3);
+      s.lfo.stop(t + 0.3);
+    } catch {
+      /* already stopped */
+    }
+  }
+
+  /** True while the klaxon is sounding. */
+  get sirenOn(): boolean {
+    return this.siren !== null;
+  }
+
   // Wait for a sound to be audible before reporting — used during early start.
   prime(): void { this.start(); this.click(); }
 
@@ -111,6 +159,8 @@ class SoundManager {
     if (this.ctx && this.master) {
       this.master.gain.setTargetAtTime(this.muted ? 0 : 1, this.ctx.currentTime, 0.02);
     }
+    // Muting kills the klaxon immediately — the alarm stays visible, silent.
+    if (this.muted) this.sirenStop();
     // A soft click lets the user confirm the toggle state.
     this.click();
     return this.muted;

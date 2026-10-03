@@ -510,7 +510,10 @@ export default async function vercelHandler(
     // Cross-server raid warnings (owner 2026-10-03).
     // POST /api/raid-incoming { secret, raid: IncomingRaidPayload }
     // Called by the attacker's server when a raid launches. We find the
-    // defender's account by colonyId and file the warning + mailbox alert.
+    // defender's account by colonyId and file the raid data. NOTE (owner
+    // 2026-10-03): NO mailbox warning. Detection is satellite-only — if the
+    // defender has no satellite covering the arrival node, they get nothing.
+    // Satellites check worldMap.incomingRaids and raise the alarm.
     if (pathname === "/api/raid-incoming" && req.method === "POST") {
       res.setHeader("content-type", "application/json; charset=utf-8");
       res.setHeader("cache-control", "no-store");
@@ -529,9 +532,12 @@ export default async function vercelHandler(
           return;
         }
         const { loadAllSaves, saveAccountSaves } = await import("./src/game/store");
-        const { sendMail } = await import("./src/game/mailbox");
+        const { checkRaidAlarm, colonyNodeId } = await import("./src/game/satellites.js");
+        const { allianceOf } = await import("./src/game/war/alliances.js");
         const all = await loadAllSaves();
         let delivered = false;
+        // Collect saves we touch so the alliance broadcast persists.
+        const touched = new Map<string, any>();
         for (const { accountId, saves } of all) {
           for (const [gameId, st] of Object.entries(saves.games || {})) {
             const state = st as any;
@@ -547,29 +553,55 @@ export default async function vercelHandler(
                 attackerWorldName: raid.attackerWorldName || raid.attackerWorldId,
                 attackerNames: raid.attackerNames || [],
                 targetColonyId: raid.targetColonyId,
+                targetOwnerName: raid.targetOwnerName || "",
                 shipCount: raid.shipCount || 0,
+                shipClasses: Array.isArray(raid.shipClasses) ? raid.shipClasses : [],
                 troopCount: raid.troopCount || 0,
                 landsAt: raid.landsAt,
                 launchedAt: raid.launchedAt,
                 seen: false,
               });
             }
-            // Mailbox alert.
-            const etaMin = Math.max(1, Math.round(((raid.landsAt || Date.now()) - Date.now()) / 60000));
-            const names = (raid.attackerNames || []).join(", ") || "unknown raiders";
-            sendMail(state, {
-              from: "system",
-              subject: `⚠️ Incoming raid from ${raid.attackerWorldName || "another world"}`,
-              body: `${names} launched a raid against your colony — ${raid.shipCount || 0} ships, ~${raid.troopCount || 0} troops. Estimated touchdown in ~${etaMin} minute(s). Man your defenses!`,
-              category: "battle",
-              sentAt: Date.now(),
-            });
+            // NO mailbox warning (owner 2026-10-03). Detection is satellite-only.
+            // Satellite klaxon: if the defender's node satellite (stage >= 1)
+            // sees the raid, fire the alarm on the defender's state AND every
+            // alliance member's state. Blind (stage 0) = nothing.
+            colonyNodeId(state);
+            const rec = state.worldMap.incomingRaids.find((r: any) => r.raidId === raid.raidId);
+            const alarm = rec ? checkRaidAlarm(state, rec, Date.now()) : null;
+            if (alarm) {
+              state.raidAlarm = alarm;
+              rec.alarmFired = true;
+              // Alliance-wide: the whole war band hears the klaxon.
+              const alliance = allianceOf(state, raid.targetColonyId);
+              const memberIds = new Set((alliance?.members ?? []).map((m: any) => m.colonyId));
+              memberIds.delete(raid.targetColonyId);
+              if (memberIds.size > 0) {
+                for (const { accountId: aid2, saves: saves2 } of all) {
+                  for (const [gid2, st2] of Object.entries(saves2.games || {})) {
+                    const ms = st2 as any;
+                    const cid = ms.gameId || gid2;
+                    if (!memberIds.has(cid)) continue;
+                    if (!ms.raidAlarm) {
+                      ms.raidAlarm = JSON.parse(JSON.stringify(alarm));
+                    }
+                    // Mark their copy of the raid alarmed too (if they hold one).
+                    const mrec = ms.worldMap?.incomingRaids?.find((r: any) => r.raidId === raid.raidId);
+                    if (mrec) mrec.alarmFired = true;
+                    if (!touched.has(aid2)) touched.set(aid2, saves2);
+                    memberIds.delete(cid);
+                  }
+                  if (memberIds.size === 0) break;
+                }
+              }
+            }
             await saveAccountSaves(accountId, saves);
             delivered = true;
             break;
           }
           if (delivered) break;
         }
+        for (const [aid, saves] of touched) await saveAccountSaves(aid, saves);
         res.statusCode = 200;
         res.end(JSON.stringify({ ok: true, delivered }));
       } catch (e: any) {
@@ -615,6 +647,29 @@ export default async function vercelHandler(
                 alert.won = result.won;
                 alert.lootTaken = result.lootTaken;
               }
+            }
+            // The fight is over — stand down the klaxon (defender + allies).
+            if (state.raidAlarm?.raidId === result.raidId) state.raidAlarm = null;
+            const { allianceOf: allianceOf2 } = await import("./src/game/war/alliances.js");
+            const alliance2 = allianceOf2(state, result.targetColonyId);
+            const allyIds = new Set((alliance2?.members ?? []).map((m: any) => m.colonyId));
+            allyIds.delete(result.targetColonyId);
+            const touched2 = new Map<string, any>();
+            if (allyIds.size > 0) {
+              for (const { accountId: aid3, saves: saves3 } of all) {
+                for (const [gid3, st3] of Object.entries(saves3.games || {})) {
+                  const ms3 = st3 as any;
+                  const cid3 = ms3.gameId || gid3;
+                  if (!allyIds.has(cid3)) continue;
+                  if (ms3.raidAlarm?.raidId === result.raidId) ms3.raidAlarm = null;
+                  const ar3 = ms3.worldMap?.incomingRaids?.find((r: any) => r.raidId === result.raidId);
+                  if (ar3) ar3.resolved = true;
+                  if (!touched2.has(aid3)) touched2.set(aid3, saves3);
+                  allyIds.delete(cid3);
+                }
+                if (allyIds.size === 0) break;
+              }
+              for (const [aid, sv] of touched2) await saveAccountSaves(aid, sv);
             }
             // Apply resource losses (what was looted).
             const loot = result.lootTaken || {};

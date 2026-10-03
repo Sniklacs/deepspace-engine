@@ -423,6 +423,8 @@ function fxIdentity(fx: AllianceFx): string {
     case "arena-cancel":
     case "arena-result":
       return fx.key;
+    case "raid-alarm":
+      return fx.key;
   }
 }
 
@@ -514,6 +516,13 @@ export function applyOneFx(target: GameState, fx: AllianceFx, now: number): void
       break;
     case "arena-result":
       applyArenaResult(target, fx.bout, fx.heroIds, fx.challengeId, fx.key, now);
+      break;
+    case "raid-alarm":
+      // Satellite klaxon fan-out (owner 2026-10-03). Idempotent: never
+      // overwrite a live alarm, never resurrect a cleared one.
+      if (!target.raidAlarm) {
+        target.raidAlarm = JSON.parse(JSON.stringify(fx.alarm));
+      }
       break;
   }
 }

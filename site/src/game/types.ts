@@ -269,6 +269,16 @@ export interface GameState {
     stages: Record<string, 0 | 1 | 2 | 3>;
     restored: string[];
   };
+  /** The map node this colony stands on (a covered rim/heart node). Raids
+   *  head for the colony; satellites watch the node — this is the link the
+   *  raid alarm checks. Assigned at founding, backfilled deterministically
+   *  for older saves (satellites.colonyNodeId). */
+  homeNodeId?: string;
+  /** Live raid alarm (satellite klaxon, owner 2026-10-03). Set when a watched
+   *  node's satellite spots an incoming raid; cleared on acknowledge or when
+   *  the raid lands/resolves. The client renders the full-screen siren UI
+   *  while this is non-null. */
+  raidAlarm?: import("./raid-protocol").RaidAlarm | null;
   // ---- Leader XP day-cap ledger (shared colony-wide cap per UTC day) ----
   // dayKey -> XP already taken from the shared cap today, so back-to-back
   // research cannot grind past the daily budget. Persisted so offline runs

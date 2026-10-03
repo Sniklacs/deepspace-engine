@@ -1250,6 +1250,7 @@ const launchRaidFn = createServerFn({ method: "POST" }).validator(
         targetColonyId: raid.targetColonyId,
         targetOwnerName: raid.targetOwnerName,
         shipCount: raid.shipIds.length,
+        shipClasses: [...raid.shipClasses],
         troopCount: raidTroopCount(raid),
         landsAt: raid.landsAt ?? Date.now(),
         launchedAt: raid.departedAt ?? Date.now(),
@@ -1296,6 +1297,21 @@ const joinRaidFn = createServerFn({ method: "POST" }).validator(
     if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
   }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+// Satellite klaxon (owner 2026-10-03): acknowledge + clear the live raid alarm.
+// The alarm persists until the player acknowledges it — this is the dismiss.
+const acknowledgeRaidAlarmFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  st.raidAlarm = null;
+  const saved = await saveActiveState(accountId, st);
+  if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  return { ok: true, state: publicState(st) };
 });
 
 // Leader progression: spend one earned attribute point (XP level-up) into one
@@ -2758,6 +2774,7 @@ export {
   launchRaidFn,
   deployRaidFn,
   joinRaidFn,
+  acknowledgeRaidAlarmFn,
   allocateLeaderPointFn,
   chooseSpecializationFn,
   signupFn,

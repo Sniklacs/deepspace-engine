@@ -6,6 +6,7 @@ import {
   buildProbeFn, launchProbeFn, collectProbeFn,
   claimHuskFn,
   createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, loadRaidSuppliesFn, launchRaidFn, deployRaidFn, joinRaidFn,
+  acknowledgeRaidAlarmFn,
   allocateLeaderPointFn, chooseSpecializationFn,
   signupFn, loginFn, logoutFn, meFn,
   submitFeedbackFn, listMyFeedbackFn, dismissNoticeFn,
@@ -55,6 +56,7 @@ import AppShell from "../components/shell/AppShell";
 import CradleSheet from "../components/shell/CradleSheet";
 import SettingsSheet from "../components/shell/SettingsSheet";
 import MailboxSheet from "../components/Mailbox";
+import RaidAlarmOverlay from "../components/RaidAlarmOverlay";
 
 import { configureChat } from "../game/chat/chat-store";
 import { useT, useLang } from "../components/i18n/I18n";
@@ -735,6 +737,15 @@ function PlayPage() {
           token={token ?? undefined}
           onAction={(fn, label) => act(fn, label)}
           onClose={() => { setMailboxOpen(false); sound.click(); }}
+        />
+      )}
+      {/* SATELLITE KLAXON (owner 2026-10-03): full-screen raid alarm. Renders
+          above everything while state.raidAlarm is live; acknowledge clears
+          it server-side. The overlay itself runs the siren. */}
+      {state?.raidAlarm && (
+        <RaidAlarmOverlay
+          alarm={state.raidAlarm}
+          onAcknowledge={() => act(() => acknowledgeRaidAlarmFn({ data: { token: token! } }), "alarm")}
         />
       )}
       {gamesOpen && (

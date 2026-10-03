@@ -298,6 +298,15 @@ export type AllianceFx =
       heroIds: string[];
       challengeId: string;
       key: string;
+    }
+  | {
+      kind: "raid-alarm";
+      /** The ALLY's colony — receives the satellite klaxon. */
+      colonyId: string;
+      /** The fired alarm (deep-cloned on apply). Same detail level for every
+       *  alliance member — the detector's satellite sets the intel. */
+      alarm: import("../raid-protocol").RaidAlarm;
+      key: string;
     };
 
 /** Queue a cross-account effect (idempotent per caller — the server drains). */
@@ -586,6 +595,26 @@ export function cloneAlliance(a: Alliance): Alliance {
   return JSON.parse(JSON.stringify(a)) as Alliance;
 }
 
+/**
+ * Fan a fired raid alarm out to every alliance member. The detector's own
+ * state already holds the alarm; everyone else gets a `raid-alarm` fx the
+ * server drains into their save. Same alarm, same intel for the whole war
+ * band — that's the point (owner 2026-10-03).
+ */
+export function broadcastRaidAlarm(state: GameState, alarm: import("../raid-protocol").RaidAlarm): void {
+  const me = alarm.targetColonyId;
+  const a = allianceOf(state, me);
+  if (!a) return;
+  for (const m of a.members) {
+    if (m.colonyId === me) continue;
+    queueAllianceFx(state, {
+      kind: "raid-alarm",
+      colonyId: m.colonyId,
+      alarm: JSON.parse(JSON.stringify(alarm)) as import("../raid-protocol").RaidAlarm,
+      key: `raid-alarm:${alarm.raidId}:${m.colonyId}`,
+    });
+  }
+}
 /**
  * Fan a canonical mutation out to every colony holding a mirror. The
  * canonical record lives on the founder's account; everyone else (members,

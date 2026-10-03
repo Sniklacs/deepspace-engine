@@ -63,7 +63,7 @@ import {
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
 import type { ManeuverVector } from "./war/war-types";
-import { allianceOf, ensureAlliances, guestsAt, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
+import { allianceOf, broadcastRaidAlarm, ensureAlliances, guestsAt, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
 import { applyTithe, ensureStockpile } from "./shipyard";
 import { advanceRallies, ensureRallies } from "./war/rallies";
 import { ensureArena, expireArenaChallenges, resolveArenaBattles } from "./war/arena";
@@ -91,6 +91,9 @@ import {
   parseSatelliteTech,
   satelliteTechFor,
   setSatelliteStage,
+  colonyNodeId,
+  nodeForColonyId,
+  sweepRaidAlarms,
 } from "./satellites";
 import {
   EMPTY_LOOT,
@@ -686,6 +689,10 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
     seasonId: MONETIZATION_CONFIG.season0Id,
     // Orbital Watch: the constellation over this world (~50% awake, seeded).
     satellites: freshSatellites(WORLD_CONFIG_PUBLIC.worldId, MONETIZATION_CONFIG.season0Id),
+    // The ground this colony stands on (a covered rim/heart node) — the raid
+    // alarm watches this node's satellite. Seeded by name+time: stable enough
+    // for founding; colonyNodeId() backfills older saves deterministically.
+    homeNodeId: nodeForColonyId(`${playerName}:${now}`, WORLD_CONFIG_PUBLIC.worldId, WORLD_CONFIG_PUBLIC.raceLock),
     // ---- Hidden Unbound revelation track (V4): zeroed, silent ----
     revelationCounters: freshRevelationCounters(),
     revelations: [],
@@ -781,6 +788,7 @@ export function blankColony(now = Date.now()): GameState {
     leaderXpCaps: {},
     seasonId: MONETIZATION_CONFIG.season0Id,
     satellites: freshSatellites(WORLD_CONFIG_PUBLIC.worldId, MONETIZATION_CONFIG.season0Id),
+    // Blank slot: no ground yet — colonyNodeId() assigns on first use.
     // ---- Hidden Unbound revelation track (V4): zeroed, silent ----
     revelationCounters: freshRevelationCounters(),
     revelations: [],
@@ -1843,6 +1851,9 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensurePrologue(state); // V11: prologue ledger (additive backfill on pre-V11 saves)
   ensureSatellites(state, (m) => log(state, m)); // ORBITAL WATCH: constellation init + season re-roll
   ensureWorldMap(state, now); // WORLD MAP: abandonment tracking + scout probes + ships (additive)
+  colonyNodeId(state); // every colony stands on a node (backfills old saves)
+  const firedAlarm = sweepRaidAlarms(state, now); // SATELLITE KLAXON: incoming raids on watched nodes
+  if (firedAlarm) broadcastRaidAlarm(state, firedAlarm); // alliance-wide: the whole war band hears it
   ensureReTime(state, now); // RE-TIME: energy pool + deploy slot (no-op on a fresh save)
   // V7 daily rollover: when the UTC day turned since the last advance, finalize
   // yesterday (streak exactly-once + TD3 banked-forever claims), roll the fresh
