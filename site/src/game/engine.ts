@@ -117,6 +117,7 @@ import { SHIP_COST, shipNeedsAlliance, shipName, type ShipClass } from "./worldm
 import {
   claimHusk as claimHuskPure,
   resolveSubColonies as resolveSubColoniesPure,
+  shipSubColonySupplies as shipSubColonySuppliesPure,
 } from "./subcolonies";
 import {
   RAID_TRAVEL_MS,
@@ -3159,6 +3160,17 @@ export function claimHusk(state: GameState, key: string, now = Date.now()): { ok
   const wm = ensureWorldMap(state, now);
   const colony = wm.known[key];
   log(state, `🏚️ Claimed ${colony?.ownerName ?? "a husk"} as a sub colony — 24h setup. First come, first serve.`);
+  return { ok: true, state };
+}
+
+/** Ship a 1,000-supply upkeep shipment to a sub colony (owner 2026-10-03). */
+export function shipSubColonySupplies(state: GameState, key: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const res = shipSubColonySuppliesPure(state, key, now);
+  if (!res.ok) return { ok: false, error: res.error, state };
+  const wm = ensureWorldMap(state, now);
+  const colony = wm.known[key];
+  log(state, `🚚 Shipped 1,000 supplies to sub colony ${colony?.ownerName ?? key} — next shipment due in 24h.`);
   return { ok: true, state };
 }
 

@@ -24,8 +24,10 @@ export const SUBCOLONY_SETUP_MS = 24 * 3600_000;
 /** Kickstart investment to claim a husk (supplies). */
 export const SUBCOLONY_CLAIM_COST = 5000;
 
-/** Daily supply upkeep per active sub colony. */
-export const SUBCOLONY_UPKEEP_PER_DAY = 100;
+/** Supply upkeep per active sub colony, due every 24 hours. Hans: "they have
+ *  to shoot it supplies ... if they get too heavy on those [they] will have
+ *  to end up buying supplies ... or give them up." */
+export const SUBCOLONY_UPKEEP_PER_DAY = 1000;
 
 /** A husk claim in progress (or completed). Lives on the KnownColony record. */
 export interface SubColonyClaim {
@@ -39,6 +41,9 @@ export interface SubColonyClaim {
   setupCompleteAt: number;
   /** Supplies invested at claim time. */
   suppliesInvested: number;
+  /** When the next 1,000-supply upkeep shipment is due (epoch ms). Set when
+   *  setup completes; pushed forward 24h each time upkeep is paid. */
+  nextUpkeepDue?: number;
 }
 
 /** True when the colony is a husk that nobody has claimed. */
@@ -163,10 +168,60 @@ export function resolveSubColonies(state: GameState, now: number = Date.now()): 
       // The husk's old husk-ness is gone: it becomes a working colony.
       // Ownership transfers to the claimer.
       colony.ownerName = colony.subClaim.claimedByName;
+      // First upkeep shipment due 24h after going live.
+      colony.subClaim.nextUpkeepDue = now + SUBCOLONY_SETUP_MS;
       resolved++;
     }
   }
   return resolved;
+}
+
+/**
+ * Ship a 1,000-supply upkeep shipment to an active sub colony.
+ * Deducts supplies from the main colony, pushes nextUpkeepDue forward 24h.
+ */
+export function shipSubColonySupplies(
+  state: GameState,
+  key: string,
+  now: number = Date.now(),
+): { ok: boolean; error?: string } {
+  const wm = ensureWorldMap(state, now);
+  const colony = wm.known[key];
+  if (!colony) return { ok: false, error: "Colony not found." };
+  if (colony.status !== "sub_colony" || !colony.subClaim) {
+    return { ok: false, error: "Not an active sub colony." };
+  }
+  const me = state.gameId ?? "";
+  if (colony.subClaim.claimedBy !== me) {
+    return { ok: false, error: "Not your sub colony." };
+  }
+  if ((state.resources.supplies ?? 0) < SUBCOLONY_UPKEEP_PER_DAY) {
+    return {
+      ok: false,
+      error: `Need ${SUBCOLONY_UPKEEP_PER_DAY.toLocaleString()} supplies to ship.`,
+    };
+  }
+  state.resources.supplies = (state.resources.supplies ?? 0) - SUBCOLONY_UPKEEP_PER_DAY;
+  // Next shipment due 24h from now (or 24h after the missed deadline,
+  // whichever is later — no banking free days by being late).
+  const base = Math.max(now, colony.subClaim.nextUpkeepDue ?? now);
+  colony.subClaim.nextUpkeepDue = base + SUBCOLONY_SETUP_MS;
+  return { ok: true };
+}
+
+/** Milliseconds until the next upkeep shipment is due (negative when overdue). */
+export function upkeepRemaining(colony: KnownColony, now: number): number {
+  if (!colony.subClaim?.nextUpkeepDue) return 0;
+  return colony.subClaim.nextUpkeepDue - now;
+}
+
+/** True when the sub colony's upkeep shipment is overdue (hungry). */
+export function isUpkeepOverdue(colony: KnownColony, now: number): boolean {
+  return (
+    colony.status === "sub_colony" &&
+    !!colony.subClaim?.nextUpkeepDue &&
+    now >= colony.subClaim.nextUpkeepDue
+  );
 }
 
 /**

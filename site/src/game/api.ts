@@ -858,6 +858,19 @@ const claimHuskFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
+// Sub colonies: ship a 1,000-supply upkeep shipment (owner 2026-10-03).
+const shipSubColonySuppliesFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), key: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.shipSubColonySupplies(st, data.key, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
 // Raids: form a party, target a colony, assign ships, load troops, launch.
 const createRaidFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
@@ -2309,6 +2322,7 @@ export {
   launchProbeFn,
   collectProbeFn,
   claimHuskFn,
+  shipSubColonySuppliesFn,
   createRaidFn,
   setRaidTargetFn,
   assignRaidShipsFn,

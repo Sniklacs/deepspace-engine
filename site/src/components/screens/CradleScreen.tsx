@@ -56,6 +56,7 @@ import type { GameState, DomainId } from "../../game/types";
 import type { GameResult } from "../../game/api";
 import { Bdi } from "../ui/Bdi";
 import CradleAllianceSection from "../CradleAlliance";
+import CradleSubColoniesSection from "../CradleSubColonies";
 
 const HERO_ROLE_WORD: Record<string, string> = {
   tank: "Tank",
@@ -198,6 +199,15 @@ export default function CradleScreen({
               alone; the alliance dashboard (help, ship factory, research)
               plus an "open alliance" sheet when sworn ------------------- */}
           <CradleAllianceSection
+            state={state}
+            now={now}
+            token={token}
+            onAction={onAction}
+          />
+
+          {/* ---- B2c · sub colonies (owner 2026-10-03): husk claims in
+              progress with a countdown ticker, plus active sub colonies --- */}
+          <CradleSubColoniesSection
             state={state}
             now={now}
             token={token}
