@@ -30,7 +30,7 @@ export const KNOWN_SERVERS: KnownServer[] = [
   {
     id: "draconians-world",
     name: "The Ashen Wastes",
-    url: "https://the-unbound-draconians-byuohrovb-the-unbound.vercel.app",
+    url: "https://the-unbound-draconians.vercel.app",
     raceId: "draconians",
     raceName: "Draconians",
     description: "Raid target practice — the Draconian test world.",
