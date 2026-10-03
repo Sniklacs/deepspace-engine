@@ -140,6 +140,7 @@ function RaidPanel({
   onSetTarget,
   onAssignShips,
   onLoadTroops,
+  onLoadSupplies,
   onLaunch,
   onDeploy,
 }: {
@@ -152,6 +153,7 @@ function RaidPanel({
   onSetTarget?: (raidId: string, key: string) => void;
   onAssignShips?: (raidId: string, shipIds: string[]) => void;
   onLoadTroops?: (raidId: string, type: TroopType, count: number) => void;
+  onLoadSupplies?: (raidId: string, amount: number) => void;
   onLaunch?: (raidId: string) => void;
   onDeploy?: (raidId: string, deployment: Record<string, Record<string, number>>, shipsHoldOrbit: boolean) => void;
 }) {
@@ -159,6 +161,7 @@ function RaidPanel({
   const [hint, setHint] = useState<string | null>(null);
   const [pickedShips, setPickedShips] = useState<string[]>([]);
   const [troopInputs, setTroopInputs] = useState<Partial<Record<TroopType, string>>>({});
+  const [supplyInput, setSupplyInput] = useState<string>("");
   const [joinCode, setJoinCode] = useState("");
 
   const ships = useMemo(() => readyShips(state), [state]);
@@ -394,6 +397,44 @@ function RaidPanel({
             </div>
             {hint === "troopCount" && (
               <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.troopCountHint", "Enter how many to load first.")}</p>
+            )}
+          </div>
+
+          {/* Supplies — for deserters, emergencies, the unknown (owner 2026-10-03) */}
+          <div className="mt-2">
+            <p className="text-[11px] font-semibold text-gray-300">
+              {t("raid.supplies", "Supplies loaded")}: <span className="text-gray-200">{(raid.supplies ?? 0).toLocaleString()}</span>
+              <span className="text-gray-500"> · {t("raid.supplyHint", "for deserters & field costs")}</span>
+            </p>
+            <div className="mt-1 flex items-center gap-2 text-[11px]">
+              <input
+                type="number"
+                min={1}
+                value={supplyInput ?? ""}
+                onChange={(e) => setSupplyInput(e.target.value)}
+                placeholder="0"
+                className="w-20 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-white"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  sound.click();
+                  const n = Math.trunc(Number(supplyInput ?? 0));
+                  if (onLoadSupplies && n > 0) {
+                    onLoadSupplies(raid.id, n);
+                    setSupplyInput("");
+                    setHint(null);
+                  } else {
+                    setHint("supplyCount");
+                  }
+                }}
+                className="rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-gray-200 hover:bg-white/10"
+              >
+                {t("raid.loadSupplies", "Load Supplies")}
+              </button>
+            </div>
+            {hint === "supplyCount" && (
+              <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.supplyCountHint", "Enter how many supplies to load first.")}</p>
             )}
           </div>
 
@@ -1031,6 +1072,7 @@ export default function WorldMapView({
   onSetRaidTarget,
   onAssignRaidShips,
   onLoadRaidTroops,
+  onLoadRaidSupplies,
   onLaunchRaid,
   onJoinRaid,
   onDeployRaid,
@@ -1047,6 +1089,7 @@ export default function WorldMapView({
   onSetRaidTarget?: (raidId: string, key: string) => void;
   onAssignRaidShips?: (raidId: string, shipIds: string[]) => void;
   onLoadRaidTroops?: (raidId: string, type: TroopType, count: number) => void;
+  onLoadRaidSupplies?: (raidId: string, amount: number) => void;
   onLaunchRaid?: (raidId: string) => void;
   onJoinRaid?: (inviteCode: string) => void;
   onDeployRaid?: (raidId: string, deployment: Record<string, Record<string, number>>, shipsHoldOrbit: boolean) => void;
@@ -1160,6 +1203,7 @@ export default function WorldMapView({
         onSetTarget={onSetRaidTarget}
         onAssignShips={onAssignRaidShips}
         onLoadTroops={onLoadRaidTroops}
+        onLoadSupplies={onLoadRaidSupplies}
         onLaunch={onLaunchRaid}
         onDeploy={onDeployRaid}
       />

@@ -107,6 +107,9 @@ export interface RaidParty {
   /** Troops committed, per member, per type. Moved OUT of the home roster
    *  on commit — what you carry is all you have. */
   troops: Record<string, Partial<Record<TroopType, number>>>;
+  /** Supplies loaded for the raid (owner 2026-10-03): for hiring deserters,
+   *  field expenses, emergency use. Moved OUT of home stockpile on commit. */
+  supplies: number;
   targetServerId: string;
   targetColonyId: string;
   targetOwnerName: string;
@@ -260,6 +263,7 @@ export function createRaidParty(
     shipIds: [],
     shipClasses: [],
     troops: { [leaderId]: {} },
+    supplies: 0,
     targetServerId: "",
     targetColonyId: "",
     targetOwnerName: "",

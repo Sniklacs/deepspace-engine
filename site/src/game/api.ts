@@ -1208,6 +1208,21 @@ const loadRaidTroopsFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
+const loadRaidSuppliesFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), raidId: z.string(), amount: z.number() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.loadRaidSupplies(st, data.raidId, data.amount, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
 const launchRaidFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), raidId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> => {
@@ -2739,6 +2754,7 @@ export {
   setRaidTargetFn,
   assignRaidShipsFn,
   loadRaidTroopsFn,
+  loadRaidSuppliesFn,
   launchRaidFn,
   deployRaidFn,
   joinRaidFn,

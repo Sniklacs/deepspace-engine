@@ -134,6 +134,7 @@ import {
   raidJumpCharge,
   raidLaunchBlocker,
   raidLootCapacity,
+  raidTroopCapacity,
   raidTroopCount,
   resolveRaidBattle,
   setRaidTarget as setRaidTargetPure,
@@ -3302,6 +3303,27 @@ export function loadRaidTroops(state: GameState, raidId: string, type: TroopType
   if (!res.ok) return fail(res.error ?? "Could not load troops.");
   removeTroopsNewestFirst(roster, n, type);
   log(state, `⚔️ ${raid.id}: ${n} ${type} loaded. What you carry is all you have.`);
+  return { ok: true, state };
+}
+
+/** Load supplies onto the raid (owner 2026-10-03): for hiring deserters,
+ *  field expenses. Supplies move OUT of home stockpile — what you carry
+ *  is all you have. */
+export function loadRaidSupplies(state: GameState, raidId: string, amount: number, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  if (raid.status !== "preparing") return fail("Supplies lock when the raid launches.");
+  const n = Math.trunc(amount);
+  if (!(n > 0)) return fail("Load at least 1 supply.");
+  if (state.resources.supplies < n) return fail(`You only have ${Math.floor(state.resources.supplies)} supplies.`);
+  // Cargo check: supplies take cargo space (1 supply = 1 cargo)
+  const cargoUsed = raidTroopCapacity(raid) + (raid.supplies ?? 0);
+  const cargoMax = raidLootCapacity(raid);
+  if (cargoUsed + n > cargoMax) return fail(`Not enough cargo space. ${cargoMax - cargoUsed} free.`);
+  state.resources.supplies -= n;
+  raid.supplies = (raid.supplies ?? 0) + n;
+  log(state, `📦 ${raid.id}: ${n} supplies loaded. For deserters, emergencies, the unknown.`);
   return { ok: true, state };
 }
 
