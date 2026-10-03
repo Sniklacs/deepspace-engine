@@ -257,6 +257,7 @@ function LandingPage() {
       <footer className="safe-area-bottom border-t border-white/5 py-8 text-center text-xs text-zinc-500">
         <p>{t("landing.footer1", "The Unbound · a persistent multiplayer colony-survival strategy game")}</p>
         <p className="mt-1">{t("landing.footer2", "")}</p>
+        <p className="mt-2">© 2026 The Unbound. All rights reserved.</p>
       </footer>
     </div>
   );
