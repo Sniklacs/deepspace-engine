@@ -136,6 +136,7 @@ function RaidPanel({
   selectedColony,
   selectedKey,
   onFormRaid,
+  onJoinRaid,
   onSetTarget,
   onAssignShips,
   onLoadTroops,
@@ -146,6 +147,7 @@ function RaidPanel({
   selectedColony: KnownColony | null;
   selectedKey: string | null;
   onFormRaid?: () => void;
+  onJoinRaid?: (inviteCode: string) => void;
   onSetTarget?: (raidId: string, key: string) => void;
   onAssignShips?: (raidId: string, shipIds: string[]) => void;
   onLoadTroops?: (raidId: string, type: TroopType, count: number) => void;
@@ -155,6 +157,7 @@ function RaidPanel({
   const [hint, setHint] = useState<string | null>(null);
   const [pickedShips, setPickedShips] = useState<string[]>([]);
   const [troopInputs, setTroopInputs] = useState<Partial<Record<TroopType, string>>>({});
+  const [joinCode, setJoinCode] = useState("");
 
   const ships = useMemo(() => readyShips(state), [state]);
   const homeTroops = useMemo(() => homeTroopsByType(state), [state]);
@@ -185,6 +188,42 @@ function RaidPanel({
         <p className="mt-1.5 text-[10px] leading-relaxed text-gray-500">
           {t("raid.whatYouCarry", "What you carry is all you have — no troop building on a raid.")}
         </p>
+        {/* Join a raid via invite code (multiplayer, owner 2026-10-03) */}
+        <div className="mt-2 border-t border-white/10 pt-2">
+          <p className="text-[11px] font-semibold text-gray-300">
+            {t("raid.joinTitle", "Join a raid party")}
+          </p>
+          <div className="mt-1 flex gap-1.5">
+            <input
+              type="text"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+              placeholder={t("raid.codePlaceholder", "Invite code")}
+              className="min-w-0 flex-1 rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 font-mono text-[13px] tracking-widest text-amber-100 placeholder:text-gray-600"
+              maxLength={6}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                sound.click();
+                if (onJoinRaid && joinCode.trim()) {
+                  onJoinRaid(joinCode.trim());
+                  setJoinCode("");
+                } else {
+                  setHint("needCode");
+                }
+              }}
+              className="shrink-0 rounded-lg border border-emerald-400/40 bg-emerald-400/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-100 hover:bg-emerald-400/25"
+            >
+              {t("raid.join", "Join")}
+            </button>
+          </div>
+          {hint === "needCode" && (
+            <p className="mt-1 text-[11px] text-red-200/80">
+              {t("raid.needCode", "Enter the invite code from the raid leader.")}
+            </p>
+          )}
+        </div>
       </div>
     );
   }
@@ -218,6 +257,17 @@ function RaidPanel({
         {t("raid.members", "Members")} ({raid.memberIds.length}/{RAID_MAX_MEMBERS}):{" "}
         <span className="text-gray-200">{raid.memberNames.join(", ")}</span>
       </p>
+
+      {/* Invite code (multiplayer, owner 2026-10-03) */}
+      {raid.status === "preparing" && raid.inviteCode && (
+        <p className="mt-1 text-[11px] text-gray-400">
+          {t("raid.inviteCode", "Invite code")}:{" "}
+          <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[12px] font-bold tracking-widest text-amber-200">
+            {raid.inviteCode}
+          </span>{" "}
+          <span className="text-gray-500">{t("raid.shareCode", "— share with alliance to recruit.")}</span>
+        </p>
+      )}
 
       {/* Target */}
       <p className="mt-1 text-[11px] text-gray-400">
@@ -782,6 +832,7 @@ export default function WorldMapView({
   onAssignRaidShips,
   onLoadRaidTroops,
   onLaunchRaid,
+  onJoinRaid,
 }: {
   state: GameState;
   now: number;
@@ -796,6 +847,7 @@ export default function WorldMapView({
   onAssignRaidShips?: (raidId: string, shipIds: string[]) => void;
   onLoadRaidTroops?: (raidId: string, type: TroopType, count: number) => void;
   onLaunchRaid?: (raidId: string) => void;
+  onJoinRaid?: (inviteCode: string) => void;
 }) {
   const t = useT();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -821,6 +873,12 @@ export default function WorldMapView({
 
   // Unseen defender warnings.
   const warnings = useMemo(() => (wm?.raidWarnings ?? []).filter((w) => !w.seen), [wm]);
+
+  // Incoming cross-server raids (defender side, owner 2026-10-03).
+  const incomingRaids = useMemo(
+    () => (wm?.incomingRaids ?? []).filter((r) => !r.resolved),
+    [wm],
+  );
 
   // The player's own colony: "abandons in Xd" warning lives here too.
   const ownLastActive = wm?.lastActive ?? now;
@@ -881,11 +939,44 @@ export default function WorldMapView({
         selectedColony={selected}
         selectedKey={selectedKey}
         onFormRaid={onFormRaid}
+        onJoinRaid={onJoinRaid}
         onSetTarget={onSetRaidTarget}
         onAssignShips={onAssignRaidShips}
         onLoadTroops={onLoadRaidTroops}
         onLaunch={onLaunchRaid}
       />
+
+      {/* Incoming cross-server raids (defender warnings, owner 2026-10-03) */}
+      {incomingRaids.length > 0 && (
+        <div className="rounded-xl border border-red-500/50 bg-red-950/30 p-3">
+          <h3 className="text-[12px] font-semibold text-red-200">
+            ⚠️ {t("raid.incomingTitle", "Incoming raids")} ({incomingRaids.length})
+          </h3>
+          {incomingRaids.map((r) => {
+            const etaMs = Math.max(0, (r.landsAt || now) - now);
+            const etaMin = Math.floor(etaMs / 60000);
+            const etaSec = Math.floor((etaMs % 60000) / 1000);
+            return (
+              <div key={r.raidId} className="mt-2 rounded-lg border border-red-400/30 bg-black/40 p-2">
+                <p className="text-[12px] font-semibold text-red-100">
+                  {r.attackerNames.join(", ") || t("raid.unknownRaiders", "Unknown raiders")}
+                </p>
+                <p className="mt-0.5 text-[11px] text-gray-400">
+                  {t("raid.incomingFrom", "from")} <span className="text-amber-200">{r.attackerWorldName}</span>
+                  {" · "}{r.shipCount} {t("raid.ships", "ships")}
+                  {" · ~"}{r.troopCount.toLocaleString()} {t("raid.troops", "troops")}
+                </p>
+                <p className="mt-0.5 text-[11px] font-semibold text-red-300">
+                  {t("raid.eta", "Touchdown in")}: {etaMin > 0 ? `${etaMin}m ` : ""}{etaSec}s
+                </p>
+              </div>
+            );
+          })}
+          <p className="mt-1.5 text-[10px] text-gray-500">
+            {t("raid.incomingHint", "Man your defenses — the raid warning is real.")}
+          </p>
+        </div>
+      )}
 
       {/* Your own colony's abandonment clock */}
       <div

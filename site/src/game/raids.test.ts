@@ -244,5 +244,40 @@ describe("emptyRaidState", () => {
     const s = emptyRaidState();
     expect(s.raids).toEqual([]);
     expect(s.warnings).toEqual([]);
+    expect(s.incomingRaids).toEqual([]);
+  });
+});
+
+describe("cross-server raid protocol (owner 2026-10-03)", () => {
+  test("createRaidParty generates an invite code", async () => {
+    const { makeInviteCode } = await import("./raids");
+    const r = createRaidParty("col-1", "Hans", 1);
+    expect(typeof r.inviteCode).toBe("string");
+    expect(r.inviteCode.length).toBe(6);
+    // Codes are unique-ish.
+    const r2 = createRaidParty("col-2", "Bob", 2);
+    expect(r2.inviteCode).not.toBe(r.inviteCode);
+    const code = makeInviteCode();
+    expect(code).toMatch(/^[A-Z2-9]{6}$/);
+  });
+
+  test("joinRaidParty rejects late joiners and duplicates", () => {
+    const r = createRaidParty("col-1", "Hans", 1);
+    expect(joinRaidParty(r, "col-1", "Hans").ok).toBe(false); // already in
+    expect(joinRaidParty(r, "col-2", "Bob").ok).toBe(true);
+    expect(r.memberIds.includes("col-2")).toBe(true);
+    r.status = "in_transit";
+    expect(joinRaidParty(r, "col-3", "Eve").ok).toBe(false); // launched
+  });
+
+  test("joinRaidParty enforces the 5-member cap", () => {
+    const r = createRaidParty("col-1", "Hans", 1);
+    for (let i = 2; i <= RAID_MAX_MEMBERS; i++) {
+      expect(joinRaidParty(r, `col-${i}`, `P${i}`).ok).toBe(true);
+    }
+    expect(r.memberIds.length).toBe(RAID_MAX_MEMBERS);
+    const res = joinRaidParty(r, "col-99", "Zed");
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/cap at 5/);
   });
 });

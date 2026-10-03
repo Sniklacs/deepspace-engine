@@ -5,7 +5,7 @@ import {
   launchFn, studyFn, deployFn, purifyFn, craftFn, beginResearchFn, chooseRevelationFn,
   buildProbeFn, launchProbeFn, collectProbeFn,
   claimHuskFn,
-  createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, launchRaidFn,
+  createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, launchRaidFn, joinRaidFn,
   allocateLeaderPointFn, chooseSpecializationFn,
   signupFn, loginFn, logoutFn, meFn,
   submitFeedbackFn, listMyFeedbackFn, dismissNoticeFn,
@@ -679,6 +679,7 @@ function PlayPage() {
           onAssignRaidShips={(raidId, shipIds) => act(() => assignRaidShipsFn({ data: { token: token!, raidId, shipIds } }), "assignRaidShips")}
           onLoadRaidTroops={(raidId, type, count) => act(() => loadRaidTroopsFn({ data: { token: token!, raidId, type, count } }), "loadRaidTroops")}
           onLaunchRaid={(raidId) => act(() => launchRaidFn({ data: { token: token!, raidId } }), "launchRaid")}
+          onJoinRaid={(inviteCode) => act(() => joinRaidFn({ data: { token: token!, inviteCode } }), "joinRaid")}
         />
       )}
       {tab === "battles" && (

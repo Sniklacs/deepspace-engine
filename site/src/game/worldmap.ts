@@ -158,6 +158,9 @@ export interface WorldMapState {
   raids: RaidParty[];
   /** Defender warnings, filed the moment a raid touches down (raids.ts). */
   raidWarnings: RaidWarning[];
+  /** Incoming raids from OTHER worlds (cross-server). Populated by the
+   *  /api/raid-incoming endpoint. The defender sees these as warnings. */
+  incomingRaids: import("./raid-protocol").IncomingRaidAlert[];
   /** Monotonic counters for id generation. */
   seq: number;
 }
@@ -174,6 +177,7 @@ export function emptyWorldMap(now: number): WorldMapState {
     visited: [],
     raids: [],
     raidWarnings: [],
+    incomingRaids: [],
     seq: 1,
   };
 }
@@ -184,6 +188,7 @@ export function ensureWorldMap(state: { worldMap?: WorldMapState }, now: number 
   const wm = state.worldMap;
   if (!Array.isArray(wm.raids)) wm.raids = [];
   if (!Array.isArray(wm.raidWarnings)) wm.raidWarnings = [];
+  if (!Array.isArray(wm.incomingRaids)) wm.incomingRaids = [];
   return wm;
 }
 

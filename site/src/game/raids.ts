@@ -92,6 +92,9 @@ export interface RaidParty {
   id: string; // `raid-<seq>`
   leaderId: string; // colony id
   leaderName: string;
+  /** Short invite code for party joining (e.g. "K7X2M9"). Alliance members
+   *  join via the code — up to RAID_MAX_MEMBERS total. */
+  inviteCode: string;
   /** Member colony ids (includes the leader). Max RAID_MAX_MEMBERS. */
   memberIds: string[];
   memberNames: string[];
@@ -114,6 +117,10 @@ export interface RaidParty {
   attackerLosses?: Partial<Record<TroopType, number>>;
   defenderLosses?: number; // approx headcount
   lootTaken?: RaidLoot;
+  /** Set when the battle resolves and the result needs delivery to the
+   *  defender's server. The api layer picks this up and POSTs to
+   *  /api/raid-result, then clears it. (Cross-server, owner 2026-10-03.) */
+  resultPendingDelivery?: boolean;
   /** Monotonic per-worldMap counter is the source of ids. */
   seq: number;
 }
@@ -138,10 +145,31 @@ export interface RaidWarning {
 export interface RaidState {
   raids: RaidParty[];
   warnings: RaidWarning[];
+  /** Incoming raids from OTHER worlds (cross-server). Populated by the
+   *  /api/raid-incoming endpoint when an attacker's server notifies us.
+   *  The defender sees these as warnings + mailbox alerts. */
+  incomingRaids: import("./raid-protocol").IncomingRaidAlert[];
 }
 
 export function emptyRaidState(): RaidState {
-  return { raids: [], warnings: [] };
+  return { raids: [], warnings: [], incomingRaids: [] };
+}
+
+/** Generate a short invite code for raid party joining. */
+export function makeInviteCode(): string {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no I/L/O/0/1 (readability)
+  let code = "";
+  // Mix time + randomness so rapid successive calls don't collide.
+  const seed = Date.now() ^ (Math.floor(Math.random() * 0xffffffff) >>> 0);
+  let s = seed >>> 0;
+  for (let i = 0; i < 6; i++) {
+    // xorshift32 for decent distribution without crypto overhead.
+    s ^= s << 13; s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5; s >>>= 0;
+    code += chars[s % chars.length];
+  }
+  return code;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +244,7 @@ export function createRaidParty(
     id: `raid-${seq}`,
     leaderId,
     leaderName,
+    inviteCode: makeInviteCode(),
     memberIds: [leaderId],
     memberNames: [leaderName],
     shipIds: [],

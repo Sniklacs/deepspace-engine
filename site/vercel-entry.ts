@@ -39,6 +39,19 @@ const toWebRequest = (req: IncomingMessage): Request => {
   } as RequestInit);
 };
 
+/** Read and parse a JSON request body from an IncomingMessage. */
+async function readJsonBody(req: IncomingMessage): Promise<any> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const text = Buffer.concat(chunks).toString("utf-8");
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Seed the test server with a day-60 raid-testing scenario.
  * Creates test accounts, game states, mock colonies, and test alliance.
@@ -465,6 +478,149 @@ export default async function vercelHandler(
           worldId,
           timestamp: new Date().toISOString(),
         }));
+      }
+      return;
+    }
+    // Cross-server raid warnings (owner 2026-10-03).
+    // POST /api/raid-incoming { secret, raid: IncomingRaidPayload }
+    // Called by the attacker's server when a raid launches. We find the
+    // defender's account by colonyId and file the warning + mailbox alert.
+    if (pathname === "/api/raid-incoming" && req.method === "POST") {
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.setHeader("cache-control", "no-store");
+      try {
+        const body = await readJsonBody(req);
+        const expectedSecret = process.env.RAID_SHARED_SECRET || "unbound-raid-test-2026";
+        if (body.secret !== expectedSecret) {
+          res.statusCode = 403;
+          res.end(JSON.stringify({ ok: false, error: "invalid_secret" }));
+          return;
+        }
+        const raid = body.raid;
+        if (!raid?.targetColonyId || !raid?.raidId) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ ok: false, error: "bad_payload" }));
+          return;
+        }
+        const { loadAllSaves, saveAccountSaves } = await import("./src/game/store");
+        const { sendMail } = await import("./src/game/mailbox");
+        const all = await loadAllSaves();
+        let delivered = false;
+        for (const { accountId, saves } of all) {
+          for (const [gameId, st] of Object.entries(saves.games || {})) {
+            const state = st as any;
+            if (state.gameId !== raid.targetColonyId && gameId !== raid.targetColonyId) continue;
+            // Found the defender. File the incoming raid alert.
+            if (!state.worldMap) state.worldMap = { incomingRaids: [] };
+            if (!Array.isArray(state.worldMap.incomingRaids)) state.worldMap.incomingRaids = [];
+            // Dedupe by raidId.
+            if (!state.worldMap.incomingRaids.some((r: any) => r.raidId === raid.raidId)) {
+              state.worldMap.incomingRaids.push({
+                raidId: raid.raidId,
+                attackerWorldId: raid.attackerWorldId,
+                attackerWorldName: raid.attackerWorldName || raid.attackerWorldId,
+                attackerNames: raid.attackerNames || [],
+                targetColonyId: raid.targetColonyId,
+                shipCount: raid.shipCount || 0,
+                troopCount: raid.troopCount || 0,
+                landsAt: raid.landsAt,
+                launchedAt: raid.launchedAt,
+                seen: false,
+              });
+            }
+            // Mailbox alert.
+            const etaMin = Math.max(1, Math.round(((raid.landsAt || Date.now()) - Date.now()) / 60000));
+            const names = (raid.attackerNames || []).join(", ") || "unknown raiders";
+            sendMail(state, {
+              from: "system",
+              subject: `⚠️ Incoming raid from ${raid.attackerWorldName || "another world"}`,
+              body: `${names} launched a raid against your colony — ${raid.shipCount || 0} ships, ~${raid.troopCount || 0} troops. Estimated touchdown in ~${etaMin} minute(s). Man your defenses!`,
+              category: "battle",
+              sentAt: Date.now(),
+            });
+            await saveAccountSaves(accountId, saves);
+            delivered = true;
+            break;
+          }
+          if (delivered) break;
+        }
+        res.statusCode = 200;
+        res.end(JSON.stringify({ ok: true, delivered }));
+      } catch (e: any) {
+        console.error("[raid-incoming] failed", e);
+        res.statusCode = 500;
+        res.end(JSON.stringify({ ok: false, error: e?.message || "failed" }));
+      }
+      return;
+    }
+    // Cross-server raid battle results (owner 2026-10-03).
+    // POST /api/raid-result { secret, result: RaidResultPayload }
+    // Called by the attacker's server when the battle resolves.
+    if (pathname === "/api/raid-result" && req.method === "POST") {
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.setHeader("cache-control", "no-store");
+      try {
+        const body = await readJsonBody(req);
+        const expectedSecret = process.env.RAID_SHARED_SECRET || "unbound-raid-test-2026";
+        if (body.secret !== expectedSecret) {
+          res.statusCode = 403;
+          res.end(JSON.stringify({ ok: false, error: "invalid_secret" }));
+          return;
+        }
+        const result = body.result;
+        if (!result?.targetColonyId || !result?.raidId) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ ok: false, error: "bad_payload" }));
+          return;
+        }
+        const { loadAllSaves, saveAccountSaves } = await import("./src/game/store");
+        const { sendMail } = await import("./src/game/mailbox");
+        const all = await loadAllSaves();
+        let delivered = false;
+        for (const { accountId, saves } of all) {
+          for (const [gameId, st] of Object.entries(saves.games || {})) {
+            const state = st as any;
+            if (state.gameId !== result.targetColonyId && gameId !== result.targetColonyId) continue;
+            // Mark the incoming alert as resolved.
+            if (Array.isArray(state.worldMap?.incomingRaids)) {
+              const alert = state.worldMap.incomingRaids.find((r: any) => r.raidId === result.raidId);
+              if (alert) {
+                alert.resolved = true;
+                alert.won = result.won;
+                alert.lootTaken = result.lootTaken;
+              }
+            }
+            // Apply resource losses (what was looted).
+            const loot = result.lootTaken || {};
+            if (state.resources) {
+              state.resources.supplies = Math.max(0, (state.resources.supplies || 0) - (loot.supplies || 0));
+              state.resources.embers = Math.max(0, (state.resources.embers || 0) - (loot.embers || 0));
+              state.resources.gas = Math.max(0, (state.resources.gas || 0) - (loot.fuel || 0));
+            }
+            // Mailbox battle report.
+            const names = (result.attackerNames || []).join(", ") || "raiders";
+            const outcome = result.won
+              ? `They broke through and looted your stores.`
+              : `Your defenses held — they were repelled.`;
+            sendMail(state, {
+              from: "system",
+              subject: `⚔️ Raid ${result.won ? "lost" : "repelled"}: ${names}`,
+              body: `${outcome} Your losses: ~${result.defenderLosses || 0} troops. Loot taken: ${loot.supplies || 0} supplies, ${loot.embers || 0} embers.`,
+              category: "battle",
+              sentAt: Date.now(),
+            });
+            await saveAccountSaves(accountId, saves);
+            delivered = true;
+            break;
+          }
+          if (delivered) break;
+        }
+        res.statusCode = 200;
+        res.end(JSON.stringify({ ok: true, delivered }));
+      } catch (e: any) {
+        console.error("[raid-result] failed", e);
+        res.statusCode = 500;
+        res.end(JSON.stringify({ ok: false, error: e?.message || "failed" }));
       }
       return;
     }

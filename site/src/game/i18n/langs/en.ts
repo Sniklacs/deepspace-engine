@@ -108,6 +108,18 @@ export const en: Catalogue = {
   "raid.troopCountHint": "Enter how many to load first.",
   "raid.targetThis": "Target this colony",
   "raid.defenderWarned": "Loot-only v1. The defender is warned the moment you touch down.",
+  /* Cross-server raids (owner 2026-10-03) */
+  "raid.inviteCode": "Invite code",
+  "raid.shareCode": "— share with alliance to recruit.",
+  "raid.joinTitle": "Join a raid party",
+  "raid.codePlaceholder": "Invite code",
+  "raid.join": "Join",
+  "raid.needCode": "Enter the invite code from the raid leader.",
+  "raid.incomingTitle": "Incoming raids",
+  "raid.unknownRaiders": "Unknown raiders",
+  "raid.incomingFrom": "from",
+  "raid.eta": "Touchdown in",
+  "raid.incomingHint": "Man your defenses — the raid warning is real.",
 
   // ---- ribbon (§1.2) -------------------------------------------------------
   "ribbon.identity": "{name} — {race} · {world}. Colony commands.",
@@ -2526,6 +2538,14 @@ export const en: Catalogue = {
   "shipyard.hintAlliance": "Warships need an alliance ship factory. Join an alliance first — or build a scout solo.",
   "shipyard.hintAlready": "You're already on this build crew.",
   "shipyard.level": "Factory Level {level}",
+  "shipyard.costSupplies": "supplies",
+  "shipyard.costMat": "race mat",
+  "shipyard.costAlloys": "alloys",
+  "shipyard.hintSignIn": "Sign in to order ships.",
+  "shipyard.onCrew": "On crew ✓",
+  "shipyard.personalTitle": "Personal Shipyard",
+  "shipyard.personalSub": "Solo scout construction — no alliance needed.",
+  "shipyard.personalFleet": "{count} scout(s) ready",
   /* Server select (owner 2026-10-02) */
   "servers.title": "Choose Your World",
   "servers.subtitle": "Each race fights from its own world. Pick where your colony begins.",

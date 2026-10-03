@@ -122,9 +122,11 @@ import {
 } from "./subcolonies";
 import { markRead, markAllRead, deleteMail } from "./mailbox";
 import {
+  RAID_MAX_MEMBERS,
   RAID_TRAVEL_MS,
   commitRaidTroops as commitRaidTroopsPure,
   createRaidParty,
+  joinRaidParty as joinRaidPartyPure,
   mockDefenderLoot,
   raidJumpCharge,
   raidLaunchBlocker,
@@ -832,7 +834,7 @@ function coin(chance: number) {
   return Math.random() < chance;
 }
 
-function log(state: GameState, msg: string) {
+export function log(state: GameState, msg: string) {
   state.log.unshift(msg);
   state.log = state.log.slice(0, 60);
 }
@@ -3211,6 +3213,27 @@ export function createRaid(state: GameState, now = Date.now()): { ok: boolean; e
   return { ok: true, state, raidId: raid.id };
 }
 
+/** Join a raid party via invite code (multiplayer). The joiner must be on the
+ *  same world as the raid leader (parties are per-world; cross-server raiding
+ *  is the raid itself, not the party). */
+export function joinRaidByCode(
+  state: GameState,
+  inviteCode: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; raidId?: string } {
+  advance(state, now);
+  const wm = ensureWorldMap(state, now);
+  const code = (inviteCode || "").trim().toUpperCase();
+  if (!code) return fail("Enter the raid's invite code.");
+  const raid = wm.raids.find((r) => r.inviteCode === code);
+  if (!raid) return fail("No raid party found with that code — check with the leader.");
+  const me = myColonyId(state);
+  const res = joinRaidPartyPure(raid, me, state.playerName);
+  if (!res.ok) return { ok: false, error: res.error, state };
+  log(state, `⚔️ Joined ${raid.id} (${raid.leaderName}'s party) — ${raid.memberIds.length}/${RAID_MAX_MEMBERS} raiders.`);
+  return { ok: true, state, raidId: raid.id };
+}
+
 /** Point a preparing raid at a known active colony. */
 export function setRaidTarget(state: GameState, raidId: string, key: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
   advance(state, now);
@@ -3366,6 +3389,9 @@ export function advanceRaids(state: GameState, now: number): void {
 
       raid.status = "returning";
       raid.returnedAt = now + RAID_TRAVEL_MS;
+      // Cross-server: flag the battle result for delivery to the defender's
+      // server. The api layer picks this up and POSTs to /api/raid-result.
+      raid.resultPendingDelivery = true;
       const names = raid.memberNames.join(", ");
       if (result.won) {
         log(state, `⚔️ ${raid.id} TOUCHDOWN — ${names} hit ${raid.targetOwnerName}'s colony and took loot. Defender warned. Exfil in ~1 minute.`);

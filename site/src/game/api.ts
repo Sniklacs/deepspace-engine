@@ -26,6 +26,16 @@ import { RACES } from "./races";
 import { ZONES } from "./zones";
 import * as engine from "./engine";
 import { worldRaceError, WORLD_CONFIG } from "./world-config";
+import { ensureWorldMap } from "./worldmap";
+import {
+  contributeAllianceShip,
+  createShipBuild,
+  ensurePersonalShipyard,
+  orderAllianceShip,
+  payShipCost,
+  shipCostBlocker,
+  shipNeedsAlliance,
+} from "./shipyard";
 import { snapshotHero } from "./prologue/act1-battle";
 import {
   MONETIZATION_CONFIG,
@@ -85,6 +95,8 @@ import {
   queueAllianceFx,
   removeAllianceMemberRecord,
   removeAllianceMirror,
+  syncAllianceTo,
+  touchAlliance,
   transferLeadership,
   unlockRallyHeroes,
 } from "./war/alliances";
@@ -396,11 +408,56 @@ async function loadActiveState(accountId: string): Promise<GameState | null> {
 }
 
 // Write a mutated active game back into the account's multi-game save file.
-async function saveActiveState(accountId: string, updated: GameState): Promise<void> {
+// Returns true if the save persisted, false if it failed (caller must surface
+// the failure — a silent drop is the "badge appears then vanishes" bug).
+async function saveActiveState(accountId: string, updated: GameState): Promise<boolean> {
   const saves = await loadAccountSaves(accountId);
-  if (!saves || !updated.gameId) return;
+  if (!saves || !updated.gameId) {
+    console.error(`saveActiveState: cannot save — ${!saves ? "no saves found" : "missing gameId"} for account ${accountId}`);
+    return false;
+  }
   saves.games[updated.gameId] = updated;
-  await saveAccountSaves(accountId, saves);
+  return await saveAccountSaves(accountId, saves);
+}
+
+// Cross-server: deliver pending raid battle results to defender servers.
+// Called after engine.advance() resolves battles. Each raid with
+// resultPendingDelivery gets POSTed to the defender's /api/raid-result,
+// then the flag is cleared and the state re-saved.
+async function flushRaidResultDeliveries(
+  accountId: string,
+  state: import("./types").GameState,
+): Promise<void> {
+  const wm = state.worldMap;
+  if (!wm?.raids) return;
+  const pending = wm.raids.filter((r: any) => r.resultPendingDelivery && r.targetServerId);
+  if (pending.length === 0) return;
+  const { deliverRaidResult } = await import("./raid-delivery");
+  const { WORLD_CONFIG } = await import("./world-config");
+  const { raidTroopCount } = await import("./raids");
+  let dirty = false;
+  for (const raid of pending as any[]) {
+    const attackerLosses = raid.attackerLosses
+      ? Object.values(raid.attackerLosses as Record<string, number>).reduce((a: number, b: number) => a + (b ?? 0), 0)
+      : 0;
+    await deliverRaidResult(raid.targetServerId, {
+      raidId: raid.id,
+      attackerWorldId: WORLD_CONFIG.worldId,
+      attackerNames: [...(raid.memberNames ?? [])],
+      targetColonyId: raid.targetColonyId,
+      won: raid.won ?? false,
+      attackerLosses,
+      defenderLosses: raid.defenderLosses ?? 0,
+      lootTaken: raid.lootTaken ?? {},
+      resolvedAt: Date.now(),
+    }).catch((e) => console.warn("[flushRaid] result delivery failed:", e?.message || e));
+    raid.resultPendingDelivery = false;
+    dirty = true;
+  }
+  if (dirty) {
+    const saved = await saveActiveState(accountId, state);
+    if (!saved) console.error("[flushRaid] Failed to persist raid result delivery state");
+  }
 }
 
 // Get state for the signed-in account: the ACTIVE game's state (advanced), or,
@@ -419,6 +476,13 @@ const getState = createServerFn({ method: "POST" }).validator(
   const active = saves.activeGameId && saves.games[saves.activeGameId]
     ? engine.advance(saves.games[saves.activeGameId], Date.now())
     : null;
+  // Cross-server: deliver any raid battle results that resolved during advance.
+  // flushRaidResultDeliveries saves the state if it delivered anything.
+  if (active) {
+    await flushRaidResultDeliveries(accountId, active).catch((e) =>
+      console.warn("[getState] raid delivery flush failed:", e?.message || e),
+    );
+  }
   return { ok: true, username: accountId, state: active ? publicState(active) : undefined, games: allSummaries(saves), activeGameId: saves.activeGameId, showFirstRunNotice };
 });
 
@@ -583,7 +647,10 @@ const launchFn = createServerFn({ method: "POST" }).validator(
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   if (!ZONES.some((z) => z.id === data.zoneId)) return { ok: false, error: "Unknown destination.", state: publicState(st) };
   const res = engine.launchExpedition(st, data.zoneId, data.scientists, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -595,7 +662,10 @@ const studyFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.beginStudy(st, data.kind, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -607,7 +677,10 @@ const deployFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.deployProgram(st, data.domain as DomainId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, errorKey: res.errorKey, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -619,7 +692,10 @@ const purifyFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.discipline(st, data.spend, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -637,7 +713,10 @@ const claimDailyRewardFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.claimDaily(st, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined, granted: res.granted };
 });
 
@@ -663,7 +742,10 @@ const applyTimeTokenFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.applyTimeToken(st, data.sizeId, data.requestId, { kind: data.kind, id: data.id }, Date.now());
-  if (res.ok && !res.idempotent) await saveActiveState(accountId, st);
+  if (res.ok && !res.idempotent) {
+    const saved = await saveActiveState(accountId, st);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return {
     ok: res.ok,
     error: res.error,
@@ -686,7 +768,10 @@ const craftFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.craftItemBatch(st, data.kind, data.count ?? 1, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -704,7 +789,10 @@ const weaponBuildFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.startWeaponBuild(st, data.familyId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 // V6 Lab: condense 25 embers → 1 plasma (research-gated, deterministic, earn-only).
@@ -716,7 +804,10 @@ const refinePlasmaFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.refinePlasma(st, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 // THE FORGE (owner 2026-09-26) — the roll is made and COMMITTED here, on the
@@ -733,7 +824,10 @@ const forgeRollFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.forgeRoll(st, data.recipeId, data.requestId, accountId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return {
     ok: res.ok,
     error: res.error,
@@ -751,7 +845,10 @@ const forgeMeltFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.meltForgeItem(st, data.itemId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, refund: res.refund, state: res.state ? publicState(res.state) : undefined };
 });
 // LOADOUT — dress a hero/leader: equip a forged piece into a slot (swap is
@@ -766,7 +863,10 @@ const equipForgeItemFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.equipForgeItem(st, data.itemId, data.bearer, data.slot, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, swappedId: res.swappedId, state: res.state ? publicState(res.state) : undefined };
 });
 const unequipForgeItemFn = createServerFn({ method: "POST" }).validator(
@@ -777,7 +877,10 @@ const unequipForgeItemFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.unequipForgeItem(st, data.itemId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 // Research tree: appoint a Leader to research a tech (costs Codices + time).
@@ -789,7 +892,10 @@ const beginResearchFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.beginResearch(st, data.techId, data.leaderId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -804,7 +910,10 @@ const chooseRevelationFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.chooseRevelation(st, data.choice, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -817,7 +926,10 @@ const buildProbeFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.buildScoutProbe(st, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -829,7 +941,10 @@ const launchProbeFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.launchScoutProbe(st, data.serverId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -841,7 +956,10 @@ const collectProbeFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.collectScoutProbe(st, data.probeId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -854,7 +972,10 @@ const claimHuskFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.claimHusk(st, data.key, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -867,7 +988,10 @@ const shipSubColonySuppliesFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.shipSubColonySupplies(st, data.key, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -880,7 +1004,10 @@ const markMailReadFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.markMailRead(st, data.mailId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -893,7 +1020,10 @@ const markAllMailReadFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.markAllMailRead(st, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -906,7 +1036,10 @@ const deleteMailFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.deleteMailMsg(st, data.mailId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -919,7 +1052,10 @@ const createRaidFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.createRaid(st, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -931,7 +1067,10 @@ const setRaidTargetFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.setRaidTarget(st, data.raidId, data.key, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -943,7 +1082,10 @@ const assignRaidShipsFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.assignRaidShips(st, data.raidId, data.shipIds, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -955,7 +1097,10 @@ const loadRaidTroopsFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.loadRaidTroops(st, data.raidId, data.type as import("./war/troops").TroopType, data.count, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -967,7 +1112,48 @@ const launchRaidFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.launchRaid(st, data.raidId, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+    // Cross-server: warn the defender's server (owner 2026-10-03).
+    // The raid record has the target; deliver async (don't block the launch).
+    const wm = res.state.worldMap;
+    const raid = wm?.raids.find((r: any) => r.id === data.raidId);
+    if (raid && raid.targetServerId && raid.targetColonyId) {
+      const { deliverRaidWarning } = await import("./raid-delivery");
+      const { WORLD_CONFIG } = await import("./world-config");
+      const { raidTroopCount } = await import("./raids");
+      deliverRaidWarning(raid.targetServerId, {
+        raidId: raid.id,
+        attackerWorldId: WORLD_CONFIG.worldId,
+        attackerWorldName: WORLD_CONFIG.worldName,
+        attackerNames: [...raid.memberNames],
+        targetColonyId: raid.targetColonyId,
+        targetOwnerName: raid.targetOwnerName,
+        shipCount: raid.shipIds.length,
+        troopCount: raidTroopCount(raid),
+        landsAt: raid.landsAt ?? Date.now(),
+        launchedAt: raid.departedAt ?? Date.now(),
+      }).catch((e) => console.warn("[launchRaid] warning delivery failed:", e?.message || e));
+    }
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+// Raid party joining via invite code (multiplayer, owner 2026-10-03).
+// Alliance members on the SAME world join the leader's party.
+const joinRaidFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), inviteCode: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.joinRaidByCode(st, data.inviteCode, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -981,7 +1167,10 @@ const allocateLeaderPointFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.allocateLeaderPoint(st, data.leaderId, data.attr, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -995,7 +1184,10 @@ const chooseSpecializationFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.chooseSpecialization(st, data.leaderId, data.path, Date.now());
-  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -1645,7 +1837,10 @@ const purchaseWithVotivesFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = purchaseWithVotives(st, data.itemId, data.eventId, Date.now());
-  if (res.state) await saveActiveState(accountId, res.state);
+  if (res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
@@ -2123,6 +2318,82 @@ const allianceDisbandFn = createServerFn({ method: "POST" }).validator(
   }),
 );
 
+// SHIP FACTORY (owner 2026-10-03): Hans couldn't find any way to build ships.
+// Warships are ordered on the alliance factory — the canonical record lives
+// on the founder's account and fans out via sync-alliance. Scouts are
+// solo-built on the personal shipyard (no alliance needed).
+const SHIP_CLASS_VALUES = ["scout", "frigate", "bulwark", "vanguard", "fatcat", "herald"] as const;
+
+const orderShipFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), shipClass: z.enum(SHIP_CLASS_VALUES) })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const blocker = shipCostBlocker(st, data.shipClass);
+    if (blocker) {
+      const label = blocker.kind === "supplies" ? "supplies" : blocker.kind === "alloys" ? "alloys" : "race material";
+      return { ok: false, error: `Need ${blocker.need.toLocaleString()} ${label} — you have ${blocker.have.toLocaleString()}.` };
+    }
+    if (!shipNeedsAlliance(data.shipClass)) {
+      // Solo scout: personal shipyard on the world map.
+      payShipCost(st, data.shipClass);
+      const wm = ensureWorldMap(st, ctx.now);
+      const psy = ensurePersonalShipyard(wm);
+      const build = createShipBuild(data.shipClass, st.race!, ctx.colonyId, ctx.colonyName, 0, 1, ctx.now);
+      psy.queue.push(build);
+      psy.seq += 1;
+      engine.log(st, `🔭 Scout under construction in your personal shipyard — ready in ~2h.`);
+      return { ok: true, value: build.id };
+    }
+    const a = allianceOf(st, ctx.colonyId);
+    if (!a || a.id !== data.allianceId) {
+      return { ok: false, error: "Join a war band first — warships are built at the alliance factory." };
+    }
+    type TxOut = { ok: true; value: string } | { ok: false; error: string };
+    const res: TxOut | { ok: false; error: string } = await canonicalAllianceTx(st, data.allianceId, (fst): TxOut => {
+      const ca = allianceById(fst, data.allianceId);
+      if (!ca) return { ok: false, error: "That alliance doesn't exist." };
+      const r = orderAllianceShip(ca, {
+        shipClass: data.shipClass,
+        raceId: st.race!,
+        orderedBy: ctx.colonyId,
+        orderedByName: ctx.colonyName,
+        now: ctx.now,
+      });
+      if (!r.ok) return { ok: false, error: r.error ?? "Couldn't order that ship." };
+      touchAlliance(ca);
+      syncAllianceTo(fst, ca);
+      return { ok: true, value: r.build!.id };
+    });
+    if (!res.ok) return { ok: false, error: res.error };
+    payShipCost(st, data.shipClass);
+    engine.log(st, `🚀 Warship ordered at the alliance factory — crew can join the build to speed it up.`);
+    return { ok: true, value: res.value };
+  }),
+);
+
+const contributeShipFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), buildId: z.string() })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const a = allianceOf(st, ctx.colonyId);
+    if (!a || a.id !== data.allianceId) {
+      return { ok: false, error: "Join a war band first — warships are built at the alliance factory." };
+    }
+    type TxOut = { ok: true; value: string } | { ok: false; error: string };
+    const res: TxOut | { ok: false; error: string } = await canonicalAllianceTx(st, data.allianceId, (fst): TxOut => {
+      const ca = allianceById(fst, data.allianceId);
+      if (!ca) return { ok: false, error: "That alliance doesn't exist." };
+      const r = contributeAllianceShip(ca, data.buildId, ctx.colonyId, ctx.now);
+      if (!r.ok) return { ok: false, error: r.error ?? "Couldn't join that crew." };
+      touchAlliance(ca);
+      syncAllianceTo(fst, ca);
+      return { ok: true, value: "crewed" };
+    });
+    if (!res.ok) return { ok: false, error: res.error };
+    return { ok: true, value: res.value };
+  }),
+);
+
 const rallyCreateFn = createServerFn({ method: "POST" }).validator(
   z.object({
     token: z.string(),
@@ -2362,6 +2633,8 @@ export {
   collectProbeFn,
   claimHuskFn,
   shipSubColonySuppliesFn,
+  orderShipFn,
+  contributeShipFn,
   markMailReadFn,
   markAllMailReadFn,
   deleteMailFn,
@@ -2370,6 +2643,7 @@ export {
   assignRaidShipsFn,
   loadRaidTroopsFn,
   launchRaidFn,
+  joinRaidFn,
   allocateLeaderPointFn,
   chooseSpecializationFn,
   signupFn,
