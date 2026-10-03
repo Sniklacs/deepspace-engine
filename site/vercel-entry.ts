@@ -257,6 +257,7 @@ async function runSeed(): Promise<Record<string, any>> {
     founderId: "testwarlord1",
     homeServerId: "draconians-world",
     version: 1,
+    joinPolicy: "open",
     shipyard: {
       level: 5,
       queue: [],
