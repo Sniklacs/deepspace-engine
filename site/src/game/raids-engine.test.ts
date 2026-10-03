@@ -94,7 +94,6 @@ describe("full raid flow", () => {
     expect(colony.approxTroops!).toBeLessThan(1000);
 
     // Homecoming: loot delivered, survivors return, ships ready
-    const lootSupplies = raid.lootTaken!.supplies;
     advance(s, NOW + RAID_TRAVEL_MS * 2 + 2000);
     expect(wm.raids[0].status).toBe("done");
     expect(wm.shipyard!.ships[0].status).toBe("ready");
