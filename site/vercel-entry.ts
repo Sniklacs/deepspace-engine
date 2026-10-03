@@ -384,6 +384,7 @@ async function runSeedWarlord6(): Promise<Record<string, any>> {
     }
     (game as any).worldMap = wm;
     (game as any).isTestAccount = true;
+    (game as any).gameId = "0";
     // NOTE: no alliances field — testwarlord6 is NOT in any alliance.
     const saves = { version: 2, activeGameId: "0", games: { "0": game } };
     await sql`INSERT INTO saves (account_id, data)
