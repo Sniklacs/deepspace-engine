@@ -44,14 +44,63 @@ export default async function vercelHandler(
   res: ServerResponse
 ): Promise<void> {
   try {
-    // The Xsolla webhook is intercepted at the transport layer, exactly like
-    // serve.ts does: TanStack Start route files are not the seam for a route
-    // that must read the UNPARSED body (the signature is over the exact bytes)
-    // and answer with status codes rather than a page.
     const pathname = new URL(
       req.url ?? "/",
       `https://${req.headers.host ?? "localhost"}`
     ).pathname;
+    // Health check endpoint for server-select UI.
+    // Returns { status: "up" } if DB reachable, 503 { status: "down" } if not.
+    if (pathname === "/api/health") {
+      const worldId = process.env.WORLD_ID || "watchers-beta";
+      const worldName = process.env.WORLD_NAME || "The Shattered Academies";
+      const raceLock = process.env.RACE_LOCK || "watchers";
+      const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.setHeader("cache-control", "no-store");
+      if (!dbUrl) {
+        res.statusCode = 503;
+        res.end(JSON.stringify({
+          status: "down",
+          reason: "database_not_configured",
+          worldId,
+          timestamp: new Date().toISOString(),
+        }));
+        return;
+      }
+      try {
+        const { neon } = await import("@neondatabase/serverless");
+        const sql = neon(dbUrl);
+        await sql`select 1`;
+        let playerCount = 0;
+        try {
+          const rows = await sql`SELECT COUNT(*) as count FROM accounts`;
+          playerCount = Number((rows as any)[0]?.count ?? 0);
+        } catch {}
+        res.statusCode = 200;
+        res.end(JSON.stringify({
+          status: "up",
+          worldId,
+          worldName,
+          raceLock,
+          playerCount,
+          reverb: 0,
+          timestamp: new Date().toISOString(),
+        }));
+      } catch {
+        res.statusCode = 503;
+        res.end(JSON.stringify({
+          status: "down",
+          reason: "database",
+          worldId,
+          timestamp: new Date().toISOString(),
+        }));
+      }
+      return;
+    }
+    // The Xsolla webhook is intercepted at the transport layer, exactly like
+    // serve.ts does: TanStack Start route files are not the seam for a route
+    // that must read the UNPARSED body (the signature is over the exact bytes)
+    // and answer with status codes rather than a page.
     if (pathname === XSOLLA_WEBHOOK_PATH) {
       if (req.method !== "POST") {
         res.statusCode = 405;
