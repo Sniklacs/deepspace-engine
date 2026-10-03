@@ -263,6 +263,125 @@ async function runSeed(): Promise<Record<string, any>> {
   return results;
 }
 
+/**
+ * Seed ONLY testwarlord6 — a 6th test account NOT in any alliance, so Hans
+ * can test the alliance search/join flow. Idempotent; never touches the
+ * other accounts or the Ashen Vanguard alliance.
+ */
+async function runSeedWarlord6(): Promise<Record<string, any>> {
+  const { neon } = await import("@neondatabase/serverless");
+  const crypto = await import("node:crypto");
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!dbUrl) throw new Error("no database");
+  const sql = neon(dbUrl);
+
+  await sql`CREATE TABLE IF NOT EXISTS accounts (
+    account_id TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    notice_dismissed BOOLEAN
+  )`;
+  await sql`CREATE TABLE IF NOT EXISTS saves (
+    account_id TEXT PRIMARY KEY,
+    data JSONB NOT NULL
+  )`;
+
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const day60 = now - 60 * DAY;
+  const uname = "testwarlord6";
+  const results: Record<string, any> = { account: uname, created: false, stateCreated: false };
+
+  const existing = await sql`SELECT account_id FROM accounts WHERE account_id = ${uname}`;
+  if (existing.length === 0) {
+    const salt = crypto.randomBytes(16).toString("hex");
+    const hash = crypto.scryptSync("test1234", salt, 64).toString("hex");
+    await sql`INSERT INTO accounts (account_id, password_hash, salt, created_at, notice_dismissed)
+      VALUES (${uname}, ${hash}, ${salt}, ${day60}, false)`;
+    results.created = true;
+  }
+
+  const existingSaves = await sql`SELECT account_id FROM saves WHERE account_id = ${uname}`;
+  if (existingSaves.length === 0) {
+    const { newGame } = await import("./src/game/engine.js");
+    const { emptyWorldMap } = await import("./src/game/worldmap.js");
+    const game = newGame("TestWarlord6", "draconians", day60);
+    game.createdAt = day60;
+    game.lastTick = now;
+    game.techsResearched = [
+      "t1_unlock", "t2_unlock", "t3_unlock", "t4_unlock",
+      "scout_probe", "muster_1", "muster_2", "muster_3",
+    ];
+    game.resources.supplies = 500000;
+    game.resources.embers = 5000;
+    game.resources.chipsets = 500;
+    game.resources.alloys = 100;
+    const wm = emptyWorldMap(now);
+    wm.scoutTechResearched = true;
+    wm.probes = 5;
+    // Same mock colonies as the main seed so the world map isn't empty.
+    const draconianNames = [
+      "Ashkar the Render", "Vexnal Bloodwing", "Korath Embermaw", "Drakmor Ashfall",
+      "Sylvax Cinderclaw", "Morgath Flameheart", "Zevran Scaleward", "Karthus Ironhide",
+      "Vorgath Stormwing", "Desskar Nightfire", "Ravok Bloodscale", "Therax Doomwing",
+    ];
+    for (let i = 0; i < 12; i++) {
+      const isSwarm = i % 3 === 0;
+      const colony: any = {
+        id: `mock-active-${i}`,
+        serverId: "draconians-world",
+        ownerName: draconianNames[i],
+        race: "draconians",
+        status: "active",
+        lastScouted: now - Math.floor(Math.random() * 6 * 3600 * 1000),
+        approxTroops: isSwarm ? 25000 + Math.floor(Math.random() * 10000) : 3000 + Math.floor(Math.random() * 5000),
+        reverb: isSwarm ? 8000 + Math.floor(Math.random() * 4000) : 15000 + Math.floor(Math.random() * 10000),
+      };
+      wm.known[`${colony.serverId}:${colony.id}`] = colony;
+    }
+    const abandonedNames = ["Fallen Emberhold", "Silent Ashfall", "Broken Wing", "Cinder Ruins", "Lost Stronghold"];
+    for (let i = 0; i < 5; i++) {
+      const colony: any = {
+        id: `mock-abandoned-${i}`,
+        serverId: "draconians-world",
+        ownerName: abandonedNames[i],
+        race: "draconians",
+        status: "abandoned",
+        lastScouted: now - Math.floor(Math.random() * 24 * 3600 * 1000),
+        loot: { supplies: 5000 + Math.floor(Math.random() * 15000), embers: 100 + Math.floor(Math.random() * 500), chipsets: 10 + Math.floor(Math.random() * 50) },
+        lootObserved: { supplies: 5000 + Math.floor(Math.random() * 15000), embers: 100 + Math.floor(Math.random() * 500), chipsets: 10 + Math.floor(Math.random() * 50) },
+        mercenaries: { count: 50 + Math.floor(Math.random() * 200), tier: 1 + Math.floor(Math.random() * 3) },
+        reverb: 2000 + Math.floor(Math.random() * 3000),
+      };
+      wm.known[`${colony.serverId}:${colony.id}`] = colony;
+    }
+    for (let i = 0; i < 3; i++) {
+      const colony: any = {
+        id: `mock-husk-${i}`,
+        serverId: "draconians-world",
+        ownerName: `Husk ${i + 1}`,
+        race: "draconians",
+        status: "husk",
+        lastScouted: now - Math.floor(Math.random() * 48 * 3600 * 1000),
+        loot: { supplies: 0, embers: 0, chipsets: 0 },
+        mercenaries: null,
+      };
+      wm.known[`${colony.serverId}:${colony.id}`] = colony;
+    }
+    (game as any).worldMap = wm;
+    (game as any).isTestAccount = true;
+    // NOTE: no alliances field — testwarlord6 is NOT in any alliance.
+    const saves = { version: 2, activeGameId: "0", games: { "0": game } };
+    await sql`INSERT INTO saves (account_id, data)
+      VALUES (${uname}, ${JSON.stringify(saves)}::jsonb)
+      ON CONFLICT (account_id) DO NOTHING`;
+    results.stateCreated = true;
+  }
+
+  return results;
+}
+
 export default async function vercelHandler(
   req: IncomingMessage,
   res: ServerResponse
@@ -275,9 +394,12 @@ export default async function vercelHandler(
     // Seed endpoint for test server population.
     // POST /api/seed?key=YOUR_SEED_KEY
     // Creates test accounts, day-60 game states, mock colonies, and test alliance.
+    // POST /api/seed?key=YOUR_SEED_KEY&only=testwarlord6
+    // Creates ONLY testwarlord6 (not in any alliance) for join-flow testing.
     if (pathname === "/api/seed" && req.method === "POST") {
       const url = new URL(req.url ?? "/", `https://${req.headers.host ?? "localhost"}`);
       const key = url.searchParams.get("key");
+      const only = url.searchParams.get("only");
       const expectedKey = process.env.SEED_KEY || "draconian-test-seed-2026";
       res.setHeader("content-type", "application/json; charset=utf-8");
       res.setHeader("cache-control", "no-store");
@@ -287,7 +409,7 @@ export default async function vercelHandler(
         return;
       }
       try {
-        const result = await runSeed();
+        const result = only === "testwarlord6" ? await runSeedWarlord6() : await runSeed();
         res.statusCode = 200;
         res.end(JSON.stringify({ ok: true, ...result }));
       } catch (e: any) {
