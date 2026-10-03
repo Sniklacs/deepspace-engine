@@ -278,7 +278,7 @@ function KnownAlliances({ state, me, token, onAction, query }: { state: GameStat
                     if (token) onAction(() => allianceApplyFn({ data: { token: token!, allianceId: a.id } }), "apply");
                   }}
                 >
-                  Apply
+                  {a.joinPolicy === "open" ? "Join" : "Apply"}
                 </button>
               </div>
               {hintFor === a.id && (
@@ -357,7 +357,7 @@ function DirectorySection({ state, token, onAction, query }: { state: GameState;
                       if (token) onAction(() => allianceApplyFn({ data: { token: token!, allianceId: e.id } }), "apply");
                     }}
                   >
-                    Apply
+                    {e.joinPolicy === "open" ? "Join" : "Apply"}
                   </button>
                 </div>
                 {hintFor === e.id && (
