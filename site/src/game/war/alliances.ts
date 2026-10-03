@@ -13,6 +13,7 @@
 
 import type { GameState } from "../types";
 import type { ShipyardState } from "../shipyard";
+import { sendMail } from "../mailbox";
 import type { ArenaBout, ArenaChallenge } from "./arena";
 import { commitRosterWeight, rosterForCommit, stampRosterSegment } from "./roster-commit";
 import type { Battle, BattleSide, CommittedForce } from "./war-types";
@@ -676,6 +677,15 @@ export function acceptMembership(
   a.members.push({ colonyId, colonyName: rec.colonyName, role: "member", joinedAt: now });
   touchAlliance(a);
   syncAllianceTo(state, a);
+  // Mailbox: welcome to the war band (owner 2026-10-03).
+  sendMail(state, {
+    from: "alliance",
+    fromName: a.name,
+    subject: `Welcome to ${a.name}`,
+    body: `You've joined the war band "${a.name}". Watch your mailbox for rally calls, help requests, and war-band announcements. Fight well.`,
+    category: "alliance",
+    sentAt: now,
+  });
   return { ok: true, value: undefined };
 }
 
@@ -763,9 +773,21 @@ export function queueDepartAlliance(state: GameState, allianceId: string, colony
 export function leaveAlliance(state: GameState, colonyId: string, now: number): AllianceResult {
   const a = allianceOf(state, colonyId);
   if (!a) return { ok: false, error: "You're not in an alliance." };
+  const name = a.name;
   releaseOpenRallyPledges(state, a.id, colonyId);
   leaveAllianceLocal(state, colonyId);
   const r = removeAllianceMemberRecord(state, a.id, colonyId);
+  if (r.ok) {
+    // Mailbox: you left the war band (owner 2026-10-03).
+    sendMail(state, {
+      from: "alliance",
+      fromName: name,
+      subject: `You left ${name}`,
+      body: `You've left the war band "${name}". Your pledges were released. The door stays open — rejoin whenever you're ready.`,
+      category: "alliance",
+      sentAt: now,
+    });
+  }
   void now;
   return r.ok ? { ok: true, value: undefined } : r;
 }

@@ -17,6 +17,7 @@
 import type { GameState } from "./types";
 import { colonyKey, ensureWorldMap, type KnownColony } from "./worldmap";
 import { WORLD_CONFIG_PUBLIC } from "./world-config";
+import { sendMail } from "./mailbox";
 
 /** 24 hours: get the supplies there, get everything running. */
 export const SUBCOLONY_SETUP_MS = 24 * 3600_000;
@@ -44,6 +45,9 @@ export interface SubColonyClaim {
   /** When the next 1,000-supply upkeep shipment is due (epoch ms). Set when
    *  setup completes; pushed forward 24h each time upkeep is paid. */
   nextUpkeepDue?: number;
+  /** The nextUpkeepDue value we already mailed an upkeep warning about.
+   *  Prevents spamming the inbox every advance() while overdue. */
+  upkeepMailedFor?: number;
 }
 
 /** True when the colony is a husk that nobody has claimed. */
@@ -171,9 +175,43 @@ export function resolveSubColonies(state: GameState, now: number = Date.now()): 
       // First upkeep shipment due 24h after going live.
       colony.subClaim.nextUpkeepDue = now + SUBCOLONY_SETUP_MS;
       resolved++;
+      // Mailbox: your sub colony is ready (owner 2026-10-03).
+      sendMail(state, {
+        from: "system",
+        subject: `Sub colony ready: ${colony.ownerName || "unnamed husk"}`,
+        body: `Your sub colony is operational. It inherits your research level, builds troops twice as fast, and adds to your reverb. Remember: it needs 1,000 supplies every 24 hours — ship them from the Cradle page or it goes hungry.`,
+        category: "alert",
+        sentAt: now,
+      });
     }
   }
   return resolved;
+}
+
+/**
+ * Mailbox nudge: warn once per upkeep cycle when a sub colony's 1,000-supply
+ * shipment is overdue. Called from advance() after resolveSubColonies.
+ * Idempotent per cycle via subClaim.upkeepMailedFor.
+ */
+export function mailOverdueUpkeep(state: GameState, now: number = Date.now()): number {
+  const wm = ensureWorldMap(state, now);
+  let mailed = 0;
+  for (const colony of Object.values(wm.known)) {
+    const claim = colony.subClaim;
+    if (colony.status !== "sub_colony" || !claim?.nextUpkeepDue) continue;
+    if (now < claim.nextUpkeepDue) continue;
+    if (claim.upkeepMailedFor === claim.nextUpkeepDue) continue;
+    claim.upkeepMailedFor = claim.nextUpkeepDue;
+    sendMail(state, {
+      from: "system",
+      subject: `Supplies needed: ${colony.ownerName || "sub colony"}`,
+      body: `Your sub colony "${colony.ownerName || "unnamed"}" needs its 1,000-supply shipment. Supplies are needed every 24 hours — ship them from the Cradle page to keep it running.`,
+      category: "supply",
+      sentAt: now,
+    });
+    mailed++;
+  }
+  return mailed;
 }
 
 /**

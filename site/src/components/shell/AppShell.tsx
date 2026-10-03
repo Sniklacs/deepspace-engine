@@ -38,6 +38,7 @@ export default function AppShell({
   onIdentity,
   onLedger,
   onReports,
+  onMailbox,
   onOpenStores,
   onAlertGo,
   children,
@@ -56,6 +57,8 @@ export default function AppShell({
   onIdentity: () => void;
   onLedger: () => void;
   onReports: () => void;
+  /** opens the mailbox sheet (owner 2026-10-03) */
+  onMailbox: () => void;
   onOpenStores: () => void;
   onAlertGo: () => void;
   children: ReactNode;
@@ -87,6 +90,7 @@ export default function AppShell({
         onIdentity={onIdentity}
         onLedger={onLedger}
         onReports={onReports}
+        onMailbox={onMailbox}
         onOpenStores={onOpenStores}
         onAlertGo={onAlertGo}
       />

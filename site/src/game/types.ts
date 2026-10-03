@@ -447,6 +447,10 @@ export interface GameState {
   /** Help ledger: ticks this colony gave; who helped this colony this week. */
   helpLedger?: import("./war/alliances").HelpTick[];
   helpReceived?: import("./war/alliances").HelpTick[];
+  /** MAILBOX (owner 2026-10-03) — the in-game inbox. Alerts, announcements,
+   *  alliance activity, patch notes. Optional for migration: old saves get
+   *  an empty box on first access via ensureMailbox. */
+  mailbox?: import("./mailbox").MailMessage[];
   // ---- Prologue state spine (V11, opening-prologue-spec §4–§8 — The Fall) ----
   // The per-colony ledger for the voiced opening: stage, sealed height
   // records, the final stand, the History Book + ash echoes. The player's own

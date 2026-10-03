@@ -871,6 +871,45 @@ const shipSubColonySuppliesFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
+// Mailbox: mark one message read (owner 2026-10-03).
+const markMailReadFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), mailId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.markMailRead(st, data.mailId, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+// Mailbox: mark all messages read (owner 2026-10-03).
+const markAllMailReadFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.markAllMailRead(st, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+// Mailbox: delete a message (owner 2026-10-03).
+const deleteMailFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), mailId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.deleteMailMsg(st, data.mailId, Date.now());
+  if (res.ok && res.state) await saveActiveState(accountId, res.state);
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
 // Raids: form a party, target a colony, assign ships, load troops, launch.
 const createRaidFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string() })
@@ -2323,6 +2362,9 @@ export {
   collectProbeFn,
   claimHuskFn,
   shipSubColonySuppliesFn,
+  markMailReadFn,
+  markAllMailReadFn,
+  deleteMailFn,
   createRaidFn,
   setRaidTargetFn,
   assignRaidShipsFn,

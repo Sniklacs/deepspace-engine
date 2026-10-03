@@ -2488,6 +2488,14 @@ export const en: Catalogue = {
   "cradleSubColonies.shipSupplies": "Ship supplies",
   "cradleSubColonies.shipSub": "Send 1,000 supplies — next due in 24h.",
   "cradleSubColonies.needSupplies": "Need 1,000 supplies — you have {have}.",
+  /* Mailbox (owner 2026-10-03) */
+  "mailbox.title": "Mailbox",
+  "mailbox.newMail": "{n} unread messages",
+  "mailbox.unreadCount": "{n} unread",
+  "mailbox.allCaughtUp": "All caught up",
+  "mailbox.empty": "No messages yet. Alerts, alliance news, and game updates will land here.",
+  "mailbox.markAllRead": "Mark all read",
+  "mailbox.delete": "Delete",
   /* Floating help button (owner 2026-10-02) */
   "helpFab.open": "Help — {n} need a hand",
   "helpFab.title": "Who needs a hand",

@@ -39,6 +39,7 @@ import { LedgerButton } from "./LedgerButton";
 import { Sheet, SheetHeader } from "./Sheet";
 import { Icon } from "./icons";
 import { Tooltip } from "./Tooltip";
+import { MailboxButton } from "./Mailbox";
 import {
   coveredNodeIds,
   satelliteStage,
@@ -95,6 +96,8 @@ export interface CircuitPageProps {
   onLedger: () => void;
   unread: number;
   onReports: () => void;
+  /** opens the mailbox sheet (owner 2026-10-03) */
+  onMailbox: () => void;
   /** ORBITAL WATCH: open the Lab (Research) tab so the player can appoint a
    *  Leader to a satellite climb. play.tsx wires this to setTab("lab"). */
   onOpenLab?: () => void;
@@ -117,6 +120,7 @@ export function CircuitPage({
   onLedger,
   unread,
   onReports,
+  onMailbox,
   onOpenLab,
   now,
   onBeginResearch,
@@ -350,6 +354,7 @@ export function CircuitPage({
               )}
             </button>
           </Tooltip>
+          <MailboxButton state={state} onOpen={onMailbox} />
           <Tooltip content={muted ? t("circuit.unmute", "Unmute") : t("circuit.mute", "Mute")}>
             <button
               onClick={onToggleMute}

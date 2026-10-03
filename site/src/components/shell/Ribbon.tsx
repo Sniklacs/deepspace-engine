@@ -19,6 +19,7 @@ import { Tooltip } from "../Tooltip";
 import type { GameState } from "../../game/types";
 import { useT } from "../i18n/I18n";
 import { Bdi } from "../ui/Bdi";
+import { MailboxButton } from "../Mailbox";
 
 export default function Ribbon({
   state,
@@ -27,6 +28,7 @@ export default function Ribbon({
   onIdentity,
   onLedger,
   onReports,
+  onMailbox,
   onOpenStores,
   onAlertGo,
 }: {
@@ -37,6 +39,8 @@ export default function Ribbon({
   onIdentity: () => void;
   onLedger: () => void;
   onReports: () => void;
+  /** opens the mailbox sheet (owner 2026-10-03) */
+  onMailbox: () => void;
   /** the pills' touch path: the Cradle sheet's Stores section (§1.5/§5.5.9) */
   onOpenStores: () => void;
   /** the alert chip's door — the home screen, where the status strip lives */
@@ -143,6 +147,7 @@ export default function Ribbon({
               </Bdi>
             ) : null}
           </button>
+          <MailboxButton state={state} onOpen={onMailbox} />
         </div>
       </div>
     </header>

@@ -118,7 +118,9 @@ import {
   claimHusk as claimHuskPure,
   resolveSubColonies as resolveSubColoniesPure,
   shipSubColonySupplies as shipSubColonySuppliesPure,
+  mailOverdueUpkeep as mailOverdueUpkeepPure,
 } from "./subcolonies";
+import { markRead, markAllRead, deleteMail } from "./mailbox";
 import {
   RAID_TRAVEL_MS,
   commitRaidTroops as commitRaidTroopsPure,
@@ -1929,6 +1931,9 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // SUB COLONIES: setting_up → sub_colony after the 24h setup. Same lazy,
   // idempotent discipline — offline worlds resolve on next read.
   resolveSubColoniesPure(state, now);
+  // SUB COLONY UPKEEP MAIL: warn once per cycle when a sub colony's
+  // 1,000-supply shipment is overdue (owner 2026-10-03).
+  mailOverdueUpkeepPure(state, now);
   // Resolve arrivals of Forge supply runs (the ~24h transit — lazy, idempotent).
   resolveForgeTransit(state, now);
 
@@ -3171,6 +3176,27 @@ export function shipSubColonySupplies(state: GameState, key: string, now = Date.
   const wm = ensureWorldMap(state, now);
   const colony = wm.known[key];
   log(state, `🚚 Shipped 1,000 supplies to sub colony ${colony?.ownerName ?? key} — next shipment due in 24h.`);
+  return { ok: true, state };
+}
+
+/** Mailbox: mark one message read (owner 2026-10-03). */
+export function markMailRead(state: GameState, mailId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  if (!markRead(state, mailId)) return { ok: false, error: "Message not found.", state };
+  return { ok: true, state };
+}
+
+/** Mailbox: mark all messages read (owner 2026-10-03). */
+export function markAllMailRead(state: GameState, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  markAllRead(state);
+  return { ok: true, state };
+}
+
+/** Mailbox: delete a message (owner 2026-10-03). */
+export function deleteMailMsg(state: GameState, mailId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  if (!deleteMail(state, mailId)) return { ok: false, error: "Message not found.", state };
   return { ok: true, state };
 }
 

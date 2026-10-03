@@ -54,6 +54,7 @@ import { Sheet, SheetHeader } from "../components/Sheet";
 import AppShell from "../components/shell/AppShell";
 import CradleSheet from "../components/shell/CradleSheet";
 import SettingsSheet from "../components/shell/SettingsSheet";
+import MailboxSheet from "../components/Mailbox";
 
 import { configureChat } from "../game/chat/chat-store";
 import { useT, useLang } from "../components/i18n/I18n";
@@ -152,6 +153,7 @@ function PlayPage() {
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [reportsSeen, setReportsSeen] = useState(0); // how many were read
   const [reportOpen, setReportOpen] = useState(false);
+  const [mailboxOpen, setMailboxOpen] = useState(false);
   const prevStateRef = useRef<GameState | null>(null);
   const reportIdRef = useRef(0);
   const reportOpenRef = useRef(false);
@@ -596,6 +598,7 @@ function PlayPage() {
           onLedger={() => { setLedgerOpen(true); sound.click(); }}
           unread={Math.max(0, reports.length - reportsSeen)}
           onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }}
+          onMailbox={() => { setMailboxOpen(true); sound.click(); }}
           // ORBITAL WATCH: the NodeSheet's satellite section upgrades the
           // satellite right in the pop-up — appoint a Leader, no detour.
           onOpenLab={() => { switchTab("lab"); sound.click(); }}
@@ -615,6 +618,7 @@ function PlayPage() {
         onIdentity={() => { setCradleOpen(true); sound.click(); }}
         onLedger={() => { setLedgerOpen(true); sound.click(); }}
         onReports={() => { setReportsSeen(reports.length); setReportOpen(true); sound.click(); }}
+        onMailbox={() => { setMailboxOpen(true); sound.click(); }}
         onOpenStores={() => { setCradleOpen(true); sound.click(); }}
         onAlertGo={() => switchTab("colony")}
         windowCtx={{
@@ -721,6 +725,15 @@ function PlayPage() {
       )}
       {feedbackOpen && <FeedbackModal token={token!} colonyName={state.playerName} onClose={() => setFeedbackOpen(false)} flash={flash} />}
       <ReportsSheet open={reportOpen} onClose={() => { setReportOpen(false); sound.click(); }} reports={reports} />
+      {mailboxOpen && state && (
+        <MailboxSheet
+          state={state}
+          now={now}
+          token={token ?? undefined}
+          onAction={(fn, label) => act(fn, label)}
+          onClose={() => { setMailboxOpen(false); sound.click(); }}
+        />
+      )}
       {gamesOpen && (
         <GamesModal
           games={games ?? (activeSummary ? [activeSummary] : [])}
