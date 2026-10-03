@@ -621,6 +621,8 @@ function PlayPage() {
           now,
           onBeginResearch: (t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research"),
         }}
+        token={token ?? undefined}
+        onAction={(fn, label) => act(fn, label)}
       >
       {firstRunNotice && tab !== "battles" && <FirstRunNudge onDismiss={dismissNudge} />}
       {toast && <div className="fixed bottom-[calc(var(--spacing-nav)+var(--dock-h,0px)+env(safe-area-inset-bottom)+12px)] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
@@ -647,6 +649,8 @@ function PlayPage() {
           onField={() => switchTab("battles")}
           onLeaveHeight={doLeaveAct1}
           canLeaveHeight={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
+          token={token ?? undefined}
+          onAction={(fn, label) => act(fn, label)}
         />
       )}
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onCraft={(k, n) => act(() => craftFn({ data: { token: token!, kind: k, count: n } }), "success")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} />}

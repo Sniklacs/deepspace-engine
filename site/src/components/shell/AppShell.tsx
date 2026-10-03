@@ -22,6 +22,10 @@ import type { Tab } from "../../game/nav-slots";
 import type { NavBadge } from "../../game/nav-badges";
 import type { GameState } from "../../game/types";
 import { useT } from "../i18n/I18n";
+import type { GameResult } from "../../game/api";
+import FloatingHelpButton from "../FloatingHelp";
+
+type Act = (fn: () => Promise<GameResult>, label: string) => void;
 
 export default function AppShell({
   state,
@@ -38,6 +42,8 @@ export default function AppShell({
   onAlertGo,
   children,
   windowCtx,
+  token,
+  onAction,
 }: {
   state: GameState;
   tab: Tab;
@@ -59,6 +65,10 @@ export default function AppShell({
    * Windows never auto-close — the store is the truth.
    */
   windowCtx?: WindowCtx | null;
+  /** auth token for the floating help button's one-tap actions */
+  token?: string;
+  /** server-action poster for the floating help button */
+  onAction?: Act;
 }) {
   const t = useT();
   return (
@@ -93,6 +103,11 @@ export default function AppShell({
       {/* The window layer — above nav/dock, below toasts. Mounted in the frame
           so windows outlive tab switches and route changes. */}
       <WindowHost ctx={windowCtx ?? null} />
+      {/* The global 🤝 (owner 2026-10-02): always visible when alliance mates
+          can use help ticks or a distress beacon is up — on every tab. */}
+      {onAction && (
+        <FloatingHelpButton state={state} token={token} onAction={onAction} />
+      )}
     </div>
   );
 }

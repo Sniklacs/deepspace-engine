@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import {
   acceptMembership,
   allianceOf,
+  allianceReverb,
   applyCreateGuestMirror,
   applyReleaseTroopLock,
   applyRemoveGuestMirror,
@@ -450,5 +451,39 @@ describe("guest upkeep & desertion", () => {
     });
     expect(availableWeight(sender.troops!.home.roster)).toBe(2);
     expect(sender.reinforcements!.find((x) => x.id === m.id)!.state).toBe("deserted");
+  });
+});
+
+describe("allianceReverb", () => {
+  test("scores the fleet: completed ships at full class weight, builds at half", () => {
+    const { st } = withAlliance();
+    const a = allianceOf(st, "col-a")!;
+    a.shipyard = {
+      level: 1,
+      queue: [
+        { id: "b1", shipClass: "bulwark", raceId: "draconians", startedAt: NOW, doneAt: NOW + 1000, contributors: [], orderedBy: "col-a", orderedByName: "Alpha" },
+      ],
+      ships: [
+        { id: "s1", class: "scout", raceId: "draconians", name: "Scout 1", status: "ready" },
+        { id: "s2", class: "vanguard", raceId: "draconians", name: "Vanguard 1", status: "ready" },
+      ],
+      seq: 3,
+    };
+    // scout 1 + vanguard 6 + bulwark build 8 * 0.5 = 4 → 11
+    expect(allianceReverb(a)).toBe(11);
+  });
+
+  test("zero when no shipyard", () => {
+    const { st } = withAlliance();
+    const a = allianceOf(st, "col-a")!;
+    delete (a as unknown as Record<string, unknown>).shipyard;
+    expect(allianceReverb(a)).toBe(0);
+  });
+
+  test("zero for an empty fleet", () => {
+    const { st } = withAlliance();
+    const a = allianceOf(st, "col-a")!;
+    a.shipyard = { level: 1, queue: [], ships: [], seq: 1 };
+    expect(allianceReverb(a)).toBe(0);
   });
 });

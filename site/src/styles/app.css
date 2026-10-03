@@ -767,3 +767,17 @@ html[dir="rtl"] {
   --safe-inline-start: env(safe-area-inset-right, 0px);
   --safe-inline-end: env(safe-area-inset-left, 0px);
 }
+
+/* Floating help button (owner 2026-10-02): the global 🤝 — always visible
+   when alliance mates can use help ticks or a distress beacon is up. Gentle
+   pulse to draw the eye; killed under prefers-reduced-motion. */
+@keyframes help-fab-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.45); }
+  50% { box-shadow: 0 0 0 12px rgba(251, 191, 36, 0); }
+}
+.help-fab-pulse {
+  animation: help-fab-pulse 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .help-fab-pulse { animation: none; }
+}

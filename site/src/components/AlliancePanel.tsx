@@ -10,7 +10,7 @@ import type { GameState } from "../game/types";
 import type { GameResult } from "../game/api";
 import type { Alliance, AllianceRole, GuestMirror, Reinforcement } from "../game/war/alliances";
 import type { AllianceDirectoryEntry } from "../game/alliance-transact";
-import { allianceOf, helpRemaining, memberRole } from "../game/war/alliances";
+import { ALLIANCE_CONFIG, allianceOf, allianceReverb, helpRemaining, memberRole } from "../game/war/alliances";
 import type { BattlePlan, PlannedManeuver } from "../game/war/maneuvers";
 import type { Rally } from "../game/war/rallies";
 import { rallyForce } from "../game/war/rallies";
@@ -40,6 +40,8 @@ import {
 } from "../game/api";
 import { Icon } from "./icons";
 import PageBanner from "./PageBanner";
+import { AllianceShipyardSection } from "./AllianceShipyard";
+import { Bdi } from "./ui/Bdi";
 import { useT } from "./i18n/I18n";
 
 type Act = (fn: () => Promise<GameResult>, label: string) => void;
@@ -111,6 +113,7 @@ function NoAlliance({ state, me, token, onAction }: { state: GameState; me: stri
   const [banner, setBanner] = useState("⚔️");
   const [motto, setMotto] = useState("");
   const [hint, setHint] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const invites = useMemo(() => {
     const out: { alliance: Alliance; invite: Alliance["invites"][number] }[] = [];
     for (const a of Object.values(state.alliances ?? {})) {
@@ -203,42 +206,89 @@ function NoAlliance({ state, me, token, onAction }: { state: GameState; me: stri
           </ul>
         </div>
       )}
-      <KnownAlliances state={state} me={me} token={token} onAction={onAction} />
-      <DirectorySection state={state} token={token} onAction={onAction} />
+      <AllianceSearch query={query} onQuery={setQuery} />
+      <KnownAlliances state={state} me={me} token={token} onAction={onAction} query={query} />
+      <DirectorySection state={state} token={token} onAction={onAction} query={query} />
     </section>
   );
 }
 
+// The alliance browser (owner 2026-10-02): search across every war band on
+// the server — name, member count, reverb — then knock. Hans's rule: the
+// Apply button is always tappable; a full war band explains itself inline.
+function AllianceSearch({ query, onQuery }: { query: string; onQuery: (q: string) => void }) {
+  const t = useT();
+  return (
+    <div className="mb-3">
+      <input
+        className="w-full rounded-lg border border-line bg-surf-1 px-3 py-2 text-sm text-text-1"
+        placeholder={t("alliance.searchPlaceholder", "Search war bands…")}
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        maxLength={60}
+        aria-label={t("alliance.searchPlaceholder", "Search war bands…")}
+      />
+    </div>
+  );
+}
+
 // War bands already flying in this world — knock and ask to join.
-function KnownAlliances({ state, me, token, onAction }: { state: GameState; me: string; token?: string; onAction: Act }) {
+function KnownAlliances({ state, me, token, onAction, query }: { state: GameState; me: string; token?: string; onAction: Act; query: string }) {
+  const t = useT();
+  const [hintFor, setHintFor] = useState<string | null>(null);
+  const q = query.trim().toLowerCase();
   const known = useMemo(() => {
     const out: Alliance[] = [];
     for (const a of Object.values(state.alliances ?? {})) {
       if (a.members.some((m) => m.colonyId === me)) continue;
       if (a.applications.some((x) => x.colonyId === me)) continue;
       if (a.invites.some((x) => x.colonyId === me)) continue;
+      if (q && !a.name.toLowerCase().includes(q)) continue;
       out.push(a);
     }
     return out;
-  }, [state, me]);
+  }, [state, me, q]);
   if (known.length === 0) return null;
   return (
     <div>
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Flying their colors</h4>
       <ul className="space-y-1">
-        {known.map((a) => (
-          <li key={a.id} className="flex items-center justify-between rounded-lg border border-line bg-surf-1 px-3 py-1.5">
-            <span className="text-sm text-text-1">
-              {a.banner} {a.name} <span className="text-xs text-text-2">· {a.members.length}/50</span>
-            </span>
-            <button
-              className="rounded border border-line px-2 py-0.5 text-[11px] text-text-2"
-              onClick={() => token && onAction(() => allianceApplyFn({ data: { token: token!, allianceId: a.id } }), "apply")}
-            >
-              Apply
-            </button>
-          </li>
-        ))}
+        {known.map((a) => {
+          const full = a.members.length >= ALLIANCE_CONFIG.sizeCap;
+          return (
+            <li key={a.id} className="rounded-lg border border-line bg-surf-1 px-3 py-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-sm text-text-1">
+                  {a.banner} {a.name}{" "}
+                  <span className="text-xs text-text-2">
+                    · <Bdi dir="ltr" className="num">{a.members.length}/{ALLIANCE_CONFIG.sizeCap}</Bdi>{" "}
+                    {t("alliance.members", "members")} · {t("alliance.reverb", "Reverb")}{" "}
+                    <Bdi dir="ltr" className="num">{allianceReverb(a)}</Bdi>
+                  </span>
+                  {a.motto ? <span className="block truncate text-xs italic text-text-3">“{a.motto}”</span> : null}
+                </span>
+                <button
+                  className="shrink-0 rounded border border-line px-2 py-0.5 text-[11px] text-text-2"
+                  onClick={() => {
+                    if (full) {
+                      setHintFor(a.id);
+                      return;
+                    }
+                    setHintFor(null);
+                    if (token) onAction(() => allianceApplyFn({ data: { token: token!, allianceId: a.id } }), "apply");
+                  }}
+                >
+                  Apply
+                </button>
+              </div>
+              {hintFor === a.id && (
+                <p className="mt-1 text-xs text-amber-200">
+                  {t("alliance.hintFull", "This war band is full ({n}/{cap}).", { n: a.members.length, cap: ALLIANCE_CONFIG.sizeCap })}
+                </p>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -247,9 +297,11 @@ function KnownAlliances({ state, me, token, onAction }: { state: GameState; me: 
 // War bands flying on other accounts — the directory scans every account's
 // saves, so this is how you find a flag you have no mirror of yet. Applying
 // routes to the canonical founder's account; the mirror arrives on your save.
-function DirectorySection({ state, token, onAction }: { state: GameState; token?: string; onAction: Act }) {
+function DirectorySection({ state, token, onAction, query }: { state: GameState; token?: string; onAction: Act; query: string }) {
+  const t = useT();
   const [entries, setEntries] = useState<AllianceDirectoryEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [hintFor, setHintFor] = useState<string | null>(null);
   useEffect(() => {
     if (!token || entries !== null) return;
     let live = true;
@@ -265,11 +317,12 @@ function DirectorySection({ state, token, onAction }: { state: GameState; token?
       live = false;
     };
   }, [token, entries]);
+  const q = query.trim().toLowerCase();
   const fresh = useMemo(() => {
     if (!entries) return [];
     const knownIds = new Set(Object.keys(state.alliances ?? {}));
-    return entries.filter((e) => !knownIds.has(e.id));
-  }, [entries, state]);
+    return entries.filter((e) => !knownIds.has(e.id) && (!q || e.name.toLowerCase().includes(q)));
+  }, [entries, state, q]);
   if (!token) return null;
   return (
     <div>
@@ -280,20 +333,41 @@ function DirectorySection({ state, token, onAction }: { state: GameState; token?
         <p className="text-xs text-text-2">No distant war bands flying right now.</p>
       ) : (
         <ul className="space-y-1">
-          {fresh.map((e) => (
-            <li key={e.id} className="flex items-center justify-between rounded-lg border border-line bg-surf-1 px-3 py-1.5">
-              <span className="text-sm text-text-1">
-                {e.banner} {e.name} <span className="text-xs text-text-2">· {e.memberCount}/50</span>
-                {e.motto ? <span className="block text-xs text-text-2">“{e.motto}”</span> : null}
-              </span>
-              <button
-                className="rounded border border-line px-2 py-0.5 text-[11px] text-text-2"
-                onClick={() => token && onAction(() => allianceApplyFn({ data: { token: token!, allianceId: e.id } }), "apply")}
-              >
-                Apply
-              </button>
-            </li>
-          ))}
+          {fresh.map((e) => {
+            const full = e.memberCount >= ALLIANCE_CONFIG.sizeCap;
+            return (
+              <li key={e.id} className="rounded-lg border border-line bg-surf-1 px-3 py-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate text-sm text-text-1">
+                    {e.banner} {e.name}{" "}
+                    <span className="text-xs text-text-2">
+                      · <Bdi dir="ltr" className="num">{e.memberCount}/{ALLIANCE_CONFIG.sizeCap}</Bdi>{" "}
+                      {t("alliance.members", "members")} · {t("alliance.reverb", "Reverb")} —
+                    </span>
+                    {e.motto ? <span className="block truncate text-xs italic text-text-3">“{e.motto}”</span> : null}
+                  </span>
+                  <button
+                    className="shrink-0 rounded border border-line px-2 py-0.5 text-[11px] text-text-2"
+                    onClick={() => {
+                      if (full) {
+                        setHintFor(e.id);
+                        return;
+                      }
+                      setHintFor(null);
+                      if (token) onAction(() => allianceApplyFn({ data: { token: token!, allianceId: e.id } }), "apply");
+                    }}
+                  >
+                    Apply
+                  </button>
+                </div>
+                {hintFor === e.id && (
+                  <p className="mt-1 text-xs text-amber-200">
+                    {t("alliance.hintFull", "This war band is full ({n}/{cap}).", { n: e.memberCount, cap: ALLIANCE_CONFIG.sizeCap })}
+                  </p>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -347,7 +421,7 @@ function AllianceHome({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="rounded-full border border-line px-2 py-0.5 text-[10px] font-normal text-text-2">{ROLE_LABEL[role ?? "member"]}</span>
-          <p className="text-xs text-text-2">{alliance.members.length}/50 sworn</p>
+          <p className="text-xs text-text-2">{alliance.members.length}/{ALLIANCE_CONFIG.sizeCap} sworn</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -374,6 +448,7 @@ function AllianceHome({
       <RallyBoard now={now} me={me} isOfficer={isOfficer} rallies={rallies} token={token} onAction={onAction} />
       <Reinforcements state={state} me={me} alliance={alliance} token={token} onAction={onAction} />
       <HelpBoard state={state} now={now} me={me} alliance={alliance} token={token} onAction={onAction} />
+      <AllianceShipyardSection alliance={alliance} now={now} />
     </section>
   );
 }

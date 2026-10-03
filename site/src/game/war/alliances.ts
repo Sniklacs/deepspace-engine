@@ -490,6 +490,35 @@ export function memberRole(a: Alliance, colonyId: string): AllianceRole | null {
   return a.members.find((m) => m.colonyId === colonyId)?.role ?? null;
 }
 
+/**
+ * Alliance reverb — the war band's aggregate strength signature (owner
+ * 2026-10-02: shown in the alliance browser so players can see which
+ * alliances are strong).
+ *
+ * Planetary reverb is troops + builds; per-alliance we can only see what the
+ * alliance itself owns, so this scores the fleet: completed warships at full
+ * class weight, hulls under construction at half weight. Member troop counts
+ * live on each member's own save and aren't visible here — the member count
+ * is displayed alongside, not folded in.
+ */
+const SHIP_REVERB_WEIGHT: Record<string, number> = {
+  scout: 1,
+  frigate: 3,
+  herald: 2,
+  vanguard: 6,
+  bulwark: 8,
+  fatcat: 4,
+};
+
+export function allianceReverb(a: Alliance): number {
+  const sy = a.shipyard;
+  if (!sy) return 0;
+  let r = 0;
+  for (const s of sy.ships ?? []) r += SHIP_REVERB_WEIGHT[s.class] ?? 1;
+  for (const b of sy.queue ?? []) r += (SHIP_REVERB_WEIGHT[b.shipClass] ?? 1) * 0.5;
+  return Math.round(r);
+}
+
 function isOfficerOrAbove(a: Alliance, colonyId: string): boolean {
   const r = memberRole(a, colonyId);
   return r === "leader" || r === "officer";

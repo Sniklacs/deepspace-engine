@@ -2436,6 +2436,10 @@ export const en: Catalogue = {
   "alliance.hintPledgeAmt": "Enter how many troops to pledge.",
   "alliance.hintSendTo": "Choose who to send troops to.",
   "alliance.hintSendAmt": "Enter how many troops to send.",
+  "alliance.searchPlaceholder": "Search war bands…",
+  "alliance.members": "members",
+  "alliance.reverb": "Reverb",
+  "alliance.hintFull": "This war band is full ({n}/{cap}).",
   /* Cradle alliance hub (owner 2026-10-02) */
   "cradleAlliance.title": "War band",
   "cradleAlliance.joinBlurb": "No colony stands alone — join a war band for rallies, reinforcements, help ticks, and the ship factory.",
@@ -2457,6 +2461,14 @@ export const en: Catalogue = {
   "cradleAlliance.researchTitle": "Research",
   "cradleAlliance.noResearch": "No research running — the Lab is where it starts.",
   "cradleAlliance.researchNote": "Alliance help ticks shave these timers.",
+  /* Floating help button (owner 2026-10-02) */
+  "helpFab.open": "Help — {n} need a hand",
+  "helpFab.title": "Who needs a hand",
+  "helpFab.close": "Close",
+  "helpFab.ticksLeft": "{n}/5 help ticks left",
+  "helpFab.beacons": "Distress beacons",
+  "helpFab.yours": "yours",
+  "helpFab.rescueSoon": "Ship rescue isn't built yet — the beacon is logged.",
   /* Gleaning expeditions (owner 2026-10-02) */
   "glean.title": "Gleaning Expedition",
   "glean.begin": "Send Gleaning Expedition",

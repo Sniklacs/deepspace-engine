@@ -53,7 +53,9 @@ import {
 } from "../../game/tooltips";
 import type { CradleSlotId } from "../../game/cradle-slots";
 import type { GameState, DomainId } from "../../game/types";
+import type { GameResult } from "../../game/api";
 import { Bdi } from "../ui/Bdi";
+import CradleAllianceSection from "../CradleAlliance";
 
 const HERO_ROLE_WORD: Record<string, string> = {
   tank: "Tank",
@@ -95,6 +97,8 @@ export default function CradleScreen({
   onField,
   onLeaveHeight,
   canLeaveHeight,
+  token,
+  onAction,
 }: {
   state: GameState;
   now: number;
@@ -120,6 +124,10 @@ export default function CradleScreen({
   onField: () => void;
   onLeaveHeight: () => void;
   canLeaveHeight: boolean;
+  /** auth token for alliance actions (help ticks, etc.) */
+  token?: string;
+  /** server-action poster (mirrors BattlesTab's onAction) */
+  onAction: (fn: () => Promise<GameResult>, label: string) => void;
 }) {
   const t = useT();
   const race = getRace(state.race!);
@@ -184,6 +192,16 @@ export default function CradleScreen({
             timeTokens={timeTokens}
             onSpeedup={onSpeedup}
             onOpenAlliance={onOpenAlliance}
+          />
+
+          {/* ---- B2b · the war band (owner 2026-10-02): join button when
+              alone; the alliance dashboard (help, ship factory, research)
+              plus an "open alliance" sheet when sworn ------------------- */}
+          <CradleAllianceSection
+            state={state}
+            now={now}
+            token={token}
+            onAction={onAction}
           />
 
           {/* ---- B3 · the advance bar (the screen's middle action) ---------- */}
