@@ -63,6 +63,8 @@ export interface IncomingRaidAlert {
   attackerWorldName: string;
   attackerNames: string[];
   targetColonyId: string;
+  /** Defender's account username (for display on the alarm). */
+  targetOwnerName?: string;
   shipCount: number;
   /** Ship classes in the raid (when the attacker reported them). */
   shipClasses?: import("./worldmap").ShipClass[];

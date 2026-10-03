@@ -268,7 +268,7 @@ export function checkRaidAlarm(state: GameState, raid: IncomingRaidAlert, now: n
     nodeName: coveredNodeName(nodeId),
     intel,
     targetColonyId: raid.targetColonyId,
-    targetOwnerName: (raid as any).targetOwnerName ?? "",
+    targetOwnerName: raid.targetOwnerName ?? "",
     landsAt: raid.landsAt,
     launchedAt: raid.launchedAt,
     triggeredAt: now,
