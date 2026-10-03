@@ -239,6 +239,7 @@ async function runSeed(): Promise<Record<string, any>> {
         name: `${sc}-${i + 1}`,
         builtAt: now - Math.floor(Math.random() * 30 * DAY),
         builtBy: "testwarlord1",
+        status: "ready",
       });
     }
   }

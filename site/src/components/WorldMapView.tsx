@@ -307,17 +307,9 @@ function RaidPanel({
             {ships.length === 0 ? (
               <div className="mt-1">
                 <p className="text-[11px] text-gray-500">{t("raid.noShips", "No jump ships ready. Build ships at the shipyard first.")}</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.click();
-                    // Navigate to the shipyard (alliance ships or personal scout)
-                    window.location.hash = "#/shipyard";
-                  }}
-                  className="mt-1.5 rounded-lg border border-amber-400/40 bg-amber-400/15 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-400/25"
-                >
-                  🏭 {t("raid.goShipyard", "Go to Shipyard")}
-                </button>
+                <p className="mt-1 text-[11px] text-amber-200/80">
+                  {t("raid.shipyardHint", "→ Cradle → Alliance → Ship Factory to build ships")}
+                </p>
               </div>
             ) : (
               <div className="mt-1 flex flex-wrap gap-1.5">
