@@ -231,6 +231,7 @@ export interface AllianceDirectoryEntry {
   founderId: string;
   homeServerId: string;
   foundedAt: number;
+  joinPolicy?: "open" | "apply";
 }
 
 /** Scan every account's saves for alliance records. Read-only, no locks —
@@ -249,6 +250,7 @@ export async function scanAllianceDirectory(
       const r = a as unknown as {
         id: string; name: string; banner: string; motto: string;
         members: unknown[]; founderId: string; homeServerId: string; foundedAt: number;
+        joinPolicy?: "open" | "apply";
       };
       if (!r || typeof r.id !== "string" || out.has(r.id)) continue;
       out.set(r.id, {
@@ -260,6 +262,7 @@ export async function scanAllianceDirectory(
         founderId: String(r.founderId ?? ""),
         homeServerId: String(r.homeServerId ?? "home"),
         foundedAt: typeof r.foundedAt === "number" ? r.foundedAt : 0,
+        joinPolicy: r.joinPolicy === "open" ? "open" : "apply",
       });
     }
   }

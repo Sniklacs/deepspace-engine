@@ -89,6 +89,10 @@ export interface Alliance {
   founderId: string;
   /** Which server's war band this is (one race per server). */
   homeServerId: string;
+  /** Join policy (owner 2026-10-03): "open" = free join, tap Join and you're in.
+   *  "apply" = submit application, leader/officers review before joining.
+   *  Defaults to "apply" for migration. */
+  joinPolicy?: "open" | "apply";
   /** Monotonic mutation counter. Every write goes through the canonical
    *  record on the founder's account; mirrors converge by taking the
    *  highest-version copy (sync-alliance). */
@@ -623,10 +627,32 @@ export function applyToAlliance(
   if (!a) return { ok: false, error: "That alliance doesn't exist." };
   if (allianceOf(state, applicant.id)) return { ok: false, error: "One flag at a time — leave your current alliance first." };
   if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "Their war band is full (100)." };
+  // Open policy (owner 2026-10-03): free join, no application needed.
+  if (a.joinPolicy === "open") {
+    a.members.push({ colonyId: applicant.id, colonyName: applicant.name, role: "member", joinedAt: now });
+    touchAlliance(a);
+    syncAllianceTo(state, a);
+    return { ok: true, value: undefined };
+  }
   if (a.applications.some((x) => x.colonyId === applicant.id)) return { ok: false, error: "Your application is already on their board." };
   a.applications.push({ colonyId: applicant.id, colonyName: applicant.name, appliedAt: now });
   touchAlliance(a);
   syncAllianceTo(state, a, [applicant.id]);
+  return { ok: true, value: undefined };
+}
+
+export function setJoinPolicy(
+  state: GameState,
+  allianceId: string,
+  actorId: string,
+  policy: "open" | "apply",
+): AllianceResult {
+  const a = allianceStore(state)[allianceId];
+  if (!a) return { ok: false, error: "That alliance doesn't exist." };
+  if (!isOfficerOrAbove(a, actorId)) return { ok: false, error: "Only officers can change the join policy." };
+  a.joinPolicy = policy;
+  touchAlliance(a);
+  syncAllianceTo(state, a);
   return { ok: true, value: undefined };
 }
 
