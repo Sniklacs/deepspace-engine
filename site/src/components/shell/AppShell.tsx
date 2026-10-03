@@ -23,7 +23,7 @@ import type { NavBadge } from "../../game/nav-badges";
 import type { GameState } from "../../game/types";
 import { useT } from "../i18n/I18n";
 import type { GameResult } from "../../game/api";
-import FloatingHelpButton from "../FloatingHelp";
+// import FloatingHelpButton from "../FloatingHelp"; // TEMP DISABLED
 
 type Act = (fn: () => Promise<GameResult>, label: string) => void;
 
@@ -42,8 +42,8 @@ export default function AppShell({
   onAlertGo,
   children,
   windowCtx,
-  token,
-  onAction,
+  token: _token,
+  onAction: _onAction,
 }: {
   state: GameState;
   tab: Tab;
@@ -105,9 +105,8 @@ export default function AppShell({
       <WindowHost ctx={windowCtx ?? null} />
       {/* The global 🤝 (owner 2026-10-02): always visible when alliance mates
           can use help ticks or a distress beacon is up — on every tab. */}
-      {onAction && (
-        <FloatingHelpButton state={state} token={token} onAction={onAction} />
-      )}
+      {/* TEMPORARILY DISABLED due to crash — re-enable after fix */}
+      {null}
     </div>
   );
 }
