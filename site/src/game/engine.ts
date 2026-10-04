@@ -3914,7 +3914,10 @@ export function advanceRaids(state: GameState, now: number): void {
 
       // Start the battle if it hasn't begun yet.
       if (!raid.tacticalBattle) {
-        const started = startTacticalRaidBattle(raid, defenderTroops, now);
+        // Leader battle role (owner 2026-10-04): the raid's hero leader
+        // drives the battle — resolve their specialty from the roster.
+        const heroLeader = (state.leaders ?? []).find((l) => l.id === raid.heroId);
+        const started = startTacticalRaidBattle(raid, defenderTroops, now, heroLeader?.specialty);
         if (started.ok) {
           const names = raid.memberNames.join(", ");
           log(state, `⚔️ ${raid.id} — the battle for ${raid.targetOwnerName}'s colony begins. ${names}, issue your orders.`);

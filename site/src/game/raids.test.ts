@@ -270,13 +270,13 @@ describe("ship combat stats (owner 2026-10-03)", () => {
     const noFleet = resolveRaidBattle({ ...base, shipClasses: [] });
     const withFleet = resolveRaidBattle({
       ...base,
-      shipClasses: ["vanguard", "frigate"], // 140 + 80 = 220 fp → 110 orbital
+      shipClasses: ["vanguard", "frigate"], // (140+70) + (80+40) = 330 fp → 165 orbital
       shipsHoldOrbit: true,
     });
-    // Same tier (both win at ratio 1.0→1.11) but defender bleeds more with fleet.
+    // Same tier (both win at ratio 1.0→1.17) but defender bleeds more with fleet.
     expect(withFleet.defenderLosses).toBeGreaterThan(noFleet.defenderLosses);
     // Exact: defender losses = floor(attackerPower * 0.4) capped.
-    expect(withFleet.defenderLosses).toBe(Math.min(1000, Math.floor(1110 * 0.4)));
+    expect(withFleet.defenderLosses).toBe(Math.min(1000, Math.floor(1165 * 0.4)));
   });
 
   test("landed: fleet adds full firepower", () => {
@@ -292,10 +292,10 @@ describe("ship combat stats (owner 2026-10-03)", () => {
     });
     expect(landed.defenderLosses).toBeGreaterThan(orbit.defenderLosses);
     expect(landed.defenderLosses).toBe(
-      Math.min(1000, Math.floor((1000 + 140 * LANDED_FIRE_SUPPORT_FACTOR) * 0.4)),
+      Math.min(1000, Math.floor((1000 + 210 * LANDED_FIRE_SUPPORT_FACTOR) * 0.4)),
     );
     expect(orbit.defenderLosses).toBe(
-      Math.min(1000, Math.floor((1000 + 140 * ORBITAL_FIRE_SUPPORT_FACTOR) * 0.4)),
+      Math.min(1000, Math.floor((1000 + 210 * ORBITAL_FIRE_SUPPORT_FACTOR) * 0.4)),
     );
   });
 
@@ -303,18 +303,19 @@ describe("ship combat stats (owner 2026-10-03)", () => {
     const fragile = resolveRaidBattle({
       ...base,
       attacker: { reaver: 4000 }, // decisive win either way
-      shipClasses: ["scout", "scout"], // hull 80 → 40/80 = 50% → capped 15%
+      shipClasses: ["scout", "scout"], // soak 100 → 40/100 = 40% → capped 15%
       shipsHoldOrbit: false,
     });
     const tanky = resolveRaidBattle({
       ...base,
       attacker: { reaver: 4000 },
-      shipClasses: ["bulwark", "bulwark"], // hull 800 → 40/800 = 5%
+      shipClasses: ["bulwark", "bulwark"], // soak 1080 → 40/1080 ≈ 3.7%
       shipsHoldOrbit: false,
     });
-    // Both win decisively (80% loot share) but fragile pays 15% repairs, tanky 5%.
+    // Both win decisively (80% loot share); turret shields+armor make the
+    // tanky fleet cheaper to repair than hull alone did.
     expect(fragile.lootTaken.supplies).toBe(Math.floor(10_000 * 0.8 * 0.85));
-    expect(tanky.lootTaken.supplies).toBe(Math.floor(10_000 * 0.8 * 0.95));
+    expect(tanky.lootTaken.supplies).toBe(Math.floor(10_000 * 0.8 * (1 - 40 / 1080)));
   });
 
   test("no ships: orbit and land behave identically (no phantom bonus)", () => {

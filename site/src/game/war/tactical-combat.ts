@@ -95,6 +95,8 @@
 import type { ManeuverVector } from "./war-types";
 import type { TroopType } from "./troops";
 import { supplyWeight } from "./troops";
+import type { Specialty } from "../types";
+import { leaderVectorMult, leaderHoldReduction } from "../leader-roles";
 
 // ============================================================================
 // §0 CONFIG — every tunable in one block.
@@ -207,6 +209,8 @@ export interface TacticalBattle {
   /** Ship posture from the raid. */
   shipsHoldOrbit: boolean;
   shipFirepower: number; // total fleet firepower (for landed bonus scaling)
+  /** Commanding leader's specialty — drives per-vector power every round. */
+  leaderSpecialty?: Specialty;
   orbitalStrikesLeft: number;
   log: TacticalRoundLog[];
   /** Cumulative casualties, by side then type. */
@@ -230,6 +234,9 @@ export interface StartBattleInput {
   shipsHoldOrbit: boolean;
   shipFirepower: number;
   now: number;
+  /** Commanding leader's specialty (owner 2026-10-04) — their battle role
+   *  modifies vector power and casualty rates every round. */
+  leaderSpecialty?: Specialty;
 }
 
 // ============================================================================
@@ -344,6 +351,7 @@ export function startTacticalBattle(input: StartBattleInput): TacticalBattle {
     defender: deployDefender(input.defenderTroops, input.defenderComposition),
     shipsHoldOrbit: input.shipsHoldOrbit,
     shipFirepower: input.shipFirepower,
+    leaderSpecialty: input.leaderSpecialty,
     orbitalStrikesLeft: input.shipsHoldOrbit ? TACTICAL_CONFIG.orbitalStrikeCharges : 0,
     log: [],
     totalAttackerLosses: {},
@@ -796,14 +804,19 @@ export function resolveRound(
       * (strikeTargets.has(combat.target) ? 1 + TACTICAL_CONFIG.orbitalStrikeBonus : 1)
       // Round-1 surprise: flanks/rear hit harder before the enemy reacts.
       * (round === 1 && (v === "FLANK_LEFT" || v === "FLANK_RIGHT") ? 1.25 : 1)
-      * (round === 1 && v === "REAR" ? 1.5 : 1);
+      * (round === 1 && v === "REAR" ? 1.5 : 1)
+      // Leader battle role (owner 2026-10-04): the commanding leader's bus
+      // defines the fight — favored vectors hit harder every round.
+      * leaderVectorMult(battle.leaderSpecialty, v);
     const dPower = effectivePower(dVec, dOrder, 0, aVec.fortified);
 
     // Exchange: each side's casualties scale with the ENEMY's power.
     const dReduction = damageReduction(dVec, dOrder);
     const aReduction = damageReduction(aVec, aOrder);
     const dCasualties = aPower * TACTICAL_CONFIG.lethality * (1 - dReduction);
-    const aCasualties = dPower * TACTICAL_CONFIG.lethality * (1 - aReduction);
+    // Leader hold reduction: a line-holder brings more people home.
+    const aCasualties = dPower * TACTICAL_CONFIG.lethality * (1 - aReduction)
+      * (1 - leaderHoldReduction(battle.leaderSpecialty));
 
     const dk = dealCasualties(dVec, dCasualties, battle.id, round, `a-${v}`);
     const ak = dealCasualties(aVec, aCasualties, battle.id, round, `d-${combat.target}`);

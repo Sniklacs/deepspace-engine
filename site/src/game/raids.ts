@@ -16,6 +16,9 @@ import { WORLD_JUMP_FUEL, WORLD_JUMP_SUPPLIES, type ShipClass } from "./worldmap
 import type { ManeuverVector } from "./war/war-types";
 import type { TacticalBattle, OrdersMap } from "./war/tactical-combat";
 import { startTacticalBattle, resolveRound, quickResolve } from "./war/tactical-combat";
+import { classTurretMods } from "./turrets";
+import { leaderVectorMult, leaderHoldReduction } from "./leader-roles";
+import type { Specialty } from "./types";
 
 /** Max raiding party size. Hans: the 5-player cap forces coordination —
  *  you can't zerg a raid, you have to plan it. The beachhead is where
@@ -76,6 +79,44 @@ export const SHIP_HULL: Record<ShipClass, number> = {
   fatcat: 200, // thick-skinned hauler
   herald: 120,
 };
+
+// ---------------------------------------------------------------------------
+// Turret-fed ship stats (owner 2026-10-04, Hans: turret modifiers are REAL —
+// damage, shield, and armor numbers that feed combat resolution, not just
+// the armory line). SHIP_FIREPOWER / SHIP_HULL above remain the hull's own
+// base stats; the mount's mods stack on top via the helpers below, so every
+// firepower/soak number in resolution flows through the turret.
+// ---------------------------------------------------------------------------
+
+/** Effective firepower of one ship: hull base + its mount's damage modifier. */
+export function shipFirepower(cls: ShipClass): number {
+  return (SHIP_FIREPOWER[cls] ?? 0) + (classTurretMods(cls)?.damage ?? 0);
+}
+
+/** Effective soak of one ship vs ground fire: hull + mount armor + shield. */
+export function shipSoak(cls: ShipClass): number {
+  const m = classTurretMods(cls);
+  return (SHIP_HULL[cls] ?? 0) + (m?.armor ?? 0) + (m?.shield ?? 0);
+}
+
+/** Fleet coordination (owner 2026-10-04): a herald's War-Drum Array carries
+ *  no guns, but it conducts the fleet — each herald multiplies total fleet
+ *  firepower by this, up to HERALD_COORDINATION_CAP heralds. */
+export const HERALD_COORDINATION_BONUS = 0.05;
+export const HERALD_COORDINATION_CAP = 3;
+
+/** Total fleet firepower for combat resolution: per-ship effective
+ *  firepower (turret damage included) plus herald coordination. */
+export function fleetFirepower(classes: ShipClass[]): number {
+  const base = classes.reduce((s, c) => s + shipFirepower(c), 0);
+  const heralds = Math.min(HERALD_COORDINATION_CAP, classes.filter((c) => c === "herald").length);
+  return Math.floor(base * (1 + heralds * HERALD_COORDINATION_BONUS));
+}
+
+/** Total fleet soak vs ground fire / repair costs. */
+export function fleetSoak(classes: ShipClass[]): number {
+  return classes.reduce((s, c) => s + shipSoak(c), 0);
+}
 
 /** Orbital fire support: holding-pattern ships add this × their firepower
  *  to attacker power (bombardment from orbit — safe). */
@@ -482,18 +523,20 @@ export function startTacticalRaidBattle(
   raid: RaidParty,
   defenderTroops: number,
   now: number,
+  leaderSpecialty?: Specialty,
 ): { ok: boolean; error?: string } {
   if (raid.status !== "tactical") return { ok: false, error: "That raid isn't fighting a tactical battle." };
   if (raid.tacticalBattle) return { ok: false, error: "That battle is already underway." };
   if (!raid.deployment) return { ok: false, error: "No deployment — deploy your troops first." };
-  const fleetFirepower = (raid.shipClasses ?? []).reduce((s, c) => s + (SHIP_FIREPOWER[c] ?? 0), 0);
+  const fp = fleetFirepower(raid.shipClasses ?? []);
   raid.tacticalBattle = startTacticalBattle({
     battleId: `tb-${raid.id}`,
     raidId: raid.id,
     deployment: raid.deployment,
     defenderTroops,
     shipsHoldOrbit: raid.shipsHoldOrbit ?? true,
-    shipFirepower: fleetFirepower,
+    shipFirepower: fp,
+    leaderSpecialty,
     now,
   });
   return { ok: true };
@@ -717,6 +760,10 @@ export interface RaidBattleInput {
   defenderLoot: RaidLoot;
   /** Fleet cargo capacity (loot units). */
   cargoCapacity: number;
+  /** Battle leader's specialty (owner 2026-10-04, "everybody drives their
+   *  bus"): the commanding leader's battle role modifies vector power and
+   *  casualty rates via leader-roles.ts. Omitted = no leader, even fight. */
+  leaderSpecialty?: Specialty;
 }
 
 export interface RaidBattleResult {
@@ -768,7 +815,9 @@ export function resolveRaidBattle(input: RaidBattleInput): RaidBattleResult {
       const bonus = VECTOR_BONUS[vector] ?? 1.0;
       const vecPower = (Object.entries(troops) as [TroopType, number][])
         .reduce((p, [type, count]) => p + (count ?? 0) * (input.weights[type] ?? 1), 0);
-      deployedPower += vecPower * bonus;
+      // Leader battle role (owner 2026-10-04): the commanding leader's bus
+      // defines the fight — their favored vectors hit harder.
+      deployedPower += vecPower * bonus * leaderVectorMult(input.leaderSpecialty, vector);
     }
     // Use the deployed power if a deployment was provided (it should cover
     // all troops; fall back to base power if the deployment is empty).
@@ -782,12 +831,12 @@ export function resolveRaidBattle(input: RaidBattleInput): RaidBattleResult {
   // inversely with total hull (a tanky fleet shrugs it off, a fragile
   // fleet pays dearly).
   const fleet = input.shipClasses ?? [];
-  const fleetFirepower = fleet.reduce((s, c) => s + (SHIP_FIREPOWER[c] ?? 0), 0);
-  const fleetHull = fleet.reduce((s, c) => s + (SHIP_HULL[c] ?? 0), 0);
+  const fp = fleetFirepower(fleet);
+  const soak = fleetSoak(fleet);
   if (input.shipsHoldOrbit === false) {
-    attackerPower += fleetFirepower * LANDED_FIRE_SUPPORT_FACTOR;
+    attackerPower += fp * LANDED_FIRE_SUPPORT_FACTOR;
   } else {
-    attackerPower += fleetFirepower * ORBITAL_FIRE_SUPPORT_FACTOR;
+    attackerPower += fp * ORBITAL_FIRE_SUPPORT_FACTOR;
   }
 
   const defenderPower = Math.max(1, input.defenderTroops); // avg weight 1
@@ -803,15 +852,19 @@ export function resolveRaidBattle(input: RaidBattleInput): RaidBattleResult {
   else { lossRate = 0.90; lootShare = 0; won = false; }
 
   // Ships that land risk ground-fire losses: repair cost scales inversely
-  // with hull — 2% of loot for a tanky fleet, up to 15% for a fragile one.
+  // with soak — turret shields and armor make the fleet tankier, so a
+  // screened fleet pays 2% of loot and an unscreened one up to 15%.
   if (input.shipsHoldOrbit === false && won && fleet.length > 0) {
-    const repairFrac = Math.min(0.15, Math.max(0.02, 40 / Math.max(1, fleetHull)));
+    const repairFrac = Math.min(0.15, Math.max(0.02, 40 / Math.max(1, soak)));
     lootShare *= 1 - repairFrac;
   }
 
   const attackerLosses: Partial<Record<TroopType, number>> = {};
+  // Leader hold reduction (owner 2026-10-04): a line-holder / quartermaster /
+  // siegebreaker brings more of their people home.
+  const holdRed = leaderHoldReduction(input.leaderSpecialty);
   for (const [type, count] of Object.entries(input.attacker) as [TroopType, number][]) {
-    const lost = Math.floor((count ?? 0) * lossRate);
+    const lost = Math.floor((count ?? 0) * lossRate * (1 - holdRed));
     if (lost > 0) attackerLosses[type] = lost;
   }
 
