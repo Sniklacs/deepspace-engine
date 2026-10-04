@@ -157,6 +157,21 @@ export default function WorldGlobe({ state, now }: { state: GameState; now: numb
     playClick();
   }, []);
 
+  // "Tap to enter" (owner 2026-10-04): the legend's home row promises the
+  // colony sheet, so tapping it opens the home detail sheet instead of just
+  // toggling. The layer is forced visible so the marker is there to see.
+  const openHomeSheet = useCallback(() => {
+    setLayersOn((prev) => {
+      if (prev.home) return prev;
+      const next = { ...prev, home: true };
+      try { localStorage.setItem(LAYER_STORE_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+    playSelect();
+    setSelectedId("home");
+    setLinkHint(null);
+  }, []);
+
   // layersOn/selectedId refs for the render loop (avoid re-subscribing)
   const layersOnRef = useRef(layersOn);
   layersOnRef.current = layersOn;
@@ -590,7 +605,7 @@ export default function WorldGlobe({ state, now }: { state: GameState; now: numb
                 <li key={l.id}>
                   <button
                     type="button"
-                    onClick={() => toggleLayer(l.id)}
+                    onClick={() => (l.id === "home" ? openHomeSheet() : toggleLayer(l.id))}
                     aria-pressed={layersOn[l.id]}
                     title={l.blurb}
                     className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-[12px] transition-opacity ${

@@ -224,3 +224,95 @@ describe("buildGlobeMarkers", () => {
     }
   });
 });
+
+describe("home marker tappability (regression 2026-10-04)", () => {
+  function baseState(over: Record<string, unknown> = {}) {
+    return {
+      gameId: "g1",
+      playerName: "Hans",
+      worldMap: {
+        known: {},
+        raids: [],
+        raidWarnings: [],
+        incomingRaids: [],
+        reports: {},
+        probes: [],
+        lastActive: NOW,
+      },
+      memorials: [],
+      ...over,
+    } as unknown as Parameters<typeof buildGlobeMarkers>[0];
+  }
+
+  // Mirror the component's render-loop + hitTest math (WorldGlobe.tsx).
+  function tapPipeline(state: Parameters<typeof buildGlobeMarkers>[0], spin = 24, tilt = 14) {
+    const w = 736, h = 480;
+    const cx = w / 2, cy = h / 2;
+    const R = Math.min(w, h) * 0.4;
+    const layersOn = Object.fromEntries(GLOBE_LAYERS.map((l) => [l.id, l.defaultOn]));
+    const markers = buildGlobeMarkers(state, NOW);
+    const projected: ScreenMarker[] = [];
+    for (const m of markers) {
+      if (!layersOn[m.layer as keyof typeof layersOn]) continue;
+      const p = projectGlobe(m.lat, m.lon, spin, tilt);
+      if (!p.visible) continue;
+      projected.push({ marker: m, sx: cx + p.x * R, sy: cy + p.y * R });
+    }
+    const shown = declutterMarkers(projected, 26);
+    const screenPos = new Map<string, { x: number; y: number; r: number }>();
+    for (const s of shown) {
+      screenPos.set(s.marker.id, { x: s.sx, y: s.sy, r: Math.max(20, 10 + 8) });
+    }
+    const hitTest = (x: number, y: number): string | null => {
+      const entries = [...screenPos.entries()].sort((a, b) => {
+        const ma = markers.find((m) => m.id === a[0]);
+        const mb = markers.find((m) => m.id === b[0]);
+        return (mb?.priority ?? 0) - (ma?.priority ?? 0);
+      });
+      for (const [id, p] of entries) {
+        const dx = x - p.x, dy = y - p.y;
+        if (dx * dx + dy * dy <= p.r * p.r) return id;
+      }
+      return null;
+    };
+    return { markers, shown, screenPos, hitTest };
+  }
+
+  test("home marker carries the sheet's ref kind", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    const home = ms.find((m) => m.id === "home");
+    expect(home).toBeDefined();
+    expect(home!.ref.kind).toBe("home");
+  });
+
+  test("home survives projection + declutter and hit-tests at its dot", () => {
+    const { shown, screenPos, hitTest } = tapPipeline(baseState());
+    expect(shown.some((s) => s.marker.id === "home")).toBe(true);
+    const pos = screenPos.get("home");
+    expect(pos).toBeDefined();
+    // Dead-center tap on the drawn dot must resolve to the home marker.
+    expect(hitTest(pos!.x, pos!.y)).toBe("home");
+  });
+
+  test("home stays tappable with raids fanned around it", () => {
+    const st = baseState({
+      worldMap: {
+        known: {},
+        raids: [],
+        raidWarnings: [],
+        incomingRaids: [
+          { raidId: "r1", attackerNames: ["Karg"], landsAt: NOW + 60000, resolved: false },
+          { raidId: "r2", attackerNames: ["Vex"], landsAt: NOW + 120000, resolved: false },
+        ],
+        reports: {},
+        probes: [],
+        lastActive: NOW,
+      },
+    });
+    const { shown, screenPos, hitTest } = tapPipeline(st);
+    expect(shown.some((s) => s.marker.id === "home")).toBe(true);
+    const pos = screenPos.get("home");
+    expect(pos).toBeDefined();
+    expect(hitTest(pos!.x, pos!.y)).toBe("home");
+  });
+});
