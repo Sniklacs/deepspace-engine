@@ -53,4 +53,27 @@ describe("groupShipsByClass", () => {
     ]);
     expect(stacks.map((s) => s.class)).toEqual(["bulwark", "frigate"]);
   });
+
+  test("legacy rows with `shipClass` instead of `class` normalize (2026-10-04 crash)", () => {
+    // The QA seed wrote ships as { shipClass: "frigate", ... } — the old
+    // code grouped them under class `undefined`, labeled the stack
+    // "Expand undefined", and crashed TurretThumb on expand
+    // ("Cannot read properties of undefined (reading 'art')").
+    const legacy = [
+      { id: "s1", shipClass: "frigate", raceId: "draconians", name: "frigate-1" },
+      { id: "s2", shipClass: "frigate", raceId: "draconians", name: "frigate-2" },
+      { id: "s3", shipClass: "scout", raceId: "draconians", name: "scout-1" },
+    ] as unknown as StackableShip[];
+    const stacks = groupShipsByClass(legacy);
+    expect(stacks).toHaveLength(2);
+    expect(stacks[0].class).toBe("frigate");
+    expect(stacks[0].ships).toHaveLength(2);
+    // Normalized: every downstream read (s.class, TurretThumb, combat
+    // lines) sees the real class, never undefined.
+    for (const st of stacks) {
+      expect(st.class).toBeDefined();
+      for (const s of st.ships) expect(s.class).toBe(st.class);
+    }
+    expect(stacks[1].class).toBe("scout");
+  });
 });

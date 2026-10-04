@@ -19,7 +19,9 @@ export function TurretThumb({
 }) {
   const def = classTurret(shipClass);
   const [ok, setOk] = useState(true);
-  if (!ok) return null;
+  // Crash-hardening (2026-10-04): a malformed ship row (unknown/undefined
+  // class) must never take down the whole app — render nothing instead.
+  if (!shipClass || !def || !ok) return null;
   return (
     <img
       src={def.art}

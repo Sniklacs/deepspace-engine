@@ -34,17 +34,25 @@ export interface ShipStack<T extends StackableShip> {
 /**
  * Group identical ships (same class + race) into stacks, in first-seen
  * order. Pure function — covered by StackedShips.test.ts.
+ *
+ * Crash-hardening (2026-10-04): legacy DB rows (QA seed wrote `shipClass`
+ * instead of `class`) are normalized here, so a malformed row can never
+ * produce an "undefined" stack or crash TurretThumb on expand.
  */
 export function groupShipsByClass<T extends StackableShip>(ships: T[]): ShipStack<T>[] {
   const byKey = new Map<string, ShipStack<T>>();
   for (const s of ships) {
-    const key = `${s.raceId}:${s.class}`;
+    const cls =
+      s.class ?? (s as unknown as { shipClass?: ShipClass }).shipClass ?? (undefined as unknown as ShipClass);
+    const key = `${s.raceId}:${cls}`;
     let stack = byKey.get(key);
     if (!stack) {
-      stack = { class: s.class, raceId: s.raceId, ships: [] };
+      stack = { class: cls, raceId: s.raceId, ships: [] };
       byKey.set(key, stack);
     }
-    stack.ships.push(s);
+    // Store the normalized ship so every downstream read (s.class,
+    // TurretThumb, combat lines) sees the real class.
+    stack.ships.push(cls !== s.class ? ({ ...s, class: cls } as T) : s);
   }
   return [...byKey.values()];
 }
@@ -67,7 +75,7 @@ export function ShipArt({
   className?: string;
   alt?: string;
 }) {
-  const url = shipArtUrl(raceId, shipClass);
+  const url = shipClass ? shipArtUrl(raceId, shipClass) : null;
   const [ok, setOk] = useState(true);
   if (!url || !ok) return null;
   return (
@@ -133,7 +141,9 @@ export function StackedShips<T extends StackableShip>({
         const expanded = defaultExpanded || open[key] === true;
         const setExpanded = (v: boolean) => setOpen((prev) => ({ ...prev, [key]: v }));
         const count = stack.ships.length;
-        const label = shipName(stack.raceId, stack.class);
+        // shipName falls back to the raw class; guard the truly-unknown
+        // case so the label can never read "undefined".
+        const label = shipName(stack.raceId, stack.class) ?? t("stacked.unknownShip", "Unknown ship");
         return (
           <li key={key} className="rounded-lg border border-line bg-surf-1">
             <div className="flex items-center gap-2 px-3 py-1.5">

@@ -254,7 +254,7 @@ async function runSeed(): Promise<Record<string, any>> {
     for (let i = 0; i < 10; i++) {
       ships.push({
         id: `ship-${shipSeq++}`,
-        shipClass: sc,
+        class: sc,
         raceId: "draconians",
         name: `${sc}-${i + 1}`,
         builtAt: now - Math.floor(Math.random() * 30 * DAY),

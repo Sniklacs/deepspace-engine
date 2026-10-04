@@ -101,4 +101,9 @@ describe("turret combat modifiers (owner 2026-10-04: real numbers, not display-o
   test("fleetSoak sums effective soak", () => {
     expect(fleetSoak(["scout", "scout"])).toBe(2 * (SHIP_HULL.scout + 10));
   });
+
+  test("unknown/undefined class yields zero mods instead of crashing (2026-10-04)", () => {
+    expect(classTurretMods(undefined as unknown as never)).toEqual({ damage: 0, shield: 0, armor: 0 });
+    expect(shipFirepower(undefined as unknown as never)).toBe(0);
+  });
 });

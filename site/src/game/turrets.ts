@@ -135,9 +135,11 @@ export function classTurret(cls: ShipClass): TurretDef {
   return TURRET_BY_CLASS[cls];
 }
 
-/** Combat modifiers for a ship class's mount. Every class has exactly one. */
+/** Combat modifiers for a ship class's mount. Every class has exactly one.
+ * Crash-hardening (2026-10-04): unknown/undefined class yields zero mods
+ * instead of throwing — a malformed DB row must never break combat math. */
 export function classTurretMods(cls: ShipClass): TurretMods {
-  return TURRET_BY_CLASS[cls].mods;
+  return TURRET_BY_CLASS[cls]?.mods ?? { damage: 0, shield: 0, armor: 0 };
 }
 
 /** Every ship class is covered — the list stays in lockstep with SHIP_CLASSES. */

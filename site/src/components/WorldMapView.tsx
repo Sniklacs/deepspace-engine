@@ -130,17 +130,20 @@ function readyShips(state: GameState): { id: string; name: string; class: ShipCl
     for (const s of psy.ships) {
       if (s.status === "ready" && !seen.has(s.id)) {
         seen.add(s.id);
-        out.push({ id: s.id, name: s.name, class: s.class as ShipClass, raceId: s.raceId ?? fallbackRace });
+        // Crash-hardening (2026-10-04): legacy rows may store `shipClass`.
+        const cls = (s.class ?? (s as unknown as { shipClass?: ShipClass }).shipClass) as ShipClass;
+        out.push({ id: s.id, name: s.name, class: cls, raceId: s.raceId ?? fallbackRace });
       }
     }
   }
-  const alliances = (state as { alliances?: Record<string, { members?: { colonyId: string }[]; shipyard?: { ships: { id: string; name: string; class: string; status: string; raceId?: string }[] } }> }).alliances;
+  const alliances = (state as { alliances?: Record<string, { members?: { colonyId: string }[]; shipyard?: { ships: { id: string; name: string; class?: string; shipClass?: string; status: string; raceId?: string }[] } }> }).alliances;
   if (alliances) {
     for (const a of Object.values(alliances)) {
       for (const s of a.shipyard?.ships ?? []) {
         if (s.status === "ready" && !seen.has(s.id)) {
           seen.add(s.id);
-          out.push({ id: s.id, name: s.name, class: s.class as ShipClass, raceId: s.raceId ?? fallbackRace });
+          const cls = ((s.class ?? s.shipClass) as ShipClass);
+          out.push({ id: s.id, name: s.name, class: cls, raceId: s.raceId ?? fallbackRace });
         }
       }
     }
