@@ -8,6 +8,7 @@ import {
   launchRaid,
   loadRaidTroops,
   newGame,
+  quickResolveTacticalRaid,
   setRaidTarget,
 } from "./engine";
 import { ensureWorldMap, colonyKey } from "./worldmap";
@@ -90,11 +91,22 @@ describe("full raid flow", () => {
     // Player deploys: 1000 reavers to MAIN, ships hold in orbit
     const dep = deployRaid(s, raidId!, { MAIN: { reaver: 1000 } }, true, NOW + RAID_TRAVEL_MS + 2000);
     expect(dep.ok).toBe(true);
-    expect(wm.raids[0].status).toBe("landed");
+    expect(wm.raids[0].status).toBe("tactical");
 
-    // Battle resolves on next tick
+    // Next tick: the tactical battle starts (no auto-resolve — owner 2026-10-03)
     advance(s, NOW + RAID_TRAVEL_MS + 3000);
-    // 1000 reavers vs ~1000 defenders → win (ratio ≥ 1)
+    expect(raid.status).toBe("tactical");
+    expect(raid.tacticalBattle).toBeDefined();
+    expect(raid.tacticalBattle!.status).toBe("active");
+    expect(raid.won).toBeUndefined(); // not decided yet
+
+    // Player issues orders round by round — or quick-resolves
+    const qr = quickResolveTacticalRaid(s, raidId!, NOW + RAID_TRAVEL_MS + 4000);
+    expect(qr.ok).toBe(true);
+    expect(raid.tacticalBattle!.status).not.toBe("active");
+
+    // Next tick: results applied — 1000 reavers vs ~1000 defenders → win
+    advance(s, NOW + RAID_TRAVEL_MS + 5000);
     expect(raid.won).toBe(true);
     expect(raid.lootTaken).toBeDefined();
     expect(raid.status).toBe("returning");
@@ -104,12 +116,12 @@ describe("full raid flow", () => {
     expect(colony.approxTroops!).toBeLessThan(1000);
 
     // Homecoming: loot delivered, survivors return, ships ready
-    advance(s, NOW + RAID_TRAVEL_MS * 2 + 4000);
+    advance(s, NOW + RAID_TRAVEL_MS * 2 + 6000);
     expect(wm.raids[0].status).toBe("done");
     expect(wm.shipyard!.ships[0].status).toBe("ready");
-    // Survivors came home (1000 loaded, 25% lost in a win = 750 back)
+    // Survivors came home (tactical battle losses are deterministic)
     const homeFinal = s.troops!.home.roster.cohorts.reduce((a, c) => a + c.count, 0);
-    expect(homeFinal).toBe(4000 + 750);
+    expect(homeFinal).toBe(4000 + 718);
   });
 
   test("launch blocked without target/ships/troops", () => {
@@ -156,15 +168,20 @@ describe("full raid flow", () => {
     deployRaid(s, raidId!, { MAIN: { reaver: 100 } }, true, NOW + RAID_TRAVEL_MS + 2000);
     advance(s, NOW + RAID_TRAVEL_MS + 3000);
     const raid = wm.raids[0];
+    expect(raid.status).toBe("tactical");
+    expect(raid.tacticalBattle).toBeDefined();
+    // Quick-resolve the hopeless battle, then the tick applies the result
+    quickResolveTacticalRaid(s, raidId!, NOW + RAID_TRAVEL_MS + 4000);
+    advance(s, NOW + RAID_TRAVEL_MS + 5000);
     expect(raid.won).toBe(false);
     const lootTotal = Object.values(raid.lootTaken!).reduce((a, b) => a + b, 0);
     expect(lootTotal).toBe(0);
 
-    advance(s, NOW + RAID_TRAVEL_MS * 2 + 4000);
+    advance(s, NOW + RAID_TRAVEL_MS * 2 + 6000);
     expect(wm.raids[0].status).toBe("done");
-    // 90% of 100 lost = 10 survivors
+    // 100 reavers vs 100k defenders — the raid is wiped out, nobody comes home
     const homeFinal = s.troops!.home.roster.cohorts.reduce((a, c) => a + c.count, 0);
-    expect(homeFinal).toBe(4900 + 10);
+    expect(homeFinal).toBe(4900);
   });
 
   test("deploy blocked with empty deployment", () => {
@@ -224,9 +241,14 @@ describe("full raid flow", () => {
     loadRaidTroops(s, raidId!, "reaver", 1000, NOW);
     launchRaid(s, raidId!, NOW);
     advance(s, NOW + RAID_TRAVEL_MS + 1000);
-    // Deploy all to FLANK_LEFT (1.25x): 1000 * 1.25 = 1250 > 1200 → win
+    // Deploy all to FLANK_LEFT (flank surprise on round 1): 1000 reavers
     deployRaid(s, raidId!, { FLANK_LEFT: { reaver: 1000 } }, true, NOW + RAID_TRAVEL_MS + 2000);
     advance(s, NOW + RAID_TRAVEL_MS + 3000);
+    expect(wm.raids[0].status).toBe("tactical");
+    expect(wm.raids[0].tacticalBattle).toBeDefined();
+    // Quick-resolve the tactical battle, then the tick applies the result
+    quickResolveTacticalRaid(s, raidId!, NOW + RAID_TRAVEL_MS + 4000);
+    advance(s, NOW + RAID_TRAVEL_MS + 5000);
     expect(wm.raids[0].won).toBe(true);
   });
 });

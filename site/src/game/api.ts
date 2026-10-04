@@ -652,6 +652,52 @@ const launchFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
+// Tactical battle rounds (owner 2026-10-03): the player issues orders for one
+// round of the live tactical battle. The defender is driven by the AI.
+const tacticalRoundFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    raidId: z.string(),
+    orders: z.record(z.string(), z.object({
+      order: z.string(),
+      target: z.string().optional(),
+      count: z.number().optional(),
+      orbitalStrike: z.string().optional(),
+    })),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.tacticalRaidRound(st, data.raidId, data.orders, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+// Quick-resolve a tactical battle (owner 2026-10-03): auto-play the remaining
+// rounds. For commanders who can't stay for the whole fight.
+const quickResolveTacticalFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    raidId: z.string(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.quickResolveTacticalRaid(st, data.raidId, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
 // SUB COLONY MUSTER (owner 2026-10-03): build troops at an active sub colony —
 // troops only, owner's research level, 2x build speed.
 const musterSubColonyTroopsFn = createServerFn({ method: "POST" }).validator(
@@ -2841,6 +2887,8 @@ export {
   loadRaidSuppliesFn,
   launchRaidFn,
   deployRaidFn,
+  tacticalRoundFn,
+  quickResolveTacticalFn,
   joinRaidFn,
   hireDesertersFn,
   dismissDesertersFn,

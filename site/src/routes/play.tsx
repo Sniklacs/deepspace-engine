@@ -5,7 +5,7 @@ import {
   launchFn, studyFn, deployFn, purifyFn, craftFn, beginResearchFn, chooseRevelationFn,
   buildProbeFn, launchProbeFn, collectProbeFn,
   claimHuskFn,
-  createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, loadRaidSuppliesFn, launchRaidFn, deployRaidFn, joinRaidFn, hireDesertersFn, dismissDesertersFn,
+  createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, loadRaidSuppliesFn, launchRaidFn, deployRaidFn, tacticalRoundFn, quickResolveTacticalFn, joinRaidFn, hireDesertersFn, dismissDesertersFn,
   acknowledgeRaidAlarmFn,
   allocateLeaderPointFn, chooseSpecializationFn,
   signupFn, loginFn, logoutFn, meFn,
@@ -687,6 +687,8 @@ function PlayPage() {
           onJoinRaid={(inviteCode) => act(() => joinRaidFn({ data: { token: token!, inviteCode } }), "joinRaid")}
           onHireDeserters={(raidId, bandId) => act(() => hireDesertersFn({ data: { token: token!, raidId, bandId } }), "hireDeserters")}
           onDismissDeserters={(raidId, bandId) => act(() => dismissDesertersFn({ data: { token: token!, raidId, bandId } }), "dismissDeserters")}
+          onTacticalRound={(raidId, orders) => act(() => tacticalRoundFn({ data: { token: token!, raidId, orders } }), "tacticalRound")}
+          onQuickResolveTactical={(raidId) => act(() => quickResolveTacticalFn({ data: { token: token!, raidId } }), "quickResolveTactical")}
           onEpitaph={(plaqueId, epitaph) => act(() => setMemorialEpitaphFn({ data: { token: token!, plaqueId, epitaph } }), "setMemorialEpitaph")}
         />
       )}
