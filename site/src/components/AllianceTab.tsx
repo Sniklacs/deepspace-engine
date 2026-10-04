@@ -19,7 +19,9 @@ import {
   type AllianceRole,
 } from "../game/war/alliances";
 import { setJoinPolicyFn, setTitheFn } from "../game/api";
+import type { Tab } from "../game/nav-slots";
 import { AllianceHome, NoAlliance } from "./AlliancePanel";
+import AllianceHallScene from "./AllianceHallScene";
 import PageBanner from "./PageBanner";
 import { ActionButton } from "./ui/ActionButton";
 import { Bdi } from "./ui/Bdi";
@@ -35,11 +37,14 @@ export default function AllianceTab({
   now,
   token,
   onAction,
+  onNavigate,
 }: {
   state: GameState;
   now: number;
   token?: string;
   onAction: Act;
+  /** open a nav tab (the Arena hotspot walks off the scene) */
+  onNavigate?: (tab: Tab) => void;
 }) {
   const me = state.gameId ?? "";
   const alliance = useMemo(() => (me ? allianceOf(state, me) : null), [state, me]);
@@ -53,6 +58,10 @@ export default function AllianceTab({
   }
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 p-4 pb-24" data-testid="alliance-page">
+      {/* THE ALLIANCE HALL SCENE (owner 2026-10-04): the war band's home as a
+          place — a grandiose valley vista where the buildings ARE the
+          navigation. The war band's business panels live below it. */}
+      <AllianceHallScene onNavigate={(tab) => onNavigate?.(tab)} />
       <AllianceHeader alliance={alliance} me={me} />
       <ReverbFeed alliance={alliance} now={now} />
       <AllianceSettings alliance={alliance} me={me} token={token} onAction={onAction} />

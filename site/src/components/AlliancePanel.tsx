@@ -568,7 +568,7 @@ function Members({ me, alliance, isLeader, isOfficer, token, onAction }: {
   const post = (fn: () => Promise<GameResult>, label: string) => { if (token) onAction(fn, label); };
   const sorted = [...alliance.members].sort((a, b) => ({ leader: 0, officer: 1, member: 2 }[a.role] - { leader: 0, officer: 1, member: 2 }[b.role]));
   return (
-    <div>
+    <div data-testid="alliance-roster">
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Sworn ({alliance.members.length})</h4>
       <ul className="space-y-1">
         {sorted.map((m) => (
@@ -662,7 +662,7 @@ function RallyBoard({ now, me, isOfficer, rallies, token, onAction }: {
   const myPledge = (r: Rally) => r.pledges.find((p) => p.colonyId === me);
   const canCall = isOfficer;
   return (
-    <div>
+    <div data-testid="alliance-rally">
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Rally board</h4>
       {canCall && (
         <div className="mb-3">
@@ -808,7 +808,7 @@ function Reinforcements({ state, me, alliance, token, onAction }: {
   const spare = state.troops ? availableWeight(state.troops.home.roster) : 0;
   const mates = alliance.members.filter((m) => m.colonyId !== me);
   return (
-    <div>
+    <div data-testid="alliance-reinforce">
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Reinforcements</h4>
       {mirrors.length > 0 && (
         <div className="mb-2">

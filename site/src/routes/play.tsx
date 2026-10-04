@@ -752,6 +752,7 @@ function PlayPage() {
           now={now}
           token={token ?? undefined}
           onAction={(fn, label) => act(fn, label)}
+          onNavigate={(t) => switchTab(t)}
         />
       )}
       {tab === "world" && (

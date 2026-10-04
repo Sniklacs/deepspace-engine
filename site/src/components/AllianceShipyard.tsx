@@ -133,7 +133,7 @@ export function AllianceShipyardSection({
   };
 
   return (
-    <div>
+    <div data-testid="alliance-shipyard">
       <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-2">
         <Icon name="hammer" size={13} aria-hidden="true" />
         {t("shipyard.title", "Ship Factory")}{" "}
