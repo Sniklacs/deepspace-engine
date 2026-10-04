@@ -652,6 +652,23 @@ const launchFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
+// SUB COLONY MUSTER (owner 2026-10-03): build troops at an active sub colony —
+// troops only, owner's research level, 2x build speed.
+const musterSubColonyTroopsFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), key: z.string(), type: z.string(), count: z.number().int().positive().max(2000) })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.musterSubColonyTroops(st, data.key, data.type, data.count, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
 const studyFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), kind: z.enum(["ember", "chipset"]) })
 ).handler(async ({ data }): Promise<GameResult> => {
@@ -1275,6 +1292,46 @@ const deployRaidFn = createServerFn({ method: "POST" }).validator(
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = engine.deployRaid(st, data.raidId, data.deployment, data.shipsHoldOrbit, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+// Deserter hiring (owner 2026-10-03): hire or dismiss the mercenary band
+// waiting at a raid after touchdown. Supplies come from raid cargo.
+const hireDesertersFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    raidId: z.string(),
+    bandId: z.string(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.hireRaidDeserters(st, data.raidId, data.bandId, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const dismissDesertersFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    raidId: z.string(),
+    bandId: z.string(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.dismissRaidDeserters(st, data.raidId, data.bandId, Date.now());
   if (res.ok && res.state) {
     const saved = await saveActiveState(accountId, res.state);
     if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
@@ -2733,6 +2790,16 @@ const reinforceDismissFn = createServerFn({ method: "POST" }).validator(
   withColony(data.token, (st) => dismissReinforcement(st, data.reinforcementId)),
 );
 
+// Battle memorials: the victor carves one epitaph line (owner 2026-09-30).
+// Locked forever once set — enforced in game/memorials.ts.
+const setMemorialEpitaphFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), plaqueId: z.string(), epitaph: z.string().max(140) })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, (st, ctx) =>
+    engine.setMemorialEpitaph(st, data.plaqueId, data.epitaph, ctx.colonyName),
+  ),
+);
+
 export {
   getState,
   createGameFn,
@@ -2759,6 +2826,7 @@ export {
   collectProbeFn,
   claimHuskFn,
   shipSubColonySuppliesFn,
+  musterSubColonyTroopsFn,
   orderShipFn,
   contributeShipFn,
   donateShipyardFn,
@@ -2774,6 +2842,8 @@ export {
   launchRaidFn,
   deployRaidFn,
   joinRaidFn,
+  hireDesertersFn,
+  dismissDesertersFn,
   acknowledgeRaidAlarmFn,
   allocateLeaderPointFn,
   chooseSpecializationFn,
@@ -2826,6 +2896,7 @@ export {
   reinforceSendFn,
   reinforceRecallFn,
   reinforceDismissFn,
+  setMemorialEpitaphFn,
   enterActOneFn,
   leaveActOneFn,
   // ---- chat + mail (slice A1) — their own module, the same zod-validated shape

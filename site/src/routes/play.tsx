@@ -5,7 +5,7 @@ import {
   launchFn, studyFn, deployFn, purifyFn, craftFn, beginResearchFn, chooseRevelationFn,
   buildProbeFn, launchProbeFn, collectProbeFn,
   claimHuskFn,
-  createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, loadRaidSuppliesFn, launchRaidFn, deployRaidFn, joinRaidFn,
+  createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, loadRaidSuppliesFn, launchRaidFn, deployRaidFn, joinRaidFn, hireDesertersFn, dismissDesertersFn,
   acknowledgeRaidAlarmFn,
   allocateLeaderPointFn, chooseSpecializationFn,
   signupFn, loginFn, logoutFn, meFn,
@@ -16,6 +16,7 @@ import {
   claimDailyRewardFn,
   applyTimeTokenFn,
   leaveActOneFn,
+  setMemorialEpitaphFn,
 } from "../game/api";
 import type { GameSummary } from "../game/api";
 import { RACES, UNBOUND_LEGEND, getRace, raceModLines } from "../game/races";
@@ -684,6 +685,9 @@ function PlayPage() {
           onLaunchRaid={(raidId) => act(() => launchRaidFn({ data: { token: token!, raidId } }), "launchRaid")}
           onDeployRaid={(raidId, deployment, shipsHoldOrbit) => act(() => deployRaidFn({ data: { token: token!, raidId, deployment, shipsHoldOrbit } }), "deployRaid")}
           onJoinRaid={(inviteCode) => act(() => joinRaidFn({ data: { token: token!, inviteCode } }), "joinRaid")}
+          onHireDeserters={(raidId, bandId) => act(() => hireDesertersFn({ data: { token: token!, raidId, bandId } }), "hireDeserters")}
+          onDismissDeserters={(raidId, bandId) => act(() => dismissDesertersFn({ data: { token: token!, raidId, bandId } }), "dismissDeserters")}
+          onEpitaph={(plaqueId, epitaph) => act(() => setMemorialEpitaphFn({ data: { token: token!, plaqueId, epitaph } }), "setMemorialEpitaph")}
         />
       )}
       {tab === "battles" && (

@@ -132,6 +132,9 @@ import {
   commitRaidTroops as commitRaidTroopsPure,
   createRaidParty,
   deployRaidTroops,
+  deserterBandCount,
+  dismissRaidDeserters as dismissRaidDesertersPure,
+  hireRaidDeserters as hireRaidDesertersPure,
   joinRaidParty as joinRaidPartyPure,
   mockDefenderLoot,
   raidJumpCharge,
@@ -140,6 +143,7 @@ import {
   raidTroopCapacity,
   raidTroopCount,
   resolveRaidBattle,
+  rollDeserterEncounter,
   setRaidTarget as setRaidTargetPure,
   EMPTY_RAID_LOOT,
   type RaidParty,
@@ -3386,6 +3390,40 @@ export function deployRaid(
   return { ok: true, state };
 }
 
+/** Hire the deserter band waiting at a raid (owner 2026-10-03).
+ *  Supplies come from the raid's cargo; troops join the raid on the ground. */
+export function hireRaidDeserters(
+  state: GameState,
+  raidId: string,
+  bandId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  const res = hireRaidDesertersPure(raid, bandId);
+  if (!res.ok) return fail(res.error ?? "Couldn't hire the deserters.");
+  const n = raid.deserters ? deserterBandCount(raid.deserters) : 0;
+  log(state, `🤝 ${raid.id} — hired ${n.toLocaleString()} deserters. They fight with you now.`);
+  return { ok: true, state };
+}
+
+/** Dismiss the deserter band waiting at a raid (owner 2026-10-03). */
+export function dismissRaidDeserters(
+  state: GameState,
+  raidId: string,
+  bandId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  const res = dismissRaidDesertersPure(raid, bandId);
+  if (!res.ok) return fail(res.error ?? "Couldn't dismiss the deserters.");
+  log(state, `🚶 ${raid.id} — the deserters were turned away. They melt back into the wilds.`);
+  return { ok: true, state };
+}
+
 /** Advance raids: in_transit → landed (warn + battle) → returning → done (deliver). */
 export function advanceRaids(state: GameState, now: number): void {
   const wm = state.worldMap;
@@ -3414,6 +3452,12 @@ export function advanceRaids(state: GameState, now: number): void {
       raid.status = "deploying";
       // Default: ships hold in orbit (safe). Player can change this in the deployment UI.
       if (raid.shipsHoldOrbit === undefined) raid.shipsHoldOrbit = true;
+      // Deserter encounter (owner 2026-10-03): a mercenary band may be waiting.
+      const band = rollDeserterEncounter(raid);
+      if (band) {
+        raid.deserters = band;
+        log(state, `🏕️ ${raid.id} — a deserter band (${deserterBandCount(band).toLocaleString()} sellswords) wants to join your raid. They'll name their price.`);
+      }
       const names = raid.memberNames.join(", ");
       log(state, `🛬 ${raid.id} TOUCHDOWN — ${names} are on the ground at ${raid.targetOwnerName}'s colony. Deploy your troops to attack.`);
     }

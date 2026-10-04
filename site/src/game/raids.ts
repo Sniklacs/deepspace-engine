@@ -14,6 +14,7 @@
 import type { TroopType } from "./war/troops";
 import { WORLD_JUMP_FUEL, WORLD_JUMP_SUPPLIES, type ShipClass } from "./worldmap";
 import type { ManeuverVector } from "./war/war-types";
+import type { TacticalBattle, OrdersMap } from "./war/tactical-combat";
 
 /** Max raiding party size. Hans: the 5-player cap forces coordination —
  *  you can't zerg a raid, you have to plan it. The beachhead is where
@@ -52,10 +53,41 @@ export const SHIP_LOOT_CAP: Record<ShipClass, number> = {
   herald: 2_000,
 };
 
+/** Ship combat stats (owner 2026-10-03): firepower = damage output in power
+ *  units, on the same scale as troop supply-weight power — a Vanguard hits
+ *  like ~140 Reavers. Tunable, like the capacity tables above. */
+export const SHIP_FIREPOWER: Record<ShipClass, number> = {
+  scout: 20, // fast, fragile — eyes, not guns
+  frigate: 80, // the balanced workhorse
+  bulwark: 60, // a wall with teeth — defense is its weapon
+  vanguard: 140, // the heavy hitter
+  fatcat: 10, // a loot truck with a peashooter
+  herald: 40, // support guns for the fleet
+};
+
+/** Ship combat stats (owner 2026-10-03): hull = armor that soaks ground
+ *  fire when ships land. Higher hull = cheaper field repairs. Tunable. */
+export const SHIP_HULL: Record<ShipClass, number> = {
+  scout: 40, // paper-thin
+  frigate: 160,
+  bulwark: 400, // shrugs off ground fire
+  vanguard: 220,
+  fatcat: 200, // thick-skinned hauler
+  herald: 120,
+};
+
+/** Orbital fire support: holding-pattern ships add this × their firepower
+ *  to attacker power (bombardment from orbit — safe). */
+export const ORBITAL_FIRE_SUPPORT_FACTOR = 0.5;
+/** Landed fire support: landed ships add this × their firepower to attacker
+ *  power (close support — dangerous). */
+export const LANDED_FIRE_SUPPORT_FACTOR = 1.0;
+
 export type RaidStatus =
   | "preparing" // forming up: members joining, troops loading
   | "in_transit" // jumped: flying to the target
   | "deploying" // touched down: player assigns troops to entry vectors (owner 2026-10-03)
+  | "tactical" // battle in progress: player issues orders per round (owner 2026-10-03)
   | "landed" // battle resolved: defender warned, loot secured
   | "returning" // exfil: flying home with the loot
   | "done"; // delivered: loot in the attacker's stores
@@ -89,6 +121,31 @@ export const EMPTY_RAID_LOOT: RaidLoot = {
   shots: 0,
 };
 
+/** A deserter band encountered during a raid (owner 2026-10-03). */
+export interface RaidDeserterBand {
+  id: string; // `deserter-<raidId>`
+  /** Troops by type — a mix of whatever walked away. */
+  troops: Partial<Record<TroopType, number>>;
+  /** Asking price in supplies. UNKNOWN until the encounter — this is why
+   *  Hans says to bring a buffer. Randomized per raid (deterministic). */
+  price: number;
+  /** One-shot: once hired or dismissed, they're gone. */
+  resolved: boolean;
+  /** True = hired, false = dismissed. Only meaningful when resolved. */
+  hired?: boolean;
+}
+
+/** Chance of a deserter encounter at touchdown (owner 2026-10-03). Tunable. */
+export const DESERTER_ENCOUNTER_CHANCE = 0.35;
+
+/** Deserter band size range (heads). */
+export const DESERTER_BAND_MIN = 80;
+export const DESERTER_BAND_MAX = 400;
+
+/** Asking price per head in supplies (randomized within this range). */
+export const DESERTER_PRICE_PER_HEAD_MIN = 15;
+export const DESERTER_PRICE_PER_HEAD_MAX = 40;
+
 /** A raiding party. Lives on the leader's worldMap (raids array). */
 export interface RaidParty {
   id: string; // `raid-<seq>`
@@ -110,6 +167,9 @@ export interface RaidParty {
   /** Supplies loaded for the raid (owner 2026-10-03): for hiring deserters,
    *  field expenses, emergency use. Moved OUT of home stockpile on commit. */
   supplies: number;
+  /** Deserter encounter (owner 2026-10-03): rolled at touchdown. If a band
+   *  is waiting, the player can hire them (supplies) or dismiss them. */
+  deserters?: RaidDeserterBand | null;
   targetServerId: string;
   targetColonyId: string;
   targetOwnerName: string;
@@ -377,6 +437,108 @@ export function deployRaidTroops(
   return { ok: true };
 }
 
+// ---------------------------------------------------------------------------
+// Deserter encounters (owner 2026-10-03)
+// ---------------------------------------------------------------------------
+//
+// After touchdown, there's a chance a deserter/mercenary band is waiting.
+// They offer to join for an UNKNOWN amount of supplies — the player only
+// learns the price when the encounter happens, which is why Hans says to
+// bring a supply buffer. Deterministic per raid (hash of raid id), so the
+// encounter is stable across ticks and testable.
+
+/** Total heads in a deserter band. */
+export function deserterBandCount(band: RaidDeserterBand): number {
+  let n = 0;
+  for (const c of Object.values(band.troops)) n += c ?? 0;
+  return n;
+}
+
+/** Roll for a deserter encounter at touchdown. Returns the band or null.
+ *  Deterministic: same raid id always gives the same result. */
+export function rollDeserterEncounter(raid: RaidParty): RaidDeserterBand | null {
+  const h = hash32(`deserters:${raid.id}:${raid.landsAt ?? 0}`);
+  if ((h % 100) >= Math.floor(DESERTER_ENCOUNTER_CHANCE * 100)) return null;
+
+  // Band size: 80–400 heads.
+  const size = DESERTER_BAND_MIN + (h >>> 8) % (DESERTER_BAND_MAX - DESERTER_BAND_MIN + 1);
+
+  // Composition: 2–4 troop types, split weighted by hash slices.
+  const types: TroopType[] = ["bulwark", "reaver", "longeye", "thunder", "warden"];
+  const typeCount = 2 + (h >>> 16) % 3;
+  const picked: TroopType[] = [];
+  let hh = h >>> 20;
+  while (picked.length < typeCount) {
+    const t = types[(hh >>> 0) % types.length];
+    if (!picked.includes(t)) picked.push(t);
+    // Keep hh unsigned — a signed XOR result would make hh % 5 negative.
+    hh = (((hh >>> 3) ^ ((hh << 5) >>> 0)) >>> 0);
+    if (hh === 0) hh = (h ^ 0x9e3779b9) >>> 0;
+  }
+  const troops: Partial<Record<TroopType, number>> = {};
+  let remaining = size;
+  for (let i = 0; i < picked.length; i++) {
+    const share = i === picked.length - 1 ? remaining : Math.max(1, Math.floor(size * ((hh % 40 + 10) / 100)));
+    const n = Math.min(share, remaining - (picked.length - i - 1));
+    troops[picked[i]] = n;
+    remaining -= n;
+    hh = (hh >>> 4) ^ (h >>> (i * 3));
+  }
+
+  // Price: per-head rate randomized 15–40 supplies, times band size.
+  const perHead = DESERTER_PRICE_PER_HEAD_MIN + (h >>> 24) % (DESERTER_PRICE_PER_HEAD_MAX - DESERTER_PRICE_PER_HEAD_MIN + 1);
+  const price = deserterBandCount({ id: "", troops, price: 0, resolved: false }) * perHead;
+
+  return {
+    id: `deserter-${raid.id}`,
+    troops,
+    price,
+    resolved: false,
+  };
+}
+
+/** Hire the deserter band: deduct supplies from raid cargo, add troops to
+ *  the raid. Deserters join on the ground — they don't need ship capacity
+ *  (they were never loaded on ships). */
+export function hireRaidDeserters(
+  raid: RaidParty,
+  bandId: string,
+): { ok: boolean; error?: string } {
+  if (raid.status !== "deploying") return { ok: false, error: "That raid isn't deploying troops right now." };
+  const band = raid.deserters;
+  if (!band || band.id !== bandId) return { ok: false, error: "No deserter band waiting." };
+  if (band.resolved) return { ok: false, error: "Those deserters have already made up their minds." };
+  if ((raid.supplies ?? 0) < band.price) {
+    return {
+      ok: false,
+      error: `They want ${band.price.toLocaleString()} supplies — you only brought ${(raid.supplies ?? 0).toLocaleString()}.`,
+    };
+  }
+  raid.supplies -= band.price;
+  const byType = raid.troops["deserters"] ?? {};
+  for (const [t, n] of Object.entries(band.troops) as [TroopType, number][]) {
+    byType[t] = (byType[t] ?? 0) + (n ?? 0);
+  }
+  raid.troops["deserters"] = byType;
+  band.resolved = true;
+  band.hired = true;
+  return { ok: true };
+}
+
+/** Dismiss the deserter band — they're gone. */
+export function dismissRaidDeserters(
+  raid: RaidParty,
+  bandId: string,
+): { ok: boolean; error?: string } {
+  if (raid.status !== "deploying") return { ok: false, error: "That raid isn't deploying troops right now." };
+  const band = raid.deserters;
+  if (!band || band.id !== bandId) return { ok: false, error: "No deserter band waiting." };
+  if (band.resolved) return { ok: false, error: "Those deserters have already made up their minds." };
+  band.resolved = true;
+  band.hired = false;
+  return { ok: true };
+}
+
 /** Validate a raid is launchable. Returns the first blocker. */
 export function raidLaunchBlocker(raid: RaidParty): string | null {
   if (raid.status !== "preparing") return "That raid already launched.";
@@ -404,9 +566,14 @@ export interface RaidBattleInput {
    *  When provided, surprise bonuses apply per vector. When omitted, all troops
    *  fight at base strength (v1 auto-resolve behavior). */
   deployment?: Partial<Record<ManeuverVector, Partial<Record<TroopType, number>>>>;
-  /** Ship posture (owner 2026-10-03): true = ships hold in orbit (safe);
-   *  false = ships land and add 10% fire support but risk ground-fire losses. */
+  /** Ship posture (owner 2026-10-03): true = ships hold in orbit (safe,
+   *  orbital fire support); false = ships land (full firepower, ground-fire
+   *  risk scaled by hull). */
   shipsHoldOrbit?: boolean;
+  /** Ship classes committed to the raid (owner 2026-10-03): drives
+   *  stat-based fire support (SHIP_FIREPOWER) and ground-fire risk
+   *  (SHIP_HULL). Omitted = no fleet, no fire support. */
+  shipClasses?: ShipClass[];
   /** Defender approximate headcount. */
   defenderTroops: number;
   /** What's lootable at the colony (supplies/embers/materials). */
@@ -417,6 +584,9 @@ export interface RaidBattleInput {
 
 export interface RaidBattleResult {
   won: boolean;
+  /** Decisive victory (power ratio ≥ 2.0). Against a sub colony, a decisive
+   *  win SEIZES it — ownership transfers to the raid leader. */
+  decisive: boolean;
   /** Attacker casualties by type (heads). */
   attackerLosses: Partial<Record<TroopType, number>>;
   /** Defender casualties (approx heads). */
@@ -468,9 +638,19 @@ export function resolveRaidBattle(input: RaidBattleInput): RaidBattleResult {
     if (deployedPower > 0) attackerPower = deployedPower;
   }
 
-  // Ship posture: landed ships add 10% fire support.
+  // Ship posture (owner 2026-10-03): fire support is stat-based, not flat.
+  // Holding orbit (default, safe): ships bombard from orbit — half their
+  // firepower joins the attack at zero risk. Landed: full firepower in
+  // close support, but ground fire chews the hulls — repair costs scale
+  // inversely with total hull (a tanky fleet shrugs it off, a fragile
+  // fleet pays dearly).
+  const fleet = input.shipClasses ?? [];
+  const fleetFirepower = fleet.reduce((s, c) => s + (SHIP_FIREPOWER[c] ?? 0), 0);
+  const fleetHull = fleet.reduce((s, c) => s + (SHIP_HULL[c] ?? 0), 0);
   if (input.shipsHoldOrbit === false) {
-    attackerPower *= 1.10;
+    attackerPower += fleetFirepower * LANDED_FIRE_SUPPORT_FACTOR;
+  } else {
+    attackerPower += fleetFirepower * ORBITAL_FIRE_SUPPORT_FACTOR;
   }
 
   const defenderPower = Math.max(1, input.defenderTroops); // avg weight 1
@@ -479,15 +659,17 @@ export function resolveRaidBattle(input: RaidBattleInput): RaidBattleResult {
   let lossRate: number;
   let lootShare: number;
   let won: boolean;
-  if (ratio >= 2) { lossRate = 0.10; lootShare = 0.80; won = true; }
+  let decisive = false;
+  if (ratio >= 2) { lossRate = 0.10; lootShare = 0.80; won = true; decisive = true; }
   else if (ratio >= 1) { lossRate = 0.25; lootShare = 0.50; won = true; }
   else if (ratio >= 0.5) { lossRate = 0.60; lootShare = 0.20; won = true; }
   else { lossRate = 0.90; lootShare = 0; won = false; }
 
-  // Ships that land risk ground-fire losses: 15% of ships are damaged
-  // (abstracted as a loot penalty — the ships themselves survive).
-  if (input.shipsHoldOrbit === false && won) {
-    lootShare *= 0.95; // 5% of loot spent on field repairs
+  // Ships that land risk ground-fire losses: repair cost scales inversely
+  // with hull — 2% of loot for a tanky fleet, up to 15% for a fragile one.
+  if (input.shipsHoldOrbit === false && won && fleet.length > 0) {
+    const repairFrac = Math.min(0.15, Math.max(0.02, 40 / Math.max(1, fleetHull)));
+    lootShare *= 1 - repairFrac;
   }
 
   const attackerLosses: Partial<Record<TroopType, number>> = {};
@@ -517,7 +699,7 @@ export function resolveRaidBattle(input: RaidBattleInput): RaidBattleResult {
     : { ...EMPTY_RAID_LOOT };
 
   const lootTaken = capLootToCargo(rawLoot, input.cargoCapacity);
-  return { won, attackerLosses, defenderLosses, lootTaken };
+  return { won, decisive, attackerLosses, defenderLosses, lootTaken };
 }
 
 // ---------------------------------------------------------------------------

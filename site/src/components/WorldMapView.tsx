@@ -16,6 +16,7 @@ import {
   lootTotal,
   type ColonyStatus,
   type KnownColony,
+  type ShipClass,
 } from "../game/worldmap";
 import {
   SUBCOLONY_CLAIM_COST,
@@ -24,6 +25,8 @@ import {
 import { WORLD_CONFIG_PUBLIC } from "../game/world-config";
 import {
   RAID_MAX_MEMBERS,
+  SHIP_FIREPOWER,
+  SHIP_HULL,
   raidJumpCharge,
   raidLaunchBlocker,
   raidLootCapacity,
@@ -35,6 +38,8 @@ import type { TroopType } from "../game/war/troops";
 import { useT } from "./i18n/I18n";
 import { sound } from "../game/sound";
 import { Bdi } from "./ui/Bdi";
+import MemorialsView from "./MemorialsView";
+import { memorialNodeIds } from "../game/memorials";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (tested in WorldMapView.test.ts)
@@ -143,6 +148,8 @@ function RaidPanel({
   onLoadSupplies,
   onLaunch,
   onDeploy,
+  onHireDeserters,
+  onDismissDeserters,
 }: {
   state: GameState;
   raid: RaidParty | null;
@@ -156,6 +163,8 @@ function RaidPanel({
   onLoadSupplies?: (raidId: string, amount: number) => void;
   onLaunch?: (raidId: string) => void;
   onDeploy?: (raidId: string, deployment: Record<string, Record<string, number>>, shipsHoldOrbit: boolean) => void;
+  onHireDeserters?: (raidId: string, bandId: string) => void;
+  onDismissDeserters?: (raidId: string, bandId: string) => void;
 }) {
   const t = useT();
   const [hint, setHint] = useState<string | null>(null);
@@ -318,10 +327,12 @@ function RaidPanel({
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {ships.map((s) => {
                   const on = pickedShips.includes(s.id) || raid.shipIds.includes(s.id);
+                  const cls = s.class as ShipClass;
                   return (
                     <button
                       key={s.id}
                       type="button"
+                      title={`${s.name} — ⚔ ${SHIP_FIREPOWER[cls] ?? 0} firepower · 🛡 ${SHIP_HULL[cls] ?? 0} hull`}
                       onClick={() => {
                         sound.click();
                         setPickedShips((prev) =>
@@ -333,6 +344,7 @@ function RaidPanel({
                       }`}
                     >
                       {s.name}
+                      <span className="block text-[9px] opacity-70">⚔{SHIP_FIREPOWER[cls] ?? 0} 🛡{SHIP_HULL[cls] ?? 0}</span>
                     </button>
                   );
                 })}
@@ -466,7 +478,81 @@ function RaidPanel({
       )}
 
       {raid.status === "deploying" && (
-        <DeploymentPanel raid={raid} onDeploy={(dep, hold) => onDeploy?.(raid.id, dep, hold)} />
+        <DeploymentPanel
+          raid={raid}
+          onDeploy={(dep, hold) => onDeploy?.(raid.id, dep, hold)}
+          onHireDeserters={(bandId) => onHireDeserters?.(raid.id, bandId)}
+          onDismissDeserters={(bandId) => onDismissDeserters?.(raid.id, bandId)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Deserter encounter UI (owner 2026-10-03): a mercenary band is waiting.
+ *  They name their price in supplies — unknown until this moment. */
+function DeserterPanel({
+  raid,
+  onHireDeserters,
+  onDismissDeserters,
+}: {
+  raid: RaidParty;
+  onHireDeserters: (bandId: string) => void;
+  onDismissDeserters: (bandId: string) => void;
+}) {
+  const t = useT();
+  const [hint, setHint] = useState<string | null>(null);
+  const band = raid.deserters;
+  if (!band) return null;
+
+  const total = Object.values(band.troops).reduce((a, b) => a + (b ?? 0), 0);
+  const canAfford = (raid.supplies ?? 0) >= band.price;
+
+  const composition = Object.entries(band.troops)
+    .filter(([, n]) => (n ?? 0) > 0)
+    .map(([type, n]) => `${(n ?? 0).toLocaleString()} ${type}`)
+    .join(", ");
+
+  return (
+    <div className="mt-2 rounded-xl border border-emerald-400/40 bg-emerald-950/25 p-3">
+      <h5 className="text-[12px] font-bold text-emerald-100">
+        🏕️ {t("raid.deserterTitle", "Deserters in the wilds")}
+      </h5>
+      <p className="mt-1 text-[11px] text-gray-300">
+        {t("raid.deserterIntro", "A band of deserters wants to fight with you — for a price.")}
+      </p>
+      <div className="mt-1.5 text-[11px] text-gray-400">
+        <div>👥 <span className="text-gray-200 font-semibold">{total.toLocaleString()}</span> {t("raid.deserterHeads", "sellswords")}</div>
+        <div className="mt-0.5">⚔️ {composition}</div>
+        <div className="mt-0.5">💰 {t("raid.deserterPrice", "Their price")}: <span className="text-emerald-200 font-semibold">{band.price.toLocaleString()}</span> {t("raid.suppliesWord", "supplies")}</div>
+        <div className="mt-0.5">📦 {t("raid.deserterCarried", "You brought")}: <span className="text-gray-200">{(raid.supplies ?? 0).toLocaleString()}</span> {t("raid.suppliesWord", "supplies")}</div>
+      </div>
+      <div className="mt-2 flex gap-2">
+        <button
+          className="flex-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-[12px] font-bold text-white hover:bg-emerald-500"
+          onClick={() => {
+            if (!canAfford) {
+              setHint(t("raid.deserterShort", `They want ${band.price.toLocaleString()} supplies — you only brought ${(raid.supplies ?? 0).toLocaleString()}. Bring more next time.`));
+              return;
+            }
+            setHint(null);
+            onHireDeserters(band.id);
+          }}
+        >
+          🤝 {t("raid.hire", "Hire")} ({band.price.toLocaleString()})
+        </button>
+        <button
+          className="flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-[12px] font-semibold text-gray-300 hover:bg-white/20"
+          onClick={() => {
+            setHint(null);
+            onDismissDeserters(band.id);
+          }}
+        >
+          {t("raid.decline", "Decline")}
+        </button>
+      </div>
+      {hint && (
+        <p className="mt-1.5 text-[11px] leading-relaxed text-red-200/90">{hint}</p>
       )}
     </div>
   );
@@ -476,9 +562,13 @@ function RaidPanel({
 function DeploymentPanel({
   raid,
   onDeploy,
+  onHireDeserters,
+  onDismissDeserters,
 }: {
   raid: RaidParty;
   onDeploy: (deployment: Record<string, Record<string, number>>, shipsHoldOrbit: boolean) => void;
+  onHireDeserters: (bandId: string) => void;
+  onDismissDeserters: (bandId: string) => void;
 }) {
   const t = useT();
   // deployment[vector][troopType] = count
@@ -561,6 +651,15 @@ function DeploymentPanel({
         {t("raid.deployIntro", "Assign your troops to entry vectors. Ships hold in orbit by default.")}
         {" "}{totalDeployed.toLocaleString()} / {totalCarried.toLocaleString()} {t("raid.assigned", "assigned")}
       </p>
+
+      {/* Deserter encounter (owner 2026-10-03): a band is waiting. */}
+      {raid.deserters && !raid.deserters.resolved && (
+        <DeserterPanel
+          raid={raid}
+          onHireDeserters={onHireDeserters}
+          onDismissDeserters={onDismissDeserters}
+        />
+      )}
 
       {VECTORS.map((v) => {
         const vecTroops = deployment[v.id] ?? {};
@@ -668,10 +767,13 @@ function ColonyCard({
   colony,
   selected,
   onSelect,
+  hasMemorial,
 }: {
   colony: KnownColony;
   selected: boolean;
   onSelect: () => void;
+  /** A battle plaque stands at this site (owner 2026-09-30). */
+  hasMemorial?: boolean;
 }) {
   const t = useT();
   const color = statusColor(colony.status);
@@ -697,6 +799,11 @@ function ColonyCard({
           <span className="truncate text-sm font-semibold text-white">
             {colonyMarkerName(colony.ownerName)}
           </span>
+          {hasMemorial && (
+            <span title={t("worldmap.memorialSite", "A battle plaque stands here")} aria-label={t("worldmap.memorialSite", "A battle plaque stands here")}>
+              🕯️
+            </span>
+          )}
         </span>
         <span className="shrink-0 text-[10px] uppercase tracking-wide" style={{ color }}>
           {statusLabel(t, colony.status)}
@@ -969,8 +1076,11 @@ function ColonyDetail({
         </div>
       )}
 
-      {/* Raid — active colonies only. Always tappable; tap explains. */}
-      {colony.status === "active" && (
+      {/* Raid — active colonies and rival sub colonies. Always tappable; tap explains.
+          SUB COLONY (owner 2026-10-03): rivals can raid your sub colony — a
+          decisive win SEIZES it. Your own sub colony can't be raided by you. */}
+      {(colony.status === "active" ||
+        (colony.status === "sub_colony" && colony.subClaim?.claimedBy !== (state.gameId ?? ""))) && (
         <div className="mt-3">
           <button
             type="button"
@@ -993,7 +1103,9 @@ function ColonyDetail({
             </p>
           )}
           <p className="mt-1 text-[10px] leading-relaxed text-gray-500">
-            {t("raid.defenderWarned", "Loot-only v1. The defender is warned the moment you touch down.")}
+            {colony.status === "sub_colony"
+              ? t("raid.subColonySeize", "A decisive win SEIZES this sub colony — you take it, garrison and all is lost to them.")
+              : t("raid.defenderWarned", "Loot-only v1. The defender is warned the moment you touch down.")}
           </p>
         </div>
       )}
@@ -1076,6 +1188,9 @@ export default function WorldMapView({
   onLaunchRaid,
   onJoinRaid,
   onDeployRaid,
+  onHireDeserters,
+  onDismissDeserters,
+  onEpitaph,
 }: {
   state: GameState;
   now: number;
@@ -1093,6 +1208,10 @@ export default function WorldMapView({
   onLaunchRaid?: (raidId: string) => void;
   onJoinRaid?: (inviteCode: string) => void;
   onDeployRaid?: (raidId: string, deployment: Record<string, Record<string, number>>, shipsHoldOrbit: boolean) => void;
+  onHireDeserters?: (raidId: string, bandId: string) => void;
+  onDismissDeserters?: (raidId: string, bandId: string) => void;
+  /** Victor carves an epitaph on a memorial plaque (owner 2026-09-30). */
+  onEpitaph?: (plaqueId: string, epitaph: string) => void;
 }) {
   const t = useT();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -1133,6 +1252,13 @@ export default function WorldMapView({
   const ownLastActive = wm?.lastActive ?? now;
   const ownAbandoned = isAbandoned(ownLastActive, now);
   const ownCountdown = abandonmentIn(ownLastActive, now);
+
+  // Memorial sites (owner 2026-09-30): subtle 🕯️ markers on colony cards
+  // whose node earned a battle plaque.
+  const memorialSites = useMemo(
+    () => memorialNodeIds((state as any).memorials ?? []),
+    [state],
+  );
 
   const handleExplore = (colony: KnownColony) => {
     if (onExplore) {
@@ -1206,6 +1332,8 @@ export default function WorldMapView({
         onLoadSupplies={onLoadRaidSupplies}
         onLaunch={onLaunchRaid}
         onDeploy={onDeployRaid}
+        onHireDeserters={onHireDeserters}
+        onDismissDeserters={onDismissDeserters}
       />
 
       {/* Incoming cross-server raids (defender warnings, owner 2026-10-03) */}
@@ -1313,6 +1441,7 @@ export default function WorldMapView({
                 colony={c}
                 selected={selectedKey === key}
                 onSelect={() => setSelectedKey(selectedKey === key ? null : key)}
+                hasMemorial={memorialSites.has(key)}
               />
             );
           })}
@@ -1343,6 +1472,11 @@ export default function WorldMapView({
       <p className="text-[10px] text-gray-600">
         {t("worldmap.staleNote", "Intel stales. A colony marked abandoned may already be gleaned, reclaimed, or razed — the map remembers what it last saw.")}
       </p>
+
+      {/* Memorials — the game's history layer (owner 2026-09-30). */}
+      <div className="mt-2">
+        <MemorialsView state={state} onEpitaph={onEpitaph} />
+      </div>
     </div>
   );
 }
