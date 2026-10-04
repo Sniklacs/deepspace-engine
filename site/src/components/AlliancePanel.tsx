@@ -58,6 +58,80 @@ function fmtCountdown(ms: number): string {
 const ROLE_LABEL: Record<AllianceRole, string> = { leader: "Leader", officer: "Officer", member: "Member" };
 
 // ---------------------------------------------------------------------------
+// LEAVE-ALLIANCE CONFIRMATION — the ugly pop-up (owner 2026-10-04).
+// Deliberately stark: full overlay, blunt language, impossible to click
+// through by accident. Cancel is the safe default (Escape, backdrop tap, or
+// the Cancel button all close with zero side effects).
+// ---------------------------------------------------------------------------
+function LeaveAllianceDialog({
+  alliance,
+  role,
+  onConfirm,
+  onClose,
+}: {
+  alliance: Alliance;
+  role: AllianceRole | null;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-black/85 p-4"
+      onClick={onClose}
+      data-testid="leave-confirm-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="leave-dialog-title"
+      aria-describedby="leave-dialog-body"
+    >
+      <div
+        className="my-auto w-full max-w-md border-4 border-red-600 bg-[#14090b] p-6 shadow-[0_0_60px_rgba(220,38,38,0.45)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 id="leave-dialog-title" className="text-center text-2xl font-black uppercase tracking-wide text-red-500">
+          ⚠ Leave {alliance.name}?
+        </h3>
+        <div id="leave-dialog-body" className="mt-4 space-y-2 text-sm text-red-100">
+          <p className="font-bold">
+            You are about to walk away from your war band. There is no take-back button.
+          </p>
+          <ul className="list-disc space-y-1 ps-5">
+            <li>You lose your rank ({ROLE_LABEL[role ?? "member"]}).</li>
+            <li>You lose access to the shared stockpile, the rally board, and reinforcements.</li>
+            <li>Rallies you pledged to finish without you.</li>
+            <li>You can rejoin later — <b>if they will have you.</b></li>
+          </ul>
+        </div>
+        <div className="mt-6 grid gap-2">
+          <button
+            className="w-full rounded-lg bg-red-700 px-4 py-3 text-base font-black uppercase tracking-wide text-white hover:bg-red-600"
+            onClick={onConfirm}
+            data-testid="leave-confirm-yes"
+          >
+            Yes, leave {alliance.name}
+          </button>
+          <button
+            className="w-full rounded-lg border-2 border-white/40 bg-white/10 px-4 py-3 text-base font-bold text-white hover:bg-white/20"
+            onClick={onClose}
+            data-testid="leave-confirm-cancel"
+            autoFocus
+          >
+            Cancel — stay with the war band
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Battle-plan presets — the caller picks a shape, the panel sizes it to the
 // pledged pool. Troop types are weight-only in v1, so the presets use the
 // workhorse bulwark (REAR rides warden weight to satisfy the escort rule).
@@ -397,9 +471,14 @@ export function AllianceHome({
   const role = memberRole(alliance, me);
   const isLeader = role === "leader";
   const isOfficer = role === "officer" || isLeader;
+  const [leaveOpen, setLeaveOpen] = useState(false);
   const post = (fn: () => Promise<GameResult>, label: string) => {
     if (!token) return;
     onAction(fn, label);
+  };
+  const doLeave = () => {
+    setLeaveOpen(false);
+    post(() => allianceLeaveFn({ data: { token: token! } }), "leave");
   };
   const rallies = useMemo(
     () =>
@@ -428,8 +507,8 @@ export function AllianceHome({
         <div className="flex gap-2">
           <button
             className="rounded-lg border border-red-900/60 bg-red-950/30 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-950/50"
-            onClick={() => { if (window.confirm(`Leave ${alliance.name}? Open pledges come home; launched rallies finish without you. You can rejoin anytime.`)) post(() => allianceLeaveFn({ data: { token: token! } }), "leave"); }}
-            data-testid="alliance-leave"
+            onClick={() => setLeaveOpen(true)}
+            data-testid="alliance-leave-header"
           >
             Leave alliance
           </button>
@@ -452,6 +531,29 @@ export function AllianceHome({
       <Reinforcements state={state} me={me} alliance={alliance} token={token} onAction={onAction} />
       <HelpBoard state={state} now={now} me={me} alliance={alliance} token={token} onAction={onAction} />
       <AllianceShipyardSection alliance={alliance} now={now} me={me} state={state} token={token} onAction={onAction} />
+      {/* Danger zone — the leave button lives here, big and impossible to miss
+          (owner 2026-10-04: the old header button was too hidden). */}
+      <div className="rounded-xl border-2 border-red-800/70 bg-red-950/20 p-4">
+        <h4 className="text-sm font-black uppercase tracking-widest text-red-400">Danger zone</h4>
+        <p className="mt-1 text-xs text-text-2">
+          Leaving ends your oath to {alliance.name}. You keep your colonies and your ships — everything shared stays shared.
+        </p>
+        <button
+          className="mt-3 w-full rounded-lg border-2 border-red-500 bg-red-800/60 px-4 py-3 text-base font-black uppercase tracking-widest text-white hover:bg-red-700"
+          onClick={() => setLeaveOpen(true)}
+          data-testid="alliance-leave"
+        >
+          🚪 Leave alliance
+        </button>
+      </div>
+      {leaveOpen && (
+        <LeaveAllianceDialog
+          alliance={alliance}
+          role={role}
+          onConfirm={doLeave}
+          onClose={() => setLeaveOpen(false)}
+        />
+      )}
     </section>
   );
 }
