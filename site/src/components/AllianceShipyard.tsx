@@ -28,6 +28,7 @@ import { TurretThumb } from "./TurretThumb";
 import { StackedShips, ShipArt } from "./StackedShips";
 import { SegmentedControl } from "./SegmentedControl";
 import { ShipGuide } from "./ShipyardGuides";
+import { ArmoryGuide } from "./ArmoryGuide";
 import { orderShipFn, contributeShipFn, donateShipyardFn, setTitheFn } from "../game/api";
 import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
@@ -141,12 +142,13 @@ export function AllianceShipyardSection({
         </span>
       </h4>
 
-      {/* In-module tabs: factory, fleet, and the ship field manual (owner 2026-10-04). */}
+      {/* In-module tabs: factory, fleet, and the two field manuals (owner 2026-10-04). */}
       <SegmentedControl
         options={[
           { id: "factory", label: t("shipyard.tabFactory", "Ship Factory") },
           { id: "fleet", label: t("shipyard.tabFleet", "Fleet") },
           { id: "guide", label: t("shipyard.tabShipGuide", "Ship Guide") },
+          { id: "armory", label: t("shipyard.tabArmoryGuide", "Armory Guide") },
         ]}
         value={tab}
         onChange={setTab}
@@ -270,6 +272,7 @@ export function AllianceShipyardSection({
       )}
 
       {tab === "guide" && <ShipGuide raceId={raceId} />}
+      {tab === "armory" && <ArmoryGuide raceId={raceId} />}
     </div>
   );
 }
