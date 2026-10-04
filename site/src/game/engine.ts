@@ -177,6 +177,7 @@ import {
   raidTroopCount,
   rollDeserterEncounter,
   setRaidTarget as setRaidTargetPure,
+  clearRaidTargetPure,
   startTacticalRaidBattle,
   tacticalRaidResult,
   tacticalRaidRound as tacticalRaidRoundPure,
@@ -3358,6 +3359,18 @@ export function setRaidTarget(state: GameState, raidId: string, key: string, now
   const res = setRaidTargetPure(raid, colony.serverId, colony.id, colony.ownerName);
   if (!res.ok) return fail(res.error ?? "Could not set the target.");
   log(state, `🎯 ${raid.id} targeting ${colony.ownerName}'s colony on ${colony.serverId}.`);
+  return { ok: true, state };
+}
+
+/** Clear a preparing raid's target (owner 2026-10-04: every action needs a
+ *  visible button — a set target must be clearable/changeable). */
+export function clearRaidTarget(state: GameState, raidId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  const res = clearRaidTargetPure(raid);
+  if (!res.ok) return fail(res.error ?? "Could not clear the target.");
+  log(state, `🎯 ${raid.id} target cleared — pick a colony on the map.`);
   return { ok: true, state };
 }
 

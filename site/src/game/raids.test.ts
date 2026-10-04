@@ -20,6 +20,7 @@ import {
   raidTroopCount,
   resolveRaidBattle,
   setRaidTarget,
+  clearRaidTargetPure,
   EMPTY_RAID_LOOT,
   type RaidParty,
 } from "./raids";
@@ -370,5 +371,39 @@ describe("cross-server raid protocol (owner 2026-10-03)", () => {
     const res = joinRaidParty(r, "col-99", "Zed");
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/cap at 5/);
+  });
+});
+
+describe("clearRaidTargetPure (owner 2026-10-04: a set target must be clearable)", () => {
+  test("clears a set target while preparing", () => {
+    const r = createRaidParty("col-1", "Hans", 1);
+    expect(setRaidTarget(r, "draconians-world", "col-x", "Ashkar").ok).toBe(true);
+    const res = clearRaidTargetPure(r);
+    expect(res.ok).toBe(true);
+    expect(r.targetColonyId).toBe("");
+    expect(r.targetServerId).toBe("");
+    expect(r.targetOwnerName).toBe("");
+  });
+  test("clearing an unset target is a harmless no-op", () => {
+    const r = createRaidParty("col-1", "Hans", 1);
+    expect(clearRaidTargetPure(r).ok).toBe(true);
+    expect(r.targetColonyId).toBe("");
+  });
+  test("refuses once the raid has launched (target locks)", () => {
+    const r = createRaidParty("col-1", "Hans", 1);
+    setRaidTarget(r, "draconians-world", "col-x", "Ashkar");
+    r.status = "in_transit";
+    const res = clearRaidTargetPure(r);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/locks/);
+    expect(r.targetColonyId).toBe("col-x"); // target kept
+  });
+  test("target can be re-set after clearing", () => {
+    const r = createRaidParty("col-1", "Hans", 1);
+    setRaidTarget(r, "draconians-world", "col-x", "Ashkar");
+    expect(clearRaidTargetPure(r).ok).toBe(true);
+    expect(setRaidTarget(r, "draconians-world", "col-y", "Vexnal").ok).toBe(true);
+    expect(r.targetColonyId).toBe("col-y");
+    expect(r.targetOwnerName).toBe("Vexnal");
   });
 });

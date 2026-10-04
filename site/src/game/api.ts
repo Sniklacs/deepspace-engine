@@ -1263,6 +1263,23 @@ const setRaidTargetFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
+// Clear a preparing raid's target (owner 2026-10-04: a set target must be
+// clearable/changeable — nothing dead-ends).
+const clearRaidTargetFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), raidId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.clearRaidTarget(st, data.raidId, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
 const assignRaidShipsFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), raidId: z.string(), shipIds: z.array(z.string()) })
 ).handler(async ({ data }): Promise<GameResult> => {
@@ -3052,6 +3069,7 @@ export {
   deleteMailFn,
   createRaidFn,
   setRaidTargetFn,
+  clearRaidTargetFn,
   assignRaidShipsFn,
   loadRaidTroopsFn,
   loadRaidSuppliesFn,

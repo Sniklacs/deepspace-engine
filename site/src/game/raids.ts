@@ -403,6 +403,17 @@ export function setRaidTarget(
   return { ok: true };
 }
 
+/** Clear a raid's target while it is still preparing (owner 2026-10-04:
+ *  Hans's UI rule — a set target must be clearable/changeable; nothing
+ *  dead-ends. Clearing re-opens the "Target this colony" button. */
+export function clearRaidTargetPure(raid: RaidParty): { ok: boolean; error?: string } {
+  if (raid.status !== "preparing") return { ok: false, error: "Target locks when the raid launches." };
+  raid.targetServerId = "";
+  raid.targetColonyId = "";
+  raid.targetOwnerName = "";
+  return { ok: true };
+}
+
 /** All five entry vectors (owner 2026-10-03). */
 export const RAID_VECTORS: ManeuverVector[] = ["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR", "RESERVE"];
 

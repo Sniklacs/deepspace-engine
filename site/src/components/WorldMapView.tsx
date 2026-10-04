@@ -163,6 +163,7 @@ function RaidPanel({
   onFormRaid,
   onJoinRaid,
   onSetTarget,
+  onClearTarget,
   onAssignShips,
   onLoadTroops,
   onLoadSupplies,
@@ -180,6 +181,7 @@ function RaidPanel({
   onFormRaid?: () => void;
   onJoinRaid?: (inviteCode: string) => void;
   onSetTarget?: (raidId: string, key: string) => void;
+  onClearTarget?: (raidId: string) => void;
   onAssignShips?: (raidId: string, shipIds: string[]) => void;
   onLoadTroops?: (raidId: string, type: TroopType, count: number) => void;
   onLoadSupplies?: (raidId: string, amount: number) => void;
@@ -317,6 +319,25 @@ function RaidPanel({
           <span className="text-gray-500">{t("raid.noTarget", "No target — pick a colony on the map.")}</span>
         )}
       </p>
+      {/* Clear target (owner 2026-10-04): a set target must be clearable /
+          changeable — nothing dead-ends. Clearing re-opens target picking. */}
+      {raid.status === "preparing" && raid.targetColonyId && (
+        <button
+          type="button"
+          onClick={() => {
+            sound.click();
+            if (!onClearTarget) {
+              setHint("noHandler");
+            } else {
+              setHint(null);
+              onClearTarget(raid.id);
+            }
+          }}
+          className="mt-1 rounded-lg border border-line px-2 py-1 text-[11px] text-text-2 hover:bg-white/5"
+        >
+          ✕ {t("raid.clearTarget", "Clear target")}
+        </button>
+      )}
       {raid.status === "preparing" && !raid.targetColonyId && (
         <button
           type="button"
@@ -1244,6 +1265,7 @@ export default function WorldMapView({
   onClaimHusk,
   onFormRaid,
   onSetRaidTarget,
+  onClearRaidTarget,
   onAssignRaidShips,
   onLoadRaidTroops,
   onLoadRaidSupplies,
@@ -1268,6 +1290,7 @@ export default function WorldMapView({
   /** Raid wiring (optional — unwired buttons explain inline per Hans's rule). */
   onFormRaid?: () => void;
   onSetRaidTarget?: (raidId: string, key: string) => void;
+  onClearRaidTarget?: (raidId: string) => void;
   onAssignRaidShips?: (raidId: string, shipIds: string[]) => void;
   onLoadRaidTroops?: (raidId: string, type: TroopType, count: number) => void;
   onLoadRaidSupplies?: (raidId: string, amount: number) => void;
@@ -1428,6 +1451,7 @@ export default function WorldMapView({
         onFormRaid={onFormRaid}
         onJoinRaid={onJoinRaid}
         onSetTarget={onSetRaidTarget}
+        onClearTarget={onClearRaidTarget}
         onAssignShips={onAssignRaidShips}
         onLoadTroops={onLoadRaidTroops}
         onLoadSupplies={onLoadRaidSupplies}

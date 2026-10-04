@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   advance,
   assignRaidShips,
+  clearRaidTarget,
   createRaid,
   deployRaid,
   launchRaid,
@@ -250,5 +251,31 @@ describe("full raid flow", () => {
     quickResolveTacticalRaid(s, raidId!, NOW + RAID_TRAVEL_MS + 4000);
     advance(s, NOW + RAID_TRAVEL_MS + 5000);
     expect(wm.raids[0].won).toBe(true);
+  });
+});
+
+describe("clearRaidTarget (engine)", () => {
+  test("clears the target while preparing; retarget after clearing works", () => {
+    const s = testState();
+    const key = colonyKey("draconians-world", "col-x");
+    const { raidId } = createRaid(s, NOW);
+    expect(setRaidTarget(s, raidId!, key, NOW).ok).toBe(true);
+    const wm = ensureWorldMap(s);
+    expect(wm.raids[0].targetColonyId).toBe("col-x");
+
+    const cleared = clearRaidTarget(s, raidId!, NOW);
+    expect(cleared.ok).toBe(true);
+    expect(wm.raids[0].targetColonyId).toBe("");
+    expect(wm.raids[0].targetOwnerName).toBe("");
+
+    // Retarget = pick a colony again after clearing.
+    expect(setRaidTarget(s, raidId!, key, NOW).ok).toBe(true);
+    expect(wm.raids[0].targetColonyId).toBe("col-x");
+  });
+  test("refuses for an unknown raid", () => {
+    const s = testState();
+    const res = clearRaidTarget(s, "raid-999", NOW);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/not found/);
   });
 });
