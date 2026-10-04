@@ -90,11 +90,31 @@ export function clampPan(
   return { x: cx, y: cy };
 }
 
-function scrollToTestid(testid: string) {
+/** Clearance above a scroll target: the sticky ribbon HUD is 56px plus the
+ *  notch safe-area (up to ~103px total) — a section parked at the viewport
+ *  top lands underneath it, so the heading is hidden and the tap looks like
+ *  it did nothing. */
+export const TARGET_CLEAR_PX = 112;
+
+export function scrollToTestid(testid: string) {
   if (typeof document === "undefined") return;
-  document
-    .querySelector(`[data-testid="${testid}"]`)
-    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const el = document.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
+  if (!el) return;
+  const land = () =>
+    Math.max(0, el.getBoundingClientRect().top + window.scrollY - TARGET_CLEAR_PX);
+  // Measured scroll instead of scrollIntoView: deterministic even if layout
+  // shifts mid-animation (lazy art, dvh height changes on phones), and the
+  // target lands below the sticky ribbon instead of underneath it.
+  window.scrollTo({ top: land(), behavior: "smooth" });
+  // Settle check — if the smooth animation mis-landed (a layout shift moved
+  // the target mid-flight), snap to the measured spot. Only fires when the
+  // target is fully outside the viewport, i.e. the scroll genuinely failed.
+  window.setTimeout(() => {
+    const r = el.getBoundingClientRect();
+    if (r.bottom < -4 || r.top > window.innerHeight + 4) {
+      window.scrollTo({ top: land(), behavior: "auto" });
+    }
+  }, 700);
 }
 
 export default function AllianceHallScene({

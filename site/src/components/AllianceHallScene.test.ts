@@ -4,10 +4,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   ALLIANCE_HOTSPOTS,
+  TARGET_CLEAR_PX,
   WORLD_W,
   WORLD_H,
   clampPan,
   minZoom,
+  scrollToTestid,
 } from "./AllianceHallScene";
 
 describe("minZoom", () => {
@@ -74,5 +76,121 @@ describe("ALLIANCE_HOTSPOTS", () => {
   test("ids are unique", () => {
     const ids = ALLIANCE_HOTSPOTS.map((h) => h.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("scrollToTestid", () => {
+  type ScrollCall = { top: number; behavior: ScrollBehavior };
+  function mockDom(elTop: number, elBottom: number) {
+    const calls: ScrollCall[] = [];
+    const timeouts: Array<() => void> = [];
+    const el = {
+      getBoundingClientRect: () => ({
+        top: elTop,
+        bottom: elBottom,
+        left: 0,
+        right: 100,
+        width: 100,
+        height: elBottom - elTop,
+        x: 0,
+        y: elTop,
+        toJSON: () => ({}),
+      }),
+    };
+    (globalThis as any).document = {
+      querySelector: (sel: string) =>
+        sel === '[data-testid="alliance-rally"]' ? el : null,
+    };
+    (globalThis as any).window = {
+      scrollY: 300,
+      innerHeight: 800,
+      scrollTo: (opts: ScrollCall) => {
+        calls.push(opts);
+      },
+      setTimeout: (fn: () => void) => {
+        timeouts.push(fn);
+        return timeouts.length;
+      },
+    };
+    return { calls, timeouts, el };
+  }
+  function unmock() {
+    delete (globalThis as any).document;
+    delete (globalThis as any).window;
+  }
+
+  test("smooth-scrolls the target below the sticky ribbon", () => {
+    const { calls } = mockDom(1200, 1400);
+    try {
+      scrollToTestid("alliance-rally");
+      expect(calls.length).toBe(1);
+      expect(calls[0].behavior).toBe("smooth");
+      // document top = viewport top (1200) + scrollY (300), minus clearance.
+      expect(calls[0].top).toBe(1200 + 300 - TARGET_CLEAR_PX);
+    } finally {
+      unmock();
+    }
+  });
+
+  test("settle check does nothing when the target landed in view", () => {
+    const { calls, timeouts, el } = mockDom(1200, 1400);
+    try {
+      scrollToTestid("alliance-rally");
+      expect(timeouts.length).toBe(1);
+      // Simulate the post-animation layout: target sitting at the clearance.
+      el.getBoundingClientRect = () => ({
+        top: TARGET_CLEAR_PX,
+        bottom: TARGET_CLEAR_PX + 200,
+        left: 0,
+        right: 100,
+        width: 100,
+        height: 200,
+        x: 0,
+        y: TARGET_CLEAR_PX,
+        toJSON: () => ({}),
+      });
+      timeouts[0]();
+      expect(calls.length).toBe(1); // no corrective snap
+    } finally {
+      unmock();
+    }
+  });
+
+  test("settle check snap-corrects a genuine mis-land", () => {
+    const { calls, timeouts, el } = mockDom(1200, 1400);
+    try {
+      scrollToTestid("alliance-rally");
+      expect(calls.length).toBe(1);
+      // Simulate a layout shift flinging the target fully out of view
+      // after the smooth animation ran.
+      el.getBoundingClientRect = () => ({
+        top: 2500,
+        bottom: 2700,
+        left: 0,
+        right: 100,
+        width: 100,
+        height: 200,
+        x: 0,
+        y: 2500,
+        toJSON: () => ({}),
+      });
+      timeouts[0]();
+      expect(calls.length).toBe(2);
+      expect(calls[1].behavior).toBe("auto");
+      expect(calls[1].top).toBe(2500 + 300 - TARGET_CLEAR_PX);
+    } finally {
+      unmock();
+    }
+  });
+
+  test("missing target is a silent no-op", () => {
+    const { calls, timeouts } = mockDom(1200, 1400);
+    try {
+      scrollToTestid("alliance-nope");
+      expect(calls.length).toBe(0);
+      expect(timeouts.length).toBe(0);
+    } finally {
+      unmock();
+    }
   });
 });

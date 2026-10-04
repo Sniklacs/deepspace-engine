@@ -662,7 +662,7 @@ function RallyBoard({ now, me, isOfficer, rallies, token, onAction }: {
   const myPledge = (r: Rally) => r.pledges.find((p) => p.colonyId === me);
   const canCall = isOfficer;
   return (
-    <div data-testid="alliance-rally">
+    <div data-testid="alliance-rally" className="scroll-mt-28">
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Rally board</h4>
       {canCall && (
         <div className="mb-3">
@@ -808,7 +808,7 @@ function Reinforcements({ state, me, alliance, token, onAction }: {
   const spare = state.troops ? availableWeight(state.troops.home.roster) : 0;
   const mates = alliance.members.filter((m) => m.colonyId !== me);
   return (
-    <div data-testid="alliance-reinforce">
+    <div data-testid="alliance-reinforce" className="scroll-mt-28">
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Reinforcements</h4>
       {mirrors.length > 0 && (
         <div className="mb-2">
