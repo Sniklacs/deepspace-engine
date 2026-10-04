@@ -154,7 +154,7 @@ export default function RaidAlarmOverlay({
           UNIDENTIFIED SIGNATURE
         </h2>
         <div style={{ fontSize: 15, color: "#ffb3b3", marginBottom: 14 }}>
-          Inbound to <strong style={{ color: "#fff" }}>{alarm.nodeName}</strong>
+          Inbound to{" "}<strong style={{ color: "#fff" }}>{alarm.nodeName}</strong>
         </div>
 
         {(intel === "identity" || intel === "full") && (

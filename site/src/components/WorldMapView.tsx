@@ -36,6 +36,7 @@ import {
   type RaidParty,
 } from "../game/raids";
 import type { TroopType } from "../game/war/troops";
+import { targetBlockReason } from "../game/raid-targeting";
 import { useT } from "./i18n/I18n";
 import { sound } from "../game/sound";
 import { Bdi } from "./ui/Bdi";
@@ -323,11 +324,15 @@ function RaidPanel({
             sound.click();
             if (!onSetTarget) {
               setHint("noHandler");
-            } else if (selectedColony && selectedColony.status === "active" && selectedKey) {
-              setHint(null);
-              onSetTarget(raid.id, selectedKey);
             } else {
-              setHint("noColonySelected");
+              // Same rule as engine.setRaidTarget — never silently reject.
+              const block = targetBlockReason(selectedColony, selectedKey, state.gameId ?? undefined);
+              if (!block && selectedKey) {
+                setHint(null);
+                onSetTarget(raid.id, selectedKey);
+              } else {
+                setHint(block ?? "noColonySelected");
+              }
             }
           }}
           className="mt-1 rounded-lg border border-amber-400/40 bg-amber-400/15 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-400/25"
@@ -337,6 +342,9 @@ function RaidPanel({
       )}
       {hint === "noColonySelected" && (
         <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.noColonySelectedHint", "Tap a colony card on the map first, then tap this button to target it.")}</p>
+      )}
+      {hint === "notRaidable" && (
+        <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.notRaidableHint", `Raids hit ACTIVE colonies — this one's ${selectedColony?.status ?? "unknown"}. Glean it instead.`)}</p>
       )}
       {hint === "noHandler" && (
         <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.noHandlerHint", "Targeting isn't wired up yet — try again in a moment.")}</p>
@@ -1456,7 +1464,7 @@ export default function WorldMapView({
                       {t("raid.unidentifiedSignature", "🚨 UNIDENTIFIED SIGNATURE")}
                     </p>
                     <p className="mt-0.5 text-[11px] text-gray-400">
-                      {t("raid.inboundTo", "Inbound to")} <span className="text-amber-200">{raidNodeName}</span>
+                      {t("raid.inboundTo", "Inbound to")}{" "}<span className="text-amber-200">{raidNodeName}</span>
                     </p>
                   </>
                 ) : (

@@ -2614,6 +2614,12 @@ const allianceApplyFn = createServerFn({ method: "POST" }).validator(
   z.object({ token: z.string(), allianceId: z.string() })
 ).handler(async ({ data }): Promise<GameResult> =>
   withColony(data.token, async (st, ctx) => {
+    // "One flag at a time" is judged against the APPLICANT's own state.
+    // The canonical tx below runs on the founder's save, whose roster can
+    // hold a stale membership (e.g. after the applicant's save was reseeded)
+    // — that must not block a fresh join (2026-10-04).
+    if (allianceOf(st, ctx.colonyId))
+      return { ok: false as const, error: "One flag at a time — leave your current alliance first." };
     const result = await canonicalAllianceTx(st, data.allianceId, (fst) =>
       applyToAlliance(fst, data.allianceId, { id: ctx.colonyId, name: ctx.colonyName }, ctx.now),
     );

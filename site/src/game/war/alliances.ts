@@ -739,6 +739,13 @@ export function applyToAlliance(
 ): AllianceResult {
   const a = allianceStore(state)[allianceId];
   if (!a) return { ok: false, error: "That alliance doesn't exist." };
+  // Idempotent rejoin (2026-10-04): the canonical roster may still list the
+  // applicant after their own save was wiped (e.g. a test reseed). Don't
+  // block them and don't push a duplicate — refresh their mirror instead.
+  if (a.members.some((m) => m.colonyId === applicant.id)) {
+    syncAllianceTo(state, a, [applicant.id]);
+    return { ok: true, value: undefined };
+  }
   if (allianceOf(state, applicant.id)) return { ok: false, error: "One flag at a time — leave your current alliance first." };
   if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "Their war band is full (100)." };
   // Open policy (owner 2026-10-03): free join, no application needed.
