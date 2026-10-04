@@ -39,6 +39,8 @@ import { formatDate } from "../../game/i18n/format";
 import { joinValue } from "../../game/i18n/split";
 import { ForgeDoor, ForgeRoom } from "../ForgeViews";
 import CradleOverview, { type SpeedupKind } from "../CradleOverview";
+import CradleScene from "../CradleScene";
+import type { Tab } from "../../game/nav-slots";
 import SlotSheet from "../SlotSheet";
 import type { EarnedTimeTokenSizeId } from "../../game/time-tokens";
 import { sound } from "../../game/sound";
@@ -101,6 +103,7 @@ export default function CradleScreen({
   canLeaveHeight,
   token,
   onAction,
+  onNavigate,
 }: {
   state: GameState;
   now: number;
@@ -130,6 +133,8 @@ export default function CradleScreen({
   token?: string;
   /** server-action poster (mirrors BattlesTab's onAction) */
   onAction: (fn: () => Promise<GameResult>, label: string) => void;
+  /** open a nav tab from the colony scene's buildings (Lab, Barracks, …) */
+  onNavigate: (tab: Tab) => void;
 }) {
   const t = useT();
   const race = getRace(state.race!);
@@ -144,6 +149,15 @@ export default function CradleScreen({
 
   return (
     <main className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4">
+      {/* THE COLONY SCENE (owner 2026-10-04): the Cradle as a place — a bright
+          pannable vista where the buildings ARE the navigation. The colony's
+          business panels live below it in the page scroll. */}
+      <div className="mb-3">
+        <CradleScene
+          onNavigate={onNavigate}
+          onOpenForge={() => { setSheet({ kind: "forge", id: "forge" }); sound.tab(); }}
+        />
+      </div>
       <div className="home-columns space-y-3">
         <div className="space-y-3">
           {/* ---- B1 · the Act I plate (only at the height) ------------------ */}

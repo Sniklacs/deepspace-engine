@@ -717,6 +717,7 @@ function PlayPage() {
           canLeaveHeight={!!games?.some((g) => g.gameId !== state.gameId && !!g.race)}
           token={token ?? undefined}
           onAction={(fn, label) => act(fn, label)}
+          onNavigate={switchTab}
         />
       )}
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onCraft={(k, n) => act(() => craftFn({ data: { token: token!, kind: k, count: n } }), "success")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} />}
