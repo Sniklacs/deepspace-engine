@@ -17,6 +17,21 @@ import { SHIP_CLASSES } from "./worldmap";
 
 export type TurretKind = "weapon" | "system";
 
+/** Combat modifiers for a turret mount (owner 2026-10-04, Hans: damage,
+ *  shield, and armor modifiers on every mount, feeding real combat math —
+ *  not display-only). All flat numbers on the game's power-unit scale:
+ *  damage adds to SHIP_FIREPOWER, shield+armor add to SHIP_HULL soak
+ *  (see shipFirepower()/shipSoak() in raids.ts). Hans tunes the numbers;
+ *  the rules (flat, deterministic, per-class) are the contract. */
+export interface TurretMods {
+  /** Flat power added to the ship's firepower in combat resolution. */
+  damage: number;
+  /** Shield points — first defensive layer when the ship takes fire. */
+  shield: number;
+  /** Armor points — added to hull soak against ground fire / repairs. */
+  armor: number;
+}
+
 export interface TurretDef {
   /** Stable id, e.g. "light-turret". */
   id: string;
@@ -32,6 +47,8 @@ export interface TurretDef {
   flavor: string;
   /** Short armament line, e.g. "Armament: twin light turrets". */
   armamentLine: string;
+  /** Combat modifiers — real numbers, wired into raids.ts resolution. */
+  mods: TurretMods;
 }
 
 /**
@@ -49,6 +66,7 @@ export const TURRETS: TurretDef[] = [
     art: "/art/turrets/needle-battery.webp",
     flavor: "Light defensive guns — stings anything that gets close, never starts a fight.",
     armamentLine: "Armament: needle battery (defensive)",
+    mods: { damage: 10, shield: 10, armor: 0 },
   },
   {
     id: "light-turret",
@@ -58,6 +76,7 @@ export const TURRETS: TurretDef[] = [
     art: "/art/turrets/light-turret.webp",
     flavor: "Twin light turrets — the workhorse guns of the line.",
     armamentLine: "Armament: twin light turrets",
+    mods: { damage: 40, shield: 30, armor: 20 },
   },
   {
     id: "aegis-grid",
@@ -67,6 +86,7 @@ export const TURRETS: TurretDef[] = [
     art: "/art/turrets/aegis-grid.webp",
     flavor: "Interlocking point-defense grid — swats strikecraft and ordnance out of the sky.",
     armamentLine: "Armament: aegis point-defense grid",
+    mods: { damage: 20, shield: 80, armor: 60 },
   },
   {
     id: "siege-cannon",
@@ -76,6 +96,7 @@ export const TURRETS: TurretDef[] = [
     art: "/art/turrets/siege-cannon.webp",
     flavor: "A single heavy siege cannon — slow to aim, ruinous when it lands.",
     armamentLine: "Armament: heavy siege cannon",
+    mods: { damage: 70, shield: 20, armor: 30 },
   },
   {
     id: "chain-gun-battery",
@@ -85,6 +106,7 @@ export const TURRETS: TurretDef[] = [
     art: "/art/turrets/chain-gun-battery.webp",
     flavor: "Twin rotary chain-guns — a wall of lead for anything dumb enough to close with a hauler.",
     armamentLine: "Armament: twin chain-gun turrets",
+    mods: { damage: 30, shield: 40, armor: 40 },
   },
   {
     id: "war-drum-array",
@@ -94,6 +116,7 @@ export const TURRETS: TurretDef[] = [
     art: "/art/turrets/war-drum-array.webp",
     flavor: "Spinal command array — no guns; it conducts the fleet's fire instead of adding its own.",
     armamentLine: "Systems: war-drum command array (no guns)",
+    mods: { damage: 0, shield: 20, armor: 10 },
   },
 ];
 
@@ -110,6 +133,11 @@ export function turretArtUrl(id: string): string | null {
 /** The signature mount for a ship class (alias of TURRET_BY_CLASS). */
 export function classTurret(cls: ShipClass): TurretDef {
   return TURRET_BY_CLASS[cls];
+}
+
+/** Combat modifiers for a ship class's mount. Every class has exactly one. */
+export function classTurretMods(cls: ShipClass): TurretMods {
+  return TURRET_BY_CLASS[cls].mods;
 }
 
 /** Every ship class is covered — the list stays in lockstep with SHIP_CLASSES. */
