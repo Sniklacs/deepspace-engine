@@ -10,13 +10,16 @@
 // (overview, devotion, roster, stores…) live below it in the normal page
 // scroll, reachable via the Great Hall hotspot and the floating pill.
 //
-// ART DIRECTION (owner): aerial drone view — camera ~100ft up, tilted ~30°
-// down over rooftops, courtyards and plazas. Film-noir SKY (deep indigo and
-// charcoal clouds, dramatic light breaks) over a BRIGHT colony below: good
-// colors, brightness AND shade, real depth, colored luster. Grounded and
-// cinematic, not gloomy. One lean 1920×1080 WebP panorama; hotspots sit on
-// the painted buildings. If the art ever fails to load the scene quietly
-// removes itself and the panels below carry on.
+// ART DIRECTION (owner, rev 2026-10-04): HIGH steep aerial camera — nearly
+// top-down (~65° from horizontal), the whole colony fitting on screen at
+// once; users zoom in for detail. TINTED film-noir SKY (deep indigo and
+// charcoal clouds broken by BLUE storm light and RED hues — distant fires,
+// warning beacons — for colored depth; only a sliver of skyline shows, just
+// enough to set the mood) over a BRIGHT colony below: good colors,
+// brightness AND shade, real depth, colored luster. Grounded and cinematic,
+// not gloomy. One lean 1920×1080 WebP panorama; hotspots sit on the painted
+// buildings. If the art ever fails to load the scene quietly removes itself
+// and the panels below carry on.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import type { Tab } from "../game/nav-slots";
@@ -43,10 +46,10 @@ export interface SceneHotspot {
 
 /**
  * Building → destination map. Positions are % coordinates on the panorama,
- * matched by eye to the painted buildings (aerial drone view, left to
- * right: glass lab dome · burning forge hall · central keep · barracks rows ·
+ * matched by eye to the painted buildings (high steep aerial, near top-down:
+ * glass lab dome · burning forge hall · central keep · barracks rows ·
  * white alliance spires · shipyard gantry · depot crates and rovers ·
- * mustering plaza with statue).
+ * mustering plaza with fountain).
  */
 export const CRADLE_HOTSPOTS: readonly SceneHotspot[] = [
   { id: "lab", x: 14, y: 54, labelKey: "cradle.scene.lab", defaultLabel: "Laboratory", target: "lab" },
