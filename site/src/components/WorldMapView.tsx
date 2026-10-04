@@ -43,6 +43,7 @@ import { useT } from "./i18n/I18n";
 import { sound } from "../game/sound";
 import { Bdi } from "./ui/Bdi";
 import MemorialsView from "./MemorialsView";
+import WorldGlobe from "./WorldGlobe";
 import { memorialNodeIds } from "../game/memorials";
 import { allianceOf } from "../game/war/alliances";
 import { openRallies } from "../game/war/rallies";
@@ -1453,6 +1454,9 @@ export default function WorldMapView({
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-3 p-4 pb-24">
+      {/* THE GLOBE (owner 2026-10-04): the world page IS the globe — the main
+          core workstation. Everything below stays exactly as it was. */}
+      <WorldGlobe state={state} now={now} />
       <header>
         <h2 className="text-lg font-bold text-white">{t("worldmap.title", "World Map")}</h2>
         <p className="mt-0.5 text-[12px] leading-relaxed text-gray-400">
