@@ -18,6 +18,20 @@ import type { GameState } from "./types";
 import { colonyKey, ensureWorldMap, type KnownColony } from "./worldmap";
 import { WORLD_CONFIG_PUBLIC } from "./world-config";
 import { sendMail } from "./mailbox";
+import {
+  addCohort,
+  emptyRoster,
+  enqueueMuster,
+  isTroopType,
+  musterCost,
+  musterDurationMs,
+  removeTroopsNewestFirst,
+  rosterByType,
+  rosterCount,
+  type MusterOrder,
+  type TroopRoster,
+  type TroopType,
+} from "./war/troops";
 
 /** 24 hours: get the supplies there, get everything running. */
 export const SUBCOLONY_SETUP_MS = 24 * 3600_000;
@@ -29,6 +43,17 @@ export const SUBCOLONY_CLAIM_COST = 5000;
  *  to shoot it supplies ... if they get too heavy on those [they] will have
  *  to end up buying supplies ... or give them up." */
 export const SUBCOLONY_UPKEEP_PER_DAY = 1000;
+
+/** How long past the upkeep deadline a hungry sub colony survives before it
+ *  collapses back to a husk (troops scatter, claim cleared — it's claimable
+ *  again). 48h past due = 72h total without a shipment. */
+export const SUBCOLONY_STARVE_MS = 48 * 3600_000;
+
+/** Sub colony garrison cap — a knife, not a home. Fixed, not tier-scaled. */
+export const SUBCOLONY_GARRISON_CAP = 1000;
+
+/** Sub colonies build troops twice as fast as the home Cradle (Hans 2026-10-03). */
+export const SUBCOLONY_MUSTER_SPEED_MULT = 2;
 
 /** A husk claim in progress (or completed). Lives on the KnownColony record. */
 export interface SubColonyClaim {
@@ -312,3 +337,208 @@ export function subColonyUpkeepPerDay(state: GameState, now: number = Date.now()
 
 /** Exported for tests: the world-map key for a colony. */
 export { colonyKey };
+
+// ============================================================================
+// SUB COLONY MUSTER — build troops at active sub colonies (owner 2026-10-03).
+//
+// Hans: "a sub colony ... where you can build in and build your troops."
+// Rules:
+// - Troops ONLY (no other buildings at a sub colony).
+// - Inherits the owner's main-colony research level (no re-research) — in v1
+//   troop power differs only by supply weight, so this is structural: the
+//   sub colony reads the owner's techsResearched via subColonyTechIds().
+// - Builds TWICE as fast as the home Cradle (SUBCOLONY_MUSTER_SPEED_MULT).
+// - Garrison cap is fixed (SUBCOLONY_GARRISON_CAP) — a knife, not a home.
+// - The flat 1,000-supply/day upkeep covers the garrison's mouths — no
+//   per-troop hunger clock at subs (the upkeep IS the supply sink).
+// ============================================================================
+
+/** Total troops stationed at a sub colony (roster + still-queued). */
+export function subColonyTroopCount(colony: KnownColony): number {
+  const roster = colony.subTroops ? rosterCount(colony.subTroops) : 0;
+  const queued = (colony.subMusterQueue ?? []).reduce((s, o) => s + o.count, 0);
+  return roster + queued;
+}
+
+/** Troops by type stationed at a sub colony (for the raid defender math). */
+export function subColonyTroopsByType(colony: KnownColony): Record<TroopType, number> {
+  if (!colony.subTroops) {
+    return { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+  }
+  return rosterByType(colony.subTroops);
+}
+
+/**
+ * Enqueue a troop muster at an active sub colony.
+ *
+ * Validates:
+ * - the colony is an active sub colony owned by the player
+ * - the troop type is known and the count is positive
+ * - one active order per type (parallel queues, like home)
+ * - fits the sub colony garrison cap
+ * - the player can afford the muster cost (same cost as home)
+ *
+ * The order builds at 2x speed (completesAt is halved vs home muster).
+ */
+export function enqueueSubColonyMuster(
+  state: GameState,
+  key: string,
+  type: string,
+  count: number,
+  now: number = Date.now(),
+): { ok: boolean; error?: string } {
+  const wm = ensureWorldMap(state, now);
+  const colony = wm.known[key];
+  if (!colony) return { ok: false, error: "Colony not found." };
+  if (colony.status !== "sub_colony" || !colony.subClaim) {
+    return { ok: false, error: "Not an active sub colony." };
+  }
+  const me = state.gameId ?? "";
+  if (colony.subClaim.claimedBy !== me) {
+    return { ok: false, error: "Not your sub colony." };
+  }
+  if (!isTroopType(type)) return { ok: false, error: "Unknown troop type." };
+
+  if (!colony.subTroops) colony.subTroops = emptyRoster();
+  if (!colony.subMusterQueue) colony.subMusterQueue = [];
+  const queue = colony.subMusterQueue;
+
+  const enq = enqueueMuster(
+    colony.subTroops,
+    queue,
+    type,
+    count,
+    now,
+    queue.length + 1,
+    SUBCOLONY_GARRISON_CAP,
+  );
+  if (!enq.ok || !enq.order) return { ok: false, error: enq.error ?? "Muster refused." };
+
+  const cost = musterCost(type, Math.trunc(count));
+  if ((state.resources.supplies ?? 0) < cost) {
+    return {
+      ok: false,
+      error: `Need ${cost.toLocaleString()} supplies to muster ${Math.trunc(count)} ${type}.`,
+    };
+  }
+  state.resources.supplies = (state.resources.supplies ?? 0) - cost;
+
+  // 2x build speed: halve the duration.
+  const order: MusterOrder = {
+    ...enq.order,
+    completesAt: now + Math.ceil(musterDurationMs(Math.trunc(count)) / SUBCOLONY_MUSTER_SPEED_MULT),
+  };
+  queue.push(order);
+  return { ok: true };
+}
+
+/**
+ * Resolve finished sub colony muster orders (call from the game loop).
+ * Completed orders add cohorts to the sub colony's garrison roster.
+ */
+export function resolveSubColonyMusters(state: GameState, now: number = Date.now()): number {
+  const wm = ensureWorldMap(state, now);
+  let resolved = 0;
+  for (const colony of Object.values(wm.known)) {
+    if (colony.status !== "sub_colony" || !colony.subMusterQueue?.length) continue;
+    const done = colony.subMusterQueue.filter((o) => o.completesAt <= now);
+    if (done.length === 0) continue;
+    colony.subMusterQueue = colony.subMusterQueue.filter((o) => o.completesAt > now);
+    if (!colony.subTroops) colony.subTroops = emptyRoster();
+    for (const o of done) {
+      addCohort(colony.subTroops, o.type, o.count, o.completesAt);
+      resolved++;
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Starvation: a sub colony whose upkeep is SUBCOLONY_STARVE_MS past due
+ * collapses back to a husk. The garrison scatters (troops lost), the claim
+ * is cleared, and the husk is claimable again — first come, first serve.
+ * The owner's main colony loses nothing (Hans 2026-10-03).
+ * Call from the game loop after resolveSubColonies().
+ */
+export function resolveStarvedSubColonies(state: GameState, now: number = Date.now()): number {
+  const wm = ensureWorldMap(state, now);
+  let collapsed = 0;
+  for (const colony of Object.values(wm.known)) {
+    const claim = colony.subClaim;
+    if (colony.status !== "sub_colony" || !claim?.nextUpkeepDue) continue;
+    if (now < claim.nextUpkeepDue + SUBCOLONY_STARVE_MS) continue;
+    const name = colony.ownerName || "sub colony";
+    colony.status = "husk";
+    colony.subClaim = null;
+    colony.subTroops = null;
+    colony.subMusterQueue = null;
+    colony.ownerName = "Unknown";
+    collapsed++;
+    sendMail(state, {
+      from: "system",
+      subject: `Sub colony lost: ${name}`,
+      body: `Your sub colony "${name}" went too long without supplies and collapsed — the garrison scattered and the husk is back on the map for anyone to claim. Your main colony is untouched.`,
+      category: "alert",
+      sentAt: now,
+    });
+  }
+  return collapsed;
+}
+
+/**
+ * RIVAL TAKEOVER (owner 2026-10-03): "Lose one to a rival (same world): main
+ * colony loses nothing, you lose what's there; taker gets it at THEIR
+ * research/build level."
+ *
+ * Called when a raid decisively wins against a sub colony. The garrison is
+ * wiped, the old claim is cleared, and a fresh claim is written for the
+ * raid leader — the sub colony stays live (no 24h setup; it's already built)
+ * but starts with an empty garrison at the TAKER's research level.
+ */
+export function seizeSubColony(
+  state: GameState,
+  key: string,
+  takerId: string,
+  takerName: string,
+  now: number = Date.now(),
+): { ok: boolean; error?: string } {
+  const wm = ensureWorldMap(state, now);
+  const colony = wm.known[key];
+  if (!colony) return { ok: false, error: "Colony not found." };
+  if (colony.status !== "sub_colony" || !colony.subClaim) {
+    return { ok: false, error: "Not an active sub colony." };
+  }
+  const oldOwner = colony.subClaim.claimedByName || "Someone";
+  // The taker gets it at THEIR research/build level — fresh claim, empty
+  // garrison, upkeep clock restarts.
+  colony.subClaim = {
+    claimedBy: takerId,
+    claimedByName: takerName,
+    claimedAt: now,
+    setupCompleteAt: now, // already built — live immediately
+    suppliesInvested: 0,
+    nextUpkeepDue: now + SUBCOLONY_SETUP_MS,
+  };
+  colony.subTroops = emptyRoster();
+  colony.subMusterQueue = [];
+  colony.ownerName = takerName;
+  sendMail(state, {
+    from: "system",
+    subject: `Sub colony seized by ${takerName}`,
+    body: `${takerName} overran your sub colony and seized it. You lost everything stationed there — your main colony is untouched.`,
+    category: "alert",
+    sentAt: now,
+  });
+  return { ok: true, error: undefined };
+}
+
+/** Remove troops from a sub colony garrison (raid defender casualties). */
+export function bleedSubColonyTroops(
+  colony: KnownColony,
+  losses: number,
+): Record<TroopType, number> {
+  if (!colony.subTroops || losses <= 0) {
+    return { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+  }
+  return removeTroopsNewestFirst(colony.subTroops, Math.min(losses, rosterCount(colony.subTroops)));
+}

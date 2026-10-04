@@ -157,7 +157,6 @@ import {
   raidLootCapacity,
   raidTroopCapacity,
   raidTroopCount,
-  resolveRaidBattle,
   rollDeserterEncounter,
   setRaidTarget as setRaidTargetPure,
   startTacticalRaidBattle,
@@ -3319,7 +3318,13 @@ export function setRaidTarget(state: GameState, raidId: string, key: string, now
   if (!raid) return fail("Raid party not found.");
   const colony = wm.known[key];
   if (!colony) return fail("That colony isn't on your map — scout it first.");
-  if (colony.status !== "active") return fail("Raids hit ACTIVE colonies. That one's " + colony.status + " — glean it instead.");
+  // SUB COLONY (owner 2026-10-03): rivals can raid sub colonies — a decisive
+  // win seizes them. You can't raid your own.
+  const isRivalSub = colony.status === "sub_colony" && colony.subClaim?.claimedBy !== (state.gameId ?? "");
+  if (colony.status !== "active" && !isRivalSub) {
+    if (colony.status === "sub_colony") return fail("That's YOUR sub colony — you can't raid yourself.");
+    return fail("Raids hit ACTIVE colonies. That one's " + colony.status + " — glean it instead.");
+  }
   const res = setRaidTargetPure(raid, colony.serverId, colony.id, colony.ownerName);
   if (!res.ok) return fail(res.error ?? "Could not set the target.");
   log(state, `🎯 ${raid.id} targeting ${colony.ownerName}'s colony on ${colony.serverId}.`);

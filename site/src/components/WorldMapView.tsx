@@ -7,6 +7,7 @@
 // Hans's rule: every button is always tappable; a tap that can't proceed
 // shows the reason inline, right below the button.
 import { useEffect, useMemo, useState } from "react";
+import { TacticalBattleView } from "./TacticalBattleView";
 import type { GameState } from "../game/types";
 import {
   abandonmentIn,
@@ -150,6 +151,8 @@ function RaidPanel({
   onDeploy,
   onHireDeserters,
   onDismissDeserters,
+  onTacticalRound,
+  onQuickResolveTactical,
 }: {
   state: GameState;
   raid: RaidParty | null;
@@ -165,6 +168,8 @@ function RaidPanel({
   onDeploy?: (raidId: string, deployment: Record<string, Record<string, number>>, shipsHoldOrbit: boolean) => void;
   onHireDeserters?: (raidId: string, bandId: string) => void;
   onDismissDeserters?: (raidId: string, bandId: string) => void;
+  onTacticalRound?: (raidId: string, orders: Record<string, { order: string; target?: string; count?: number; orbitalStrike?: string }>) => void;
+  onQuickResolveTactical?: (raidId: string) => void;
 }) {
   const t = useT();
   const [hint, setHint] = useState<string | null>(null);
@@ -483,6 +488,14 @@ function RaidPanel({
           onDeploy={(dep, hold) => onDeploy?.(raid.id, dep, hold)}
           onHireDeserters={(bandId) => onHireDeserters?.(raid.id, bandId)}
           onDismissDeserters={(bandId) => onDismissDeserters?.(raid.id, bandId)}
+        />
+      )}
+
+      {raid.status === "tactical" && (
+        <TacticalBattleView
+          raid={raid}
+          onIssueOrders={(raidId, orders) => onTacticalRound?.(raidId, orders as Record<string, { order: string; target?: string; count?: number; orbitalStrike?: string }>)}
+          onQuickResolve={(raidId) => onQuickResolveTactical?.(raidId)}
         />
       )}
     </div>
@@ -1190,6 +1203,8 @@ export default function WorldMapView({
   onDeployRaid,
   onHireDeserters,
   onDismissDeserters,
+  onTacticalRound,
+  onQuickResolveTactical,
   onEpitaph,
 }: {
   state: GameState;
@@ -1210,6 +1225,8 @@ export default function WorldMapView({
   onDeployRaid?: (raidId: string, deployment: Record<string, Record<string, number>>, shipsHoldOrbit: boolean) => void;
   onHireDeserters?: (raidId: string, bandId: string) => void;
   onDismissDeserters?: (raidId: string, bandId: string) => void;
+  onTacticalRound?: (raidId: string, orders: Record<string, { order: string; target?: string; count?: number; orbitalStrike?: string }>) => void;
+  onQuickResolveTactical?: (raidId: string) => void;
   /** Victor carves an epitaph on a memorial plaque (owner 2026-09-30). */
   onEpitaph?: (plaqueId: string, epitaph: string) => void;
 }) {
@@ -1334,6 +1351,8 @@ export default function WorldMapView({
         onDeploy={onDeployRaid}
         onHireDeserters={onHireDeserters}
         onDismissDeserters={onDismissDeserters}
+        onTacticalRound={onTacticalRound}
+        onQuickResolveTactical={onQuickResolveTactical}
       />
 
       {/* Incoming cross-server raids (defender warnings, owner 2026-10-03) */}

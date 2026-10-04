@@ -6,15 +6,24 @@ import {
   SUBCOLONY_CLAIM_COST,
   SUBCOLONY_SETUP_MS,
   SUBCOLONY_UPKEEP_PER_DAY,
+  SUBCOLONY_GARRISON_CAP,
+  SUBCOLONY_STARVE_MS,
+  bleedSubColonyTroops,
   claimHusk,
+  enqueueSubColonyMuster,
   isActiveSubColony,
   isClaimableHusk,
   isSettingUp,
   mySubColonies,
+  resolveStarvedSubColonies,
   resolveSubColonies,
+  resolveSubColonyMusters,
+  seizeSubColony,
   setupRemaining,
+  shipSubColonySupplies,
   subColonyReverb,
   subColonyTechIds,
+  subColonyTroopCount,
   subColonyUpkeepPerDay,
 } from "./subcolonies";
 import { colonyKey, emptyWorldMap, type KnownColony } from "./worldmap";
@@ -149,6 +158,157 @@ describe("24h setup", () => {
   });
 });
 
+describe("sub colony muster (2x speed)", () => {
+  function activeSub(key: string, id: string): string {
+    const s = testState();
+    const k = addHusk(s, id);
+    claimHusk(s, k, NOW);
+    resolveSubColonies(s, NOW + SUBCOLONY_SETUP_MS + 1);
+    return k;
+  }
+
+  test("musters troops at 2x speed", () => {
+    const s = testState();
+    const k = addHusk(s, "husk-1");
+    claimHusk(s, k, NOW);
+    resolveSubColonies(s, NOW + SUBCOLONY_SETUP_MS + 1);
+    // Home muster for 100 troops = 100 * 30s = 3000s. Sub = half.
+    const res = enqueueSubColonyMuster(s, k, "bulwark", 100, NOW);
+    expect(res.ok).toBe(true);
+    const c = s.worldMap!.known[k];
+    const order = c.subMusterQueue![0];
+    expect(order.completesAt - NOW).toBe(Math.ceil((100 * 30_000) / 2));
+    // Cost deducted (same as home: 4 supplies per weight).
+    expect(s.resources.supplies).toBe(100_000 - SUBCOLONY_CLAIM_COST - 100 * 4);
+  });
+
+  test("rejects muster at non-sub-colony", () => {
+    const s = testState();
+    const k = addHusk(s, "husk-1");
+    const res = enqueueSubColonyMuster(s, k, "bulwark", 100, NOW);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/Not an active sub colony/);
+  });
+
+  test("rejects muster at someone else's sub colony", () => {
+    const s = testState();
+    const k = addHusk(s, "husk-1");
+    claimHusk(s, k, NOW);
+    resolveSubColonies(s, NOW + SUBCOLONY_SETUP_MS + 1);
+    s.worldMap!.known[k].subClaim!.claimedBy = "rival-1";
+    const res = enqueueSubColonyMuster(s, k, "bulwark", 100, NOW);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/Not your sub colony/);
+  });
+
+  test("rejects over garrison cap", () => {
+    const s = testState(10_000_000);
+    const k = addHusk(s, "husk-1");
+    claimHusk(s, k, NOW);
+    resolveSubColonies(s, NOW + SUBCOLONY_SETUP_MS + 1);
+    const res = enqueueSubColonyMuster(s, k, "bulwark", SUBCOLONY_GARRISON_CAP + 1, NOW);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/Garrison cap/);
+  });
+
+  test("rejects duplicate type queue", () => {
+    const s = testState();
+    const k = addHusk(s, "husk-1");
+    claimHusk(s, k, NOW);
+    resolveSubColonies(s, NOW + SUBCOLONY_SETUP_MS + 1);
+    expect(enqueueSubColonyMuster(s, k, "bulwark", 100, NOW).ok).toBe(true);
+    const res2 = enqueueSubColonyMuster(s, k, "bulwark", 50, NOW + 1000);
+    expect(res2.ok).toBe(false);
+    expect(res2.error).toMatch(/already running/);
+  });
+
+  test("resolveSubColonyMusters completes orders into the garrison", () => {
+    const s = testState();
+    const k = addHusk(s, "husk-1");
+    claimHusk(s, k, NOW);
+    resolveSubColonies(s, NOW + SUBCOLONY_SETUP_MS + 1);
+    enqueueSubColonyMuster(s, k, "bulwark", 100, NOW);
+    enqueueSubColonyMuster(s, k, "reaver", 50, NOW);
+    expect(subColonyTroopCount(s.worldMap!.known[k])).toBe(150); // queued counts
+    const doneAt = NOW + Math.ceil((100 * 30_000) / 2) + 1;
+    expect(resolveSubColonyMusters(s, doneAt)).toBe(2);
+    const c = s.worldMap!.known[k];
+    expect(c.subMusterQueue).toHaveLength(0);
+    expect(subColonyTroopCount(c)).toBe(150);
+  });
+});
+
+describe("starvation → husk", () => {
+  test("collapses back to husk 48h past the upkeep deadline", () => {
+    const s = testState();
+    const k = addHusk(s, "husk-1");
+    claimHusk(s, k, NOW);
+    const liveAt = NOW + SUBCOLONY_SETUP_MS + 1;
+    resolveSubColonies(s, liveAt);
+    const c = s.worldMap!.known[k];
+    const due = c.subClaim!.nextUpkeepDue!;
+    // Still alive just before the starve window.
+    expect(resolveStarvedSubColonies(s, due + SUBCOLONY_STARVE_MS - 1)).toBe(0);
+    expect(c.status).toBe("sub_colony");
+    // Past it → husk, claim cleared, troops gone.
+    expect(resolveStarvedSubColonies(s, due + SUBCOLONY_STARVE_MS + 1)).toBe(1);
+    expect(c.status).toBe("husk");
+    expect(c.subClaim).toBeNull();
+    expect(c.subTroops).toBeNull();
+    expect(isClaimableHusk(c)).toBe(true);
+  });
+
+  test("paying upkeep resets the starvation clock", () => {
+    const s = testState();
+    const k = addHusk(s, "husk-1");
+    claimHusk(s, k, NOW);
+    const liveAt = NOW + SUBCOLONY_SETUP_MS + 1;
+    resolveSubColonies(s, liveAt);
+    const c = s.worldMap!.known[k];
+    const due = c.subClaim!.nextUpkeepDue!;
+    // Pay just before collapse.
+    shipSubColonySupplies(s, k, due + SUBCOLONY_STARVE_MS - 1000);
+    expect(resolveStarvedSubColonies(s, due + SUBCOLONY_STARVE_MS + 1)).toBe(0);
+    expect(c.status).toBe("sub_colony");
+  });
+});
+
+describe("rival takeover (seizure)", () => {
+  test("seizeSubColony transfers ownership, wipes garrison", () => {
+    const s = testState();
+    const k = addHusk(s, "husk-1");
+    claimHusk(s, k, NOW);
+    resolveSubColonies(s, NOW + SUBCOLONY_SETUP_MS + 1);
+    enqueueSubColonyMuster(s, k, "bulwark", 100, NOW);
+    resolveSubColonyMusters(s, NOW + Math.ceil((100 * 30_000) / 2) + 1);
+    expect(subColonyTroopCount(s.worldMap!.known[k])).toBe(100);
+
+    const res = seizeSubColony(s, k, "rival-1", "RivalLord", NOW + 9999);
+    expect(res.ok).toBe(true);
+    const c = s.worldMap!.known[k];
+    expect(c.status).toBe("sub_colony");
+    expect(c.subClaim!.claimedBy).toBe("rival-1");
+    expect(c.subClaim!.claimedByName).toBe("RivalLord");
+    expect(c.ownerName).toBe("RivalLord");
+    // Garrison wiped — taker starts empty at THEIR level.
+    expect(subColonyTroopCount(c)).toBe(0);
+    // Old owner no longer counts it.
+    expect(mySubColonies(s, NOW + 9999)).toHaveLength(0);
+  });
+
+  test("bleedSubColonyTroops removes from the garrison", () => {
+    const s = testState();
+    const k = addHusk(s, "husk-1");
+    claimHusk(s, k, NOW);
+    resolveSubColonies(s, NOW + SUBCOLONY_SETUP_MS + 1);
+    enqueueSubColonyMuster(s, k, "bulwark", 100, NOW);
+    resolveSubColonyMusters(s, NOW + Math.ceil((100 * 30_000) / 2) + 1);
+    const c = s.worldMap!.known[k];
+    const lost = bleedSubColonyTroops(c, 40);
+    expect(lost.bulwark).toBe(40);
+    expect(subColonyTroopCount(c)).toBe(60);
+  });
+});
 describe("helpers", () => {
   test("isClaimableHusk", () => {
     const h = husk("a");

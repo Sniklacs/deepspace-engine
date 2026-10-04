@@ -17,7 +17,7 @@
 //     Active colonies are lootable-only in v1, with defender warnings.
 
 import type { RaceId } from "./types";
-import type { MercenaryBand } from "./war/troops";
+import type { MercenaryBand, MusterOrder, TroopRoster } from "./war/troops";
 import type { PersonalShipyard } from "./shipyard";
 import type { RaidParty, RaidWarning } from "./raids";
 
@@ -97,6 +97,11 @@ export interface KnownColony {
   /** Sub-colony claim (subcolonies.ts). Set when a husk is claimed; the
    *  colony's status moves husk → setting_up → sub_colony. */
   subClaim?: import("./subcolonies").SubColonyClaim | null;
+  /** Troop garrison stationed at an active sub colony (subcolonies.ts).
+   *  Built at the owner's research level, twice as fast as home muster. */
+  subTroops?: TroopRoster | null;
+  /** Muster queue for the sub colony garrison — 2x build speed. */
+  subMusterQueue?: MusterOrder[] | null;
 }
 
 /** A scout probe in flight. One-time use: launched → returns → consumed. */
