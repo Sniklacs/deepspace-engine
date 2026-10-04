@@ -728,6 +728,7 @@ function PlayPage() {
         <FormationsTab
           state={state}
           busy={busy}
+          token={token}
           onAction={(fn, label) => act(fn, label)}
           onGoToWorld={() => setTab("world")}
         />

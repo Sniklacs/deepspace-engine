@@ -437,6 +437,11 @@ export interface GameState {
    *  scout probes, known colonies, gleaning runs. Optional for migration:
    *  pre-worldmap saves initialize via emptyWorldMap on first advance. */
   worldMap?: import("./worldmap").WorldMapState;
+  /** FORMATIONS (owner 2026-10-04) — raid loadouts, exploration loadouts,
+   *  response teams. Pre-built battle groups ready to roll: ships reserved,
+   *  troops loaded, supplies staged, hero leader assigned. Optional for
+   *  migration: initialized by ensureFormations on first advance. */
+  formations?: import("./formations").FormationsState;
   /** ALLIANCES + RALLIES (design/alliances.md) — the war band. Server-shaped   *  records (keyed by id, members by colonyId) so a future multiplayer
    *  server migration is mechanical. Soul-level: membership PERSISTS across
    *  seasons — no reset path touches this store (alliances.md §9).

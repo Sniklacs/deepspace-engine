@@ -190,6 +190,15 @@ export interface RaidParty {
   departedAt?: number;
   landsAt?: number;
   returnedAt?: number; // landsAt of the return leg
+  /** Formation origin (owner 2026-10-04): when a raid is deployed from a
+   *  standby formation, the formation id rides along so the raid's
+   *  completion can retire the formation. */
+  formationId?: string;
+  /** Hero leader (owner 2026-10-04): the formation's assigned leader who
+   *  marches with the raid. Display only in v1 — the tactical battle's
+   *  defender AI doesn't counter heroes yet. */
+  heroId?: string;
+  heroName?: string;
   /** Battle outcome (filled when landed resolves). */
   won?: boolean;
   attackerLosses?: Partial<Record<TroopType, number>>;

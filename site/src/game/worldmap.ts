@@ -509,7 +509,9 @@ export interface JumpShip {
   raceId: RaceId;
   /** Display name (race-specific). */
   name: string;
-  status: "building" | "ready" | "deployed" | "destroyed" | "stranded";
+  /** "reserved" (owner 2026-10-04): held by a standby formation — not
+   *  assignable to raids or other formations until released. */
+  status: "building" | "ready" | "reserved" | "deployed" | "destroyed" | "stranded";
   /** When building completes (if status === "building"). */
   doneAt?: number;
   /** If stranded: beacon info (position only — no comms, §11). */
