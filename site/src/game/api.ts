@@ -1145,7 +1145,16 @@ const donateShipyardFn = createServerFn({ method: "POST" }).validator(
       raceMats: data.raceMats,
     });
     if (!r.ok) return { ok: false, error: r.error ?? "Donation failed." };
-    const { touchAlliance, syncAllianceTo } = await import("./war/alliances");
+    const { touchAlliance, syncAllianceTo, logAllianceActivity } = await import("./war/alliances");
+    const parts: string[] = [];
+    if (data.supplies > 0) parts.push(`${data.supplies.toLocaleString()} supplies`);
+    if (data.alloys > 0) parts.push(`${data.alloys.toLocaleString()} alloys`);
+    if (data.raceMats > 0) parts.push(`${data.raceMats.toLocaleString()} race materials`);
+    logAllianceActivity(a, "donated", `🎁 ${ctx.colonyName} donated ${parts.join(" + ") || "supplies"} to the ship factory.`, {
+      byColonyId: ctx.colonyId,
+      byColonyName: ctx.colonyName,
+      at: ctx.now,
+    });
     touchAlliance(a);
     syncAllianceTo(st, a);
     return { ok: true, value: "donated" };
@@ -1159,6 +1168,19 @@ const setTitheFn = createServerFn({ method: "POST" }).validator(
     const r = setTitheRate(st, data.allianceId, ctx.colonyId, data.rate);
     if (!r.ok) return { ok: false, error: r.error ?? "Couldn't set the tithe." };
     return { ok: true, value: `${Math.round(data.rate)}%` };
+  }),
+);
+
+// Alliance: join policy (owner 2026-10-04) — open (free join) vs apply
+// (officers review). Officer+.
+const setJoinPolicyFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), allianceId: z.string(), policy: z.enum(["open", "apply"]) })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const { setJoinPolicy } = await import("./war/alliances");
+    const r = setJoinPolicy(st, data.allianceId, ctx.colonyId, data.policy);
+    if (!r.ok) return { ok: false, error: r.error ?? "Couldn't set the join policy." };
+    return { ok: true, value: data.policy };
   }),
 );
 
@@ -1345,8 +1367,147 @@ const deployRaidFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
-// Deserter hiring (owner 2026-10-03): hire or dismiss the mercenary band
-// waiting at a raid after touchdown. Supplies come from raid cargo.
+// FORMATIONS — raid loadouts, exploration loadouts, response teams
+// (owner 2026-10-04). A formation is a pre-built battle group ready to roll.
+const createFormationFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    name: z.string(),
+    type: z.enum(["raid", "exploration", "response"]),
+    heroId: z.string(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.createFormation(st, data.name, data.type, data.heroId, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const assignFormationShipFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), formationId: z.string(), shipId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.assignFormationShip(st, data.formationId, data.shipId, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const removeFormationShipFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), formationId: z.string(), shipId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.removeFormationShip(st, data.formationId, data.shipId, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const loadFormationTroopsFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), formationId: z.string(), shipId: z.string(), type: z.string(), count: z.number() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.loadFormationTroops(st, data.formationId, data.shipId, data.type as import("./war/troops").TroopType, data.count, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const unloadFormationTroopsFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), formationId: z.string(), shipId: z.string(), type: z.string(), count: z.number() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.unloadFormationTroops(st, data.formationId, data.shipId, data.type as import("./war/troops").TroopType, data.count, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const stageFormationSuppliesFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), formationId: z.string(), amount: z.number() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.stageFormationSupplies(st, data.formationId, data.amount, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const unstageFormationSuppliesFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), formationId: z.string(), amount: z.number() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.unstageFormationSupplies(st, data.formationId, data.amount, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const deleteFormationFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), formationId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.deleteFormation(st, data.formationId, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+const deployFormationFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), formationId: z.string() })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = engine.deployFormationAsRaid(st, data.formationId, Date.now());
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
 const hireDesertersFn = createServerFn({ method: "POST" }).validator(
   z.object({
     token: z.string(),
@@ -2471,6 +2632,7 @@ const allianceApplyFn = createServerFn({ method: "POST" }).validator(
               body: `You've joined the war band "${allianceName}". Watch your mailbox for rally calls, help requests, and war-band announcements. Fight well.`,
               category: "alliance",
               sentAt: ctx.now,
+              goTo: { tab: "alliance", label: "Open war band" },
             });
             return { ok: true as const, value: undefined };
           });
@@ -2525,6 +2687,7 @@ const allianceAnswerFn = createServerFn({ method: "POST" }).validator(
             body: `You've joined the war band "${allianceName}". Watch your mailbox for rally calls, help requests, and war-band announcements. Fight well.`,
             category: "alliance",
             sentAt: ctx.now,
+            goTo: { tab: "alliance", label: "Open war band" },
           });
           return { ok: true as const, value: undefined };
         });
@@ -2553,7 +2716,7 @@ const allianceLeaveFn = createServerFn({ method: "POST" }).validator(
     // 2. The canonical member roll lives on the founder's account.
     try {
       const res = await transactColony(founderId, (fst) =>
-        removeAllianceMemberRecord(fst, allianceId, ctx.colonyId),
+        removeAllianceMemberRecord(fst, allianceId, ctx.colonyId, { why: "left", at: ctx.now }),
       );
       if (!res.ok) return res;
     } catch (e) {
@@ -2877,6 +3040,7 @@ export {
   contributeShipFn,
   donateShipyardFn,
   setTitheFn,
+  setJoinPolicyFn,
   markMailReadFn,
   markAllMailReadFn,
   deleteMailFn,
@@ -2889,6 +3053,15 @@ export {
   deployRaidFn,
   tacticalRoundFn,
   quickResolveTacticalFn,
+  createFormationFn,
+  assignFormationShipFn,
+  removeFormationShipFn,
+  loadFormationTroopsFn,
+  unloadFormationTroopsFn,
+  stageFormationSuppliesFn,
+  unstageFormationSuppliesFn,
+  deleteFormationFn,
+  deployFormationFn,
   joinRaidFn,
   hireDesertersFn,
   dismissDesertersFn,

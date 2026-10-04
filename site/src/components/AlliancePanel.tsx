@@ -106,8 +106,9 @@ export default function AlliancePanel({
 
 // ---------------------------------------------------------------------------
 // No alliance yet: found one, or answer a standing invite.
+// Exported for the dedicated Alliance page (owner 2026-10-04).
 // ---------------------------------------------------------------------------
-function NoAlliance({ state, me, token, onAction }: { state: GameState; me: string; token?: string; onAction: Act }) {
+export function NoAlliance({ state, me, token, onAction }: { state: GameState; me: string; token?: string; onAction: Act }) {
   const t = useT();
   const [name, setName] = useState("");
   const [banner, setBanner] = useState("⚔️");
@@ -376,8 +377,9 @@ function DirectorySection({ state, token, onAction, query }: { state: GameState;
 
 // ---------------------------------------------------------------------------
 // The alliance home: members, applications, rally board, reinforcements, help.
+// Exported for the dedicated Alliance page (owner 2026-10-04).
 // ---------------------------------------------------------------------------
-function AllianceHome({
+export function AllianceHome({
   state,
   now,
   me,
@@ -425,10 +427,11 @@ function AllianceHome({
         </div>
         <div className="flex gap-2">
           <button
-            className="rounded-lg border border-line px-3 py-1 text-xs text-text-2"
-            onClick={() => { if (window.confirm("Walk away from the war band? Open pledges come home; launched rallies finish without you.")) post(() => allianceLeaveFn({ data: { token: token! } }), "leave"); }}
+            className="rounded-lg border border-red-900/60 bg-red-950/30 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-950/50"
+            onClick={() => { if (window.confirm(`Leave ${alliance.name}? Open pledges come home; launched rallies finish without you. You can rejoin anytime.`)) post(() => allianceLeaveFn({ data: { token: token! } }), "leave"); }}
+            data-testid="alliance-leave"
           >
-            Leave
+            Leave alliance
           </button>
           {isLeader && (
             <button

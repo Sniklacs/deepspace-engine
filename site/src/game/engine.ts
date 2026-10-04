@@ -71,7 +71,7 @@ import {
 } from "./memorials";
 import { currentSeason } from "./seasons";
 import type { ManeuverVector } from "./war/war-types";
-import { allianceOf, broadcastRaidAlarm, ensureAlliances, guestsAt, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
+import { allianceOf, broadcastRaidAlarm, ensureAlliances, guestsAt, logAllianceActivity, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
 import { applyTithe, ensureStockpile } from "./shipyard";
 import { advanceRallies, ensureRallies } from "./war/rallies";
 import { ensureArena, expireArenaChallenges, resolveArenaBattles } from "./war/arena";
@@ -166,6 +166,18 @@ import {
   EMPTY_RAID_LOOT,
   type RaidParty,
 } from "./raids";
+import {
+  assignFormationShip as assignFormationShipPure,
+  createFormation as createFormationPure,
+  emptyFormationsState,
+  formationDeployBlocker,
+  formationTroopsByType,
+  loadFormationShipTroops as loadFormationShipTroopsPure,
+  removeFormationShip as removeFormationShipPure,
+  unloadFormationShipTroops as unloadFormationShipTroopsPure,
+  type Formation,
+  type FormationType,
+} from "./formations";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
@@ -3440,6 +3452,311 @@ export function deployRaid(
   return { ok: true, state };
 }
 
+// ---------------------------------------------------------------------------
+// FORMATIONS — raid loadouts, exploration loadouts, response teams
+// (owner 2026-10-04: "don't be afraid to make pages").
+// A formation is a pre-built battle group ready to roll: ships reserved,
+// troops loaded, supplies staged, hero leader assigned.
+// ---------------------------------------------------------------------------
+
+/** Additive init — old saves get an empty formations roster, never a wipe. */
+export function ensureFormations(state: GameState): { formations: Formation[]; seq: number } {
+  const s = state as unknown as { formations?: { formations: Formation[]; seq: number } };
+  if (!s.formations || !Array.isArray(s.formations.formations)) {
+    s.formations = emptyFormationsState();
+  }
+  return s.formations;
+}
+
+function findFormation(state: GameState, formationId: string): Formation | undefined {
+  return ensureFormations(state).formations.find((f) => f.id === formationId);
+}
+
+/** All heroes available as formation leaders (prologue heroes + leaders). */
+export function formationLeaderRoster(state: GameState): { id: string; name: string; kind: "hero" | "leader" }[] {
+  const out: { id: string; name: string; kind: "hero" | "leader" }[] = [];
+  for (const h of state.prologue?.heroes ?? []) {
+    out.push({ id: h.id, name: h.name, kind: "hero" });
+  }
+  for (const l of state.leaders ?? []) {
+    out.push({ id: l.id, name: l.name, kind: "leader" });
+  }
+  return out;
+}
+
+/** True if the hero already leads a standby formation. */
+function heroLeadingFormation(state: GameState, heroId: string, exceptId?: string): Formation | undefined {
+  return ensureFormations(state).formations.find(
+    (f) => f.heroId === heroId && f.status === "standby" && f.id !== exceptId,
+  );
+}
+
+/** Create a formation. The hero leader is REQUIRED — no hero, no formation. */
+export function createFormation(
+  state: GameState,
+  name: string,
+  type: FormationType,
+  heroId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; formationId?: string } {
+  advance(state, now);
+  const roster = formationLeaderRoster(state);
+  const hero = roster.find((h) => h.id === heroId);
+  if (!hero) {
+    return fail("Pick a hero to lead the formation — a formation doesn't march without one.");
+  }
+  const busy = heroLeadingFormation(state, heroId);
+  if (busy) {
+    return fail(`${hero.name} already leads "${busy.name}" — one hero, one formation.`);
+  }
+  const fs = ensureFormations(state);
+  const res = createFormationPure(name, type, heroId, hero.name, fs.seq, now);
+  if (!res.ok || !res.formation) return fail(res.error ?? "Could not create the formation.");
+  fs.seq += 1;
+  fs.formations.push(res.formation);
+  log(state, `🛡️ Formation "${res.formation.name}" mustered under ${hero.name}. Reserve ships and load troops — it's on standby.`);
+  return { ok: true, state, formationId: res.formation.id };
+}
+
+/** Find a jump ship by id across personal + alliance fleets. */
+function findFleetShip(state: GameState, shipId: string): { id: string; class: ShipClass; status: string; setStatus: (s: "ready" | "reserved" | "deployed") => void } | undefined {
+  const out: { id: string; class: ShipClass; status: string; setStatus: (s: "ready" | "reserved" | "deployed") => void }[] = [];
+  const psy = state.worldMap?.shipyard;
+  if (psy) {
+    for (const s of psy.ships) {
+      out.push({ id: s.id, class: s.class, status: s.status, setStatus: (st) => { s.status = st; } });
+    }
+  }
+  const alliance = allianceOf(state, myColonyId(state));
+  if (alliance) {
+    const sy = ensureShipyard(alliance);
+    for (const s of sy.ships) {
+      out.push({ id: s.id, class: s.class, status: s.status, setStatus: (st) => { s.status = st; } });
+    }
+  }
+  return out.find((s) => s.id === shipId);
+}
+
+/** Reserve a ready jump ship into a standby formation. */
+export function assignFormationShip(
+  state: GameState,
+  formationId: string,
+  shipId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const f = findFormation(state, formationId);
+  if (!f) return fail("Formation not found.");
+  const ship = findFleetShip(state, shipId);
+  if (!ship) return fail("Ship not found in your fleet.");
+  if (ship.status !== "ready") {
+    return fail(
+      ship.status === "reserved"
+        ? "That ship is already reserved — release it from its formation first."
+        : "That ship isn't ready — it's building, deployed, or stranded.",
+    );
+  }
+  const res = assignFormationShipPure(f, ship.id, ship.class);
+  if (!res.ok) return fail(res.error ?? "Could not reserve the ship.");
+  ship.setStatus("reserved");
+  log(state, `🚀 "${f.name}": ${ship.class} reserved and on standby.`);
+  return { ok: true, state };
+}
+
+/** Release a ship from a formation: troops return home, ship goes ready. */
+export function removeFormationShip(
+  state: GameState,
+  formationId: string,
+  shipId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  ensureTroops(state, now);
+  const f = findFormation(state, formationId);
+  if (!f) return fail("Formation not found.");
+  const res = removeFormationShipPure(f, shipId);
+  if (!res.ok || !res.removed) return fail(res.error ?? "Could not release the ship.");
+  // Troops on the ship return to the home roster.
+  const roster = state.troops!.home.roster;
+  for (const [t, c] of Object.entries(res.removed.troops) as [TroopType, number][]) {
+    if ((c ?? 0) > 0) addCohort(roster, t, c!, now);
+  }
+  const ship = findFleetShip(state, shipId);
+  if (ship) ship.setStatus("ready");
+  log(state, `🚀 "${f.name}": ship released back to ready. Its troops stood down home.`);
+  return { ok: true, state };
+}
+
+/** Load troops onto one of the formation's ships (moves them OUT of home). */
+export function loadFormationTroops(
+  state: GameState,
+  formationId: string,
+  shipId: string,
+  type: TroopType,
+  count: number,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  ensureTroops(state, now);
+  const f = findFormation(state, formationId);
+  if (!f) return fail("Formation not found.");
+  const n = Math.trunc(count);
+  if (!(n > 0)) return fail("Load at least one troop.");
+  const roster = state.troops!.home.roster;
+  const have = roster.cohorts.filter((c) => c.type === type).reduce((a, c) => a + c.count, 0);
+  if (have < n) return fail(`You only have ${have} ${type} mustered at home.`);
+  const res = loadFormationShipTroopsPure(f, shipId, type, n);
+  if (!res.ok) return fail(res.error ?? "Could not load troops.");
+  removeTroopsNewestFirst(roster, n, type);
+  log(state, `⚔️ "${f.name}": ${n} ${type} loaded. What the formation carries is committed.`);
+  return { ok: true, state };
+}
+
+/** Unload troops from a formation ship back to the home roster. */
+export function unloadFormationTroops(
+  state: GameState,
+  formationId: string,
+  shipId: string,
+  type: TroopType,
+  count: number,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  ensureTroops(state, now);
+  const f = findFormation(state, formationId);
+  if (!f) return fail("Formation not found.");
+  const res = unloadFormationShipTroopsPure(f, shipId, type, count);
+  if (!res.ok) return fail(res.error ?? "Could not unload troops.");
+  const roster = state.troops!.home.roster;
+  addCohort(roster, type, res.unloaded!, now);
+  log(state, `⚔️ "${f.name}": ${res.unloaded} ${type} stood down home.`);
+  return { ok: true, state };
+}
+
+/** Stage supplies with the formation (moves them OUT of home stockpile). */
+export function stageFormationSupplies(
+  state: GameState,
+  formationId: string,
+  amount: number,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const f = findFormation(state, formationId);
+  if (!f) return fail("Formation not found.");
+  if (f.status !== "standby") return fail("That formation already deployed — no changes.");
+  const n = Math.trunc(amount);
+  if (!(n > 0)) return fail("Stage at least 1 supply.");
+  if (state.resources.supplies < n) return fail(`You only have ${Math.floor(state.resources.supplies)} supplies.`);
+  state.resources.supplies -= n;
+  f.supplies += n;
+  log(state, `📦 "${f.name}": ${n} supplies staged. For deserters, emergencies, the unknown.`);
+  return { ok: true, state };
+}
+
+/** Return staged supplies to the home stockpile. */
+export function unstageFormationSupplies(
+  state: GameState,
+  formationId: string,
+  amount: number,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const f = findFormation(state, formationId);
+  if (!f) return fail("Formation not found.");
+  if (f.status !== "standby") return fail("That formation already deployed — no changes.");
+  const n = Math.trunc(amount);
+  if (!(n > 0)) return fail("Return at least 1 supply.");
+  const take = Math.min(f.supplies, n);
+  if (take <= 0) return fail("No staged supplies to return.");
+  f.supplies -= take;
+  state.resources.supplies += take;
+  log(state, `📦 "${f.name}": ${take} supplies returned to the stockpile.`);
+  return { ok: true, state };
+}
+
+/** Delete a standby formation: ships go ready, troops and supplies go home. */
+export function deleteFormation(
+  state: GameState,
+  formationId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  ensureTroops(state, now);
+  const fs = ensureFormations(state);
+  const i = fs.formations.findIndex((x) => x.id === formationId);
+  if (i < 0) return fail("Formation not found.");
+  const f = fs.formations[i];
+  if (f.status !== "standby") return fail("That formation already deployed — it's with its raid.");
+  // Return everything.
+  const roster = state.troops!.home.roster;
+  for (const s of f.ships) {
+    for (const [t, c] of Object.entries(s.troops) as [TroopType, number][]) {
+      if ((c ?? 0) > 0) addCohort(roster, t, c!, now);
+    }
+    const ship = findFleetShip(state, s.shipId);
+    if (ship) ship.setStatus("ready");
+  }
+  if (f.supplies > 0) state.resources.supplies += f.supplies;
+  fs.formations.splice(i, 1);
+  log(state, `🛡️ Formation "${f.name}" disbanded. Ships ready, troops and supplies home.`);
+  return { ok: true, state };
+}
+
+/** Deploy a standby formation as a raid party: the raid is created
+ *  pre-loaded with the formation's ships, troops, and supplies, led by the
+ *  formation's hero. The player then picks a target on the world map and
+ *  launches — the raid flow takes it from there. */
+export function deployFormationAsRaid(
+  state: GameState,
+  formationId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; raidId?: string } {
+  advance(state, now);
+  const f = findFormation(state, formationId);
+  if (!f) return fail("Formation not found.");
+  const blocker = formationDeployBlocker(f);
+  if (blocker) return fail(blocker);
+  const wm = ensureWorldMap(state, now);
+  const raid = createRaidParty(myColonyId(state), state.playerName, wm.seq);
+  wm.seq += 1;
+  // Hand off the formation's ships, troops, and supplies.
+  raid.shipIds = f.ships.map((s) => s.shipId);
+  raid.shipClasses = f.ships.map((s) => s.class);
+  raid.troops = { [myColonyId(state)]: formationTroopsByType(f) };
+  raid.supplies = f.supplies;
+  raid.formationId = f.id;
+  raid.heroId = f.heroId;
+  raid.heroName = f.heroName;
+  // Ships go from reserved to deployed; the formation is consumed.
+  for (const s of f.ships) {
+    const ship = findFleetShip(state, s.shipId);
+    if (!ship || ship.status !== "reserved") {
+      return fail("A reserved ship isn't reserved anymore — re-reserve it first.");
+    }
+  }
+  for (const s of f.ships) findFleetShip(state, s.shipId)!.setStatus("deployed");
+  f.ships = [];
+  f.supplies = 0;
+  f.status = "deployed";
+  wm.raids.push(raid);
+  log(state, `⚔️ "${f.name}" DEPLOYED as ${raid.id} under ${f.heroName} — pick a target on the world map, then launch.`);
+  return { ok: true, state, raidId: raid.id };
+}
+
+/** Retire a formation when its raid finishes (called from raid completion).
+ *  The raid's own completion already returned troops and ships home. */
+export function retireFormationForRaid(state: GameState, raidId: string): void {
+  const wm = state.worldMap;
+  const raid = wm?.raids?.find((r) => r.id === raidId);
+  if (!raid?.formationId) return;
+  const fs = ensureFormations(state);
+  const i = fs.formations.findIndex((x) => x.id === raid.formationId);
+  if (i >= 0) {
+    const [f] = fs.formations.splice(i, 1);
+    log(state, `🛡️ Formation "${f.name}" stood down — its raid is home. Muster a new one when you're ready.`);
+  }
+}
+
 /** Issue one round of tactical orders for a raid battle (owner 2026-10-03).
  *  The defender is driven by the deterministic AI. */
 export function tacticalRaidRound(
@@ -3697,6 +4014,9 @@ export function advanceRaids(state: GameState, now: number): void {
       }
 
       raid.status = "done";
+      // FORMATIONS (owner 2026-10-04): a raid deployed from a formation
+      // retires the formation now that its ships and troops are home.
+      retireFormationForRaid(state, raid.id);
       if (raid.won) {
         log(state, `🏴‍☠️ ${raid.id} returned with loot: ${Math.floor(loot.supplies)} supplies, ${Math.floor(loot.embers)} embers, and more. ${survivors} troops came home.`);
       } else {
@@ -3851,6 +4171,7 @@ export function resolveShipBuilds(state: GameState, now: number): void {
       const ship = shipFromBuild(b, now);
       sy.ships.push(ship);
       log(state, `🚀 ${ship.name} is ready at the alliance ship factory.`);
+      logAllianceActivity(alliance, "ship-built", `🚀 ${ship.name} rolled out of the alliance ship factory.`, { at: now });
     }
     if (done.length > 0) {
       sy.queue = sy.queue.filter((b) => !buildReady(b, now));

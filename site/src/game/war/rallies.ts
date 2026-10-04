@@ -25,6 +25,7 @@ import { availableWeight, releaseWeight } from "./troops";
 import {
   allianceOf,
   fxDone,
+  logAllianceActivity,
   markFxDone,
   memberRole,
   queueAllianceFx,
@@ -227,6 +228,11 @@ export function createRally(
     version: 1,
   };
   rallyStore(state)[r.id] = r;
+  logAllianceActivity(a, "rally-called", `📯 ${caller.name} called the rally "${name}" → ${r.target.label}.`, {
+    byColonyId: caller.id,
+    byColonyName: caller.name,
+    at: now,
+  });
   syncRallyTo(state, r, a.members.map((m) => m.colonyId));
   return { ok: true, value: r };
 }
@@ -461,6 +467,13 @@ export function cancelRally(state: GameState, rallyId: string, actorId: string):
   r.pledges = [];
   r.state = "cancelled";
   touchRally(r);
+  if (a && a.id === r.allianceId) {
+    const actorName = a.members.find((m) => m.colonyId === actorId)?.colonyName ?? r.callerName;
+    logAllianceActivity(a, "rally-cancelled", `📯 ${actorName} called off the rally "${r.name}" — every pledge marched home.`, {
+      byColonyId: actorId,
+      byColonyName: actorName,
+    });
+  }
   syncRallyTo(state, r, a ? a.members.map((m) => m.colonyId) : []);
   return { ok: true, value: undefined };
 }
@@ -637,6 +650,9 @@ export function launchRally(
   r.battleId = battle.id;
   touchRally(r);
   const la = allianceOf(state, actorId);
+  if (la && la.id === r.allianceId) {
+    logAllianceActivity(la, "rally-launched", `⚔️ The rally "${r.name}" marched on ${r.target.label}.`, { at: now });
+  }
   syncRallyTo(state, r, la ? la.members.map((m) => m.colonyId) : []);
   return { ok: true, value: battle };
 }
@@ -673,6 +689,19 @@ export function resolveRally(state: GameState, r: Rally, now: number): boolean {
   r.outcome = { victory, lootSupplies, shares, losses };
   r.state = "resolved";
   r.resolvedAt = now;
+  {
+    const ra = allianceOf(state, r.callerId);
+    if (ra && ra.id === r.allianceId) {
+      logAllianceActivity(
+        ra,
+        "rally-resolved",
+        victory
+          ? `🏆 The rally "${r.name}" triumphed at ${r.target.label} — ${lootSupplies.toLocaleString()} supplies taken.`
+          : `💀 The rally "${r.name}" fell at ${r.target.label}.`,
+        { at: now },
+      );
+    }
+  }
   // Fan the outcome out: loot to every pledger's own save, heroes home.
   for (const p of r.pledges) {
     const share = Math.max(0, Math.round(shares[p.colonyId] ?? 0));
@@ -743,6 +772,9 @@ export function advanceRallies(state: GameState, now: number): void {
           r.battleId = built.battle.id;
           touchRally(r);
           const a = allianceOf(state, r.callerId);
+          if (a && a.id === r.allianceId) {
+            logAllianceActivity(a, "rally-launched", `⚔️ The rally "${r.name}" marched on ${r.target.label}.`, { at: now });
+          }
           syncRallyTo(state, r, a ? a.members.map((m) => m.colonyId) : []);
         }
         // An illegal plan at auto-launch: the rally holds for the caller

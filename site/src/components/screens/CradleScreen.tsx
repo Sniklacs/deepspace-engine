@@ -204,6 +204,7 @@ export default function CradleScreen({
             now={now}
             token={token}
             onAction={onAction}
+            onOpenAlliance={onOpenAlliance}
           />
 
           {/* ---- B2b2 · personal shipyard (owner 2026-10-03): solo scout

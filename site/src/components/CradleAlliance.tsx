@@ -9,9 +9,9 @@
 // So: not in an alliance -> a Join Alliance button. In an alliance -> the
 // war band's name, member count, who needs help (help ticks), what's
 // building in the ship factory, and research — plus an "Open alliance"
-// button that opens the FULL AlliancePanel (the Battles-tab surface, with
-// rallies, reinforcements, management) in a sheet. No duplication: the full
-// panel is the same component.
+// button that navigates to the dedicated ALLIANCE page (owner 2026-10-04:
+// "don't be afraid to make pages"). No duplication: the full page is the
+// same AlliancePanel sections, reused by AllianceTab.
 import { useMemo, useState } from "react";
 import type { GameState } from "../game/types";
 import type { GameResult } from "../game/api";
@@ -27,11 +27,9 @@ import { helpTickFn } from "../game/api";
 import { techText, leaderName } from "../game/research";
 import { Panel } from "./ui/Panel";
 import { ActionButton } from "./ui/ActionButton";
-import { Sheet, SheetHeader } from "./Sheet";
 import { Icon } from "./icons";
 import { useT } from "./i18n/I18n";
 import { Bdi } from "./ui/Bdi";
-import AlliancePanel from "./AlliancePanel";
 import { AllianceShipyardSection } from "./AllianceShipyard";
 
 type Act = (fn: () => Promise<GameResult>, label: string) => void;
@@ -52,17 +50,21 @@ export default function CradleAllianceSection({
   now,
   token,
   onAction,
+  onOpenAlliance,
 }: {
   state: GameState;
   now: number;
   token?: string;
   onAction: Act;
+  onOpenAlliance?: () => void;
 }) {
   const t = useT();
   const me = state.gameId ?? "";
   const alliance = useMemo(() => (me ? allianceOf(state, me) : null), [state, me]);
-  const [open, setOpen] = useState(false);
   if (!me) return null;
+  // The war band has its own page now (owner 2026-10-04) — this hub is the
+  // summary; "Open alliance" takes you to the full Alliance tab.
+  const openAlliance = onOpenAlliance ?? (() => {});
 
   return (
     <Panel testid="cradle-alliance" className="space-y-3">
@@ -93,7 +95,7 @@ export default function CradleAllianceSection({
             icon="shield"
             label={t("cradleAlliance.join", "Join Alliance")}
             sub={t("cradleAlliance.joinSub", "Browse war bands, answer invites, or found your own.")}
-            onClick={() => setOpen(true)}
+            onClick={openAlliance}
             testid="cradle-alliance-join"
           />
         </>
@@ -121,29 +123,13 @@ export default function CradleAllianceSection({
             variant="secondary"
             icon="shield"
             label={t("cradleAlliance.open", "Open alliance")}
-            sub={t("cradleAlliance.openSub", "Rallies, reinforcements, members, invites — the full war council.")}
-            onClick={() => setOpen(true)}
+            sub={t("cradleAlliance.openSub", "Reverb feed, members, rallies, reinforcements, the ship factory — the full war band page.")}
+            onClick={openAlliance}
             testid="cradle-alliance-open"
           />
         </>
       )}
 
-      <Sheet
-        open={open}
-        onClose={() => setOpen(false)}
-        labelledBy="cradle-alliance-sheet-title"
-        title={t("cradleAlliance.open", "Open alliance")}
-      >
-        <SheetHeader
-          id="cradle-alliance-sheet-title"
-          title={alliance ? alliance.name : t("cradleAlliance.title", "War band")}
-          subtitle={alliance?.motto ? `“${alliance.motto}”` : undefined}
-          onClose={() => setOpen(false)}
-        />
-        <div className="sheet-body px-4 py-3 md:px-5">
-          <AlliancePanel state={state} now={now} token={token} onAction={onAction} />
-        </div>
-      </Sheet>
     </Panel>
   );
 }

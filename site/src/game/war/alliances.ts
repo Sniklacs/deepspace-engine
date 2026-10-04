@@ -104,6 +104,79 @@ export interface Alliance {
   /** The alliance ship factory (design/abandoned-colonies-world-map.md).
    *  Warships are built here; build speed scales with active contributors. */
   shipyard?: ShipyardState;
+  /** The war band's reverb feed (owner 2026-10-04): chronological activity —
+   *  joins, leaves, kicks, promotions, donations, ship builds, rallies,
+   *  policy changes. Newest first, capped at ALLIANCE_ACTIVITY_CAP. Fans
+   *  out to mirrors with the record (sync-alliance). */
+  activity?: AllianceActivityEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// Alliance activity — the war band's reverb feed (owner 2026-10-04).
+// "Everything going on in there": joins, leaves, kicks, promotions,
+// donations, ship builds, rallies, policy changes. Newest first, capped.
+// Logged on the canonical record; mirrors converge via sync-alliance.
+// ---------------------------------------------------------------------------
+
+export type AllianceActivityKind =
+  | "founded"
+  | "joined"
+  | "left"
+  | "kicked"
+  | "invited"
+  | "promoted"
+  | "demoted"
+  | "leadership"
+  | "donated"
+  | "ship-built"
+  | "rally-called"
+  | "rally-launched"
+  | "rally-resolved"
+  | "rally-cancelled"
+  | "policy"
+  | "tithe";
+
+export interface AllianceActivityEntry {
+  id: string;
+  at: number;
+  kind: AllianceActivityKind;
+  text: string;
+  byColonyId?: string;
+  byColonyName?: string;
+}
+
+/** The reverb feed keeps the latest entries; older history scrolls off. */
+export const ALLIANCE_ACTIVITY_CAP = 200;
+
+let activitySeq = 0;
+
+/** Append to the war band's reverb feed. Bumps the record version so the
+ *  new entry fans out to every mirror with the next sync. */
+export function logAllianceActivity(
+  a: Alliance,
+  kind: AllianceActivityKind,
+  text: string,
+  opts?: { byColonyId?: string; byColonyName?: string; at?: number },
+): void {
+  if (!Array.isArray(a.activity)) a.activity = [];
+  activitySeq += 1;
+  const at = opts?.at ?? Date.now();
+  a.activity.unshift({
+    id: `aa-${at.toString(36)}-${activitySeq.toString(36)}`,
+    at,
+    kind,
+    text,
+    ...(opts?.byColonyId ? { byColonyId: opts.byColonyId } : {}),
+    ...(opts?.byColonyName ? { byColonyName: opts.byColonyName } : {}),
+  });
+  if (a.activity.length > ALLIANCE_ACTIVITY_CAP) a.activity.length = ALLIANCE_ACTIVITY_CAP;
+  touchAlliance(a);
+}
+
+/** The reverb feed, newest first (empty for pre-feed records). */
+export function allianceActivity(a: Alliance): AllianceActivityEntry[] {
+  if (!Array.isArray(a.activity)) a.activity = [];
+  return a.activity;
 }
 
 /** A standing reinforcement: the sender's bodies stationed with an ally.
@@ -465,6 +538,8 @@ export function ensureAlliances(state: GameState): void {
     if (!rec.shipyard || typeof rec.shipyard !== "object") {
       rec.shipyard = { level: 1, queue: [], ships: [], seq: 1 };
     }
+    // Backfill the reverb feed on pre-feed records (owner 2026-10-04).
+    if (!Array.isArray(a.activity)) a.activity = [];
   }
 }
 
@@ -579,8 +654,14 @@ export function createAlliance(
     founderId: founder.id,
     homeServerId: input.homeServerId ?? "home",
     version: 1,
+    activity: [],
   };
   store[a.id] = a;
+  logAllianceActivity(a, "founded", `🏴 ${founder.name} raised the flag of "${name}".`, {
+    byColonyId: founder.id,
+    byColonyName: founder.name,
+    at: now,
+  });
   return { ok: true, value: a };
 }
 
@@ -663,6 +744,11 @@ export function applyToAlliance(
   // Open policy (owner 2026-10-03): free join, no application needed.
   if (a.joinPolicy === "open") {
     a.members.push({ colonyId: applicant.id, colonyName: applicant.name, role: "member", joinedAt: now });
+    logAllianceActivity(a, "joined", `🤝 ${applicant.name} joined the war band.`, {
+      byColonyId: applicant.id,
+      byColonyName: applicant.name,
+      at: now,
+    });
     touchAlliance(a);
     syncAllianceTo(state, a);
     return { ok: true, value: undefined };
@@ -684,6 +770,13 @@ export function setJoinPolicy(
   if (!a) return { ok: false, error: "That alliance doesn't exist." };
   if (!isOfficerOrAbove(a, actorId)) return { ok: false, error: "Only officers can change the join policy." };
   a.joinPolicy = policy;
+  const actorName = a.members.find((m) => m.colonyId === actorId)?.colonyName ?? "An officer";
+  logAllianceActivity(
+    a,
+    "policy",
+    `⚙️ ${actorName} set the join policy to ${policy === "open" ? "open (free join)" : "apply (review applications)"}.`,
+    { byColonyId: actorId, byColonyName: actorName },
+  );
   touchAlliance(a);
   syncAllianceTo(state, a);
   return { ok: true, value: undefined };
@@ -701,6 +794,11 @@ export function setTitheRate(
   if (!isOfficerOrAbove(a, actorId)) return { ok: false, error: "Only officers can set the shipyard tithe." };
   const r = Math.max(0, Math.min(100, Math.round(rate)));
   a.titheRate = r;
+  const actorName = a.members.find((m) => m.colonyId === actorId)?.colonyName ?? "An officer";
+  logAllianceActivity(a, "tithe", `⚙️ ${actorName} set the shipyard tithe to ${r}%.`, {
+    byColonyId: actorId,
+    byColonyName: actorName,
+  });
   touchAlliance(a);
   syncAllianceTo(state, a);
   return { ok: true, value: undefined };
@@ -720,6 +818,12 @@ export function inviteToAlliance(
   if (a.members.length >= ALLIANCE_CONFIG.sizeCap) return { ok: false, error: "The war band is full (100)." };
   if (a.invites.some((x) => x.colonyId === target.id)) return { ok: false, error: "They're already invited." };
   a.invites.push({ colonyId: target.id, colonyName: target.name, invitedAt: now, byColonyId: actorId });
+  const actorName = a.members.find((m) => m.colonyId === actorId)?.colonyName ?? "An officer";
+  logAllianceActivity(a, "invited", `✉️ ${actorName} invited ${target.name} to the war band.`, {
+    byColonyId: actorId,
+    byColonyName: actorName,
+    at: now,
+  });
   touchAlliance(a);
   syncAllianceTo(state, a, [target.id]);
   return { ok: true, value: undefined };
@@ -751,6 +855,11 @@ export function acceptMembership(
   a.invites = a.invites.filter((x) => x.colonyId !== colonyId);
   a.applications = a.applications.filter((x) => x.colonyId !== colonyId);
   a.members.push({ colonyId, colonyName: rec.colonyName, role: "member", joinedAt: now });
+  logAllianceActivity(a, "joined", `🤝 ${rec.colonyName} joined the war band.`, {
+    byColonyId: colonyId,
+    byColonyName: rec.colonyName,
+    at: now,
+  });
   touchAlliance(a);
   syncAllianceTo(state, a);
   // NOTE: welcome mail is sent by the API layer (allianceAnswerFn) via a
@@ -799,18 +908,27 @@ export function removeAllianceMemberRecord(
   state: GameState,
   allianceId: string,
   colonyId: string,
+  opts?: { why?: "left" | "kicked"; at?: number },
 ): AllianceResult<{ dissolved: boolean }> {
   const store = allianceStore(state);
   const a = store[allianceId];
   if (!a) return { ok: false, error: "That alliance doesn't exist." };
-  if (!a.members.some((m) => m.colonyId === colonyId)) {
+  const departing = a.members.find((m) => m.colonyId === colonyId);
+  if (!departing) {
     return { ok: false, error: "They're not in this alliance." };
   }
+  const why = opts?.why ?? "left";
   a.members = a.members.filter((m) => m.colonyId !== colonyId);
   if (a.members.length === 0) {
     delete store[allianceId];
     return { ok: true, value: { dissolved: true } };
   }
+  logAllianceActivity(
+    a,
+    why,
+    why === "kicked" ? `🥾 ${departing.colonyName} was cast out of the war band.` : `🚶 ${departing.colonyName} left the war band.`,
+    { byColonyId: colonyId, byColonyName: departing.colonyName, at: opts?.at },
+  );
   // Leadership passes: oldest officer, else oldest member.
   const wasLeader = !a.members.some((m) => m.role === "leader");
   if (wasLeader) {
@@ -846,7 +964,7 @@ export function leaveAlliance(state: GameState, colonyId: string, now: number): 
   const name = a.name;
   releaseOpenRallyPledges(state, a.id, colonyId);
   leaveAllianceLocal(state, colonyId);
-  const r = removeAllianceMemberRecord(state, a.id, colonyId);
+  const r = removeAllianceMemberRecord(state, a.id, colonyId, { why: "left", at: now });
   if (r.ok) {
     // Mailbox: you left the war band (owner 2026-10-03).
     sendMail(state, {
@@ -856,6 +974,7 @@ export function leaveAlliance(state: GameState, colonyId: string, now: number): 
       body: `You've left the war band "${name}". Your pledges were released. The door stays open — rejoin whenever you're ready.`,
       category: "alliance",
       sentAt: now,
+      goTo: { tab: "battles", label: "Browse war bands" },
     });
   }
   void now;
@@ -881,7 +1000,7 @@ export function kickMember(
   } else {
     return { ok: false, error: "Only officers can kick." };
   }
-  const r = removeAllianceMemberRecord(state, allianceId, targetId);
+  const r = removeAllianceMemberRecord(state, allianceId, targetId, { why: "kicked", at: now });
   if (!r.ok) return r;
   // The target's troops live on their save — the applier cleans them up.
   queueDepartAlliance(state, allianceId, targetId);
@@ -903,6 +1022,11 @@ export function promoteMember(
   const officers = a.members.filter((m) => m.role === "officer").length;
   if (officers >= ALLIANCE_CONFIG.officerCap) return { ok: false, error: `The officer bench is full (${ALLIANCE_CONFIG.officerCap}).` };
   t.role = "officer";
+  const actorName = a.members.find((m) => m.colonyId === actorId)?.colonyName ?? "The leader";
+  logAllianceActivity(a, "promoted", `⭐ ${actorName} promoted ${t.colonyName} to officer.`, {
+    byColonyId: actorId,
+    byColonyName: actorName,
+  });
   touchAlliance(a);
   syncAllianceTo(state, a);
   return { ok: true, value: undefined };
@@ -920,6 +1044,11 @@ export function demoteMember(
   const t = a.members.find((m) => m.colonyId === targetId);
   if (!t || t.role !== "officer") return { ok: false, error: "Only officers can be demoted." };
   t.role = "member";
+  const actorName = a.members.find((m) => m.colonyId === actorId)?.colonyName ?? "The leader";
+  logAllianceActivity(a, "demoted", `📉 ${actorName} demoted ${t.colonyName} to member.`, {
+    byColonyId: actorId,
+    byColonyName: actorName,
+  });
   touchAlliance(a);
   syncAllianceTo(state, a);
   return { ok: true, value: undefined };
@@ -942,6 +1071,10 @@ export function transferLeadership(
   t.role = "leader";
   // The canonical record stays on the founder's account — leadership is a
   // role, not a storage move. Every write still serializes there.
+  logAllianceActivity(a, "leadership", `👑 ${actor.colonyName} passed the flag to ${t.colonyName}.`, {
+    byColonyId: actorId,
+    byColonyName: actor.colonyName,
+  });
   touchAlliance(a);
   syncAllianceTo(state, a);
   return { ok: true, value: undefined };
