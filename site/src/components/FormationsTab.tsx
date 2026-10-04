@@ -35,6 +35,8 @@ import {
 } from "../game/formations";
 import { SHIP_TROOP_CAP } from "../game/raids";
 import { type ShipClass } from "../game/worldmap";
+import { leaderBattleRole } from "../game/leader-roles";
+import type { Specialty } from "../game/types";
 import { TROOP_TYPES, TROOP_JOBS, type TroopType } from "../game/war/troops";
 import { allianceOf } from "../game/war/alliances";
 import { ensureShipyard } from "../game/shipyard";
@@ -82,11 +84,13 @@ function homeTroopsByType(state: GameState): Record<TroopType, number> {
   return out;
 }
 
-/** Hero/leader roster available to lead formations. */
-function leaderRoster(state: GameState): { id: string; name: string; kind: string }[] {
-  const out: { id: string; name: string; kind: string }[] = [];
+/** Hero/leader roster available to lead formations. Leaders carry their
+ *  specialty so the picker can show their battle role ("everybody drives
+ *  their bus" — owner 2026-10-04). */
+function leaderRoster(state: GameState): { id: string; name: string; kind: string; specialty?: Specialty }[] {
+  const out: { id: string; name: string; kind: string; specialty?: Specialty }[] = [];
   for (const h of state.prologue?.heroes ?? []) out.push({ id: h.id, name: h.name, kind: "hero" });
-  for (const l of state.leaders ?? []) out.push({ id: l.id, name: l.name, kind: "leader" });
+  for (const l of state.leaders ?? []) out.push({ id: l.id, name: l.name, kind: "leader", specialty: l.specialty });
   return out;
 }
 
@@ -427,7 +431,7 @@ function CreateFormation({
 }: {
   token: string;
   busy: boolean;
-  leaders: { id: string; name: string; kind: string }[];
+  leaders: { id: string; name: string; kind: string; specialty?: Specialty }[];
   formations: Formation[];
   onAction: (fn: () => Promise<unknown>, label: string) => void;
   onCreated: (id: string) => void;
@@ -512,6 +516,7 @@ function CreateFormation({
               {leaders.map((l) => {
                 const busy2 = heroBusy(l.id);
                 const selected2 = heroId === l.id;
+                const role = l.specialty ? leaderBattleRole(l.specialty) : null;
                 return (
                   <button
                     key={l.id}
@@ -528,6 +533,16 @@ function CreateFormation({
                   >
                     <div className="text-sm font-semibold">{l.name}</div>
                     <div className="text-[11px] capitalize text-text-2">{l.kind}</div>
+                    {role && (
+                      <div className="mt-1">
+                        <div className="text-[11px] font-semibold text-amber-300/90">
+                          ⚔ {role.roleName} — {role.tagline}
+                        </div>
+                        {selected2 && (
+                          <div className="mt-1 text-[11px] leading-snug text-text-2">{role.brief}</div>
+                        )}
+                      </div>
+                    )}
                     {busy2 && (
                       <div className="mt-1 text-[11px] text-amber-300/90">
                         {t("formations.leaderBusy", "{name} already leads \"{formation}\" — one hero, one formation.")
