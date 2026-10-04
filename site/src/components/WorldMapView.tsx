@@ -38,6 +38,7 @@ import {
 import type { TroopType } from "../game/war/troops";
 import { targetBlockReason } from "../game/raid-targeting";
 import { TurretThumb } from "./TurretThumb";
+import { StackedShips } from "./StackedShips";
 import { useT } from "./i18n/I18n";
 import { sound } from "../game/sound";
 import { Bdi } from "./ui/Bdi";
@@ -120,25 +121,26 @@ export function statusLabel(t: (k: string, f: string) => string, status: ColonyS
 // ---------------------------------------------------------------------------
 
 /** Ready ships the player can assign: personal + alliance fleet. */
-function readyShips(state: GameState): { id: string; name: string; class: string }[] {
-  const out: { id: string; name: string; class: string }[] = [];
+function readyShips(state: GameState): { id: string; name: string; class: ShipClass; raceId: string }[] {
+  const out: { id: string; name: string; class: ShipClass; raceId: string }[] = [];
   const seen = new Set<string>();
   const psy = state.worldMap?.shipyard;
+  const fallbackRace = state.race ?? "draconians";
   if (psy) {
     for (const s of psy.ships) {
       if (s.status === "ready" && !seen.has(s.id)) {
         seen.add(s.id);
-        out.push({ id: s.id, name: s.name, class: s.class });
+        out.push({ id: s.id, name: s.name, class: s.class as ShipClass, raceId: s.raceId ?? fallbackRace });
       }
     }
   }
-  const alliances = (state as { alliances?: Record<string, { members?: { colonyId: string }[]; shipyard?: { ships: { id: string; name: string; class: string; status: string }[] } }> }).alliances;
+  const alliances = (state as { alliances?: Record<string, { members?: { colonyId: string }[]; shipyard?: { ships: { id: string; name: string; class: string; status: string; raceId?: string }[] } }> }).alliances;
   if (alliances) {
     for (const a of Object.values(alliances)) {
       for (const s of a.shipyard?.ships ?? []) {
         if (s.status === "ready" && !seen.has(s.id)) {
           seen.add(s.id);
-          out.push({ id: s.id, name: s.name, class: s.class });
+          out.push({ id: s.id, name: s.name, class: s.class as ShipClass, raceId: s.raceId ?? fallbackRace });
         }
       }
     }
@@ -387,10 +389,37 @@ function RaidPanel({
                 </p>
               </div>
             ) : (
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {ships.map((s) => {
+              /* Stacked by class+race (owner 2026-10-04): one row per
+                 identical hull group instead of an endless scroll of ship
+                 buttons. Tap a stack to select the whole group at once;
+                 expand it (▸) to pick individual ships. */
+              <StackedShips
+                ships={ships}
+                testid="raid-ship-picker"
+                renderHeaderThumb={(stack) => <TurretThumb shipClass={stack.class} size={20} />}
+                stackExtra={(stack) => {
+                  const picked = stack.ships.filter((s) => pickedShips.includes(s.id)).length;
+                  const aboard = stack.ships.filter((s) => raid.shipIds.includes(s.id)).length;
+                  return (
+                    <span className="shrink-0 text-[10px] text-gray-400">
+                      {picked}/{stack.ships.length} {t("raid.picked", "picked")}
+                      {aboard > 0 && ` · ${aboard} ${t("raid.aboard", "aboard")}`}
+                    </span>
+                  );
+                }}
+                onStackClick={(stack) => {
+                  sound.click();
+                  const ids = stack.ships.map((s) => s.id);
+                  const allOn = ids.every((id) => pickedShips.includes(id) || raid.shipIds.includes(id));
+                  setPickedShips((prev) =>
+                    allOn
+                      ? prev.filter((x) => !ids.includes(x))
+                      : [...prev, ...ids.filter((id) => !prev.includes(id) && !raid.shipIds.includes(id))],
+                  );
+                }}
+                renderShip={(s) => {
                   const on = pickedShips.includes(s.id) || raid.shipIds.includes(s.id);
-                  const cls = s.class as ShipClass;
+                  const cls = s.class;
                   return (
                     <button
                       key={s.id}
@@ -402,7 +431,7 @@ function RaidPanel({
                           prev.includes(s.id) ? prev.filter((x) => x !== s.id) : [...prev, s.id],
                         );
                       }}
-                      className={`rounded-lg border px-2 py-1 text-[11px] ${
+                      className={`w-full rounded-lg border px-2 py-1 text-left text-[11px] ${
                         on ? "border-amber-400/60 bg-amber-400/15 text-amber-100" : "border-white/10 bg-white/5 text-gray-300 hover:border-white/25"
                       }`}
                     >
@@ -413,8 +442,8 @@ function RaidPanel({
                       <span className="block text-[9px] opacity-70">⚔{SHIP_FIREPOWER[cls] ?? 0} 🛡{SHIP_HULL[cls] ?? 0}</span>
                     </button>
                   );
-                })}
-              </div>
+                }}
+              />
             )}
             {pickedShips.length > 0 && (
               <button

@@ -16,7 +16,6 @@ import {
   SHIP_CLASSES,
   SHIP_COST,
   ensureShipyard,
-  shipArtUrl,
   shipBuildDurationMs,
   shipCostBlocker,
   shipName,
@@ -26,6 +25,7 @@ import {
 import { SHIP_FIREPOWER, SHIP_HULL } from "../game/raids";
 import { classTurret } from "../game/turrets";
 import { TurretThumb } from "./TurretThumb";
+import { StackedShips, ShipArt } from "./StackedShips";
 import { orderShipFn, contributeShipFn, donateShipyardFn, setTitheFn } from "../game/api";
 import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
@@ -84,23 +84,6 @@ function blockerHint(t: T, cls: ShipClass, state: GameState): string | null {
   if (b.kind === "supplies") return t("shipyard.hintSupplies", "Needs {need} supplies — you have {have}.", { need: b.need.toLocaleString(), have: b.have.toLocaleString() });
   if (b.kind === "alloys") return t("shipyard.hintAlloys", "Needs {need} alloys — you have {have}. Forge them from race materials.", { need: b.need.toLocaleString(), have: b.have.toLocaleString() });
   return t("shipyard.hintMaterial", "Needs {need} race material — you have {have}. Raid to gather more.", { need: b.need.toLocaleString(), have: b.have.toLocaleString() });
-}
-
-/** Ship thumbnail (Draconian v3 art set; other races render nothing yet). */
-function ShipThumb({ raceId, shipClass, size = 40 }: { raceId: string; shipClass: ShipClass; size?: number }) {
-  const url = shipArtUrl(raceId, shipClass);
-  if (!url) return null;
-  return (
-    <img
-      src={url}
-      alt={shipName(raceId, shipClass)}
-      loading="lazy"
-      width={size}
-      height={size}
-      className="shrink-0 rounded-md border border-line object-cover"
-      style={{ width: size, height: size }}
-    />
-  );
 }
 
 export function AllianceShipyardSection({
@@ -167,7 +150,7 @@ export function AllianceShipyardSection({
                 icon="hammer"
                 label={
                   <span className="flex items-center gap-2">
-                    <ShipThumb raceId={raceId} shipClass={cls} size={44} />
+                    <ShipArt raceId={raceId} shipClass={cls} size={44} />
                     <span>{t("shipyard.buildShip", "Build {ship}", { ship: shipName(raceId, cls) })}</span>
                   </span>
                 }
@@ -202,7 +185,7 @@ export function AllianceShipyardSection({
             return (
               <li key={b.id} className="rounded-lg border border-line bg-surf-1 px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <ShipThumb raceId={b.raceId} shipClass={b.shipClass} size={36} />
+                  <ShipArt raceId={b.raceId} shipClass={b.shipClass} size={36} />
                   <span className="min-w-0 flex-1 truncate text-sm text-text-1">{shipName(b.raceId, b.shipClass)}</span>
                   <span className="shrink-0 text-[11px] text-text-2">
                     <Bdi dir="ltr" className="num">{pct}%</Bdi> · {fmtLeft(b.doneAt - now)}
@@ -240,10 +223,14 @@ export function AllianceShipyardSection({
       {ships.length === 0 ? (
         <p className="text-xs text-text-2">{t("cradleAlliance.noShips", "No completed ships yet.")}</p>
       ) : (
-        <ul className="space-y-1">
-          {ships.map((s) => (
-            <li key={s.id} className="flex items-center gap-2 rounded-lg border border-line bg-surf-1 px-3 py-1.5">
-              <ShipThumb raceId={s.raceId} shipClass={s.class} size={32} />
+        /* Identical ships stack into one row with a ×N badge (owner 2026-10-04);
+           tap the stack to expand and inspect the individual ships. */
+        <StackedShips
+          ships={ships}
+          testid="shipyard-fleet"
+          renderShip={(s) => (
+            <div className="flex items-center gap-2 rounded-lg border border-line bg-surf-1 px-3 py-1.5">
+              <ShipArt raceId={s.raceId} shipClass={s.class} size={32} />
               <TurretThumb shipClass={s.class} size={24} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm text-text-1">{s.name}</span>
@@ -252,9 +239,9 @@ export function AllianceShipyardSection({
               <span className="shrink-0 text-[11px] text-text-2">
                 {t(`shipyard.status.${s.status}`, s.status)}
               </span>
-            </li>
-          ))}
-        </ul>
+            </div>
+          )}
+        />
       )}
     </div>
   );
@@ -416,7 +403,7 @@ export function PersonalShipyardSection({
         icon="send"
         label={
           <span className="flex items-center gap-2">
-            <ShipThumb raceId={raceId} shipClass={cls} size={44} />
+            <ShipArt raceId={raceId} shipClass={cls} size={44} />
             <span>{t("shipyard.buildShip", "Build {ship}", { ship: shipName(raceId, cls) })}</span>
           </span>
         }
@@ -434,7 +421,7 @@ export function PersonalShipyardSection({
             return (
               <li key={b.id} className="rounded-lg border border-line bg-surf-1 px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <ShipThumb raceId={b.raceId} shipClass={b.shipClass} size={36} />
+                  <ShipArt raceId={b.raceId} shipClass={b.shipClass} size={36} />
                   <span className="min-w-0 flex-1 truncate text-sm text-text-1">{shipName(b.raceId, b.shipClass)}</span>
                   <span className="shrink-0 text-[11px] text-text-2">
                     <Bdi dir="ltr" className="num">{pct}%</Bdi> · {fmtLeft(b.doneAt - now)}

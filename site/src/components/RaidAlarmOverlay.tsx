@@ -73,10 +73,16 @@ export default function RaidAlarmOverlay({
     return () => clearInterval(t);
   }, []);
 
-  const ships = useMemo(
-    () => (alarm.revealedShipClasses ?? []).map((c) => SHIP_CLASS_LABEL[c] ?? c),
-    [alarm],
-  );
+  // Hostile composition, stacked: identical hull classes collapse into
+  // one chip with a ×N count (owner 2026-10-04) instead of a wall of chips.
+  const ships = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of alarm.revealedShipClasses ?? []) {
+      const label = SHIP_CLASS_LABEL[c] ?? c;
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return [...counts.entries()];
+  }, [alarm]);
 
   const intel = alarm.intel; // "presence" | "identity" | "full"
 
@@ -196,9 +202,9 @@ export default function RaidAlarmOverlay({
                   {intel === "full" ? "FULL FLEET COMPOSITION" : "PARTIAL CONTACTS"}
                 </span>
                 <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {ships.map((s) => (
+                  {ships.map(([label, n]) => (
                     <span
-                      key={s}
+                      key={label}
                       style={{
                         background: "#3a0d0d",
                         border: "1px solid #ff5555",
@@ -207,7 +213,8 @@ export default function RaidAlarmOverlay({
                         fontSize: 13,
                       }}
                     >
-                      {s}
+                      {label}
+                      {n > 1 && <strong> ×{n}</strong>}
                     </span>
                   ))}
                   {alarm.shipsPartial && (
