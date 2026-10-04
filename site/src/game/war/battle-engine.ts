@@ -48,6 +48,13 @@
 // is provably the server's math.
 import { ARMORY_CONFIG, WEAPON_BASE_STATS } from "../armory";
 import type { GameState } from "../types";
+import {
+  createMemorial,
+  ensureMemorials,
+  findMemorialByBattle,
+  memorialInputFromBattle,
+} from "../memorials";
+import { currentSeason } from "../seasons";
 import { planComposition, planWeight, maneuverWeight, surpriseMult, validateBattlePlan, type BattlePlan } from "./maneuvers";
 import { commitRosterWeight, segmentsFor, stampRosterSegment } from "./roster-commit";
 import {
@@ -417,6 +424,17 @@ export function advanceBattles(state: GameState, now: number): number {
     resolveScheduled(b);
     appendReportOnce(state, b);
     logBattle(state, b);
+    // MEMORIALS (owner 2026-09-30): a resolved battle with 1,000+ total
+    // casualties earns a permanent plaque — the game's history layer.
+    // Idempotent: findMemorialByBattle dedupes on battle id, so double-ticks
+    // can never double-carve. Bloodless bouts are skipped inside
+    // memorialInputFromBattle (nobody died).
+    ensureMemorials(state);
+    const mInput = memorialInputFromBattle(b, currentSeason(now).name, now);
+    if (mInput && !findMemorialByBattle((state as any).memorials, b.id)) {
+      const plaque = createMemorial(mInput);
+      if (plaque) (state as any).memorials.push(plaque);
+    }
     resolved += 1;
   }
   return resolved;
