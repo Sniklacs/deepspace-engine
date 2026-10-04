@@ -8,6 +8,7 @@
 import type { GameState } from "./types";
 import { engineHelpers } from "./client-utils";
 import { raceFamilies, ARMORY_FAMILY_TECH } from "./armory";
+import { allianceOf, memberRole } from "./war/alliances";
 import type { Tab } from "./nav-slots";
 
 export interface NavBadge {
@@ -56,6 +57,22 @@ export function forgeReady(state: GameState): boolean {
   });
 }
 
+/** Muster queues currently running at the barracks. */
+export function mustersRunning(state: GameState): number {
+  return state.troops?.home.musterQueue.length ?? 0;
+}
+
+/** Applications waiting on your officers' answer (officer+ only). */
+export function allianceApplicationsPending(state: GameState): number {
+  const me = state.gameId;
+  if (!me) return 0;
+  const a = allianceOf(state, me);
+  if (!a) return 0;
+  const role = memberRole(a, me);
+  if (role !== "leader" && role !== "officer") return 0;
+  return a.applications.length;
+}
+
 /** Fights running on your fronts. */
 export function liveFights(state: GameState): number {
   return (state.battles ?? []).filter((b) => b.status === "active").length;
@@ -73,6 +90,10 @@ export function navBadges(state: GameState, tab: Tab): Record<string, NavBadge> 
   if (away > 0) out.expeditions = { count: away, label: `Explorations — ${away} teams away` };
   if (recoveryReady(state)) out.lab = { lit: true, label: "Lab — a recovery can be deployed" };
   if (forgeReady(state)) out.armory = { lit: true, label: "Armory — a family can be forged" };
+  const mustering = mustersRunning(state);
+  if (mustering > 0) out.troops = { count: mustering, label: `Barracks — ${mustering} muster${mustering === 1 ? "" : "s"} training` };
+  const apps = allianceApplicationsPending(state);
+  if (apps > 0) out.alliance = { count: apps, label: `Alliance — ${apps} application${apps === 1 ? "" : "s"} awaiting review` };
   const live = liveFights(state);
   if (atWar(state, tab)) out.battles = { live: live > 0, count: live, label: live > 0 ? `Battles — ${live} fights live` : "Battles — the front" };
   return out;

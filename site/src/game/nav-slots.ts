@@ -9,7 +9,7 @@
 // word is coined by the nav.
 import type { IconName } from "../components/icons";
 
-export const NAV_IDS = ["colony", "expeditions", "lab", "armory", "loadout", "arena", "battles", "circuit", "world"] as const;
+export const NAV_IDS = ["colony", "expeditions", "lab", "armory", "troops", "loadout", "formations", "arena", "alliance", "battles", "circuit", "world"] as const;
 export type NavTabId = (typeof NAV_IDS)[number];
 /** The Tab union the router/screens use — derived, so no screen can be orphaned. */
 export type Tab = NavTabId;
@@ -27,10 +27,23 @@ export const NAV: readonly NavSlot[] = [
   { id: "expeditions", label: "Exploration", icon: "march" },
   { id: "lab", label: "Lab", icon: "flask" },
   { id: "armory", label: "Armory", icon: "armor" },
+  // BARRACKS (owner 2026-10-04): the dedicated troop-building page — artwork,
+  // role explanations, muster queues, garrison counts. "Don't be afraid to
+  // make pages."
+  { id: "troops", label: "Barracks", icon: "users" },
   { id: "loadout", label: "Loadout", icon: "shield" },
+  // FORMATIONS (owner 2026-10-04): the dedicated loadout page — raid
+  // loadouts, exploration loadouts, response teams. Pre-built battle groups:
+  // ships reserved and loaded, supplies staged, hero leader assigned.
+  // "Don't be afraid to make pages."
+  { id: "formations", label: "Formations", icon: "beacon" },
   // The arena is a permanent per-server fixture (owner 2026-10-01) — it is NOT
   // the war slot. Battles stays war-gated; the arena is always one tap away.
   { id: "arena", label: "Arena", icon: "gamepad" },
+  // ALLIANCE (owner 2026-10-04): the war band gets its own page — reverb
+  // feed, roster, settings, shipyard. "Don't be afraid to make pages."
+  // One module, one page — never cram modules into shared tabs.
+  { id: "alliance", label: "Alliance", icon: "shield" },
   { id: "battles", label: "Battles", icon: "sword", war: true },
   { id: "circuit", label: "Circuit", icon: "map" },
   // WORLD MAP (design/abandoned-colonies-world-map.md §2): colonies, not

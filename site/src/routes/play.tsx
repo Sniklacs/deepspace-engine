@@ -7,6 +7,7 @@ import {
   claimHuskFn,
   createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, loadRaidSuppliesFn, launchRaidFn, deployRaidFn, tacticalRoundFn, quickResolveTacticalFn, joinRaidFn, hireDesertersFn, dismissDesertersFn,
   acknowledgeRaidAlarmFn,
+  rallyCreateFn,
   allocateLeaderPointFn, chooseSpecializationFn,
   signupFn, loginFn, logoutFn, meFn,
   submitFeedbackFn, listMyFeedbackFn, dismissNoticeFn,
@@ -14,6 +15,7 @@ import {
   forgeRollFn, forgeMeltFn,
   equipForgeItemFn, unequipForgeItemFn,
   claimDailyRewardFn,
+  musterTroopsFn,
   applyTimeTokenFn,
   leaveActOneFn,
   setMemorialEpitaphFn,
@@ -63,6 +65,8 @@ import { configureChat } from "../game/chat/chat-store";
 import { useT, useLang } from "../components/i18n/I18n";
 import { navBadges } from "../game/nav-badges";
 import type { Tab } from "../game/nav-slots";
+import { allianceOf } from "../game/war/alliances";
+import { openRallies } from "../game/war/rallies";
 import CradleScreen from "../components/screens/CradleScreen";
 import CradlePlate from "../components/CradlePlate";
 import PageBanner from "../components/PageBanner";
@@ -74,7 +78,10 @@ import { CircuitPage } from "../components/CircuitPage";
 import WorldMapView from "../components/WorldMapView";
 import BattlesTab from "../components/BattlesTab";
 import ArenaPanel from "../components/ArenaPanel";
+import AllianceTab from "../components/AllianceTab";
 import LoadoutTab from "../components/LoadoutTab";
+import FormationsTab from "../components/FormationsTab";
+import TroopsTab from "../components/TroopsTab";
 import { HeroCard, weaponThumbUrl } from "../components/HeroCard";
 import { diffResolvedEventsT } from "../game/report-events";
 import { tip, tipT, RESOURCE_TIPS, DOMAIN_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER_TIPS, ARMORY_TIPS } from "../game/tooltips";
@@ -372,6 +379,57 @@ function PlayPage() {
     sound.tab();
   };
 
+  // RAID RESPOND (owner 2026-10-04): "where is the respond button, how do we
+  // even respond?" The war band's real response to an incoming raid is a
+  // defense rally — the alliance musters and pledges against this raid.
+  // Returns null on success (the caller clears/navigates), or an inline
+  // error message when the rally can't be called (Hans's UI rule: the button
+  // stays visible and tapping says what's missing).
+  const respondToIncomingRaid = async (input: {
+    raidId: string;
+    nodeName: string;
+    landsAt: number;
+  }): Promise<string | null> => {
+    const me = state?.gameId ?? "";
+    const a = state ? allianceOf(state, me) : null;
+    // One defense rally per raid: if the war band already mustered for this
+    // raid, just take the player there instead of calling a second one.
+    const existing = a
+      ? openRallies(state!, a.id).find(
+          (r) => r.target.kind === "defense-point" && r.target.zoneId === input.raidId,
+        )
+      : null;
+    if (existing) {
+      await act(() => acknowledgeRaidAlarmFn({ data: { token: token! } }), "alarm");
+      switchTab("battles");
+      return null;
+    }
+    const res = await act(
+      () =>
+        rallyCreateFn({
+          data: {
+            token: token!,
+            name: `Defense of ${input.nodeName}`.slice(0, 60),
+            targetKind: "defense-point",
+            targetLabel: input.nodeName,
+            zoneId: input.raidId,
+            launchAt: input.landsAt,
+          },
+        }),
+      "rally",
+    );
+    if (!res || res.ok === false) {
+      // act() already flashed; the klaxon overlay sits above the toast, so
+      // return the reason for the overlay's own inline error line.
+      return res?.error || t("play.errors.serverUnreachable", "Failed to reach the server.");
+    }
+    // Rally called — clear the klaxon and take them to the war band where the
+    // rally is mustering pledges.
+    await act(() => acknowledgeRaidAlarmFn({ data: { token: token! } }), "alarm");
+    switchTab("battles");
+    return null;
+  };
+
   const toggleMute = () => {
     const next = sound.toggleMute();
     // §5.1: a mute press must be silent within one frame, so the voice engine is
@@ -641,7 +699,7 @@ function PlayPage() {
           timeTokens={state.timeTokens ?? {}}
           onPurify={(n) => act(() => purifyFn({ data: { token: token!, spend: n } }), "purify")}
           onSpeedup={(kind, id, sizeId) => act(() => applyTimeTokenFn({ data: { token: token!, sizeId, requestId: crypto.randomUUID(), kind, id } }), "success")}
-          onOpenAlliance={() => switchTab("battles")}
+          onOpenAlliance={() => switchTab("alliance")}
           tokenGrant={claimTokens}
           supplyGrant={claimSupplies}
           onClaim={async () => {
@@ -664,10 +722,32 @@ function PlayPage() {
       {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onCraft={(k, n) => act(() => craftFn({ data: { token: token!, kind: k, count: n } }), "success")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} busy={busy} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} onForgeMelt={(itemId) => act(() => forgeMeltFn({ data: { token: token!, itemId } }), "success")} />}
       {tab === "loadout" && <LoadoutTab state={state} busy={busy} onEquip={(itemId, bearer, slot) => act(() => equipForgeItemFn({ data: { token: token!, itemId, bearer, slot } }), "success")} onUnequip={(itemId) => act(() => unequipForgeItemFn({ data: { token: token!, itemId } }), "success")} />}
+      {/* FORMATIONS (owner 2026-10-04): the dedicated loadout page — raid
+          loadouts, exploration loadouts, response teams. One module, one page. */}
+      {tab === "formations" && (
+        <FormationsTab
+          state={state}
+          busy={busy}
+          onAction={(fn, label) => act(fn, label)}
+          onGoToWorld={() => setTab("world")}
+        />
+      )}
+      {/* BARRACKS (owner 2026-10-04): the dedicated troop-building page — one module, one page. */}
+      {tab === "troops" && <TroopsTab state={state} now={now} onMuster={(type, count) => act(() => musterTroopsFn({ data: { token: token!, type, count } }), "muster")} />}
       {/* The arena is a permanent fixture — its own tab, not war-gated (owner 2026-10-01). */}
       {tab === "arena" && (
         <ArenaPanel
           state={state}
+          token={token ?? undefined}
+          onAction={(fn, label) => act(fn, label)}
+        />
+      )}
+      {/* The war band's own page (owner 2026-10-04): reverb feed, roster,
+          settings, shipyard — "don't be afraid to make pages." */}
+      {tab === "alliance" && (
+        <AllianceTab
+          state={state}
+          now={now}
           token={token ?? undefined}
           onAction={(fn, label) => act(fn, label)}
         />
@@ -690,6 +770,8 @@ function PlayPage() {
           onTacticalRound={(raidId, orders) => act(() => tacticalRoundFn({ data: { token: token!, raidId, orders } }), "tacticalRound")}
           onQuickResolveTactical={(raidId) => act(() => quickResolveTacticalFn({ data: { token: token!, raidId } }), "quickResolveTactical")}
           onEpitaph={(plaqueId, epitaph) => act(() => setMemorialEpitaphFn({ data: { token: token!, plaqueId, epitaph } }), "setMemorialEpitaph")}
+          onRespondToRaid={(r) => respondToIncomingRaid(r)}
+          onOpenWarBand={() => switchTab("battles")}
         />
       )}
       {tab === "battles" && (
@@ -743,6 +825,7 @@ function PlayPage() {
           token={token ?? undefined}
           onAction={(fn, label) => act(fn, label)}
           onClose={() => { setMailboxOpen(false); sound.click(); }}
+          onGoTo={(tab) => { setMailboxOpen(false); switchTab(tab); }}
         />
       )}
       {/* SATELLITE KLAXON (owner 2026-10-03): full-screen raid alarm. Renders
@@ -752,6 +835,13 @@ function PlayPage() {
         <RaidAlarmOverlay
           alarm={state.raidAlarm}
           onAcknowledge={() => act(() => acknowledgeRaidAlarmFn({ data: { token: token! } }), "alarm")}
+          onRespond={() =>
+            respondToIncomingRaid({
+              raidId: state.raidAlarm!.raidId,
+              nodeName: state.raidAlarm!.nodeName,
+              landsAt: state.raidAlarm!.landsAt,
+            })
+          }
         />
       )}
       {gamesOpen && (
