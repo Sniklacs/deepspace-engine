@@ -41,10 +41,28 @@ import { sound } from "../game/sound";
 import { Bdi } from "./ui/Bdi";
 import MemorialsView from "./MemorialsView";
 import { memorialNodeIds } from "../game/memorials";
+import { allianceOf } from "../game/war/alliances";
+import { openRallies } from "../game/war/rallies";
+import {
+  colonyNodeId,
+  coveredNodeName,
+  partialShipIntel,
+  satelliteIntelFor,
+} from "../game/satellites";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (tested in WorldMapView.test.ts)
 // ---------------------------------------------------------------------------
+
+/** Ship-class display labels for the satellite-gated incoming-raid intel. */
+const RAID_SHIP_CLASS_LABEL: Record<ShipClass, string> = {
+  scout: "Scout",
+  frigate: "Frigate",
+  bulwark: "Bulwark",
+  vanguard: "Vanguard",
+  fatcat: "Fat Cat",
+  herald: "Herald",
+};
 
 /** Status dot color: green = active/sub_colony, amber = abandoned/setting_up, gray = husk. */
 export function statusColor(status: ColonyStatus): string {
@@ -298,20 +316,30 @@ function RaidPanel({
           <span className="text-gray-500">{t("raid.noTarget", "No target — pick a colony on the map.")}</span>
         )}
       </p>
-      {raid.status === "preparing" && !raid.targetColonyId && selectedColony && selectedColony.status === "active" && selectedKey && (
+      {raid.status === "preparing" && !raid.targetColonyId && (
         <button
           type="button"
           onClick={() => {
             sound.click();
-            if (onSetTarget) {
+            if (!onSetTarget) {
+              setHint("noHandler");
+            } else if (selectedColony && selectedColony.status === "active" && selectedKey) {
               setHint(null);
               onSetTarget(raid.id, selectedKey);
-            } else setHint("noHandler");
+            } else {
+              setHint("noColonySelected");
+            }
           }}
           className="mt-1 rounded-lg border border-amber-400/40 bg-amber-400/15 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-400/25"
         >
           🎯 {t("raid.targetThis", "Target this colony")}
         </button>
+      )}
+      {hint === "noColonySelected" && (
+        <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.noColonySelectedHint", "Tap a colony card on the map first, then tap this button to target it.")}</p>
+      )}
+      {hint === "noHandler" && (
+        <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.noHandlerHint", "Targeting isn't wired up yet — try again in a moment.")}</p>
       )}
 
       {raid.status === "preparing" && (
@@ -397,7 +425,9 @@ function RaidPanel({
                     onClick={() => {
                       sound.click();
                       const n = Math.trunc(Number(troopInputs[type] ?? 0));
-                      if (onLoadTroops && n > 0) {
+                      if (!onLoadTroops) {
+                        setHint("troopNoHandler");
+                      } else if (n > 0) {
                         onLoadTroops(raid.id, type, n);
                         setTroopInputs((prev) => ({ ...prev, [type]: "" }));
                         setHint(null);
@@ -414,6 +444,12 @@ function RaidPanel({
             </div>
             {hint === "troopCount" && (
               <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.troopCountHint", "Enter how many to load first.")}</p>
+            )}
+            {hint === "troopNoHandler" && (
+              <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.troopNoHandlerHint", "Troop loading isn't wired up — try again in a moment.")}</p>
+            )}
+            {(Object.entries(homeTroops) as [TroopType, number][]).filter(([, n]) => (n ?? 0) > 0).length === 0 && (
+              <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.noTroopsHint", "No troops mustered. Build troops at the Cradle first, then load them here.")}</p>
             )}
           </div>
 
@@ -437,7 +473,9 @@ function RaidPanel({
                 onClick={() => {
                   sound.click();
                   const n = Math.trunc(Number(supplyInput ?? 0));
-                  if (onLoadSupplies && n > 0) {
+                  if (!onLoadSupplies) {
+                    setHint("supplyNoHandler");
+                  } else if (n > 0) {
                     onLoadSupplies(raid.id, n);
                     setSupplyInput("");
                     setHint(null);
@@ -452,6 +490,9 @@ function RaidPanel({
             </div>
             {hint === "supplyCount" && (
               <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.supplyCountHint", "Enter how many supplies to load first.")}</p>
+            )}
+            {hint === "supplyNoHandler" && (
+              <p className="mt-1 text-[11px] text-amber-200/80">{t("raid.supplyNoHandlerHint", "Supply loading isn't wired up — try again in a moment.")}</p>
             )}
           </div>
 
@@ -1206,6 +1247,8 @@ export default function WorldMapView({
   onTacticalRound,
   onQuickResolveTactical,
   onEpitaph,
+  onRespondToRaid,
+  onOpenWarBand,
 }: {
   state: GameState;
   now: number;
@@ -1229,6 +1272,13 @@ export default function WorldMapView({
   onQuickResolveTactical?: (raidId: string) => void;
   /** Victor carves an epitaph on a memorial plaque (owner 2026-09-30). */
   onEpitaph?: (plaqueId: string, epitaph: string) => void;
+  /** Rally the defense against an incoming raid (owner 2026-10-04). Resolves
+   *  with an inline error when the rally can't be called; null on success.
+   *  Unwired buttons explain inline per Hans's rule. */
+  onRespondToRaid?: (raid: { raidId: string; nodeName: string; landsAt: number }) => Promise<string | null>;
+  /** Jump to the war band (Battles tab) — used when a defense rally already
+   *  exists for the raid. */
+  onOpenWarBand?: () => void;
 }) {
   const t = useT();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -1264,6 +1314,32 @@ export default function WorldMapView({
     () => (wm?.incomingRaids ?? []).filter((r) => !r.resolved),
     [wm],
   );
+
+  // Satellite-gated raid intel (owner 2026-10-03/04): blind (stage 0) = no
+  // evidence of the raid anywhere — the panel below does not render at all.
+  // Stage 1 = unidentified signature + node only; stage 2 = + attacker
+  // identity/world + partial ship classes; stage 3 = full identity + ship
+  // composition/count + troop count. Matches the klaxon alarm's gating.
+  const raidIntel = useMemo(() => satelliteIntelFor(state, colonyNodeId(state)), [state]);
+  const raidNodeName = useMemo(() => coveredNodeName(colonyNodeId(state)), [state]);
+
+  // RESPOND (owner 2026-10-04): which incoming raids already have a defense
+  // rally mustering — one defense rally per raid (same dedupe key the klaxon
+  // overlay uses). Those show "rally active" instead of a second button.
+  const myAllianceId = useMemo(
+    () => allianceOf(state, state.gameId ?? "")?.id ?? null,
+    [state],
+  );
+  const defenseRallyRaidIds = useMemo(() => {
+    if (!myAllianceId) return new Set<string>();
+    return new Set(
+      openRallies(state, myAllianceId)
+        .filter((r) => r.target.kind === "defense-point" && r.target.zoneId)
+        .map((r) => r.target.zoneId as string),
+    );
+  }, [state, myAllianceId]);
+  const [raidResponding, setRaidResponding] = useState<Record<string, boolean>>({});
+  const [raidRespondError, setRaidRespondError] = useState<Record<string, string>>({});
 
   // The player's own colony: "abandons in Xd" warning lives here too.
   const ownLastActive = wm?.lastActive ?? now;
@@ -1355,8 +1431,10 @@ export default function WorldMapView({
         onQuickResolveTactical={onQuickResolveTactical}
       />
 
-      {/* Incoming cross-server raids (defender warnings, owner 2026-10-03) */}
-      {incomingRaids.length > 0 && (
+      {/* Incoming cross-server raids (defender warnings, owner 2026-10-03).
+          Satellite-gated (owner 2026-10-04): blind (stage 0) = no evidence of
+          the raid anywhere — this panel does not render. */}
+      {raidIntel !== "none" && incomingRaids.length > 0 && (
         <div className="rounded-xl border border-red-500/50 bg-red-950/30 p-3">
           <h3 className="text-[12px] font-semibold text-red-200">
             ⚠️ {t("raid.incomingTitle", "Incoming raids")} ({incomingRaids.length})
@@ -1365,19 +1443,114 @@ export default function WorldMapView({
             const etaMs = Math.max(0, (r.landsAt || now) - now);
             const etaMin = Math.floor(etaMs / 60000);
             const etaSec = Math.floor((etaMs % 60000) / 1000);
+            // Stage-2 partial ship-class reveal (deterministic per raid; never
+            // the full set when more than one class is present).
+            const partialShips = raidIntel === "identity" ? partialShipIntel(r.shipClasses, r.raidId) : [];
+            const totalClasses = new Set(r.shipClasses ?? []).size;
+            const moreUnknown = totalClasses > partialShips.length;
             return (
               <div key={r.raidId} className="mt-2 rounded-lg border border-red-400/30 bg-black/40 p-2">
-                <p className="text-[12px] font-semibold text-red-100">
-                  {r.attackerNames.join(", ") || t("raid.unknownRaiders", "Unknown raiders")}
-                </p>
-                <p className="mt-0.5 text-[11px] text-gray-400">
-                  {t("raid.incomingFrom", "from")} <span className="text-amber-200">{r.attackerWorldName}</span>
-                  {" · "}{r.shipCount} {t("raid.ships", "ships")}
-                  {" · ~"}{r.troopCount.toLocaleString()} {t("raid.troops", "troops")}
-                </p>
+                {raidIntel === "presence" ? (
+                  <>
+                    <p className="text-[12px] font-semibold text-red-100">
+                      {t("raid.unidentifiedSignature", "🚨 UNIDENTIFIED SIGNATURE")}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-gray-400">
+                      {t("raid.inboundTo", "Inbound to")} <span className="text-amber-200">{raidNodeName}</span>
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[12px] font-semibold text-red-100">
+                      {r.attackerNames.join(", ") || t("raid.unknownRaiders", "Unknown raiders")}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-gray-400">
+                      {t("raid.incomingFrom", "from")} <span className="text-amber-200">{r.attackerWorldName}</span>
+                      {raidIntel === "full" && (
+                        <>
+                          {" · "}{r.shipCount} {t("raid.ships", "ships")}
+                          {" · ~"}{r.troopCount.toLocaleString()} {t("raid.troops", "troops")}
+                        </>
+                      )}
+                    </p>
+                    {raidIntel === "identity" && partialShips.length > 0 && (
+                      <p className="mt-0.5 text-[11px] text-gray-400">
+                        {t("raid.partialContacts", "Partial contacts")}:{" "}
+                        <span className="text-amber-200">
+                          {partialShips.map((c) => RAID_SHIP_CLASS_LABEL[c] ?? c).join(", ")}
+                        </span>
+                        {moreUnknown && (
+                          <span className="text-red-300/70"> + {t("raid.moreUnknown", "more unknown")}</span>
+                        )}
+                      </p>
+                    )}
+                  </>
+                )}
                 <p className="mt-0.5 text-[11px] font-semibold text-red-300">
                   {t("raid.eta", "Touchdown in")}: {etaMin > 0 ? `${etaMin}m ` : ""}{etaSec}s
                 </p>
+                {/* RESPOND (owner 2026-10-04): the war band's real response is a
+                 * defense rally. One per raid — a raid that already has one
+                 * shows "rally active" instead. */}
+                <div className="mt-2">
+                  {defenseRallyRaidIds.has(r.raidId) ? (
+                    <div>
+                      <p className="text-[12px] font-semibold text-emerald-200">
+                        {t("raid.defenseRallyActive", "🛡️ Defense rally already mustering — your war band is on it.")}
+                      </p>
+                      {onOpenWarBand && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenWarBand()}
+                          className="mt-1 rounded-lg border border-emerald-400/40 px-3 py-1.5 text-[12px] font-semibold text-emerald-100"
+                        >
+                          {t("raid.openWarBand", "Open war band")}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <button
+                        type="button"
+                        disabled={!!raidResponding[r.raidId]}
+                        onClick={async () => {
+                          if (!onRespondToRaid) return;
+                          setRaidResponding((p) => ({ ...p, [r.raidId]: true }));
+                          setRaidRespondError((p) => {
+                            const n = { ...p };
+                            delete n[r.raidId];
+                            return n;
+                          });
+                          try {
+                            const err = await onRespondToRaid({
+                              raidId: r.raidId,
+                              nodeName: state.playerName ?? "Home colony",
+                              landsAt: r.landsAt,
+                            });
+                            if (err) setRaidRespondError((p) => ({ ...p, [r.raidId]: err }));
+                          } finally {
+                            setRaidResponding((p) => ({ ...p, [r.raidId]: false }));
+                          }
+                        }}
+                        className="rounded-lg border border-red-400/50 bg-red-500/20 px-3 py-1.5 text-[12px] font-bold text-red-100 disabled:opacity-60"
+                      >
+                        {raidResponding[r.raidId]
+                          ? t("raid.rallying", "⏳ Rallying…")
+                          : t("raid.rallyDefense", "⚔️ Rally the defense")}
+                      </button>
+                      {raidRespondError[r.raidId] && (
+                        <p role="status" className="mt-1 text-[11px] text-red-200">
+                          {raidRespondError[r.raidId]}
+                        </p>
+                      )}
+                      {!onRespondToRaid && (
+                        <p className="mt-1 text-[11px] text-gray-500">
+                          {t("raid.respondSoon", "Respond isn't wired up yet — check back soon.")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -1499,94 +1672,3 @@ export default function WorldMapView({
     </div>
   );
 }
-import { allianceOf } from "../game/war/alliances";
-import { openRallies } from "../game/war/rallies";
-  onRespondToRaid,
-  onOpenWarBand,
-  /** Rally the defense against an incoming raid (owner 2026-10-04). Resolves
-   *  with an inline error when the rally can't be called; null on success.
-   *  Unwired buttons explain inline per Hans's rule. */
-  onRespondToRaid?: (raid: { raidId: string; nodeName: string; landsAt: number }) => Promise<string | null>;
-  /** Jump to the war band (Battles tab) — used when a defense rally already
-   *  exists for the raid. */
-  onOpenWarBand?: () => void;
-  // RESPOND (owner 2026-10-04): which incoming raids already have a defense
-  // rally mustering — one defense rally per raid (same dedupe key the klaxon
-  // overlay uses). Those show "rally active" instead of a second button.
-  const myAllianceId = useMemo(
-    () => allianceOf(state, state.gameId ?? "")?.id ?? null,
-    [state],
-  );
-  const defenseRallyRaidIds = useMemo(() => {
-    if (!myAllianceId) return new Set<string>();
-    return new Set(
-      openRallies(state, myAllianceId)
-        .filter((r) => r.target.kind === "defense-point" && r.target.zoneId)
-        .map((r) => r.target.zoneId as string),
-    );
-  }, [state, myAllianceId]);
-  const [raidResponding, setRaidResponding] = useState<Record<string, boolean>>({});
-  const [raidRespondError, setRaidRespondError] = useState<Record<string, string>>({});
-
-                {/* RESPOND (owner 2026-10-04): the war band's real response is a
-                 * defense rally. One per raid — a raid that already has one
-                 * shows "rally active" instead. */}
-                <div className="mt-2">
-                  {defenseRallyRaidIds.has(r.raidId) ? (
-                    <div>
-                      <p className="text-[12px] font-semibold text-emerald-200">
-                        {t("raid.defenseRallyActive", "🛡️ Defense rally already mustering — your war band is on it.")}
-                      </p>
-                      {onOpenWarBand && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenWarBand()}
-                          className="mt-1 rounded-lg border border-emerald-400/40 px-3 py-1.5 text-[12px] font-semibold text-emerald-100"
-                        >
-                          {t("raid.openWarBand", "Open war band")}
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div>
-                      <button
-                        type="button"
-                        disabled={!!raidResponding[r.raidId]}
-                        onClick={async () => {
-                          if (!onRespondToRaid) return;
-                          setRaidResponding((p) => ({ ...p, [r.raidId]: true }));
-                          setRaidRespondError((p) => {
-                            const n = { ...p };
-                            delete n[r.raidId];
-                            return n;
-                          });
-                          try {
-                            const err = await onRespondToRaid({
-                              raidId: r.raidId,
-                              nodeName: state.playerName ?? "Home colony",
-                              landsAt: r.landsAt,
-                            });
-                            if (err) setRaidRespondError((p) => ({ ...p, [r.raidId]: err }));
-                          } finally {
-                            setRaidResponding((p) => ({ ...p, [r.raidId]: false }));
-                          }
-                        }}
-                        className="rounded-lg border border-red-400/50 bg-red-500/20 px-3 py-1.5 text-[12px] font-bold text-red-100 disabled:opacity-60"
-                      >
-                        {raidResponding[r.raidId]
-                          ? t("raid.rallying", "⏳ Rallying…")
-                          : t("raid.rallyDefense", "⚔️ Rally the defense")}
-                      </button>
-                      {raidRespondError[r.raidId] && (
-                        <p role="status" className="mt-1 text-[11px] text-red-200">
-                          {raidRespondError[r.raidId]}
-                        </p>
-                      )}
-                      {!onRespondToRaid && (
-                        <p className="mt-1 text-[11px] text-gray-500">
-                          {t("raid.respondSoon", "Respond isn't wired up yet — check back soon.")}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
