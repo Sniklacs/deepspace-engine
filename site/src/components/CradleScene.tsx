@@ -1,6 +1,6 @@
 // CradleScene — the Cradle page as a place, not a page (owner 2026-10-04).
 //
-// The home colony rendered as one bright illustrated scene: the player pans
+// The home colony rendered as one illustrated scene: the player pans
 // across it in every direction (drag on touch, wheel-zoom on desktop, pinch),
 // and the BUILDINGS are the navigation — tap the Laboratory and you're in the
 // Lab, tap the Barracks and you're mustering troops. No text-link menus; you
@@ -10,10 +10,13 @@
 // (overview, devotion, roster, stores…) live below it in the normal page
 // scroll, reachable via the Great Hall hotspot and the floating pill.
 //
-// ART DIRECTION (owner): BRIGHT — good colors, brightness AND shade, real
-// depth, colored luster. Not dark, not grim. One lean 1920×1080 WebP panorama;
-// hotspots sit on the painted buildings. If the art ever fails to load the
-// scene quietly removes itself and the panels below carry on.
+// ART DIRECTION (owner): aerial drone view — camera ~100ft up, tilted ~30°
+// down over rooftops, courtyards and plazas. Film-noir SKY (deep indigo and
+// charcoal clouds, dramatic light breaks) over a BRIGHT colony below: good
+// colors, brightness AND shade, real depth, colored luster. Grounded and
+// cinematic, not gloomy. One lean 1920×1080 WebP panorama; hotspots sit on
+// the painted buildings. If the art ever fails to load the scene quietly
+// removes itself and the panels below carry on.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import type { Tab } from "../game/nav-slots";
@@ -40,19 +43,20 @@ export interface SceneHotspot {
 
 /**
  * Building → destination map. Positions are % coordinates on the panorama,
- * matched by eye to the painted buildings (bright vista, left to right:
- * glass lab dome · forge hall · central keep · barracks rows · alliance
- * spires · shipyard gantry · depot crates · mustering plaza).
+ * matched by eye to the painted buildings (aerial drone view, left to
+ * right: glass lab dome · burning forge hall · central keep · barracks rows ·
+ * white alliance spires · shipyard gantry · depot crates and rovers ·
+ * mustering plaza with statue).
  */
 export const CRADLE_HOTSPOTS: readonly SceneHotspot[] = [
-  { id: "lab", x: 8, y: 55, labelKey: "cradle.scene.lab", defaultLabel: "Laboratory", target: "lab" },
-  { id: "forge", x: 28, y: 52, labelKey: "cradle.scene.forge", defaultLabel: "Forge", target: "forge" },
-  { id: "keep", x: 47, y: 40, labelKey: "cradle.scene.keep", defaultLabel: "Great Hall", target: "business" },
-  { id: "formations", x: 45, y: 85, labelKey: "cradle.scene.formations", defaultLabel: "Formations Grounds", target: "formations" },
-  { id: "barracks", x: 62, y: 68, labelKey: "cradle.scene.barracks", defaultLabel: "Barracks", target: "troops" },
-  { id: "alliance", x: 78, y: 52, labelKey: "cradle.scene.alliance", defaultLabel: "Alliance Hall", target: "alliance" },
-  { id: "depot", x: 85, y: 75, labelKey: "cradle.scene.depot", defaultLabel: "Exploration Depot", target: "expeditions" },
-  { id: "shipyard", x: 93, y: 55, labelKey: "cradle.scene.shipyard", defaultLabel: "Shipyard", target: "shipyard" },
+  { id: "lab", x: 14, y: 54, labelKey: "cradle.scene.lab", defaultLabel: "Laboratory", target: "lab" },
+  { id: "forge", x: 7, y: 75, labelKey: "cradle.scene.forge", defaultLabel: "Forge", target: "forge" },
+  { id: "keep", x: 51, y: 49, labelKey: "cradle.scene.keep", defaultLabel: "Great Hall", target: "business" },
+  { id: "formations", x: 58, y: 81, labelKey: "cradle.scene.formations", defaultLabel: "Formations Grounds", target: "formations" },
+  { id: "barracks", x: 59, y: 66, labelKey: "cradle.scene.barracks", defaultLabel: "Barracks", target: "troops" },
+  { id: "alliance", x: 72, y: 49, labelKey: "cradle.scene.alliance", defaultLabel: "Alliance Hall", target: "alliance" },
+  { id: "depot", x: 83, y: 85, labelKey: "cradle.scene.depot", defaultLabel: "Exploration Depot", target: "expeditions" },
+  { id: "shipyard", x: 93, y: 62, labelKey: "cradle.scene.shipyard", defaultLabel: "Shipyard", target: "shipyard" },
 ];
 
 export interface PanTransform {
