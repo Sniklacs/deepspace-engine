@@ -49,14 +49,14 @@ describe("rollDeserterEncounter", () => {
       if (!band) continue;
       found++;
       const n = deserterBandCount(band);
-      expect(n).toBeGreaterThanOrEqual(DESERTER_BAND_MIN);
+      expect(n >= DESERTER_BAND_MIN).toBe(true);
       expect(n).toBeLessThanOrEqual(DESERTER_BAND_MAX);
       const perHead = band.price / n;
-      expect(perHead).toBeGreaterThanOrEqual(DESERTER_PRICE_PER_HEAD_MIN);
+      expect(perHead >= DESERTER_PRICE_PER_HEAD_MIN).toBe(true);
       expect(perHead).toBeLessThanOrEqual(DESERTER_PRICE_PER_HEAD_MAX);
       // Composition is a mix of real troop types.
       const types = Object.keys(band.troops);
-      expect(types.length).toBeGreaterThanOrEqual(2);
+      expect(types.length >= 2).toBe(true);
       for (const t of types) {
         expect(["bulwark", "reaver", "longeye", "thunder", "warden"]).toContain(t);
       }

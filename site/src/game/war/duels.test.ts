@@ -220,7 +220,7 @@ describe("format caps — the duel circle has rules", () => {
 describe("accept — both sides escrowed, battle builds bloodless", () => {
   test("guest stakes escrow on accept; battle is bloodless", () => {
     const { a, b, battle } = handshake();
-    expect(b.battle ?? null).toBeDefined();
+    expect(b.battles?.some((x) => x.id === battle.id) ?? false).toBe(true);
     expect(b.resources?.supplies).toBe(10_000 - 500);
     expect(battle.bloodless).toBe(true);
     expect(battle.zoneId).toBe("duel-circle");

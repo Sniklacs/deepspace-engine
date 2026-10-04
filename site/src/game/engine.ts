@@ -70,6 +70,24 @@ import {
   setEpitaphOnState,
 } from "./memorials";
 import { currentSeason } from "./seasons";
+import {
+  MARKET_CONFIG,
+  MODULE_CONFIG,
+  craftModuleItem,
+  getModuleRecipe,
+  makeListing,
+  marketFee,
+  marketListingExpired,
+  marketSellerProceeds,
+  moduleBroken,
+  moduleMeltRefund,
+  moduleTierForIndustry,
+  tickModuleBattle,
+  transferModule,
+  validateListing,
+  type MarketListing,
+  type ModuleItem,
+} from "./modules";
 import type { ManeuverVector } from "./war/war-types";
 import { allianceOf, broadcastRaidAlarm, ensureAlliances, guestsAt, logAllianceActivity, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
 import { applyTithe, ensureStockpile } from "./shipyard";

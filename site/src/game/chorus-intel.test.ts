@@ -61,9 +61,9 @@ describe("chorus-intel", () => {
     expect(a).toEqual(b);
     const sites = chorusSiteIntel();
     for (const s of sites) {
-      expect(s.lat).toBeGreaterThanOrEqual(-80);
+      expect(s.lat >= -80).toBe(true);
       expect(s.lat).toBeLessThanOrEqual(80);
-      expect(s.lon).toBeGreaterThanOrEqual(-180);
+      expect(s.lon >= -180).toBe(true);
       expect(s.lon).toBeLessThanOrEqual(180);
     }
   });
@@ -80,7 +80,7 @@ describe("chorus-intel", () => {
 
   test("hash01 is deterministic in [0,1)", () => {
     const h = hash01("outer-ruins:a");
-    expect(h).toBeGreaterThanOrEqual(0);
+    expect(h >= 0).toBe(true);
     expect(h).toBeLessThan(1);
     expect(hash01("outer-ruins:a")).toBe(h);
     expect(hash01("other")).not.toBe(h);

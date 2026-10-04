@@ -224,7 +224,7 @@ describe("melt-down — the scrap loop", () => {
 
   test("melt never returns zero warplate", () => {
     const r = moduleMeltRefund(testModule({ condition: 0, warplateSpent: 2, tier: 1 }));
-    expect(r.warplate).toBeGreaterThanOrEqual(1);
+    expect(r.warplate >= 1).toBe(true);
   });
 });
 
