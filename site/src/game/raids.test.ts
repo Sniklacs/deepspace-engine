@@ -1,7 +1,11 @@
 // raids.test.ts — Cross-server raiding party tests (v1: loot-only).
 import { describe, expect, test } from "bun:test";
 import {
+  LANDED_FIRE_SUPPORT_FACTOR,
+  ORBITAL_FIRE_SUPPORT_FACTOR,
   RAID_MAX_MEMBERS,
+  SHIP_FIREPOWER,
+  SHIP_HULL,
   SHIP_LOOT_CAP,
   capLootToCargo,
   commitRaidTroops,
@@ -236,6 +240,93 @@ describe("resolveRaidBattle", () => {
     const heavy = resolveRaidBattle({ ...base, attacker: { thunder: 900 } });
     expect(light.won).toBe(false); // 400 power vs 1000
     expect(heavy.won).toBe(true); // 2700 power vs 1000
+  });
+});
+
+describe("ship combat stats (owner 2026-10-03)", () => {
+  const defenderLoot = { ...EMPTY_RAID_LOOT, supplies: 10_000, embers: 2_000, fuel: 500 };
+  const base = {
+    attacker: { reaver: 1000 }, // 1000 power
+    weights: WEIGHTS,
+    defenderTroops: 1000,
+    defenderLoot,
+    cargoCapacity: 1_000_000,
+  };
+
+  test("every ship class has firepower and hull", () => {
+    for (const cls of ["scout", "frigate", "bulwark", "vanguard", "fatcat", "herald"] as const) {
+      expect(SHIP_FIREPOWER[cls]).toBeGreaterThan(0);
+      expect(SHIP_HULL[cls]).toBeGreaterThan(0);
+    }
+  });
+
+  test("vanguard outguns scout; bulwark out-armors scout", () => {
+    expect(SHIP_FIREPOWER.vanguard).toBeGreaterThan(SHIP_FIREPOWER.scout);
+    expect(SHIP_HULL.bulwark).toBeGreaterThan(SHIP_HULL.scout);
+  });
+
+  test("holding orbit: fleet adds orbital fire support (half firepower)", () => {
+    const noFleet = resolveRaidBattle({ ...base, shipClasses: [] });
+    const withFleet = resolveRaidBattle({
+      ...base,
+      shipClasses: ["vanguard", "frigate"], // 140 + 80 = 220 fp → 110 orbital
+      shipsHoldOrbit: true,
+    });
+    // Same tier (both win at ratio 1.0→1.11) but defender bleeds more with fleet.
+    expect(withFleet.defenderLosses).toBeGreaterThan(noFleet.defenderLosses);
+    // Exact: defender losses = floor(attackerPower * 0.4) capped.
+    expect(withFleet.defenderLosses).toBe(Math.min(1000, Math.floor(1110 * 0.4)));
+  });
+
+  test("landed: fleet adds full firepower", () => {
+    const orbit = resolveRaidBattle({
+      ...base,
+      shipClasses: ["vanguard"],
+      shipsHoldOrbit: true,
+    });
+    const landed = resolveRaidBattle({
+      ...base,
+      shipClasses: ["vanguard"],
+      shipsHoldOrbit: false,
+    });
+    expect(landed.defenderLosses).toBeGreaterThan(orbit.defenderLosses);
+    expect(landed.defenderLosses).toBe(
+      Math.min(1000, Math.floor((1000 + 140 * LANDED_FIRE_SUPPORT_FACTOR) * 0.4)),
+    );
+    expect(orbit.defenderLosses).toBe(
+      Math.min(1000, Math.floor((1000 + 140 * ORBITAL_FIRE_SUPPORT_FACTOR) * 0.4)),
+    );
+  });
+
+  test("landed fragile fleet pays more repairs than a tanky one", () => {
+    const fragile = resolveRaidBattle({
+      ...base,
+      attacker: { reaver: 4000 }, // decisive win either way
+      shipClasses: ["scout", "scout"], // hull 80 → 40/80 = 50% → capped 15%
+      shipsHoldOrbit: false,
+    });
+    const tanky = resolveRaidBattle({
+      ...base,
+      attacker: { reaver: 4000 },
+      shipClasses: ["bulwark", "bulwark"], // hull 800 → 40/800 = 5%
+      shipsHoldOrbit: false,
+    });
+    // Both win decisively (80% loot share) but fragile pays 15% repairs, tanky 5%.
+    expect(fragile.lootTaken.supplies).toBe(Math.floor(10_000 * 0.8 * 0.85));
+    expect(tanky.lootTaken.supplies).toBe(Math.floor(10_000 * 0.8 * 0.95));
+  });
+
+  test("no ships: orbit and land behave identically (no phantom bonus)", () => {
+    const orbit = resolveRaidBattle({ ...base, shipsHoldOrbit: true });
+    const landed = resolveRaidBattle({ ...base, shipsHoldOrbit: false });
+    expect(landed).toEqual(orbit);
+  });
+
+  test("deterministic with ships", () => {
+    const input = { ...base, shipClasses: ["vanguard", "bulwark"] as const, shipsHoldOrbit: false as const };
+    expect(resolveRaidBattle({ ...input, shipClasses: [...input.shipClasses] })).toEqual(
+      resolveRaidBattle({ ...input, shipClasses: [...input.shipClasses] }),
+    );
   });
 });
 

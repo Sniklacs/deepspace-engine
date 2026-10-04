@@ -23,6 +23,7 @@ import {
   shipNeedsAlliance,
   type ShipClass,
 } from "../game/shipyard";
+import { SHIP_FIREPOWER, SHIP_HULL } from "../game/raids";
 import { orderShipFn, contributeShipFn, donateShipyardFn, setTitheFn } from "../game/api";
 import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
@@ -48,6 +49,15 @@ function costLine(t: T, cls: ShipClass): string {
   if (c.raceMaterial > 0) parts.push(`${c.raceMaterial} ${t("shipyard.costMat", "race mat")}`);
   if (c.alloys > 0) parts.push(`${c.alloys} ${t("shipyard.costAlloys", "alloys")}`);
   return parts.join(" · ");
+}
+
+/** Combat stat line for a ship class (owner 2026-10-03): ⚔ firepower · 🛡 hull. */
+function combatLine(t: T, cls: ShipClass): string {
+  return t(
+    "shipyard.combatStats",
+    "⚔ {fp} · 🛡 {hull}",
+    { fp: SHIP_FIREPOWER[cls], hull: SHIP_HULL[cls] },
+  );
 }
 
 function blockerHint(t: T, cls: ShipClass, state: GameState): string | null {
@@ -143,7 +153,7 @@ export function AllianceShipyardSection({
                     <span>{t("shipyard.buildShip", "Build {ship}", { ship: shipName(raceId, cls) })}</span>
                   </span>
                 }
-                sub={`${costLine(t, cls)} · ~${time}`}
+                sub={`${costLine(t, cls)} · ~${time} · ${combatLine(t, cls)}`}
                 onClick={() => order(cls)}
                 testid={`shipyard-build-${cls}`}
               />
@@ -215,7 +225,10 @@ export function AllianceShipyardSection({
           {ships.map((s) => (
             <li key={s.id} className="flex items-center gap-2 rounded-lg border border-line bg-surf-1 px-3 py-1.5">
               <ShipThumb raceId={s.raceId} shipClass={s.class} size={32} />
-              <span className="min-w-0 flex-1 truncate text-sm text-text-1">{s.name}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-text-1">{s.name}</span>
+                <span className="block text-[10px] text-text-3">{combatLine(t, s.class)}</span>
+              </span>
               <span className="shrink-0 text-[11px] text-text-2">
                 {t(`shipyard.status.${s.status}`, s.status)}
               </span>
@@ -387,7 +400,7 @@ export function PersonalShipyardSection({
             <span>{t("shipyard.buildShip", "Build {ship}", { ship: shipName(raceId, cls) })}</span>
           </span>
         }
-        sub={`${costLine(t, cls)} · ~${fmtLeft(shipBuildDurationMs(cls, 0, 1))}`}
+        sub={`${costLine(t, cls)} · ~${fmtLeft(shipBuildDurationMs(cls, 0, 1))} · ${combatLine(t, cls)}`}
         onClick={order}
         testid="shipyard-build-scout"
       />

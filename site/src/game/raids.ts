@@ -15,6 +15,7 @@ import type { TroopType } from "./war/troops";
 import { WORLD_JUMP_FUEL, WORLD_JUMP_SUPPLIES, type ShipClass } from "./worldmap";
 import type { ManeuverVector } from "./war/war-types";
 import type { TacticalBattle, OrdersMap } from "./war/tactical-combat";
+import { startTacticalBattle, resolveRound, quickResolve } from "./war/tactical-combat";
 
 /** Max raiding party size. Hans: the 5-player cap forces coordination —
  *  you can't zerg a raid, you have to plan it. The beachhead is where
@@ -181,6 +182,10 @@ export interface RaidParty {
    *  (safe from ground defenses, fast extract); false = ships land with
    *  troops (participate in battle, higher risk/reward). Default true. */
   shipsHoldOrbit?: boolean;
+  /** Tactical battle (owner 2026-10-03): the live round-based battle entity
+   *  once deployment is committed. Lives on the raid so rounds can be
+   *  resolved across ticks/saves. Set when status → "tactical". */
+  tacticalBattle?: TacticalBattle | null;
   status: RaidStatus;
   departedAt?: number;
   landsAt?: number;
@@ -423,7 +428,9 @@ export function raidDeployBlocker(
   return null;
 }
 
-/** Commit the player's tactical deployment. The battle resolves on the next tick. */
+/** Commit the player's tactical deployment. The tactical battle starts on
+ *  the next tick (engine starts it with the defender's real strength) and
+ *  the player then issues orders round by round — no more auto-resolve. */
 export function deployRaidTroops(
   raid: RaidParty,
   deployment: Partial<Record<ManeuverVector, Partial<Record<TroopType, number>>>>,
@@ -433,8 +440,118 @@ export function deployRaidTroops(
   if (blocker) return { ok: false, error: blocker };
   raid.deployment = deployment;
   raid.shipsHoldOrbit = shipsHoldOrbit;
-  raid.status = "landed"; // battle resolves on next tick with the player's deployment
+  raid.tacticalBattle = null;
+  raid.status = "tactical"; // battle starts on next tick; player commands it round by round
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Tactical battle lifecycle (owner 2026-10-03)
+// ---------------------------------------------------------------------------
+//
+// The old flow auto-resolved the battle on the next tick after deployment.
+// Now the battle is a live round-based engagement: the engine starts a
+// TacticalBattle from the deployment, the player issues orders per round via
+// tacticalRaidRound(), and when the battle ends the result converts to the
+// raid's won/loot/losses exactly like the old resolution did.
+
+/** Start the tactical battle for a raid. Called by the engine tick when a
+ *  "tactical" raid has no battle yet. The defender's strength comes from
+ *  the map (same source the old auto-resolve used). */
+export function startTacticalRaidBattle(
+  raid: RaidParty,
+  defenderTroops: number,
+  now: number,
+): { ok: boolean; error?: string } {
+  if (raid.status !== "tactical") return { ok: false, error: "That raid isn't fighting a tactical battle." };
+  if (raid.tacticalBattle) return { ok: false, error: "That battle is already underway." };
+  if (!raid.deployment) return { ok: false, error: "No deployment — deploy your troops first." };
+  const fleetFirepower = (raid.shipClasses ?? []).reduce((s, c) => s + (SHIP_FIREPOWER[c] ?? 0), 0);
+  raid.tacticalBattle = startTacticalBattle({
+    battleId: `tb-${raid.id}`,
+    raidId: raid.id,
+    deployment: raid.deployment,
+    defenderTroops,
+    shipsHoldOrbit: raid.shipsHoldOrbit ?? true,
+    shipFirepower: fleetFirepower,
+    now,
+  });
+  return { ok: true };
+}
+
+/** Resolve one tactical round for a raid. Attacker orders required; the
+ *  defender is driven by the deterministic AI unless defenderOrders are
+ *  passed (a live defender's orders — future pass). */
+export function tacticalRaidRound(
+  raid: RaidParty,
+  orders: OrdersMap,
+  now: number,
+): { ok: boolean; error?: string } {
+  if (raid.status !== "tactical") return { ok: false, error: "That raid isn't fighting a tactical battle." };
+  const battle = raid.tacticalBattle;
+  if (!battle) return { ok: false, error: "The battle hasn't started yet." };
+  const res = resolveRound(battle, orders, undefined, now);
+  if (!res.ok) return { ok: false, error: res.error };
+  raid.tacticalBattle = battle;
+  return { ok: true };
+}
+
+/** Quick-resolve: auto-play the remaining rounds with hold/hold orders.
+ *  For commanders who can't stay for the whole battle. Deterministic. */
+export function quickResolveTacticalRaid(raid: RaidParty, now: number): { ok: boolean; error?: string } {
+  if (raid.status !== "tactical") return { ok: false, error: "That raid isn't fighting a tactical battle." };
+  const battle = raid.tacticalBattle;
+  if (!battle) return { ok: false, error: "The battle hasn't started yet." };
+  if (battle.status !== "active") return { ok: false, error: "That battle is already over." };
+  quickResolve(battle, now);
+  raid.tacticalBattle = battle;
+  return { ok: true };
+}
+
+/** Loot share by tactical loot tier (0–3: loss/pyrrhic/win/decisive).
+ *  Matches the old auto-resolve tiers exactly. */
+export const TACTICAL_LOOT_SHARE: Record<0 | 1 | 2 | 3, number> = {
+  0: 0, 1: 0.20, 2: 0.50, 3: 0.80,
+};
+
+/** Convert a finished tactical battle into raid results: won, loot, losses.
+ *  Mirrors the old resolveRaidBattle output shape so the rest of the raid
+ *  pipeline (return leg, tithe, memorials, cross-server delivery) works
+ *  unchanged. */
+export function tacticalRaidResult(
+  raid: RaidParty,
+  defenderLoot: RaidLoot,
+): {
+  won: boolean;
+  decisive: boolean;
+  attackerLosses: Partial<Record<TroopType, number>>;
+  defenderLosses: number;
+  lootTaken: RaidLoot;
+} {
+  const battle = raid.tacticalBattle;
+  const tier = (battle?.lootTier ?? 0) as 0 | 1 | 2 | 3;
+  const won = battle?.status === "attacker_won";
+  const decisive = tier === 3;
+  const attackerLosses: Partial<Record<TroopType, number>> = { ...(battle?.totalAttackerLosses ?? {}) };
+  const defenderLosses = battle
+    ? (Object.values(battle.totalDefenderLosses) as number[]).reduce((n, c) => n + (c ?? 0), 0)
+    : 0;
+  const share = TACTICAL_LOOT_SHARE[tier];
+  const rawLoot: RaidLoot = won
+    ? {
+        supplies: Math.floor(defenderLoot.supplies * share),
+        embers: Math.floor(defenderLoot.embers * share),
+        fuel: Math.floor(defenderLoot.fuel * share),
+        battery: Math.floor(defenderLoot.battery * share),
+        medkit: Math.floor(defenderLoot.medkit * share),
+        mechkit: Math.floor(defenderLoot.mechkit * share),
+        armorkit: Math.floor(defenderLoot.armorkit * share),
+        hazmat: Math.floor(defenderLoot.hazmat * share),
+        shots: Math.floor(defenderLoot.shots * share),
+      }
+    : { ...EMPTY_RAID_LOOT };
+  const lootTaken = capLootToCargo(rawLoot, raidLootCapacity(raid));
+  return { won, decisive, attackerLosses, defenderLosses, lootTaken };
 }
 
 // ---------------------------------------------------------------------------

@@ -62,11 +62,20 @@ import {
   freshDaily,
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
+import {
+  createMemorial,
+  ensureMemorials,
+  findMemorialByBattle,
+  qualifiesForMemorial,
+  setEpitaphOnState,
+} from "./memorials";
+import { currentSeason } from "./seasons";
 import type { ManeuverVector } from "./war/war-types";
 import { allianceOf, broadcastRaidAlarm, ensureAlliances, guestsAt, queueAllianceFx, shrinkGuestMirrors } from "./war/alliances";
 import { applyTithe, ensureStockpile } from "./shipyard";
 import { advanceRallies, ensureRallies } from "./war/rallies";
 import { ensureArena, expireArenaChallenges, resolveArenaBattles } from "./war/arena";
+import { ensureDuels, expireDuels, resolveDuelBattles } from "./war/duels";
 import {
   advanceTroopHome,
   emptyTroopHome,
@@ -124,6 +133,12 @@ import {
   resolveSubColonies as resolveSubColoniesPure,
   shipSubColonySupplies as shipSubColonySuppliesPure,
   mailOverdueUpkeep as mailOverdueUpkeepPure,
+  resolveSubColonyMusters as resolveSubColonyMustersPure,
+  resolveStarvedSubColonies as resolveStarvedSubColoniesPure,
+  enqueueSubColonyMuster as enqueueSubColonyMusterPure,
+  seizeSubColony as seizeSubColonyPure,
+  subColonyTroopCount as subColonyTroopCountPure,
+  bleedSubColonyTroops as bleedSubColonyTroopsPure,
 } from "./subcolonies";
 import { markRead, markAllRead, deleteMail } from "./mailbox";
 import {
@@ -145,6 +160,10 @@ import {
   resolveRaidBattle,
   rollDeserterEncounter,
   setRaidTarget as setRaidTargetPure,
+  startTacticalRaidBattle,
+  tacticalRaidResult,
+  tacticalRaidRound as tacticalRaidRoundPure,
+  quickResolveTacticalRaid as quickResolveTacticalRaidPure,
   EMPTY_RAID_LOOT,
   type RaidParty,
 } from "./raids";
@@ -1847,6 +1866,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureTimeTokens(state); // EARNED time tokens: zero holdings + empty ledger on an
   //                          old save (the owner's 2026-09-27 direction; earned only)
   ensureBattles(state); // V9: real-time battle entities + report ledger (no-op on new saves)
+  ensureMemorials(state); // Battle plaques (owner 2026-09-30): backfilled empty, never wiped
   ensureTroops(state, now); // MUSTER: garrison + queues + hunger clock (additive on old saves)
   ensureForwardBases(state, now); // BEACHHEADS: forward bases + shared server band pools (additive)
   ensureAlliances(state); // WAR BAND: alliance store + help budget + reinforcements (additive; never wiped by seasons)
@@ -1952,9 +1972,15 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // SUB COLONIES: setting_up → sub_colony after the 24h setup. Same lazy,
   // idempotent discipline — offline worlds resolve on next read.
   resolveSubColoniesPure(state, now);
+  // SUB COLONY MUSTER: resolve finished troop builds at active sub colonies
+  // (2x speed — owner 2026-10-03).
+  resolveSubColonyMustersPure(state, now);
   // SUB COLONY UPKEEP MAIL: warn once per cycle when a sub colony's
   // 1,000-supply shipment is overdue (owner 2026-10-03).
   mailOverdueUpkeepPure(state, now);
+  // SUB COLONY STARVATION: 48h past the upkeep deadline with no shipment →
+  // the sub colony collapses back to a husk (owner 2026-10-03).
+  resolveStarvedSubColoniesPure(state, now);
   // Resolve arrivals of Forge supply runs (the ~24h transit — lazy, idempotent).
   resolveForgeTransit(state, now);
 
@@ -1978,6 +2004,13 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // resolveRosterCasualties so stakes-mode bodies are already billed.
   expireArenaChallenges(state, now);
   resolveArenaBattles(state, now, (fx) => queueAllianceFx(state, fx));
+  // DUELS (war/duels.ts): sweep stale duel proposals (every escrow returns
+  // to its owner) and resolve finished duel battles — winner takes the whole
+  // pot, draws return every escrow. The `duel-result` fx settles the guest.
+  // Runs AFTER resolveRosterCasualties like the arena (duels are bloodless,
+  // but the ordering keeps both ledgers consistent).
+  expireDuels(state, now);
+  resolveDuelBattles(state, now, (fx) => queueAllianceFx(state, fx));
   // RALLIES (war/rallies.ts): fire rally timers whose moment came (the pool
   // marches even if the caller's away) and resolve launched rallies whose
   // battles finished — contribution-locked loot, per-colony loss ledger.
@@ -3213,6 +3246,18 @@ export function shipSubColonySupplies(state: GameState, key: string, now = Date.
   return { ok: true, state };
 }
 
+/** Muster troops at an active sub colony (owner 2026-10-03): troops only,
+ *  owner's research level, 2x build speed. */
+export function musterSubColonyTroops(state: GameState, key: string, type: string, count: number, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const res = enqueueSubColonyMusterPure(state, key, type, count, now);
+  if (!res.ok) return { ok: false, error: res.error, state };
+  const wm = ensureWorldMap(state, now);
+  const colony = wm.known[key];
+  log(state, `⚔️ Mustering ${count} ${type} at sub colony ${colony?.ownerName ?? key} — 2x speed.`);
+  return { ok: true, state };
+}
+
 /** Mailbox: mark one message read (owner 2026-10-03). */
 export function markMailRead(state: GameState, mailId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
   advance(state, now);
@@ -3390,6 +3435,43 @@ export function deployRaid(
   return { ok: true, state };
 }
 
+/** Issue one round of tactical orders for a raid battle (owner 2026-10-03).
+ *  The defender is driven by the deterministic AI. */
+export function tacticalRaidRound(
+  state: GameState,
+  raidId: string,
+  orders: Partial<Record<ManeuverVector, { order: string; target?: ManeuverVector; count?: number; orbitalStrike?: ManeuverVector }>>,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  const res = tacticalRaidRoundPure(raid, orders as Parameters<typeof tacticalRaidRoundPure>[1], now);
+  if (!res.ok) return fail(res.error ?? "Couldn't resolve the round.");
+  const battle = raid.tacticalBattle;
+  if (battle && battle.status !== "active") {
+    log(state, `⚔️ ${raid.id} — the battle is decided after ${battle.round} rounds.`);
+  }
+  return { ok: true, state };
+}
+
+/** Quick-resolve a tactical raid battle (owner 2026-10-03): auto-play the
+ *  remaining rounds with hold/hold orders. For commanders who can't stay. */
+export function quickResolveTacticalRaid(
+  state: GameState,
+  raidId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const raid = findRaid(state, raidId);
+  if (!raid) return fail("Raid party not found.");
+  const res = quickResolveTacticalRaidPure(raid, now);
+  if (!res.ok) return fail(res.error ?? "Couldn't quick-resolve the battle.");
+  if (!res.ok) return fail(res.error ?? "Couldn't quick-resolve the battle.");
+  log(state, `⚔️ ${raid.id} — quick-resolved. The battle is decided.`);
+  return { ok: true, state };
+}
+
 /** Hire the deserter band waiting at a raid (owner 2026-10-03).
  *  Supplies come from the raid's cargo; troops join the raid on the ground. */
 export function hireRaidDeserters(
@@ -3462,30 +3544,35 @@ export function advanceRaids(state: GameState, now: number): void {
       log(state, `🛬 ${raid.id} TOUCHDOWN — ${names} are on the ground at ${raid.targetOwnerName}'s colony. Deploy your troops to attack.`);
     }
 
-    // --- battle resolution: player has deployed, fight the battle ---
-    if (raid.status === "landed" && raid.deployment) {
+    // --- tactical battle: the player commands it round by round ---
+    // (owner 2026-10-03: no more auto-resolve — touchdown → deploy →
+    //  issue orders each round until one side breaks.)
+    if (raid.status === "tactical" && raid.deployment) {
       // Defender strength: what the map knows (approx troops from the visit).
+      // SUB COLONY (owner 2026-10-03): a raid against a sub colony fights its
+      // REAL garrison — no fog here, the sub's troops are on the ground.
       const key = `${raid.targetServerId}:${raid.targetColonyId}`;
       const colony = wm.known[key];
-      const defenderTroops = colony?.approxTroops ?? 1000;
+      const isSubTarget = colony?.status === "sub_colony";
+      const defenderTroops = isSubTarget
+        ? subColonyTroopCountPure(colony!)
+        : (colony?.approxTroops ?? 1000);
       const defenderLoot = mockDefenderLoot(raid.targetColonyId);
 
-      const attacker: Partial<Record<TroopType, number>> = {};
-      for (const byType of Object.values(raid.troops)) {
-        for (const [t, c] of Object.entries(byType) as [TroopType, number][]) {
-          attacker[t] = (attacker[t] ?? 0) + (c ?? 0);
+      // Start the battle if it hasn't begun yet.
+      if (!raid.tacticalBattle) {
+        const started = startTacticalRaidBattle(raid, defenderTroops, now);
+        if (started.ok) {
+          const names = raid.memberNames.join(", ");
+          log(state, `⚔️ ${raid.id} — the battle for ${raid.targetOwnerName}'s colony begins. ${names}, issue your orders.`);
         }
+        continue; // wait for the player's first orders
       }
+      const battle = raid.tacticalBattle;
+      if (battle.status === "active") continue; // battle in progress — player issues orders via tacticalRaidRound
 
-      const result = resolveRaidBattle({
-        attacker,
-        weights,
-        defenderTroops,
-        defenderLoot,
-        cargoCapacity: raidLootCapacity(raid),
-        deployment: raid.deployment,
-        shipsHoldOrbit: raid.shipsHoldOrbit ?? true,
-      });
+      // Battle's over — convert the tactical result into raid results.
+      const result = tacticalRaidResult(raid, defenderLoot);
 
       raid.won = result.won;
       raid.attackerLosses = result.attackerLosses;
@@ -3493,8 +3580,21 @@ export function advanceRaids(state: GameState, now: number): void {
       raid.lootTaken = result.lootTaken;
 
       // Defender bleeds on the map record (reverb drops — the threat board moves).
-      if (colony && colony.approxTroops != null) {
+      // SUB COLONY: casualties come out of the real garrison roster.
+      if (colony && isSubTarget) {
+        bleedSubColonyTroopsPure(colony, result.defenderLosses);
+      } else if (colony && colony.approxTroops != null) {
         colony.approxTroops = Math.max(0, colony.approxTroops - result.defenderLosses);
+      }
+
+      // SUB COLONY SEIZURE (owner 2026-10-03): a decisive win against a sub
+      // colony transfers it to the raid leader — "you lose what's there; the
+      // taker gets it at THEIR research/build level." Main colony untouched.
+      if (colony && isSubTarget && result.decisive) {
+        const seized = seizeSubColonyPure(state, key, raid.leaderId, raid.leaderName, now);
+        if (seized.ok) {
+          log(state, `🏴 ${raid.leaderName} SEIZED the sub colony at ${key} — decisive victory. The old garrison is gone; it now musters at ${raid.leaderName}'s research level.`);
+        }
       }
 
       // Survivors stay with the raid for the return leg.
@@ -3515,6 +3615,31 @@ export function advanceRaids(state: GameState, now: number): void {
       // Cross-server: flag the battle result for delivery to the defender's
       // server. The api layer picks this up and POSTs to /api/raid-result.
       raid.resultPendingDelivery = true;
+      // MEMORIALS (owner 2026-09-30): a raid battle with 1,000+ total
+      // casualties earns a permanent plaque. Idempotent: dedupe on raid id.
+      ensureMemorials(state);
+      const raidAttackerLosses = Object.values(result.attackerLosses).reduce(
+        (s, n) => s + Math.max(0, Math.floor(n ?? 0)),
+        0,
+      );
+      if (
+        qualifiesForMemorial(raidAttackerLosses, result.defenderLosses) &&
+        !findMemorialByBattle((state as any).memorials, raid.id)
+      ) {
+        const raidPlaque = createMemorial({
+          battleId: raid.id,
+          nodeId: `${raid.targetServerId}:${raid.targetColonyId}`,
+          siteName: `${raid.targetOwnerName}'s colony`,
+          season: currentSeason(now).name,
+          attackerName: raid.memberNames.join(", "),
+          defenderName: raid.targetOwnerName,
+          attackerLosses: raidAttackerLosses,
+          defenderLosses: result.defenderLosses,
+          victor: result.won ? "attacker" : "defender",
+          at: now,
+        });
+        if (raidPlaque) (state as any).memorials.push(raidPlaque);
+      }
       const names = raid.memberNames.join(", ");
       if (result.won) {
         log(state, `⚔️ ${raid.id} TOUCHDOWN — ${names} hit ${raid.targetOwnerName}'s colony and took loot. Defender warned. Exfil in ~1 minute.`);
@@ -4099,6 +4224,27 @@ export function forgeRoll(
   return { ok: true, state, item };
 }
 
+/* ---------------- BATTLE MEMORIALS — the victor's epitaph --------------------
+ *  Owner 2026-09-30: the victor may add ONE epitaph line to a plaque. Once
+ *  set, it's locked forever. Server-validated: the caller passes the
+ *  victor's name; the plaque records who carved it.
+ */
+
+/** Carve the victor's epitaph on a memorial plaque (one line, permanent). */
+export function setMemorialEpitaph(
+  state: GameState,
+  plaqueId: string,
+  epitaph: string,
+  byName: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const err = setEpitaphOnState(state, plaqueId, epitaph, byName);
+  if (err) return { ok: false, error: err, state };
+  log(state, `🕯️ An epitaph is carved in stone — it will stand forever.`);
+  return { ok: true, state };
+}
+
 /** MELT-DOWN — the junk valve. An unwanted piece goes back into the crucible for
  *  a fraction of what it cost, SCALED BY GRADE (a good roll is worth more even as
  *  scrap). The piece is removed: it is not tradable after it is melted. */
@@ -4124,6 +4270,339 @@ export function meltForgeItem(
   state.forgeMelts = (state.forgeMelts ?? 0) + 1;
   log(state, `♻️ ${item.name} (${forgeGrade(item.grade).id}) goes back into the crucible: +${refund.warplate} Warplate, +${refund.supplies} supplies.`);
   return { ok: true, state, refund };
+}
+
+/* ---------------- MODULES — the sellable tier ---------------------------------
+ *  Owner 2026-10-01; spec: design/modules-build.md. Forge-manufactured
+ *  commodities: deterministic crafting keyed to Industry level, fixed
+ *  attributes per (line, tier), deterioration with use, player market in
+ *  Scrip. Rented power, never legend.
+ *
+ *  The craft is atomic like forgeRoll: deduct + materialize in one operation,
+ *  idempotent on requestId. Crafted tier = min(4, industry domain level).
+ *  NO REPAIR — broken modules melt for scrap or go in the bin.
+ */
+
+/** Is the recipe's industry gate met? (Never a hard-lock — the UI prints what
+ *  it needs, and the API refuses with the same sentence.) */
+export function moduleUnlocked(state: GameState, recipeId: string): boolean {
+  const recipe = getModuleRecipe(recipeId);
+  if (!recipe) return false;
+  return (state.deployedDomains[recipe.unlock.domain] ?? 0) >= recipe.unlock.level;
+}
+
+/** The whole "you cannot craft this yet" sentence, with the numbers. */
+export function moduleUnlockLine(state: GameState, recipeId: string): string {
+  const recipe = getModuleRecipe(recipeId);
+  if (!recipe) return "The Forge has no such module pattern.";
+  const have = state.deployedDomains[recipe.unlock.domain] ?? 0;
+  return `That module needs Industry ${recipe.unlock.level} deployed in the Lab (you hold ${have}). Recover and deploy the programme first.`;
+}
+
+/**
+ * MANUFACTURE A MODULE — one craft, one item, committed and persisted with the
+ * consumption that paid for it. Deterministic: the tier is min(4, industry
+ * level), the stats are the fixed line/tier table. `requestId` is the client's
+ * idempotency key: the same id can never buy a second craft.
+ */
+export function moduleCraft(
+  state: GameState,
+  recipeId: string,
+  requestId: string,
+  ownerId = "",
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; item?: ModuleItem; replay?: boolean } {
+  advance(state, now);
+  const recipe = getModuleRecipe(recipeId);
+  if (!recipe) return fail("The Forge has no such module pattern.");
+  if (!requestId || requestId.length < 8) return fail("The Forge needs a request id — a craft is committed, not repeated.");
+  // ---- idempotency first: a replay returns the FIRST result, unchanged ----
+  const priorId = state.moduleCrafts?.[requestId];
+  if (priorId) {
+    const prior = (state.modules ?? []).find((i) => i.id === priorId);
+    if (prior) return { ok: true, state, item: prior, replay: true };
+  }
+  if (!moduleUnlocked(state, recipeId)) return fail(moduleUnlockLine(state, recipeId));
+  if ((state.modules ?? []).length >= MODULE_CONFIG.maxModules) {
+    return fail(`The module racks are full (${MODULE_CONFIG.maxModules}). Melt something down or list it on the market.`);
+  }
+  const tier = moduleTierForIndustry(state.deployedDomains["industry"] ?? 0);
+  const cost = recipe.costByTier[tier - 1];
+  const r = state.resources;
+  if (Math.floor(r.warplate ?? 0) < cost.warplate) {
+    return fail(`The crucible needs ${cost.warplate} Warplate, and you hold ${Math.floor(r.warplate ?? 0)}. Warplate is a rare drop in the DEEP Explorations.`);
+  }
+  if (Math.floor(r.supplies) < cost.supplies) {
+    return fail(`The Forge needs ${cost.supplies} supplies to fire, and you hold ${Math.floor(r.supplies)}.`);
+  }
+  if (Math.floor(r.embers) < cost.embers) {
+    return fail(`The Forge needs ${cost.embers} embers to fire, and you hold ${Math.floor(r.embers)}.`);
+  }
+  // ---- THE ATOMIC OPERATION: consume, materialize, in one object ----
+  r.warplate = Math.floor(r.warplate ?? 0) - cost.warplate;
+  r.supplies = Math.floor(r.supplies) - cost.supplies;
+  r.embers = Math.floor(r.embers) - cost.embers;
+  state.moduleSeq = (state.moduleSeq ?? 0) + 1;
+  const item = craftModuleItem({
+    recipe,
+    tier,
+    race: state.race,
+    ownerId,
+    ownerName: state.playerName,
+    gameId: state.gameId ?? null,
+    seq: state.moduleSeq,
+    now,
+  });
+  state.modules.push(item);
+  state.moduleCrafts[requestId] = item.id;
+  log(state, `⚙️ The Forge manufactures ${item.name} — power ${item.power}. Fixed pattern, fixed output: the same module, every time.`);
+  return { ok: true, state, item };
+}
+
+/** MELT-DOWN — the scrap loop. Broken modules melt for 25% of the normal
+ *  refund. There is NO repair: the replacement loop feeds forgers and the market. */
+export function meltModuleItem(
+  state: GameState,
+  itemId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; refund?: { warplate: number; supplies: number } } {
+  advance(state, now);
+  const idx = (state.modules ?? []).findIndex((i) => i.id === itemId);
+  if (idx < 0) return fail("That module is not on the racks.");
+  const item = state.modules[idx];
+  if (item.location === "transit") {
+    return fail("That module is on a supply run — a convoy in transit cannot be recalled into the furnace.");
+  }
+  if (item.equippedBy) {
+    return fail("That module is worn — take it off its Bearer <redacted> melting it down.");
+  }
+  if (item.listedId) {
+    return fail("That module is listed on the market — delist it before melting it.");
+  }
+  const refund = moduleMeltRefund(item);
+  state.resources.warplate = Math.floor(state.resources.warplate ?? 0) + refund.warplate;
+  state.resources.supplies += refund.supplies;
+  state.modules.splice(idx, 1);
+  state.moduleMelts = (state.moduleMelts ?? 0) + 1;
+  log(state, `♻️ ${item.name}${moduleBroken(item) ? " (broken)" : ""} goes back into the crucible: +${refund.warplate} Warplate, +${refund.supplies} supplies.`);
+  return { ok: true, state, refund };
+}
+
+/** The derived module loadout view: slot -> worn ModuleItem (or undefined). */
+export function moduleLoadoutOf(
+  state: GameState,
+  bearer: LoadoutBearer,
+): Partial<Record<"module1" | "module2", ModuleItem>> {
+  const out: Partial<Record<"module1" | "module2", ModuleItem>> = {};
+  for (const it of state.modules ?? []) {
+    const eb = it.equippedBy;
+    if (eb && eb.kind === bearer.kind && eb.id === bearer.id) out[eb.slot] = it;
+  }
+  return out;
+}
+
+/** WEAR A MODULE — equip into module1/module2. The no-duplicate-line rule is
+ *  enforced: a bearer may not wear the same line twice (spec §5.2). Broken
+ *  modules CAN be worn (they contribute 0, flagged BROKEN) — breaking never
+ *  strands a hero mid-campaign. */
+export function equipModuleItem(
+  state: GameState,
+  itemId: string,
+  bearer: LoadoutBearer,
+  slot: "module1" | "module2",
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; swappedId?: string } {
+  advance(state, now);
+  const item = (state.modules ?? []).find((i) => i.id === itemId);
+  if (!item) return fail("That module is not on the racks.");
+  if (!bearerExists(state, bearer)) return fail("That hero or leader is not with the colony.");
+  if (item.location !== "cradle") {
+    return fail("That module isn't on the racks — only stored modules can be worn.");
+  }
+  if (item.listedId) {
+    return fail("That module is listed on the market — delist it before wearing it.");
+  }
+  if (item.equippedBy && item.equippedBy.kind === bearer.kind && item.equippedBy.id === bearer.id && item.equippedBy.slot === slot) {
+    return { ok: true, state }; // already worn there — idempotent
+  }
+  if (item.equippedBy) {
+    return fail("That module is already worn by someone else — one body, one item.");
+  }
+  // THE NO-DUPLICATE-LINE RULE: two slots exist for choices, not stacking.
+  const worn = moduleLoadoutOf(state, bearer);
+  for (const s of ["module1", "module2"] as const) {
+    if (s !== slot && worn[s]?.line === item.line) {
+      return fail(`One ${item.name.split(" Mk")[0]} per bearer — ${bearerName(state, bearer)} already wears that line. Two slots are for choices (coil + plate), not stacking.`);
+    }
+  }
+  // The swap: whatever was in the slot goes back to the racks, atomically.
+  const displaced = worn[slot];
+  if (displaced) displaced.equippedBy = null;
+  item.equippedBy = { kind: bearer.kind, id: bearer.id, slot };
+  item.lastIdleTickAt = now;
+  const who = bearerName(state, bearer);
+  const brokenNote = moduleBroken(item) ? " (BROKEN — contributes nothing until replaced)" : "";
+  log(state, `🔧 ${who} fits ${item.name}${brokenNote}${displaced ? ` — ${displaced.name} goes back to the racks` : ""}.`);
+  return { ok: true, state, swappedId: displaced?.id };
+}
+
+export function unequipModuleItem(
+  state: GameState,
+  itemId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const item = (state.modules ?? []).find((i) => i.id === itemId);
+  if (!item) return fail("That module is not on the racks.");
+  if (!item.equippedBy) return { ok: true, state }; // idempotent
+  const who = bearerName(state, item.equippedBy);
+  item.equippedBy = null;
+  log(state, `🔧 ${who} takes off ${item.name} — back on the racks.`);
+  return { ok: true, state };
+}
+
+/** THE BATTLE TICK — −5 condition per REAL battle a bearer fights with the
+ *  module equipped. Called from advanceBattles when a battle resolves.
+ *  Arena bouts never tick (the proving ground doesn't wear out your gear).
+ *  Idempotent per battle id; only the LOCAL state's bearers are ticked. */
+export function tickModulesForBattle(
+  state: GameState,
+  battle: { id: string; arena?: unknown; attacker: { heroSquad: { id: string }[] }; defender: { heroSquad: { id: string }[] } },
+  now = Date.now(),
+): number {
+  if (battle.arena) return 0;
+  if (!state.moduleBattleTicks) state.moduleBattleTicks = {};
+  if (state.moduleBattleTicks[battle.id]) return 0;
+  state.moduleBattleTicks[battle.id] = true;
+  const fought = new Set<string>();
+  for (const s of battle.attacker.heroSquad ?? []) fought.add(s.id);
+  for (const s of battle.defender.heroSquad ?? []) fought.add(s.id);
+  let ticked = 0;
+  for (const m of state.modules ?? []) {
+    if (!m.equippedBy || !fought.has(m.equippedBy.id)) continue;
+    const wasBroken = moduleBroken(m);
+    tickModuleBattle(m);
+    ticked += 1;
+    if (!wasBroken && moduleBroken(m)) {
+      log(state, `⚠️ ${m.name} broke in battle — it contributes nothing until replaced.`);
+    }
+  }
+  void now;
+  return ticked;
+}
+
+/* ---------------- THE PLAYER MARKET -----------------------------------------
+ *  Spec §8.1 + arena-market.md Part II: fixed Scrip prices, 5% fee DESTROYED on
+ *  sale, 7-day expiry with return-to-seller, per-server markets. Broken modules
+ *  cannot be listed — melt them. Listing snapshots the commodity (the snapshot
+ *  is the lock); the module is escrowed (listedId) until sold, delisted, or
+ *  expired.
+ */
+export function listModuleForSale(
+  state: GameState,
+  itemId: string,
+  price: number,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; listing?: MarketListing } {
+  advance(state, now);
+  const item = (state.modules ?? []).find((i) => i.id === itemId);
+  if (!item) return fail("That module is not on the racks.");
+  const liveCount = (state.market?.listings ?? []).filter((l) => l.sellerId === (state.accountId ?? "") || true).length;
+  const err = validateListing(item, price, liveCount);
+  if (err) return fail(err);
+  const fee = MARKET_CONFIG.listingFeeSupplies;
+  if (Math.floor(state.resources.supplies) < fee) {
+    return fail(`Listing costs ${fee} supplies (anti-spam), and you hold ${Math.floor(state.resources.supplies)}.`);
+  }
+  state.resources.supplies = Math.floor(state.resources.supplies) - fee;
+  const listing = makeListing({
+    item,
+    sellerId: state.accountId ?? "",
+    sellerName: state.playerName,
+    price,
+    now,
+  });
+  item.listedId = listing.id;
+  state.market.listings.push(listing);
+  log(state, `🏪 ${item.name} listed on the market for ${listing.price} Scrip — 7 days, then it comes home.`);
+  return { ok: true, state, listing };
+}
+
+export function cancelMarketListing(
+  state: GameState,
+  listingId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState } {
+  advance(state, now);
+  const idx = (state.market?.listings ?? []).findIndex((l) => l.id === listingId);
+  if (idx < 0) return fail("That listing is gone from the board.");
+  const listing = state.market.listings[idx];
+  const item = (state.modules ?? []).find((i) => i.id === listing.moduleId);
+  if (item) item.listedId = null;
+  state.market.listings.splice(idx, 1);
+  log(state, `🏪 ${listing.name} delisted — back on the racks.`);
+  return { ok: true, state };
+}
+
+/** Buy a listing. In the single-save architecture the buyer and seller are the
+ *  same account's market board; the settlement is written so a future
+ *  cross-account market can call the same seam with two states. The 5% fee is
+ *  DESTROYED (a sink, not revenue). */
+export function buyMarketListing(
+  state: GameState,
+  listingId: string,
+  now = Date.now(),
+): { ok: boolean; error?: string; state: GameState; item?: ModuleItem } {
+  advance(state, now);
+  const listing = (state.market?.listings ?? []).find((l) => l.id === listingId);
+  if (!listing) return fail("That listing is gone from the board.");
+  if (marketListingExpired(listing, now)) {
+    // Lazily expire on touch — sweepMarketExpiry in advance() normally beats us here.
+    cancelMarketListing(state, listingId, now);
+    return fail("That listing just expired — the module went home to its seller.");
+  }
+  const sellerId = state.accountId ?? "";
+  if (listing.sellerId === sellerId) {
+    return fail("That's your own listing — delist it instead of buying it.");
+  }
+  const wallet = Math.floor(state.currency?.scrip ?? 0);
+  if (wallet < listing.price) {
+    return fail(`That costs ${listing.price} Scrip and your purse holds ${wallet}.`);
+  }
+  const item = (state.modules ?? []).find((i) => i.id === listing.moduleId);
+  if (!item || item.listedId !== listing.id) {
+    return fail("That module is no longer on the board.");
+  }
+  // ---- settlement: buyer pays, seller keeps 95%, 5% destroyed ----
+  state.currency.scrip = wallet - listing.price;
+  const proceeds = marketSellerProceeds(listing.price);
+  // Single-save note: the seller is another account's state in the full
+  // design. Here the board is per-server; credit the seller's purse when the
+  // seller state is this state (self-listings are blocked above, so this path
+  // only fires when cross-account settlement lands).
+  void proceeds;
+  const bought = transferModule(item, sellerId, state.playerName, now);
+  const idx = state.modules.findIndex((i) => i.id === bought.id);
+  state.modules[idx] = bought;
+  state.market.listings = state.market.listings.filter((l) => l.id !== listing.id);
+  log(state, `🏪 Bought ${bought.name} for ${listing.price} Scrip (${marketFee(listing.price)} destroyed as the market's cut).`);
+  return { ok: true, state, item: bought };
+}
+
+/** Expired listings return to the seller's racks. Runs in ensureModules (every
+ *  advance) — lazy, idempotent, offline-safe. */
+export function sweepMarketExpiry(state: GameState, now: number): number {
+  const listings = state.market?.listings ?? [];
+  let swept = 0;
+  for (const l of [...listings]) {
+    if (!marketListingExpired(l, now)) continue;
+    const item = (state.modules ?? []).find((i) => i.id === l.moduleId);
+    if (item && item.listedId === l.id) item.listedId = null;
+    state.market.listings = state.market.listings.filter((x) => x.id !== l.id);
+    swept += 1;
+    log(state, `🏪 ${l.name}'s listing expired — back on the racks.`);
+  }
+  return swept;
 }
 
 /* ---------------- LOADOUT — dressing heroes & leaders --------------------
