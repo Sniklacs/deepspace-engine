@@ -252,8 +252,10 @@ describe("shipArtUrl", () => {
     expect(shipArtUrl("draconians", "frigate")).toBe("/art/ships/frigate-v3.webp");
     expect(shipArtUrl("draconians", "scout")).toBe("/art/ships/scout-v3.webp");
   });
-  test("other races get null until their sets land", async () => {
+  test("races with art sets get paths; others get null", async () => {
     const { shipArtUrl } = await import("./worldmap");
+    expect(shipArtUrl("annunaki", "scout")).toBe("/art/ships/annunaki-scout.webp");
+    expect(shipArtUrl("ashtar", "vanguard")).toBe("/art/ships/ashtar-vanguard.webp");
     expect(shipArtUrl("watchers", "frigate")).toBeNull();
   });
 });

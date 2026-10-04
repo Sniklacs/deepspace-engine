@@ -26,6 +26,18 @@ export function SatelliteResearchBody({ state, now, nodeId, onBeginResearch }: {
   const freeLeaders: Leader[] = state.leaders.filter((l) => l.status === "active" && !l.assignment);
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-3">
+      <div className="relative overflow-hidden rounded-xl">
+        <img
+          src="/art/satellite/satellite.webp"
+          alt=""
+          aria-hidden="true"
+          loading="lazy"
+          className="h-28 w-full object-cover"
+          style={{ objectPosition: "center 40%" }}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+        />
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+      </div>
       <p className="text-[11px] leading-relaxed text-gray-400">
         {t(
           "windows.satResearchIntro",

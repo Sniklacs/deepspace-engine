@@ -20,6 +20,7 @@ import { markMailReadFn, markAllMailReadFn, deleteMailFn } from "../game/api";
 import { Panel } from "./ui/Panel";
 import { ActionButton } from "./ui/ActionButton";
 import { Sheet, SheetHeader } from "./Sheet";
+import PageBanner from "./PageBanner";
 import { Icon, type IconName } from "./icons";
 import { useT } from "./i18n/I18n";
 import { Bdi } from "./ui/Bdi";
@@ -148,6 +149,12 @@ export default function MailboxSheet({
         onClose={onClose}
       />
       <div className="space-y-2 px-4 pb-6">
+        <PageBanner
+          image="/art/pages/mailbox-banner.webp"
+          title={t("mailbox.title", "Mailbox")}
+          sub={t("mailbox.sub", "Orders, alerts, and word from across the void.")}
+          className="rounded-xl"
+        />
         {unread > 0 ? (
           <ActionButton
             size="sm"

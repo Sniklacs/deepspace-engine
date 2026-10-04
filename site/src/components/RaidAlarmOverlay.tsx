@@ -122,6 +122,20 @@ export default function RaidAlarmOverlay({
           animation: "raid-alarm-border 1.1s ease-in-out infinite",
         }}
       >
+        <div style={{ position: "relative", marginBottom: 14, borderRadius: 10, overflow: "hidden" }}>
+          <img
+            src="/art/raid/raid-klaxon.webp"
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            style={{ width: "100%", height: 130, objectFit: "cover", objectPosition: "center 40%", display: "block" }}
+            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+          />
+          <div
+            aria-hidden="true"
+            style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(20,4,4,0.85), rgba(255,34,34,0.15))" }}
+          />
+        </div>
         <div
           style={{
             fontSize: 44,

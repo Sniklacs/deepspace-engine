@@ -13,6 +13,7 @@
 import { useMemo, useState } from "react";
 import type { GameState } from "../game/types";
 import { useT } from "./i18n/I18n";
+import PageBanner from "./PageBanner";
 import {
   assignFormationShipFn,
   createFormationFn,
@@ -157,11 +158,13 @@ export default function FormationsTab({ state, busy, token, onAction, onGoToWorl
 
   return (
     <div className="panel p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="font-display text-lg font-bold">{t("formations.title", "Formations")}</h2>
-          <p className="text-xs text-text-2">{t("formations.sub", "Pre-built battle groups — ships reserved and loaded, a hero in command. Grab one and roll.")}</p>
-        </div>
+      <PageBanner
+        image="/art/pages/formations-banner.webp"
+        title={t("formations.title", "Formations")}
+        sub={t("formations.sub", "Pre-built battle groups — ships reserved and loaded, a hero in command. Grab one and roll.")}
+        className="mb-3 rounded-xl"
+      />
+      <div className="mb-3 flex items-center justify-end gap-3">
         {view.kind === "list" && (
           <button
             type="button"

@@ -17,6 +17,7 @@
 //
 // Every player-facing string is a catalogue key (five languages, same commit).
 import { Panel, PanelHeader } from "./ui/Panel";
+import PageBanner from "./PageBanner";
 import { ActionButton } from "./ui/ActionButton";
 import { RowButton } from "./ui/RowButton";
 import { useT } from "./i18n/I18n";
@@ -227,11 +228,16 @@ export function ForgeRoom({
   const newest = [...items].sort((a, b) => (b.provenance?.rolledAt ?? 0) - (a.provenance?.rolledAt ?? 0))[0];
   return (
     <div className="space-y-3">
+      <PageBanner
+        image="/art/pages/forge-banner.webp"
+        title={t("forge.title")}
+        sub={t("forge.sub")}
+        className="rounded-xl"
+      />
       <Panel testid="forge-room">
         <PanelHeader
           eyebrow={t("forge.warplate")}
-          title={t("forge.title")}
-          sub={t("forge.sub")}
+          title={t("forge.roll", "Light the Forge")}
           right={
             <span className="pill border border-amber-400/40 bg-amber-400/10 text-amber-100">
               <b className="num">{warplate}</b>

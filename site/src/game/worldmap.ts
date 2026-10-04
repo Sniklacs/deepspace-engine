@@ -468,12 +468,15 @@ export function shipName(raceId: string, shipClass: ShipClass): string {
   return SHIP_RACE_NAMES[`${raceId}:${shipClass}`] ?? shipClass;
 }
 
-/** Ship art URL. Only Draconians have an art set so far (v3, owner
- *  2026-10-03 — Hans: scaly red hull, "make them look badass"). Other races
- *  return null until their sets land; callers render no image then. */
+/** Ship art URL. Art sets: Draconians (v3, owner 2026-10-03 — Hans:
+ *  scaly red hull, "make them look badass"), Annunaki (dark blue + gold
+ *  hieroglyphic), Ashtar (light aqua ribbed). Races without a set yet
+ *  return null; callers render no image then. */
 export function shipArtUrl(raceId: string, shipClass: ShipClass): string | null {
-  if (raceId !== "draconians") return null;
-  return `/art/ships/${shipClass}-v3.webp`;
+  if (raceId === "draconians") return `/art/ships/${shipClass}-v3.webp`;
+  if (raceId === "annunaki" || raceId === "ashtar")
+    return `/art/ships/${raceId}-${shipClass}.webp`;
+  return null;
 }
 
 /** Ship build time in ms (tunable). Hans: hours, not days. */

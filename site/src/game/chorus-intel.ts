@@ -103,12 +103,9 @@ export function recommendedReverbForGrade(grade: ChorusGradeId): number {
   return CHORUS_GRADES[grade - 1].strength;
 }
 
-/** Grade artwork path. Grades III and V reuse existing in-game art rather
- *  than duplicating assets (III: art/battles/battle-chorus.webp,
- *  V: art/landing/chorus-threat.webp). */
+/** Grade artwork path. Every grade has dedicated art under
+ *  public/art/chorus/grade-<roman>.webp. */
 export function chorusGradeArt(grade: ChorusGradeId): string {
-  if (grade === 3) return "art/battles/battle-chorus.webp";
-  if (grade === 5) return "art/landing/chorus-threat.webp";
   return `art/chorus/grade-${GRADE_LABEL[grade]}.webp`;
 }
 

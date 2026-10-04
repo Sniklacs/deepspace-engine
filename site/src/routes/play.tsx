@@ -5,7 +5,7 @@ import {
   launchFn, studyFn, deployFn, purifyFn, craftFn, beginResearchFn, chooseRevelationFn,
   buildProbeFn, launchProbeFn, collectProbeFn,
   claimHuskFn,
-  createRaidFn, setRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, loadRaidSuppliesFn, launchRaidFn, deployRaidFn, tacticalRoundFn, quickResolveTacticalFn, joinRaidFn, hireDesertersFn, dismissDesertersFn,
+  createRaidFn, setRaidTargetFn, clearRaidTargetFn, assignRaidShipsFn, loadRaidTroopsFn, loadRaidSuppliesFn, launchRaidFn, deployRaidFn, tacticalRoundFn, quickResolveTacticalFn, joinRaidFn, hireDesertersFn, dismissDesertersFn,
   acknowledgeRaidAlarmFn,
   rallyCreateFn,
   allocateLeaderPointFn, chooseSpecializationFn,
@@ -754,12 +754,20 @@ function PlayPage() {
         />
       )}
       {tab === "world" && (
+        <>
+        <PageBanner
+          image="/art/pages/world-banner.webp"
+          title={t("world.title", "The World")}
+          sub={t("world.sub", "Your colonies, rival holdings, Chorus sites, and incoming raids — the globe is your workstation.")}
+          className="mb-3 rounded-xl"
+        />
         <WorldMapView
           state={state}
           now={now}
           onClaimHusk={(_colony, key) => act(() => claimHuskFn({ data: { token: token!, key } }), "claimHusk")}
           onFormRaid={() => act(() => createRaidFn({ data: { token: token! } }), "createRaid")}
           onSetRaidTarget={(raidId, key) => act(() => setRaidTargetFn({ data: { token: token!, raidId, key } }), "setRaidTarget")}
+          onClearRaidTarget={(raidId) => act(() => clearRaidTargetFn({ data: { token: token!, raidId } }), "clearRaidTarget")}
           onAssignRaidShips={(raidId, shipIds) => act(() => assignRaidShipsFn({ data: { token: token!, raidId, shipIds } }), "assignRaidShips")}
           onLoadRaidTroops={(raidId, type, count) => act(() => loadRaidTroopsFn({ data: { token: token!, raidId, type, count } }), "loadRaidTroops")}
           onLoadRaidSupplies={(raidId, amount) => act(() => loadRaidSuppliesFn({ data: { token: token!, raidId, amount } }), "loadRaidSupplies")}
@@ -774,6 +782,7 @@ function PlayPage() {
           onRespondToRaid={(r) => respondToIncomingRaid(r)}
           onOpenWarBand={() => switchTab("battles")}
         />
+        </>
       )}
       {tab === "battles" && (
         <BattlesTab
