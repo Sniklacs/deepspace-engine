@@ -41,7 +41,15 @@ if [ -f .vercel/output/static/sw.js ]; then
 fi
 
 echo "[3/3] bundle SSR handler + deps into the render function"
+# Stamp the server build SHA (surfaced via /api/health as `serverBuild`;
+# --env inlines it at bundle time, unset → "dev").
+# The client and server ship in SEPARATE bundles — NEVER deploy with only
+# `vite build` (it rebuilds the client but leaves render.func stale, so
+# server fixes silently don't ship — bit us 2026-10-04). Always build and
+# deploy through this script.
+export SERVER_BUILD_SHA="$VITE_BUILD_SHA"
 bun build vercel-entry.ts --target node \
+  --env=SERVER_BUILD_* \
   --outfile .vercel/output/functions/render.func/index.mjs
 
 cat > .vercel/output/functions/render.func/.vc-config.json <<'JSON'

@@ -21,6 +21,19 @@ const fetchHandler = handler as {
   fetch: (request: Request) => Response | Promise<Response>;
 };
 
+// Build SHA inlined into the SERVER bundle at deploy time (build-vercel.sh
+// exports SERVER_BUILD_SHA and passes --env=SERVER_BUILD_* so bun inlines it;
+// unset at build time → "dev"). The client ships in a separate bundle and the
+// two can drift — e.g. a deploy that rebuilds the client but not render.func
+// leaves server fixes undeployed (bit us 2026-10-04: the alliance-join fix was
+// live in the client bundle but not on the server). Surfaced via /api/health
+// as `serverBuild` so a stale server bundle is caught in seconds: compare it
+// to the commit you meant to deploy.
+export function serverBuildSha(): string {
+  const sha = typeof process !== "undefined" ? process.env.SERVER_BUILD_SHA : undefined;
+  return typeof sha === "string" && sha.length > 0 ? sha : "dev";
+}
+
 const toWebRequest = (req: IncomingMessage): Request => {
   const host = req.headers.host ?? "localhost";
   const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "https";
@@ -476,6 +489,7 @@ export default async function vercelHandler(
           status: "down",
           reason: "database_not_configured",
           worldId,
+          serverBuild: serverBuildSha(),
           timestamp: new Date().toISOString(),
         }));
         return;
@@ -497,6 +511,7 @@ export default async function vercelHandler(
           raceLock,
           playerCount,
           reverb: 0,
+          serverBuild: serverBuildSha(),
           timestamp: new Date().toISOString(),
         }));
       } catch {
@@ -505,6 +520,7 @@ export default async function vercelHandler(
           status: "down",
           reason: "database",
           worldId,
+          serverBuild: serverBuildSha(),
           timestamp: new Date().toISOString(),
         }));
       }
