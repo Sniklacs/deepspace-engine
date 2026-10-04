@@ -26,6 +26,8 @@ import { SHIP_FIREPOWER, SHIP_HULL } from "../game/raids";
 import { classTurret } from "../game/turrets";
 import { TurretThumb } from "./TurretThumb";
 import { StackedShips, ShipArt } from "./StackedShips";
+import { SegmentedControl } from "./SegmentedControl";
+import { ShipGuide } from "./ShipyardGuides";
 import { orderShipFn, contributeShipFn, donateShipyardFn, setTitheFn } from "../game/api";
 import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
@@ -106,6 +108,7 @@ export function AllianceShipyardSection({
   const queue = sy.queue ?? [];
   const ships = sy.ships ?? [];
   const [hintFor, setHintFor] = useState<string | null>(null);
+  const [tab, setTab] = useState("factory");
   const raceId = state.race ?? "draconians";
   const warships = SHIP_CLASSES.filter((c) => shipNeedsAlliance(c));
 
@@ -138,6 +141,21 @@ export function AllianceShipyardSection({
         </span>
       </h4>
 
+      {/* In-module tabs: factory, fleet, and the ship field manual (owner 2026-10-04). */}
+      <SegmentedControl
+        options={[
+          { id: "factory", label: t("shipyard.tabFactory", "Ship Factory") },
+          { id: "fleet", label: t("shipyard.tabFleet", "Fleet") },
+          { id: "guide", label: t("shipyard.tabShipGuide", "Ship Guide") },
+        ]}
+        value={tab}
+        onChange={setTab}
+        ariaLabel={t("shipyard.tabs", "Shipyard sections")}
+        className="mb-3"
+      />
+
+      {tab === "factory" && (
+        <>
       {/* Build controls — the five warship classes (owner 2026-10-03). */}
       <div className="mb-3 grid grid-cols-1 gap-1.5">
         {warships.map((cls) => {
@@ -217,7 +235,12 @@ export function AllianceShipyardSection({
           })}
         </ul>
       )}
-      <h5 className="mb-1 mt-3 text-[11px] font-semibold uppercase tracking-wide text-text-3">
+        </>
+      )}
+
+      {tab === "fleet" && (
+        <>
+      <h5 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-3">
         {t("cradleAlliance.fleet", "Fleet")} <Bdi dir="ltr" className="num">({ships.length})</Bdi>
       </h5>
       {ships.length === 0 ? (
@@ -243,6 +266,10 @@ export function AllianceShipyardSection({
           )}
         />
       )}
+        </>
+      )}
+
+      {tab === "guide" && <ShipGuide raceId={raceId} />}
     </div>
   );
 }
@@ -440,6 +467,16 @@ export function PersonalShipyardSection({
           {t("shipyard.personalFleet", "{count} scout(s) ready", { count: ships.length })}
         </p>
       )}
+      {/* The field manual lives here too (owner 2026-10-04) — scouts are
+          where every commander starts, so the guide belongs in this view. */}
+      <details className="mt-3 rounded-lg border border-line bg-surf-1 px-3 py-2">
+        <summary className="cursor-pointer text-xs font-semibold text-text-1">
+          {t("shipyard.shipGuideToggle", "Ship Guide — what each hull does")}
+        </summary>
+        <div className="mt-2">
+          <ShipGuide raceId={raceId} />
+        </div>
+      </details>
     </div>
   );
 }
