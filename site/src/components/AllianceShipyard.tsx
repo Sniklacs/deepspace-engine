@@ -24,6 +24,8 @@ import {
   type ShipClass,
 } from "../game/shipyard";
 import { SHIP_FIREPOWER, SHIP_HULL } from "../game/raids";
+import { classTurret } from "../game/turrets";
+import { TurretThumb } from "./TurretThumb";
 import { orderShipFn, contributeShipFn, donateShipyardFn, setTitheFn } from "../game/api";
 import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
@@ -49,6 +51,22 @@ function costLine(t: T, cls: ShipClass): string {
   if (c.raceMaterial > 0) parts.push(`${c.raceMaterial} ${t("shipyard.costMat", "race mat")}`);
   if (c.alloys > 0) parts.push(`${c.alloys} ${t("shipyard.costAlloys", "alloys")}`);
   return parts.join(" · ");
+}
+
+/** Compact armament strip: class turret art + armament line under a build button. */
+function ArmamentStrip({ cls, t }: { cls: ShipClass; t: T }) {
+  const def = classTurret(cls);
+  return (
+    <div
+      className="mt-1 flex items-center gap-1.5 px-1"
+      title={def.flavor}
+    >
+      <TurretThumb shipClass={cls} size={20} />
+      <span className="text-[11px] text-text-3">
+        {t("shipyard.armament", def.armamentLine)}
+      </span>
+    </div>
+  );
 }
 
 /** Combat stat line for a ship class (owner 2026-10-03): ⚔ firepower · 🛡 hull. */
@@ -157,6 +175,7 @@ export function AllianceShipyardSection({
                 onClick={() => order(cls)}
                 testid={`shipyard-build-${cls}`}
               />
+              <ArmamentStrip cls={cls} t={t} />
               {hintFor === cls && (
                 <p className="mt-1 px-1 text-[11px] text-amber-300">
                   {!token
@@ -225,6 +244,7 @@ export function AllianceShipyardSection({
           {ships.map((s) => (
             <li key={s.id} className="flex items-center gap-2 rounded-lg border border-line bg-surf-1 px-3 py-1.5">
               <ShipThumb raceId={s.raceId} shipClass={s.class} size={32} />
+              <TurretThumb shipClass={s.class} size={24} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm text-text-1">{s.name}</span>
                 <span className="block text-[10px] text-text-3">{combatLine(t, s.class)}</span>
@@ -404,6 +424,7 @@ export function PersonalShipyardSection({
         onClick={order}
         testid="shipyard-build-scout"
       />
+      <ArmamentStrip cls={cls} t={t} />
       {hint && <p className="mt-1 px-1 text-[11px] text-amber-300">{hint}</p>}
       {queue.length > 0 && (
         <ul className="mt-2 space-y-1.5">

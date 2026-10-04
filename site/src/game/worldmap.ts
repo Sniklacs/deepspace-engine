@@ -470,11 +470,12 @@ export function shipName(raceId: string, shipClass: ShipClass): string {
 
 /** Ship art URL. Art sets: Draconians (v3, owner 2026-10-03 — Hans:
  *  scaly red hull, "make them look badass"), Annunaki (dark blue + gold
- *  hieroglyphic), Ashtar (light aqua ribbed). Races without a set yet
- *  return null; callers render no image then. */
+ *  hieroglyphic), Ashtar (light aqua ribbed), Watchers (white/gold
+ *  celestial). Races without a set yet return null; callers render no
+ *  image then. */
 export function shipArtUrl(raceId: string, shipClass: ShipClass): string | null {
   if (raceId === "draconians") return `/art/ships/${shipClass}-v3.webp`;
-  if (raceId === "annunaki" || raceId === "ashtar")
+  if (raceId === "annunaki" || raceId === "ashtar" || raceId === "watchers")
     return `/art/ships/${raceId}-${shipClass}.webp`;
   return null;
 }

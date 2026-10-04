@@ -256,7 +256,8 @@ describe("shipArtUrl", () => {
     const { shipArtUrl } = await import("./worldmap");
     expect(shipArtUrl("annunaki", "scout")).toBe("/art/ships/annunaki-scout.webp");
     expect(shipArtUrl("ashtar", "vanguard")).toBe("/art/ships/ashtar-vanguard.webp");
-    expect(shipArtUrl("watchers", "frigate")).toBeNull();
+    expect(shipArtUrl("watchers", "frigate")).toBe("/art/ships/watchers-frigate.webp");
+    expect(shipArtUrl("grays", "frigate")).toBeNull();
   });
 });
 

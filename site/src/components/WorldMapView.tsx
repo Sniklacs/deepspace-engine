@@ -37,6 +37,7 @@ import {
 } from "../game/raids";
 import type { TroopType } from "../game/war/troops";
 import { targetBlockReason } from "../game/raid-targeting";
+import { TurretThumb } from "./TurretThumb";
 import { useT } from "./i18n/I18n";
 import { sound } from "../game/sound";
 import { Bdi } from "./ui/Bdi";
@@ -405,7 +406,10 @@ function RaidPanel({
                         on ? "border-amber-400/60 bg-amber-400/15 text-amber-100" : "border-white/10 bg-white/5 text-gray-300 hover:border-white/25"
                       }`}
                     >
-                      {s.name}
+                      <span className="flex items-center gap-1">
+                        <TurretThumb shipClass={cls} size={16} />
+                        {s.name}
+                      </span>
                       <span className="block text-[9px] opacity-70">⚔{SHIP_FIREPOWER[cls] ?? 0} 🛡{SHIP_HULL[cls] ?? 0}</span>
                     </button>
                   );
