@@ -180,6 +180,7 @@ export function claimHusk(
     body: `You invested 5,000 supplies to claim this husk as a sub colony. Setup takes 24 hours — supplies are flowing, getting everything running. You'll get another message when it's ready.`,
     category: "alert",
     sentAt: now,
+    goTo: { tab: "colony", label: "View Cradle" },
   });
   return { ok: true };
 }
@@ -215,6 +216,7 @@ export function resolveSubColonies(state: GameState, now: number = Date.now()): 
         body: `Your sub colony is operational. It inherits your research level, builds troops twice as fast, and adds to your reverb. Remember: it needs 1,000 supplies every 24 hours — ship them from the Cradle page or it goes hungry.`,
         category: "alert",
         sentAt: now,
+        goTo: { tab: "colony", label: "View sub colonies" },
       });
     }
   }
@@ -241,6 +243,7 @@ export function mailOverdueUpkeep(state: GameState, now: number = Date.now()): n
       body: `Your sub colony "${colony.ownerName || "unnamed"}" needs its 1,000-supply shipment. Supplies are needed every 24 hours — ship them from the Cradle page to keep it running.`,
       category: "supply",
       sentAt: now,
+      goTo: { tab: "colony", label: "Ship supplies" },
     });
     mailed++;
   }
@@ -480,6 +483,7 @@ export function resolveStarvedSubColonies(state: GameState, now: number = Date.n
       body: `Your sub colony "${name}" went too long without supplies and collapsed — the garrison scattered and the husk is back on the map for anyone to claim. Your main colony is untouched.`,
       category: "alert",
       sentAt: now,
+      goTo: { tab: "world", label: "View world map" },
     });
   }
   return collapsed;
@@ -528,6 +532,7 @@ export function seizeSubColony(
     body: `${takerName} overran your sub colony and seized it. You lost everything stationed there — your main colony is untouched.`,
     category: "alert",
     sentAt: now,
+    goTo: { tab: "world", label: "View world map" },
   });
   return { ok: true, error: undefined };
 }

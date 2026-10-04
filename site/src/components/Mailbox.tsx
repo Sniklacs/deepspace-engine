@@ -10,6 +10,7 @@
 import { useMemo, useState } from "react";
 import type { GameState } from "../game/types";
 import type { GameResult } from "../game/api";
+import type { Tab } from "../game/nav-slots";
 import {
   ensureMailbox,
   type MailCategory,
@@ -90,12 +91,16 @@ export default function MailboxSheet({
   token,
   onAction,
   onClose,
+  onGoTo,
 }: {
   state: GameState;
   now: number;
   token?: string;
   onAction: Act;
   onClose: () => void;
+  /** Deep-link: jump straight to the page a mail is about (owner 2026-10-04).
+   *  The parent closes the sheet and switches tabs. */
+  onGoTo: (tab: Tab) => void;
 }) {
   const t = useT();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -201,7 +206,19 @@ export default function MailboxSheet({
                     <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-text-1">
                       {openMsg.body}
                     </p>
-                    <div className="mt-2 flex justify-end">
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      {openMsg.goTo ? (
+                        <ActionButton
+                          size="sm"
+                          variant="primary"
+                          icon="march"
+                          label={`➡️ ${openMsg.goTo.label}`}
+                          onClick={() => onGoTo(openMsg.goTo!.tab)}
+                          testid={`mail-goto-${m.id}`}
+                        />
+                      ) : (
+                        <span />
+                      )}
                       <button
                         type="button"
                         onClick={() => doDelete(m.id)}

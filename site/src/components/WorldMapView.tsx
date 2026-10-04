@@ -1499,3 +1499,94 @@ export default function WorldMapView({
     </div>
   );
 }
+import { allianceOf } from "../game/war/alliances";
+import { openRallies } from "../game/war/rallies";
+  onRespondToRaid,
+  onOpenWarBand,
+  /** Rally the defense against an incoming raid (owner 2026-10-04). Resolves
+   *  with an inline error when the rally can't be called; null on success.
+   *  Unwired buttons explain inline per Hans's rule. */
+  onRespondToRaid?: (raid: { raidId: string; nodeName: string; landsAt: number }) => Promise<string | null>;
+  /** Jump to the war band (Battles tab) — used when a defense rally already
+   *  exists for the raid. */
+  onOpenWarBand?: () => void;
+  // RESPOND (owner 2026-10-04): which incoming raids already have a defense
+  // rally mustering — one defense rally per raid (same dedupe key the klaxon
+  // overlay uses). Those show "rally active" instead of a second button.
+  const myAllianceId = useMemo(
+    () => allianceOf(state, state.gameId ?? "")?.id ?? null,
+    [state],
+  );
+  const defenseRallyRaidIds = useMemo(() => {
+    if (!myAllianceId) return new Set<string>();
+    return new Set(
+      openRallies(state, myAllianceId)
+        .filter((r) => r.target.kind === "defense-point" && r.target.zoneId)
+        .map((r) => r.target.zoneId as string),
+    );
+  }, [state, myAllianceId]);
+  const [raidResponding, setRaidResponding] = useState<Record<string, boolean>>({});
+  const [raidRespondError, setRaidRespondError] = useState<Record<string, string>>({});
+
+                {/* RESPOND (owner 2026-10-04): the war band's real response is a
+                 * defense rally. One per raid — a raid that already has one
+                 * shows "rally active" instead. */}
+                <div className="mt-2">
+                  {defenseRallyRaidIds.has(r.raidId) ? (
+                    <div>
+                      <p className="text-[12px] font-semibold text-emerald-200">
+                        {t("raid.defenseRallyActive", "🛡️ Defense rally already mustering — your war band is on it.")}
+                      </p>
+                      {onOpenWarBand && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenWarBand()}
+                          className="mt-1 rounded-lg border border-emerald-400/40 px-3 py-1.5 text-[12px] font-semibold text-emerald-100"
+                        >
+                          {t("raid.openWarBand", "Open war band")}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <button
+                        type="button"
+                        disabled={!!raidResponding[r.raidId]}
+                        onClick={async () => {
+                          if (!onRespondToRaid) return;
+                          setRaidResponding((p) => ({ ...p, [r.raidId]: true }));
+                          setRaidRespondError((p) => {
+                            const n = { ...p };
+                            delete n[r.raidId];
+                            return n;
+                          });
+                          try {
+                            const err = await onRespondToRaid({
+                              raidId: r.raidId,
+                              nodeName: state.playerName ?? "Home colony",
+                              landsAt: r.landsAt,
+                            });
+                            if (err) setRaidRespondError((p) => ({ ...p, [r.raidId]: err }));
+                          } finally {
+                            setRaidResponding((p) => ({ ...p, [r.raidId]: false }));
+                          }
+                        }}
+                        className="rounded-lg border border-red-400/50 bg-red-500/20 px-3 py-1.5 text-[12px] font-bold text-red-100 disabled:opacity-60"
+                      >
+                        {raidResponding[r.raidId]
+                          ? t("raid.rallying", "⏳ Rallying…")
+                          : t("raid.rallyDefense", "⚔️ Rally the defense")}
+                      </button>
+                      {raidRespondError[r.raidId] && (
+                        <p role="status" className="mt-1 text-[11px] text-red-200">
+                          {raidRespondError[r.raidId]}
+                        </p>
+                      )}
+                      {!onRespondToRaid && (
+                        <p className="mt-1 text-[11px] text-gray-500">
+                          {t("raid.respondSoon", "Respond isn't wired up yet — check back soon.")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>

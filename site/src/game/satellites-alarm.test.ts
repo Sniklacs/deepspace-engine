@@ -9,6 +9,7 @@ import {
   sweepRaidAlarms,
   colonyNodeId,
   setSatelliteStage,
+  satelliteTechFor,
 } from "./satellites";
 import type { IncomingRaidAlert } from "./raid-protocol";
 import type { ShipClass } from "./worldmap";
@@ -173,5 +174,19 @@ describe("colonyNodeId", () => {
     expect(checkRaidAlarm(st, fakeRaid(), Date.now())).toBeNull();
     setSatelliteStage(st, "rim-1", 2);
     expect(checkRaidAlarm(st, fakeRaid(), Date.now())?.intel).toBe("identity");
+  });
+});
+
+describe("satellite research durations (owner 2026-10-04)", () => {
+  test("stage durations are 3h / 12h / 24h", () => {
+    expect(satelliteTechFor("node-x", 1).durationMs).toBe(3 * 3_600_000);
+    expect(satelliteTechFor("node-x", 2).durationMs).toBe(12 * 3_600_000);
+    expect(satelliteTechFor("node-x", 3).durationMs).toBe(24 * 3_600_000);
+  });
+
+  test("codices costs are unchanged", () => {
+    expect(satelliteTechFor("node-x", 1).codicesCost).toBe(4);
+    expect(satelliteTechFor("node-x", 2).codicesCost).toBe(8);
+    expect(satelliteTechFor("node-x", 3).codicesCost).toBe(15);
   });
 });

@@ -150,12 +150,13 @@ export function satelliteTechId(nodeId: string, stage: 1 | 2 | 3): string {
   return `sat-${nodeId}-s${stage}`;
 }
 
-/** Beta-range research pricing per climb: bring online, then track, then the
- *  full picture. NEVER accelerable — no time-token path may touch these jobs. */
+/** Research pricing per climb: bring online, then track, then the full picture.
+ *  NEVER accelerable — no time-token path may touch these jobs. Stage
+ *  durations (owner 2026-10-04): 3 hours / 12 hours / 24 hours. */
 const SAT_STAGE_COST: Record<1 | 2 | 3, { codices: number; durationMs: number }> = {
-  1: { codices: 4, durationMs: 60_000 },
-  2: { codices: 8, durationMs: 120_000 },
-  3: { codices: 15, durationMs: 240_000 },
+  1: { codices: 4, durationMs: 3 * 3_600_000 },
+  2: { codices: 8, durationMs: 12 * 3_600_000 },
+  3: { codices: 15, durationMs: 24 * 3_600_000 },
 };
 
 export function satelliteTechFor(nodeId: string, stage: 1 | 2 | 3): SatelliteTech {

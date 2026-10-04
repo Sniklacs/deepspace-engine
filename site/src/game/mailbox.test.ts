@@ -93,4 +93,22 @@ describe("mailbox", () => {
     expect(ensureMailbox(st)).toEqual([]);
     expect(unreadCount(st)).toBe(0);
   });
+
+  test("sendMail stores a goTo deep-link when provided (owner 2026-10-04)", () => {
+    const st = blankState();
+    const m = sendMail(st, {
+      subject: "Welcome",
+      body: "b",
+      category: "alliance",
+      goTo: { tab: "battles", label: "Open war band" },
+    });
+    expect(m.goTo).toEqual({ tab: "battles", label: "Open war band" });
+    expect(ensureMailbox(st)[0].goTo).toEqual({ tab: "battles", label: "Open war band" });
+  });
+
+  test("sendMail leaves goTo absent when not provided (old mails get no button)", () => {
+    const st = blankState();
+    const m = sendMail(st, { subject: "Plain", body: "b", category: "alert" });
+    expect(m.goTo).toBeUndefined();
+  });
 });

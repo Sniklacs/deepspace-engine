@@ -11,6 +11,7 @@
 // activity, patch notes) generate messages automatically. Players see an
 // unread badge in the header and read them in the mailbox view.
 import type { GameState } from "./types";
+import type { Tab } from "./nav-slots";
 
 /** Where a mail message came from. */
 export type MailCategory =
@@ -36,6 +37,18 @@ export interface MailMessage {
   /** Epoch ms when sent. */
   sentAt: number;
   read: boolean;
+  /** Deep-link shortcut (owner 2026-10-04): a "Go to" button on the message
+   *  that jumps straight to the page the mail is about. Absent on old
+   *  messages — no button renders. */
+  goTo?: MailGoTo;
+}
+
+/** Where a mail's "Go to" button takes you. */
+export interface MailGoTo {
+  /** The nav tab to open. */
+  tab: Tab;
+  /** Button label, e.g. "Open war band". */
+  label: string;
 }
 
 /** Cap: keep the inbox bounded so ancient saves don't bloat. */
@@ -61,6 +74,8 @@ export function sendMail(
     body: string;
     category: MailCategory;
     sentAt?: number;
+    /** Deep-link shortcut rendered as a "Go to" button (owner 2026-10-04). */
+    goTo?: MailGoTo;
   },
 ): MailMessage {
   const box = ensureMailbox(state);
@@ -74,6 +89,7 @@ export function sendMail(
     category: msg.category,
     sentAt: now,
     read: false,
+    ...(msg.goTo ? { goTo: { tab: msg.goTo.tab, label: msg.goTo.label } } : {}),
   };
   box.unshift(m);
   if (box.length > MAILBOX_CAP) box.length = MAILBOX_CAP;

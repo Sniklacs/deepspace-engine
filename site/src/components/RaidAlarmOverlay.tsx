@@ -34,11 +34,32 @@ function fmtCountdown(ms: number): string {
 export default function RaidAlarmOverlay({
   alarm,
   onAcknowledge,
+  onRespond,
 }: {
   alarm: RaidAlarm;
   onAcknowledge: () => void;
+  /** Rally the defense (owner 2026-10-04): the war band's real response —
+   *  calls a defense rally against this raid, clears the klaxon, and takes
+   *  the player to the war band to muster pledges. Resolves with an error
+   *  message when the rally can't be called (shown inline); null on success. */
+  onRespond: () => Promise<string | null>;
 }) {
   const [now, setNow] = useState(Date.now());
+  const [responding, setResponding] = useState(false);
+  const [respondError, setRespondError] = useState<string | null>(null);
+
+  const doRespond = async () => {
+    if (responding) return;
+    setResponding(true);
+    setRespondError(null);
+    try {
+      const err = await onRespond();
+      if (err) setRespondError(err);
+      // Success: the parent clears the alarm and navigates — this unmounts.
+    } finally {
+      setResponding(false);
+    }
+  };
 
   // Klaxon lifecycle: siren on while the overlay is up, off on unmount.
   useEffect(() => {
@@ -222,7 +243,8 @@ export default function RaidAlarmOverlay({
         </div>
 
         <button
-          onClick={onAcknowledge}
+          onClick={doRespond}
+          disabled={responding}
           style={{
             width: "100%",
             padding: "14px 0",
@@ -230,13 +252,50 @@ export default function RaidAlarmOverlay({
             fontWeight: 800,
             letterSpacing: 2,
             color: "#fff",
-            background: "linear-gradient(180deg, #c81e1e, #7f1010)",
+            background: responding
+              ? "linear-gradient(180deg, #6b1414, #3d0a0a)"
+              : "linear-gradient(180deg, #c81e1e, #7f1010)",
             border: "2px solid #ff6666",
+            borderRadius: 10,
+            cursor: responding ? "wait" : "pointer",
+            opacity: responding ? 0.7 : 1,
+          }}
+        >
+          {responding ? "⏳ RALLYING…" : "⚔️ RALLY THE DEFENSE"}
+        </button>
+        {respondError && (
+          <div
+            role="status"
+            style={{
+              marginTop: 10,
+              padding: "8px 12px",
+              fontSize: 13,
+              color: "#ffd9d9",
+              background: "rgba(255, 60, 60, 0.14)",
+              border: "1px solid rgba(255, 80, 80, 0.5)",
+              borderRadius: 8,
+            }}
+          >
+            {respondError}
+          </div>
+        )}
+        <button
+          onClick={onAcknowledge}
+          style={{
+            marginTop: 10,
+            width: "100%",
+            padding: "10px 0",
+            fontSize: 14,
+            fontWeight: 600,
+            letterSpacing: 1,
+            color: "#cc8888",
+            background: "transparent",
+            border: "1px solid rgba(255, 100, 100, 0.35)",
             borderRadius: 10,
             cursor: "pointer",
           }}
         >
-          🛡️ MAN YOUR DEFENSES
+          Dismiss alarm
         </button>
         <div style={{ marginTop: 10, fontSize: 12, color: "#cc8888" }}>
           Your war band has been alerted.
