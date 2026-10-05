@@ -20,6 +20,8 @@ import {
   setCameraMode,
   setBattleSpeed,
   setLabelsOn,
+  setZoomLevel,
+  recenterMap,
   cycleDayNight,
   setGunner,
   BATTLE_SPEEDS,
@@ -181,6 +183,46 @@ export function BattleControlsBody() {
           {ui.cameraMode === "ground"
             ? "Ground: down in the dirt with the advance — spot your targets, then pull back up."
             : "Tactical: the overhead view. Flip to ground to ride with the troops."}
+        </p>
+        {/* zoom — pinch / wheel work on the map; these are the phone buttons */}
+        <div className="mt-2 flex items-center gap-2">
+          <div
+            className="flex flex-1 overflow-hidden rounded-lg border border-black/60"
+            style={{ background: "linear-gradient(180deg,#1b1d24 0%,#101218 60%,#1b1d24 100%)" }}
+            role="group"
+            aria-label="Map zoom"
+          >
+            <button
+              type="button"
+              aria-label="Zoom out"
+              onClick={() => setZoomLevel(ui.zoomLevel / 1.3)}
+              className="flex-1 py-2 text-sm font-bold text-zinc-300 hover:text-white"
+            >
+              −
+            </button>
+            <span className="flex items-center px-2 text-[10px] font-bold tabular-nums text-amber-300">
+              {Math.round(ui.zoomLevel * 100)}%
+            </span>
+            <button
+              type="button"
+              aria-label="Zoom in"
+              onClick={() => setZoomLevel(ui.zoomLevel * 1.3)}
+              className="flex-1 py-2 text-sm font-bold text-zinc-300 hover:text-white"
+            >
+              +
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={recenterMap}
+            title="Back to the full field"
+            className="shrink-0 rounded-lg border border-white/15 bg-black/50 px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-300 hover:bg-black/80"
+          >
+            ⌖
+          </button>
+        </div>
+        <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
+          Drag to pan · pinch or wheel to zoom · double-tap to recenter.
         </p>
       </section>
 

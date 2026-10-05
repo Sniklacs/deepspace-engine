@@ -41,6 +41,8 @@ import {
   registerTurrets,
   registerRoster,
   resetSceneUI,
+  setZoomLevel,
+  recenterMap,
   BATTLE_SPEED_MUL,
 } from "../../game/war/battle-scene-ui-store";
 import {
@@ -102,9 +104,33 @@ interface CameraRig {
   gx: number;
   gy: number;
   wasGround: boolean;
+  /** user pan anchor (tactical) — drag scrolls the map, eased like the rest */
+  uax: number;
+  uay: number;
+  /** user pan offset (ground) — added to the follow-cam anchor, clamped */
+  pox: number;
+  poy: number;
+  /** last mapNonce seen — bump it (double-tap / Recenter) to reset pan+zoom */
+  reNonce: number;
 }
 
-const CAM_HOME: CameraRig = { zoom: 1, ax: 0.5, ay: 0.5, ysq: 1, fy: 0.5, gx: 0.5, gy: 0.5, wasGround: false };
+const CAM_HOME: CameraRig = { zoom: 1, ax: 0.5, ay: 0.5, ysq: 1, fy: 0.5, gx: 0.5, gy: 0.5, wasGround: false, uax: 0.5, uay: 0.5, pox: 0, poy: 0, reNonce: 0 };
+
+// Zoom bounds. Tactical roams the full field; ground keeps it sensible so
+// the follow-cam still reads.
+const ZOOM_MIN = 0.6;
+const ZOOM_MAX = 4;
+const GROUND_ZOOM_MAX = 1.6;
+// The frame may roam a padded battlefield, never void.
+const FIELD_PAD = 0.08;
+
+/** Clamp a pan anchor so the visible window stays on the battlefield. */
+function clampAnchor(ax: number, half: number): number {
+  const lo = -FIELD_PAD + half;
+  const hi = 1 + FIELD_PAD - half;
+  if (lo >= hi) return 0.5;
+  return Math.max(lo, Math.min(hi, ax));
+}
 
 // Friend/foe identity (owner 2026-10-05): friendlies read blue-green,
 // enemies read red — unit rings, staging markers, turret fallback, HP pips.
@@ -237,6 +263,15 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
+
+    // Desktop zoom: wheel over the map. Native listener (non-passive) so we
+    // can preventDefault the page scroll/zoom; focal point stays put.
+    const onWheelNative = (ev: WheelEvent) => {
+      ev.preventDefault();
+      const r = canvas.getBoundingClientRect();
+      zoomBy(Math.exp(-ev.deltaY * 0.0012), ev.clientX - r.left, ev.clientY - r.top);
+    };
+    canvas.addEventListener("wheel", onWheelNative, { passive: false });
 
     const X = (x: number) => x * W();
     const Y = (y: number) => y * H();
@@ -379,14 +414,34 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       // The mode lives in the shared store; the rig eases toward its target
       // (~1s exponential glide — no jarring cuts). Ground follows the
       // friendly advance: the centroid of attackers on the move.
+      // Player zoom (pinch/wheel/±) multiplies the mode zoom; drag pans.
       const cam = camRef.current;
       const ground = ui.cameraMode === "ground";
       if (ground && !cam.wasGround) {
         cam.gx = cam.ax;
         cam.gy = cam.ay;
       }
+      if (!ground && cam.wasGround) {
+        // Coming back up: the tactical anchor starts where the follow-cam
+        // left off — no jump, and the player pans from there.
+        cam.uax = cam.ax;
+        cam.uay = cam.ay;
+      }
       cam.wasGround = ground;
-      const targetZoom = ground ? (W() > H() ? 3.2 : 2.6) : 1;
+      // Recenter token (double-tap / Recenter button): reset pan + zoom.
+      if (ui.mapNonce !== cam.reNonce) {
+        cam.reNonce = ui.mapNonce;
+        cam.uax = 0.5;
+        cam.uay = 0.5;
+        cam.pox = 0;
+        cam.poy = 0;
+        if (ui.zoomLevel !== 1) setZoomLevel(1);
+      }
+      // User zoom multiplies the mode zoom; ground clamps tighter so the
+      // follow-cam still reads.
+      const uz = ground ? Math.min(ui.zoomLevel, GROUND_ZOOM_MAX) : ui.zoomLevel;
+      const modeZoom = ground ? (W() > H() ? 3.2 : 2.6) : 1;
+      const targetZoom = modeZoom * uz;
       const targetYsq = ground ? 0.78 : 1; // low grazing angle, not a magnifier
       const targetFy = ground ? (W() > H() ? 0.62 : 0.55) : 0.5;
       let anx = 0.32;
@@ -400,8 +455,17 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       if (nn > 0) { anx /= nn; any /= nn; }
       const halfW = 0.5 / targetZoom;
       const halfH = 0.5 / (targetZoom * targetYsq);
-      const tax = ground ? Math.max(halfW * 0.7, Math.min(1 - halfW * 0.7, anx)) : 0.5;
-      const tay = ground ? Math.max(halfH * 0.7, Math.min(1 - halfH * 0.7, any)) : 0.5;
+      let tax: number;
+      let tay: number;
+      if (ground) {
+        // Follow the advance, plus the player's pan offset — clamped tight
+        // so a pan never leaves the fighting.
+        tax = clampAnchor(anx + cam.pox, halfW);
+        tay = clampAnchor(any + cam.poy, halfH);
+      } else {
+        tax = clampAnchor(cam.uax, halfW);
+        tay = clampAnchor(cam.uay, halfH);
+      }
       const k = 1 - Math.exp(-dt * 3.4);
       cam.zoom += (targetZoom - cam.zoom) * k;
       cam.ysq += (targetYsq - cam.ysq) * k;
@@ -529,18 +593,22 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         const y0 = Y(lane.y - lane.spread);
         const y1 = Y(lane.y + lane.spread);
         const lc = LANE_COLOR[v];
+        // Lanes span the padded roam area so panning past the 0..1 field
+        // never shows cutoff markings.
+        const lx0 = X(-0.15);
+        const lx1 = X(1.15);
         c.save();
         c.globalAlpha = 0.05;
         c.fillStyle = lc;
-        c.fillRect(0, y0, w, y1 - y0);
+        c.fillRect(lx0, y0, lx1 - lx0, y1 - y0);
         c.restore();
         c.save();
         c.globalAlpha = 0.5;
         c.strokeStyle = lc;
         c.lineWidth = 1.5;
         c.setLineDash([10, 8]);
-        c.beginPath(); c.moveTo(0, y0); c.lineTo(w, y0); c.stroke();
-        c.beginPath(); c.moveTo(0, y1); c.lineTo(w, y1); c.stroke();
+        c.beginPath(); c.moveTo(lx0, y0); c.lineTo(lx1, y0); c.stroke();
+        c.beginPath(); c.moveTo(lx0, y1); c.lineTo(lx1, y1); c.stroke();
         c.restore();
       }
 
@@ -548,11 +616,11 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       c.save();
       c.strokeStyle = "rgba(255,255,255,0.05)";
       c.lineWidth = 1;
-      for (let i = 1; i < 10; i++) {
-        c.beginPath(); c.moveTo((w / 10) * i, 0); c.lineTo((w / 10) * i, h); c.stroke();
+      for (let i = -1; i <= 11; i++) {
+        c.beginPath(); c.moveTo(X(i / 10), Y(-0.15)); c.lineTo(X(i / 10), Y(1.15)); c.stroke();
       }
-      for (let i = 1; i < 6; i++) {
-        c.beginPath(); c.moveTo(0, (h / 6) * i); c.lineTo(w, (h / 6) * i); c.stroke();
+      for (let i = -1; i <= 7; i++) {
+        c.beginPath(); c.moveTo(X(-0.15), Y(i / 6)); c.lineTo(X(1.15), Y(i / 6)); c.stroke();
       }
       c.restore();
 
@@ -948,22 +1016,79 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      canvas.removeEventListener("wheel", onWheelNative);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.id]);
 
-  // ---- pointer: turret select → gunner view → target -------------------------
-  const onCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // ---- gestures: drag = pan, pinch = zoom, tap = select -------------------
+  // The click-to-command layer coming next uses tap-to-select then
+  // tap-to-move, so pan/zoom must never swallow taps: a pointer that moves
+  // less than 10px is a tap, period. Double-tap recenters the map.
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const downRef = useRef<{ x: number; y: number; t: number; id: number } | null>(null);
+  const lastTapRef = useRef(0);
+  const pinchRef = useRef<{ d: number } | null>(null);
+
+  const canvasCss = () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return { w: 1, h: 1 };
     const r = canvas.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width;
-    const py = (e.clientY - r.top) / r.height;
+    return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
+  };
+
+  /** Drag-scroll the map. Ground mode pans a tight offset around the
+   *  follow-cam; tactical pans the anchor itself. Always clamped on-field. */
+  const panBy = (dxCss: number, dyCss: number) => {
+    const cam = camRef.current;
+    const ui = sceneUISnapshot();
+    const { w, h } = canvasCss();
+    const ez = Math.max(0.2, cam.zoom);
+    if (ui.cameraMode === "ground") {
+      cam.pox = Math.max(-0.18, Math.min(0.18, cam.pox - dxCss / (ez * w)));
+      cam.poy = Math.max(-0.18, Math.min(0.18, cam.poy - dyCss / (ez * cam.ysq * h)));
+    } else {
+      const halfW = 0.5 / ez;
+      const halfH = 0.5 / (ez * cam.ysq);
+      cam.uax = clampAnchor(cam.uax - dxCss / (ez * w), halfW);
+      cam.uay = clampAnchor(cam.uay - dyCss / (ez * cam.ysq * h), halfH);
+      cam.ax = cam.uax;
+      cam.ay = cam.uay;
+    }
+  };
+
+  /** Zoom around a focal point (canvas-relative CSS px). */
+  const zoomBy = (factor: number, fxCss: number, fyCss: number) => {
+    const cam = camRef.current;
+    const ui = sceneUISnapshot();
+    const ground = ui.cameraMode === "ground";
+    const newUz = Math.max(ZOOM_MIN, Math.min(ground ? GROUND_ZOOM_MAX : ZOOM_MAX, ui.zoomLevel * factor));
+    if (newUz === ui.zoomLevel) return;
+    const { w, h } = canvasCss();
+    const oldEz = Math.max(0.2, cam.zoom);
+    // World point under the focal point, in tactical fractions.
+    const wxx = cam.ax + (fxCss - w / 2) / (oldEz * w);
+    const wyy = cam.ay + (fyCss - h * cam.fy) / (oldEz * cam.ysq * h);
+    setZoomLevel(newUz);
+    if (!ground) {
+      // Keep the focal world point under the cursor — no drift while zooming.
+      const newEz = newUz; // tactical modeZoom = 1
+      const halfW = 0.5 / newEz;
+      const halfH = 0.5 / (newEz * cam.ysq);
+      cam.uax = clampAnchor(wxx - (fxCss - w / 2) / (newEz * w), halfW);
+      cam.uay = clampAnchor(wyy - (fyCss - h * cam.fy) / (newEz * cam.ysq * h), halfH);
+      cam.ax = cam.uax;
+      cam.ay = cam.uay;
+    }
+  };
+
+  /** Tap select: gunner view → click an enemy to target; otherwise click one
+   *  of your turrets to take the gun. (Fractions 0..1 of the canvas.) */
+  const handleTap = (px: number, py: number) => {
     // Invert the camera transform: screen fractions → tactical 0..1 coords,
     // so turret picks and gunner targeting land in ground mode too.
     const cam = camRef.current;
-    const w = Math.max(1, r.width);
-    const h = Math.max(1, r.height);
+    const { w, h } = canvasCss();
     const tx = ((px * w - w / 2) / cam.zoom + cam.ax * w) / w;
     const ty = ((py * h - h * cam.fy) / (cam.zoom * cam.ysq) + cam.ay * h) / h;
     const ui = sceneUISnapshot();
@@ -992,6 +1117,71 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       setManual(true); // hands on the weapon ⇒ manual mode
     }
   };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 1) {
+      downRef.current = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+    } else if (pointersRef.current.size === 2) {
+      const [a, b] = [...pointersRef.current.values()];
+      pinchRef.current = { d: Math.hypot(a.x - b.x, a.y - b.y) };
+      downRef.current = null; // two fingers: no tap
+    }
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const pts = pointersRef.current;
+    if (!pts.has(e.pointerId)) return;
+    const prev = pts.get(e.pointerId)!;
+    const dx = e.clientX - prev.x;
+    const dy = e.clientY - prev.y;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const pr = pinchRef.current;
+      if (pr && pr.d > 0 && d > 0) {
+        const r = e.currentTarget.getBoundingClientRect();
+        zoomBy(d / pr.d, (a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top);
+        panBy(dx / 2, dy / 2);
+      }
+      pinchRef.current = { d };
+      return;
+    }
+    const dn = downRef.current;
+    if (dn && dn.id === e.pointerId && Math.hypot(e.clientX - dn.x, e.clientY - dn.y) > 10) {
+      panBy(dx, dy);
+    }
+  };
+
+  const endPointer = (e: React.PointerEvent<HTMLCanvasElement>, cancelled: boolean) => {
+    const pts = pointersRef.current;
+    const wasDown = downRef.current;
+    pts.delete(e.pointerId);
+    if (pts.size < 2) pinchRef.current = null;
+    if (cancelled || !wasDown || wasDown.id !== e.pointerId) {
+      if (pts.size === 0) downRef.current = null;
+      return;
+    }
+    const moved = Math.hypot(e.clientX - wasDown.x, e.clientY - wasDown.y);
+    const held = performance.now() - wasDown.t;
+    downRef.current = null;
+    if (moved <= 10 && held < 600 && pts.size === 0) {
+      const now = performance.now();
+      if (now - lastTapRef.current < 350) {
+        lastTapRef.current = 0;
+        recenterMap(); // double-tap: back to the full field
+      } else {
+        lastTapRef.current = now;
+        const r = e.currentTarget.getBoundingClientRect();
+        handleTap((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+      }
+    }
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => endPointer(e, false);
+  const onPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => endPointer(e, true);
 
   const toggleControls = () => {
     if (isWindowOpen("battle-controls")) closeWindowsOfKind("battle-controls");
@@ -1039,7 +1229,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       <div className="fixed inset-0 z-[60] bg-[#0b0d13]" data-testid="battle-scene-fullscreen">
         {/* canvas fills the viewport edge to edge */}
         <div ref={wrapRef} className="absolute inset-0">
-          <canvas ref={canvasRef} onClick={onCanvasClick} className="block cursor-crosshair" aria-label="Battle scene tactical map" />
+          <canvas
+            ref={canvasRef}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerCancel}
+            className="block cursor-crosshair"
+            style={{ touchAction: "none" }}
+            aria-label="Battle scene tactical map"
+          />
           {gunnerOverlay}
         </div>
 
@@ -1108,7 +1307,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
 
       {/* canvas */}
       <div ref={wrapRef} className="relative w-full">
-        <canvas ref={canvasRef} onClick={onCanvasClick} className="block cursor-crosshair" aria-label="Battle scene tactical map" />
+        <canvas
+          ref={canvasRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerCancel}
+          className="block cursor-crosshair"
+          style={{ touchAction: "none" }}
+          aria-label="Battle scene tactical map"
+        />
         {gunnerOverlay}
         <BattleLegend />
       </div>
@@ -1150,6 +1358,17 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
               onChange={(on) => setCameraMode(on ? "ground" : "tactical")}
               accent="#f0abfc"
             />
+            <div
+              className="flex items-center overflow-hidden rounded-lg border border-black/60"
+              style={{ background: "linear-gradient(180deg,#1b1d24 0%,#101218 60%,#1b1d24 100%)" }}
+              role="group"
+              aria-label="Map zoom"
+            >
+              <button type="button" aria-label="Zoom out" onClick={() => setZoomLevel(ui.zoomLevel / 1.3)} className="px-3 py-2 text-sm font-bold text-zinc-300 hover:text-white">−</button>
+              <span className="px-1 text-[10px] font-bold tabular-nums text-amber-300">{Math.round(ui.zoomLevel * 100)}%</span>
+              <button type="button" aria-label="Zoom in" onClick={() => setZoomLevel(ui.zoomLevel * 1.3)} className="px-3 py-2 text-sm font-bold text-zinc-300 hover:text-white">+</button>
+              <button type="button" onClick={recenterMap} title="Back to the full field" aria-label="Recenter map" className="border-l border-black/60 px-2.5 py-2 text-[11px] text-zinc-300 hover:text-white">⌖</button>
+            </div>
           </div>
           <p className="mt-2 max-w-[220px] text-[10px] leading-relaxed text-zinc-500">
             {ui.manual

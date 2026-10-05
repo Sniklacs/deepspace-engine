@@ -59,6 +59,10 @@ export interface SceneUIState {
   turrets: { id: string; idx: number }[];
   /** force roster for the FIELD FORCE panel — what's on the field by type */
   roster: RosterEntry[];
+  /** player zoom level (× mode zoom); 1 = the full-field default framing */
+  zoomLevel: number;
+  /** recenter token — bump to reset pan + zoom */
+  mapNonce: number;
 }
 
 const INITIAL: SceneUIState = {
@@ -76,6 +80,8 @@ const INITIAL: SceneUIState = {
   kills: { attacker: 0, defender: 0 },
   turrets: [],
   roster: [],
+  zoomLevel: 1,
+  mapNonce: 0,
 };
 
 let state: SceneUIState = INITIAL;
@@ -149,6 +155,19 @@ export function setCameraMode(mode: CameraMode): void {
 export function setBattleSpeed(speed: BattleSpeed): void {
   if (state.battleSpeed === speed) return;
   set({ battleSpeed: speed });
+}
+
+/** Player zoom level (pinch / wheel / +/- buttons), multiplied by the
+ *  camera-mode zoom. Clamped [0.6, 4] — ground mode clamps tighter. */
+export function setZoomLevel(z: number): void {
+  const clamped = Math.max(0.6, Math.min(4, z));
+  if (state.zoomLevel === clamped) return;
+  set({ zoomLevel: clamped });
+}
+
+/** Recenter token — the canvas watches this and resets pan + zoom. */
+export function recenterMap(): void {
+  set({ mapNonce: state.mapNonce + 1 });
 }
 
 /** Cycle slow → normal → fast → slow. */

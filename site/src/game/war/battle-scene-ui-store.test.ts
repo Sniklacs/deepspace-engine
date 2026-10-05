@@ -18,6 +18,8 @@ import {
   setCameraMode,
   setBattleSpeed,
   setLabelsOn,
+  setZoomLevel,
+  recenterMap,
   cycleDayNight,
   cycleBattleSpeed,
   setGunner,
@@ -150,6 +152,30 @@ describe("field force roster", () => {
     ]);
     resetSceneUI();
     expect(sceneUISnapshot().roster).toEqual([]);
+  });
+});
+
+describe("map zoom and recenter", () => {
+  test("defaults to 1 and clamps to [0.6, 4]", () => {
+    expect(sceneUISnapshot().zoomLevel).toBe(1);
+    setZoomLevel(10);
+    expect(sceneUISnapshot().zoomLevel).toBe(4);
+    setZoomLevel(0.1);
+    expect(sceneUISnapshot().zoomLevel).toBe(0.6);
+    setZoomLevel(2);
+    expect(sceneUISnapshot().zoomLevel).toBe(2);
+  });
+
+  test("recenterMap bumps the token", () => {
+    const before = sceneUISnapshot().mapNonce;
+    recenterMap();
+    expect(sceneUISnapshot().mapNonce).toBe(before + 1);
+  });
+
+  test("zoom survives a scene reset", () => {
+    setZoomLevel(2.5);
+    resetSceneUI();
+    expect(sceneUISnapshot().zoomLevel).toBe(2.5);
   });
 });
 
