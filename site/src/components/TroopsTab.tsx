@@ -129,7 +129,7 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
   return (
     <div className="space-y-4 pb-8" data-testid="troops-tab">
       <PageBanner
-        image="/art/battles/battle-siege.webp"
+        image="/art/pages/barracks-banner.webp"
         focal="center 0%"
         title={t("troops.title", "Barracks")}
         sub={t("troops.sub", "Raise your army. Every soldier is real — mustered, fed, and counted.")}
