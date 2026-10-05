@@ -304,11 +304,11 @@ async function runSeed(): Promise<Record<string, any>> {
 }
 
 /**
- * Seed ONLY testwarlord6 — a 6th test account NOT in any alliance, so Hans
- * can test the alliance search/join flow. Idempotent; never touches the
- * other accounts or the Ashen Vanguard alliance.
+ * Seed a single disposable QA/sparring account (testwarlord6-10) — NOT in any
+ * alliance. Idempotent; never touches the other accounts or the Ashen Vanguard
+ * alliance.
  */
-async function runSeedWarlord6(): Promise<Record<string, any>> {
+async function runSeedWarlord(uname: string): Promise<Record<string, any>> {
   const { neon } = await import("@neondatabase/serverless");
   const crypto = await import("node:crypto");
   const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
@@ -330,7 +330,6 @@ async function runSeedWarlord6(): Promise<Record<string, any>> {
   const now = Date.now();
   const DAY = 24 * 60 * 60 * 1000;
   const day60 = now - 60 * DAY;
-  const uname = "testwarlord6";
   const results: Record<string, any> = { account: uname, created: false, stateCreated: false };
 
   const existing = await sql`SELECT account_id FROM accounts WHERE account_id = ${uname}`;
@@ -348,7 +347,8 @@ async function runSeedWarlord6(): Promise<Record<string, any>> {
   {
     const { newGame } = await import("./src/game/engine.js");
     const { emptyWorldMap } = await import("./src/game/worldmap.js");
-    const game = newGame("TestWarlord6", "draconians", day60);
+    const display = uname.charAt(0).toUpperCase() + uname.slice(1);
+    const game = newGame(display, "draconians", day60);
     game.createdAt = day60;
     game.lastTick = now;
     game.techsResearched = [
@@ -451,6 +451,8 @@ export default async function vercelHandler(
     // Creates test accounts, day-60 game states, mock colonies, and test alliance.
     // POST /api/seed?key=YOUR_SEED_KEY&only=testwarlord6
     // Creates ONLY testwarlord6 (not in any alliance) for join-flow testing.
+    // POST /api/seed?key=YOUR_SEED_KEY&only=testwarlord7 (7-10)
+    // Creates a stocked sparring account (same QA package, no alliance).
     if (pathname === "/api/seed" && req.method === "POST") {
       const url = new URL(req.url ?? "/", `https://${req.headers.host ?? "localhost"}`);
       const key = url.searchParams.get("key");
@@ -464,7 +466,9 @@ export default async function vercelHandler(
         return;
       }
       try {
-        const result = only === "testwarlord6" ? await runSeedWarlord6() : await runSeed();
+        const result = only === "testwarlord6" ? await runSeedWarlord("testwarlord6")
+          : only && /^testwarlord(7|8|9|10)$/.test(only) ? await runSeedWarlord(only)
+          : await runSeed();
         res.statusCode = 200;
         res.end(JSON.stringify({ ok: true, ...result }));
       } catch (e: any) {
