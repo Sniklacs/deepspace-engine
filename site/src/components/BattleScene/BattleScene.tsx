@@ -681,6 +681,41 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         c.restore();
       }
 
+      // Per-kind fallback glyph, traced as a path (caller sets paint + fills).
+      // Square = Bulwark, triangle = Reaver, diamond = Longeye,
+      // hexagon = Thunder, dot = Warden/dropship. Wrecks reuse it dimmed so
+      // the fallen keep their identity (owner 2026-10-05: every icon named,
+      // even the wrecks).
+      const traceKindGlyph = (u: SceneUnit, x: number, y: number, rr: number) => {
+        c.beginPath();
+        if (u.kind === "bulwark") {
+          c.rect(x - rr, y - rr, rr * 2, rr * 2);
+        } else if (u.kind === "reaver") {
+          c.moveTo(x, y - rr);
+          c.lineTo(x + rr, y + rr);
+          c.lineTo(x - rr, y + rr);
+          c.closePath();
+        } else if (u.kind === "longeye") {
+          c.moveTo(x, y - rr);
+          c.lineTo(x + rr, y);
+          c.lineTo(x, y + rr);
+          c.lineTo(x - rr, y);
+          c.closePath();
+        } else if (u.kind === "thunder") {
+          for (let i = 0; i < 6; i++) {
+            const a = Math.PI / 6 + (i * Math.PI) / 3;
+            const gx = x + rr * Math.cos(a);
+            const gy = y + rr * Math.sin(a);
+            if (i === 0) c.moveTo(gx, gy);
+            else c.lineTo(gx, gy);
+          }
+          c.closePath();
+        } else {
+          // warden: ring; dropship/turret: dot.
+          c.arc(x, y, rr, 0, Math.PI * 2);
+        }
+      };
+
       const drawUnit = (u: SceneUnit) => {
         if (!ui.vectorsOn[u.vector]) return;
         const x = X(u.x);
@@ -732,33 +767,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           // ring = Warden. Side-colored like everything else.
           const rr = r * 0.85;
           c.fillStyle = SIDE_COLOR[u.side];
-          c.beginPath();
-          if (u.kind === "bulwark") {
-            c.rect(x - rr, y - rr, rr * 2, rr * 2);
-          } else if (u.kind === "reaver") {
-            c.moveTo(x, y - rr);
-            c.lineTo(x + rr, y + rr);
-            c.lineTo(x - rr, y + rr);
-            c.closePath();
-          } else if (u.kind === "longeye") {
-            c.moveTo(x, y - rr);
-            c.lineTo(x + rr, y);
-            c.lineTo(x, y + rr);
-            c.lineTo(x - rr, y);
-            c.closePath();
-          } else if (u.kind === "thunder") {
-            for (let i = 0; i < 6; i++) {
-              const a = Math.PI / 6 + (i * Math.PI) / 3;
-              const gx = x + rr * Math.cos(a);
-              const gy = y + rr * Math.sin(a);
-              if (i === 0) c.moveTo(gx, gy);
-              else c.lineTo(gx, gy);
-            }
-            c.closePath();
-          } else {
-            // warden: ring; dropship/turret: dot.
-            c.arc(x, y, rr, 0, Math.PI * 2);
-          }
+          traceKindGlyph(u, x, y, rr);
           c.fill();
           c.strokeStyle = SIDE_DIM[u.side];
           c.lineWidth = 1.5;
@@ -803,14 +812,24 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         c.restore();
       };
 
-      // Wrecks first (dead units as scorch marks).
+      // Wrecks first (dead units as scorch marks) — but named ones: a dim
+      // per-kind glyph + (via the label pass below) a dim side-colored tag,
+      // so the graveyard still reads instead of going anonymous.
       c.save();
       for (const u of unitsRef.current) {
         if (u.state !== "dead" || !ui.vectorsOn[u.vector]) continue;
+        const wx = X(u.x);
+        const wy = Y(u.y);
         c.fillStyle = "rgba(0,0,0,0.45)";
         c.beginPath();
-        c.ellipse(X(u.x), Y(u.y), s * 0.02, s * 0.014, 0, 0, Math.PI * 2);
+        c.ellipse(wx, wy, s * 0.02, s * 0.014, 0, 0, Math.PI * 2);
         c.fill();
+        c.save();
+        c.globalAlpha = 0.5;
+        c.fillStyle = SIDE_DIM[u.side];
+        traceKindGlyph(u, wx, wy, Math.max(7, s * 0.022) * 0.55);
+        c.fill();
+        c.restore();
       }
       c.restore();
 
@@ -991,18 +1010,19 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       // space (crisp at any zoom — no squash distortion): BULWARK, REAVER,
       // LONGEYE, THUNDER, WARDEN, DROPSHIP. Side-colored text on a dark
       // pill, matching the friend/foe rings. Staging ghosts get dim tags so
-      // the muster reads too. Toggleable in the Controls glass (LABELS).
+      // the muster reads too, and wrecks get dim tags so the fallen keep
+      // their names. Toggleable in the Controls glass (LABELS).
       if (ui.labelsOn) {
         c.save();
         c.font = "700 9px system-ui, sans-serif";
         c.textAlign = "center";
         c.textBaseline = "middle";
         for (const u of unitsRef.current) {
-          if (u.state === "dead" || !ui.vectorsOn[u.vector]) continue;
+          if (!ui.vectorsOn[u.vector]) continue;
           const sx = (u.x - cam.ax) * cam.zoom * w + w / 2;
           const sy = (u.y - cam.ay) * cam.zoom * cam.ysq * h + h * cam.fy;
           if (sx < -70 || sx > w + 70 || sy < -40 || sy > h + 40) continue;
-          const dim = u.state === "staging" ? 0.55 : 1;
+          const dim = u.state === "staging" ? 0.55 : u.state === "dead" ? 0.38 : 1;
           const label = UNIT_KIND_LABEL[u.kind].toUpperCase();
           const tw = c.measureText(label).width;
           const rScr = Math.max(7, s * 0.022) * cam.zoom;
