@@ -978,9 +978,9 @@ describe("WS3 zero-dots audit (Hans, Oct 4 2026)", () => {
     const ms = buildGlobeMarkers(auditState(), NOW);
     expect(ms.length).toBeGreaterThan(0);
     for (const m of ms) {
-      expect(ALL_ICONS).toContain(m.icon);
+      expect(ALL_ICONS.includes(m.icon)).toBe(true);
       for (const f of FORBIDDEN) {
-        expect(m.icon.toLowerCase()).not.toContain(f);
+        expect(m.icon.toLowerCase().includes(f)).toBe(false);
       }
     }
     // and every icon kind in the vocabulary actually rides at least one
@@ -994,9 +994,9 @@ describe("WS3 zero-dots audit (Hans, Oct 4 2026)", () => {
   test("every legend row carries a defined icon — no CSS-dot rows", () => {
     expect(GLOBE_LAYERS.length).toBeGreaterThan(0);
     for (const l of GLOBE_LAYERS) {
-      expect(ALL_ICONS).toContain(l.icon);
+      expect(ALL_ICONS.includes(l.icon)).toBe(true);
       for (const f of FORBIDDEN) {
-        expect(l.icon.toLowerCase()).not.toContain(f);
+        expect(l.icon.toLowerCase().includes(f)).toBe(false);
       }
     }
   });
@@ -1035,8 +1035,8 @@ describe("WAVE 3 — irregular coastlines (no discs)", () => {
     for (let seed = 0; seed < 46; seed++) {
       for (let k = 0; k < 24; k++) {
         const r = shorelineRadius(seed, (k / 24) * Math.PI * 2);
-        expect(r).toBeGreaterThanOrEqual(t.coastMinRadius);
-        expect(r).toBeLessThanOrEqual(t.coastMaxRadius);
+        expect(r >= t.coastMinRadius).toBe(true);
+        expect(r <= t.coastMaxRadius).toBe(true);
       }
     }
   });
@@ -1066,7 +1066,7 @@ describe("WAVE 3 — directional ridges + snow peaks", () => {
     const angles = new Set<number>();
     for (let seed = 0; seed < 46; seed++) {
       const a = ridgeAxisAngle(seed);
-      expect(a).toBeGreaterThanOrEqual(0);
+      expect(a >= 0).toBe(true);
       expect(a).toBeLessThan(Math.PI);
       angles.add(Math.round(a * 8));
     }
@@ -1080,7 +1080,7 @@ describe("WAVE 3 — directional ridges + snow peaks", () => {
       const grid = buildElevationGrid(seed, 102);
       let mx = 0;
       for (let i = 0; i < grid.length; i++) mx = Math.max(mx, grid[i]);
-      expect(mx).toBeGreaterThanOrEqual(TERRAIN_TUNING.snowLine);
+      expect(mx >= TERRAIN_TUNING.snowLine).toBe(true);
     }
   });
 
@@ -1089,7 +1089,7 @@ describe("WAVE 3 — directional ridges + snow peaks", () => {
       const grid = buildElevationGrid(seed, 77);
       let mx = 0;
       for (let i = 0; i < grid.length; i++) mx = Math.max(mx, grid[i]);
-      expect(mx).toBeGreaterThanOrEqual(TERRAIN_TUNING.snowLine);
+      expect(mx >= TERRAIN_TUNING.snowLine).toBe(true);
     }
   });
 
@@ -1200,7 +1200,7 @@ describe("WAVE 3 — beach + biome palettes", () => {
       const s = e <= 0 ? 0 : Math.min(1, e / t.shoreFeather);
       const expected = Math.round(255 * (s * s * (3 - 2 * s)));
       const a = px[i * 4 + 3];
-      expect(Math.abs(a - expected)).toBeLessThanOrEqual(1);
+      expect(Math.abs(a - expected) <= 1).toBe(true);
       if (a > 0 && a < 255) partial++;
       if (a === 255) full++;
     }

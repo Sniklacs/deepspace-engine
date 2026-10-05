@@ -39,7 +39,8 @@ describe("chorus-sites: the Chorus heart (endgame)", () => {
     expect(garrison.troops).toBe(CHORUS_HEART.troops);
     expect(garrison.heroSquad).toHaveLength(CHORUS_HEART.cells);
     expect(garrison.weapons).toHaveLength(1);
-    expect(garrison.weapons[0]).toMatchObject({ family: "assault", tier: 4 });
+    expect(garrison.weapons[0].family).toBe("assault");
+    expect(garrison.weapons[0].tier).toBe(4);
   });
 
   test("every site's strength is what the engine prices its garrison at", () => {
