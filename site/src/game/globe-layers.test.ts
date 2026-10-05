@@ -36,6 +36,7 @@ import {
 } from "./globe-layers";
 import { ZONES } from "./zones";
 import { chorusSiteIntel } from "./chorus-intel";
+import { drawGlobeIconGlyph } from "../components/WorldGlobe";
 
 const NOW = 1_700_000_000_000;
 
@@ -1241,5 +1242,94 @@ describe("WAVE 3 — determinism + size classes", () => {
         expect(e >= 0 && e <= 1).toBe(true);
       }
     }
+  });
+});
+
+describe("WS3 visual-QA: globe icon glyph paths — every case draws a distinct non-trivial path", () => {
+  // drawGlobeIconGlyph lives in WorldGlobe.tsx (canvas-only; the module has
+  // no top-level DOM, so it imports cleanly under bun). Trace every canvas
+  // call per GlobeIconId with a mock 2d context.
+  const ALL_ICONS: GlobeIconId[] = [
+    "home",
+    "raid",
+    "chorus",
+    "hut",
+    "ember",
+    "chipset",
+    "husk",
+    "monument",
+    "satellite",
+    "beachhead",
+    "arena",
+  ];
+
+  function traceGlyph(kind: GlobeIconId): string[] {
+    const calls: string[] = [];
+    const fmt = (v: unknown) =>
+      typeof v === "number" ? v.toFixed(3) : String(v);
+    const ctx = new Proxy({} as Record<string, unknown>, {
+      get(_t, prop: string) {
+        return (...args: unknown[]) => {
+          calls.push(`${prop}(${args.map(fmt).join(",")})`);
+        };
+      },
+      set(_t, prop: string, value: unknown) {
+        calls.push(`set:${prop}=${fmt(value)}`);
+        return true;
+      },
+    });
+    drawGlobeIconGlyph(
+      ctx as unknown as CanvasRenderingContext2D,
+      kind,
+      24,
+    );
+    return calls;
+  }
+
+  const traces = () =>
+    new Map<GlobeIconId, string[]>(ALL_ICONS.map((k) => [k, traceGlyph(k)]));
+
+  test("every GlobeIconId case draws something non-trivial (no empty/dot case)", () => {
+    for (const kind of ALL_ICONS) {
+      const calls = traceGlyph(kind);
+      const paints = calls.some(
+        (c) =>
+          c.startsWith("fill(") ||
+          c.startsWith("stroke(") ||
+          c.startsWith("fillRect("),
+      );
+      expect(paints).toBe(true);
+    }
+  });
+
+  test("every kind has a distinct recorded path (shape carries meaning, not color)", () => {
+    const sigs = [...traces().values()].map((c) => c.join(";"));
+    expect(new Set(sigs).size).toBe(ALL_ICONS.length);
+  });
+
+  test("satellite renders a true dish: tilted cup (ellipse) + feed arm + feed dot", () => {
+    const calls = traceGlyph("satellite");
+    // cup bowl
+    expect(calls.some((c) => c.startsWith("ellipse("))).toBe(true);
+    // tilted ~45°
+    expect(calls.some((c) => c.startsWith("rotate("))).toBe(true);
+    // feed dot
+    expect(calls.filter((c) => c.startsWith("arc(")).length).toBeGreaterThan(0);
+    // mounting mast (a stroked line distinct from the thin feed arm)
+    expect(calls.filter((c) => c.startsWith("stroke(")).length).toBeGreaterThan(
+      1,
+    );
+  });
+
+  test("chorus sigil is bold: ring + core arcs with thick line widths and a filled core", () => {
+    const calls = traceGlyph("chorus");
+    const arcs = calls.filter((c) => c.startsWith("arc("));
+    // ring + filled core
+    expect(arcs.length).toBeGreaterThan(1);
+    expect(calls.some((c) => c.startsWith("fill("))).toBe(true);
+    const widths = calls
+      .filter((c) => c.startsWith("set:lineWidth="))
+      .map((c) => parseFloat(c.slice("set:lineWidth=".length)));
+    expect(Math.max(...widths) >= 3).toBe(true);
   });
 });

@@ -255,20 +255,23 @@ export function drawGlobeIconGlyph(g: CanvasRenderingContext2D, kind: GlobeIconI
       g.stroke();
       break;
     case "chorus":
-      // the Chorus sigil: ring + core + three spokes
-      g.lineWidth = Math.max(2.5, s * 0.09);
+      // The Chorus sigil: bold ring + three strong spokes + large filled core.
+      // Read at ~20px on the globe, so everything here is deliberately
+      // chunky — the sigil must be unmistakable, never a dot.
+      g.lineWidth = Math.max(3.5, s * 0.14);
       g.beginPath();
-      g.arc(0, 0, h * 0.62, 0, Math.PI * 2);
+      g.arc(0, 0, h * 0.72, 0, Math.PI * 2);
       g.stroke();
+      g.lineWidth = Math.max(3, s * 0.12);
       for (let i = 0; i < 3; i++) {
         const a = (i * Math.PI * 2) / 3 - Math.PI / 2;
         g.beginPath();
-        g.moveTo(Math.cos(a) * h * 0.1, Math.sin(a) * h * 0.1);
-        g.lineTo(Math.cos(a) * h * 0.62, Math.sin(a) * h * 0.62);
+        g.moveTo(Math.cos(a) * h * 0.28, Math.sin(a) * h * 0.28);
+        g.lineTo(Math.cos(a) * h * 0.72, Math.sin(a) * h * 0.72);
         g.stroke();
       }
       g.beginPath();
-      g.arc(0, 0, h * 0.2, 0, Math.PI * 2);
+      g.arc(0, 0, h * 0.32, 0, Math.PI * 2);
       g.fill();
       break;
     case "ember":
@@ -310,15 +313,36 @@ export function drawGlobeIconGlyph(g: CanvasRenderingContext2D, kind: GlobeIconI
       g.fill();
       g.fillRect(-h * 0.5, h * 0.45, h * 1.0, h * 0.3);
       break;
-    case "satellite":
-      // body + two solar panels
-      g.fillRect(-h * 0.25, -h * 0.25, h * 0.5, h * 0.5);
-      g.fillRect(-h * 0.9, -h * 0.15, h * 0.55, h * 0.3);
-      g.fillRect(h * 0.35, -h * 0.15, h * 0.55, h * 0.3);
+    case "satellite": {
+      // True parabolic dish silhouette, tilted ~45° (opening upper-left):
+      // filled cup bowl + feed arm to a feed dot + mounting mast + base foot.
+      // Must read as a dish at ~20px on the globe and in the legend.
+      g.save();
+      g.rotate(-Math.PI / 4);
+      // cup — filled half-ellipse bowl
       g.beginPath();
-      g.arc(0, -h * 0.55, h * 0.12, 0, Math.PI * 2);
+      g.ellipse(0, -h * 0.2, h * 0.6, h * 0.42, 0, 0, Math.PI);
+      g.closePath();
       g.fill();
+      // feed arm + feed dot (focal point above the cup)
+      g.lineWidth = Math.max(2, s * 0.08);
+      g.beginPath();
+      g.moveTo(0, -h * 0.05);
+      g.lineTo(0, -h * 0.58);
+      g.stroke();
+      g.beginPath();
+      g.arc(0, -h * 0.62, h * 0.13, 0, Math.PI * 2);
+      g.fill();
+      // mounting mast + base foot
+      g.lineWidth = Math.max(3, s * 0.12);
+      g.beginPath();
+      g.moveTo(0, h * 0.18);
+      g.lineTo(0, h * 0.78);
+      g.stroke();
+      g.fillRect(-h * 0.28, h * 0.72, h * 0.56, h * 0.13);
+      g.restore();
       break;
+    }
     case "beachhead":
       // banner on a pole — the open invasion mark
       g.lineWidth = Math.max(2.5, s * 0.09);
@@ -547,8 +571,9 @@ function roundRectPath(g: CanvasRenderingContext2D, x: number, y: number, w: num
 // Terrain sprites — baked ONCE from the elevation field (globe-layers.ts),
 // then blitted per frame. Per-frame cost ≈ one drawImage per visible
 // landmass, i.e. no worse than the old flat ellipse fills. Each sprite spans
-// 1.25× the landmass radius: the outer ring is the shallow coastal shelf,
-// the inner disc is the hillshaded terrain.
+// 1.25× the landmass radius for a soft transparent margin; the inner disc
+// is the hillshaded terrain, whose shoreline is feathered via shoreFeather
+// in shadeTerrainGrid (no artificial halo ring).
 let terrainSprites: HTMLCanvasElement[] | null = null;
 
 function bakeLandmassSprite(b: Blob): HTMLCanvasElement {
@@ -556,15 +581,10 @@ function bakeLandmassSprite(b: Blob): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = c.height = S;
   const g = c.getContext("2d")!;
-  // Coastal shelf — shallow-water ring, brightest right at the shoreline.
-  // (Center is covered by the terrain disc drawn over it.)
-  const shelf = g.createRadialGradient(S / 2, S / 2, S * 0.28, S / 2, S / 2, S / 2);
-  shelf.addColorStop(0, "rgba(126,196,232,0)");
-  shelf.addColorStop(0.74, "rgba(126,196,232,0.30)");
-  shelf.addColorStop(0.82, "rgba(140,205,240,0.55)");
-  shelf.addColorStop(1, "rgba(140,205,240,0)");
-  g.fillStyle = shelf;
-  g.fillRect(0, 0, S, S);
+  // (The old "coastal shelf" radial ring was removed — it rendered as a
+  //  perfect translucent circle around each island, i.e. a halo
+  //  disconnected from the irregular coastline. The terrain disc already
+  //  feathers its shoreline via shoreFeather in shadeTerrainGrid.)
   // Terrain disc — elevation grid → hillshaded pixels.
   const T = Math.round(S * 0.8);
   const grid = buildElevationGrid(b.seed, T);

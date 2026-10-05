@@ -51,7 +51,7 @@ export type GlobeIconId =
   | "chipset" // T3 / hard site — chipsets only drop in T3s
   | "husk" // dead colony — broken hut
   | "monument" // memorial — obelisk plaque
-  | "satellite" // orbital watcher — body + panels
+  | "satellite" // orbital watcher — parabolic dish silhouette
   | "beachhead" // beachhead banner — everyone knows where it is
   | "arena"; // stadium bowl — the arena's legend silhouette; the globe
              // itself renders the full stadium sprite (WorldGlobe.tsx)
