@@ -20,6 +20,8 @@ import type { Battle, BattleReport, BattleSide, CommittedForce, ManeuverVector }
 import { BATTLES_CONFIG } from "../game/war/war-types";
 import { battleMoment, battleEndAt } from "../game/war/battle-engine";
 import BattleReplay from "./BattleReplay";
+import { BattleScene } from "./BattleScene/BattleScene";
+import { buildDemoScene, sceneFromBattle } from "../game/war/battle-scene-model";
 import { availableWeight } from "../game/war/troops";
 import { battleIssueFn, battleRespondFn, battleScreenFn } from "../game/api";
 import type { GameResult } from "../game/api";
@@ -355,30 +357,47 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
 }) {
   const t = useT();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<"detail" | "scene">("detail");
+  const [demoScene, setDemoScene] = useState(false);
   const active = (state.battles ?? []).filter((b) => b.status === "active").sort((a, b) => a.startedAt - b.startedAt);
   const selected = active.find((b) => b.id === selectedId) ?? active[0] ?? null;
+  // Reset the detail/scene toggle + demo when the selection changes.
+  useEffect(() => {
+    setView("detail");
+    setDemoScene(false);
+  }, [selected?.id]);
 
   if (active.length === 0) {
     return (
-      <div className="relative overflow-hidden rounded-xl border border-line">
-        <img
-          src="/art/battles/battle-siege.webp"
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-cover"
-          loading="lazy"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#07070c] via-[#07070c]/70 to-[#07070c]/25" />
-        <div className="relative p-6 text-center">
-          <Icon name="sword" size={28} className="mx-auto text-ember-soft" />
-          <p className="mt-2 text-sm font-medium text-zinc-100">{t("battles.nothingFighting", "Nothing is fighting on your fronts.")}</p>
-          <p className="mx-auto mt-1 max-w-md text-xs text-zinc-300">
-            {t(
-              "battles.fightOpensNote",
-              "When a march meets a defending force the fight opens here; it runs whether or not you are watching, and it leaves a report either way.",
-            )}
-          </p>
+      <div className="space-y-3">
+        <div className="relative overflow-hidden rounded-xl border border-line">
+          <img
+            src="/art/battles/battle-siege.webp"
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full object-cover"
+            loading="lazy"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#07070c] via-[#07070c]/70 to-[#07070c]/25" />
+          <div className="relative p-6 text-center">
+            <Icon name="sword" size={28} className="mx-auto text-ember-soft" />
+            <p className="mt-2 text-sm font-medium text-zinc-100">{t("battles.nothingFighting", "Nothing is fighting on your fronts.")}</p>
+            <p className="mx-auto mt-1 max-w-md text-xs text-zinc-300">
+              {t(
+                "battles.fightOpensNote",
+                "When a march meets a defending force the fight opens here; it runs whether or not you are watching, and it leaves a report either way.",
+              )}
+            </p>
+            <button
+              type="button"
+              onClick={() => setDemoScene((d) => !d)}
+              className="mt-3 rounded-lg border border-amber-400/40 bg-black/60 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-200 hover:bg-black/80"
+            >
+              {demoScene ? t("battles.hidePracticeScene", "Hide practice scene") : t("battles.watchPracticeScene", "🎬 Watch practice battle scene")}
+            </button>
+          </div>
         </div>
+        {demoScene && <BattleScene scene={buildDemoScene(Date.now())} />}
       </div>
     );
   }
@@ -420,7 +439,30 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
 
       {selected && (
         <div className="space-y-3 rounded-xl border border-line bg-surf-2/60 p-4">
-          <BattleDetail state={state} battle={selected} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorialEnabled} muted={muted} />
+          <div className="flex gap-1 rounded-lg border border-line bg-surf-3/60 p-1" role="tablist" aria-label="Battle view">
+            {(["detail", "scene"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                  view === v ? "bg-ember/20 text-amber-200" : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {v === "detail" ? t("battles.viewDetail", "Detail") : t("battles.viewScene", "🎬 Scene")}
+              </button>
+            ))}
+          </div>
+          {view === "detail" ? (
+            <BattleDetail state={state} battle={selected} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorialEnabled} muted={muted} />
+          ) : (
+            <BattleScene
+              scene={sceneFromBattle(selected)}
+              liveCasualties={battleMoment(selected, now).casualties}
+            />
+          )}
         </div>
       )}
     </div>
