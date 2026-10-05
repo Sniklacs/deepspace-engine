@@ -63,6 +63,10 @@ const UNIT_ART: Record<string, string> = {
 };
 const GROUND_ART = `${ART}/ground-arid.webp`;
 
+// Pre-scaled integer-sized ground tile for the seamless pattern fill.
+// Rebuilt only when the tile size changes (resize), never per-frame.
+let groundTile: { canvas: HTMLCanvasElement | null; size: number } = { canvas: null, size: -1 };
+
 const SIDE_COLOR: Record<string, string> = { attacker: "#f59e0b", defender: "#fb7185" };
 const SIDE_DIM: Record<string, string> = { attacker: "#92400e", defender: "#881337" };
 
@@ -329,17 +333,39 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       const night = ui.dayNight === "auto" ? sceneNightFactor(scene.lonDeg, Date.now()) : ui.dayNight === "night" ? 1 : 0;
 
       // --- ground ----------------------------------------------------------
+      // Seamless: draw the ground as a repeating pattern from a pre-scaled
+      // integer-sized tile. The old manual tile loop drew tiles at fractional
+      // offsets (gw = s*1.4 is rarely an integer), and the screen-shake
+      // translate kept tile edges on sub-pixel boundaries — the rasterizer
+      // then left a faint 1px hairline down each tile boundary (visible as a
+      // vertical seam). A pattern fills the same tile grid continuously, so
+      // no boundary can ever open up.
       const g = sprites.ground;
       if (g && g.complete && g.naturalWidth > 0) {
         const gw = s * 1.4;
-        c.save();
-        c.globalAlpha = 0.9;
-        for (let gx = -gw; gx < w + gw; gx += gw) {
-          for (let gy = -gw; gy < h + gw; gy += gw) {
-            c.drawImage(g, gx, gy, gw, gw);
+        const tilePx = Math.max(1, Math.round(gw));
+        let tileCanvas = groundTile.canvas;
+        if (!tileCanvas || groundTile.size !== tilePx) {
+          tileCanvas = document.createElement("canvas");
+          tileCanvas.width = tilePx;
+          tileCanvas.height = tilePx;
+          const tc = tileCanvas.getContext("2d");
+          if (tc) {
+            tc.imageSmoothingQuality = "high";
+            tc.drawImage(g, 0, 0, tilePx, tilePx);
           }
+          groundTile = { canvas: tileCanvas, size: tilePx };
         }
-        c.restore();
+        const pat = c.createPattern(tileCanvas, "repeat");
+        if (pat) {
+          c.save();
+          c.globalAlpha = 0.9;
+          // Keep the tile grid aligned as before (origin at -gw).
+          c.translate(-gw, -gw);
+          c.fillStyle = pat;
+          c.fillRect(0, 0, w + gw * 2, h + gw * 2);
+          c.restore();
+        }
       } else {
         const grad = c.createLinearGradient(0, 0, 0, h);
         grad.addColorStop(0, "#3a3226");
