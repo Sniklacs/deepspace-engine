@@ -28,6 +28,9 @@ import {
   bumpKill,
   registerTurrets,
   registerRoster,
+  registerSquads,
+  setSelectedSquad,
+  logOrder,
   resetSceneUI,
   resetSceneUIStore,
   BATTLE_SPEED_MUL,
@@ -232,5 +235,51 @@ describe("resetSceneUI", () => {
     // The player's layer/command preferences survive a scene change.
     expect(s.vectorsOn.REAR).toBe(false);
     expect(s.manual).toBe(true);
+  });
+
+  test("drops command state (selection, squads, orders) but keeps prefs", () => {
+    setSelectedSquad("A0");
+    registerSquads([{ id: "A0", name: "Squad 1 — Main", alive: 14, total: 14 }]);
+    logOrder({ squadName: "Squad 1 — Main", dest: "FLANK LEFT", verdict: "accepted" });
+    setBattleSpeed("fast");
+    resetSceneUI();
+    const s = sceneUISnapshot();
+    expect(s.selectedSquadId).toBeNull();
+    expect(s.squads).toEqual([]);
+    expect(s.orderLog).toEqual([]);
+    expect(s.battleSpeed).toBe("fast");
+  });
+});
+
+describe("click-to-command", () => {
+  test("squad selection sets and clears", () => {
+    expect(sceneUISnapshot().selectedSquadId).toBeNull();
+    setSelectedSquad("A2");
+    expect(sceneUISnapshot().selectedSquadId).toBe("A2");
+    setSelectedSquad("A2"); // no-op, same value
+    setSelectedSquad(null);
+    expect(sceneUISnapshot().selectedSquadId).toBeNull();
+  });
+
+  test("squads register for the panel", () => {
+    registerSquads([
+      { id: "A0", name: "Squad 1 — Main", alive: 14, total: 14 },
+      { id: "A1", name: "Squad 2 — Flank L", alive: 6, total: 7 },
+    ]);
+    const s = sceneUISnapshot();
+    expect(s.squads).toHaveLength(2);
+    expect(s.squads[1].alive).toBe(6);
+  });
+
+  test("order log is newest-first and capped", () => {
+    for (let i = 0; i < 10; i++) {
+      logOrder({ squadName: `Squad ${i}`, dest: "MAIN", verdict: i % 2 ? "rejected" : "accepted", reason: i % 2 ? "nope" : undefined });
+    }
+    const log = sceneUISnapshot().orderLog;
+    expect(log).toHaveLength(8);
+    expect(log[0].squadName).toBe("Squad 9");
+    expect(log[0].verdict).toBe("rejected");
+    expect(log[0].reason).toBe("nope");
+    expect(log[7].squadName).toBe("Squad 2");
   });
 });

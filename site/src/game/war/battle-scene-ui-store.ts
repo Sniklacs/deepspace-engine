@@ -38,6 +38,25 @@ export interface RosterEntry {
   count: number;
 }
 
+/** One drivable bus for the SQUADS panel — name + living strength. */
+export interface SquadSummary {
+  id: string;
+  name: string;
+  alive: number;
+  total: number;
+}
+
+/** One judged order for the ORDERS log — the command log seed. */
+export interface OrderLogEntry {
+  id: number;
+  squadName: string;
+  dest: string;
+  verdict: "accepted" | "rejected";
+  reason?: string;
+}
+
+const MAX_ORDER_LOG = 8;
+
 export interface SceneUIState {
   vectorsOn: Record<ManeuverVector, boolean>;
   turretsOn: boolean;
@@ -59,6 +78,12 @@ export interface SceneUIState {
   turrets: { id: string; idx: number }[];
   /** force roster for the FIELD FORCE panel — what's on the field by type */
   roster: RosterEntry[];
+  /** command squads for the SQUADS panel — the five buses, living strength */
+  squads: SquadSummary[];
+  /** currently selected squad (click-to-command), null when none */
+  selectedSquadId: string | null;
+  /** judged orders, newest first — the ORDERS log */
+  orderLog: OrderLogEntry[];
   /** player zoom level (× mode zoom); 1 = the full-field default framing */
   zoomLevel: number;
   /** recenter token — bump to reset pan + zoom */
@@ -80,6 +105,9 @@ const INITIAL: SceneUIState = {
   kills: { attacker: 0, defender: 0 },
   turrets: [],
   roster: [],
+  squads: [],
+  selectedSquadId: null,
+  orderLog: [],
   zoomLevel: 1,
   mapNonce: 0,
 };
@@ -216,8 +244,28 @@ export function registerRoster(roster: RosterEntry[]): void {
   set({ roster });
 }
 
-/** Fresh scene identity: drop per-scene UI (clock, kills, gunner, turrets, roster).
- *  The player's preferences (camera, speed, labels, layers, command) survive. */
+/** Command squads for the SQUADS panel — the five buses, living strength. */
+export function registerSquads(squads: SquadSummary[]): void {
+  set({ squads });
+}
+
+/** Select a squad for click-to-command (null = deselect). */
+export function setSelectedSquad(id: string | null): void {
+  if (state.selectedSquadId === id) return;
+  set({ selectedSquadId: id });
+}
+
+let orderSeq = 0;
+
+/** Log a judged order — newest first, capped. The command log seed. */
+export function logOrder(entry: Omit<OrderLogEntry, "id">): void {
+  orderSeq += 1;
+  set({ orderLog: [{ ...entry, id: orderSeq }, ...state.orderLog].slice(0, MAX_ORDER_LOG) });
+}
+
+/** Fresh scene identity: drop per-scene UI (clock, kills, gunner, turrets,
+ *  roster, squads, selection, orders). The player's preferences (camera,
+ *  speed, labels, layers, command) survive. */
 export function resetSceneUI(): void {
   set({
     tS: 0,
@@ -226,6 +274,9 @@ export function resetSceneUI(): void {
     gunTarget: null,
     turrets: [],
     roster: [],
+    squads: [],
+    selectedSquadId: null,
+    orderLog: [],
   });
 }
 

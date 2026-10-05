@@ -21,6 +21,7 @@ import {
   setBattleSpeed,
   setLabelsOn,
   setZoomLevel,
+  setSelectedSquad,
   recenterMap,
   cycleDayNight,
   setGunner,
@@ -170,6 +171,78 @@ export function BattleControlsBody() {
         )}
       </section>
 
+      {/* squads — the five buses. tap a squad, then tap the map. */}
+      <section aria-label="Squads">
+        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Squads</p>
+        {ui.squads.length === 0 ? (
+          <p className="text-[11px] text-zinc-500">Mustering…</p>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {ui.squads.map((sq) => {
+              const selected = ui.selectedSquadId === sq.id;
+              return (
+                <button
+                  key={sq.id}
+                  type="button"
+                  onClick={() => setSelectedSquad(selected ? null : sq.id)}
+                  data-testid={`squad-pick-${sq.id}`}
+                  aria-pressed={selected}
+                  className={`flex items-center justify-between rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                    selected
+                      ? "border-white/60 bg-white/10"
+                      : "border-white/10 bg-black/40 hover:bg-black/60"
+                  }`}
+                >
+                  <span className={`text-[11px] font-semibold ${selected ? "text-white" : "text-zinc-200"}`}>
+                    {sq.name}
+                  </span>
+                  <span className="text-[11px] tabular-nums text-zinc-400">
+                    <span style={{ color: "#34d399" }}>{sq.alive}</span>/{sq.total}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
+          {ui.selectedSquadId
+            ? "Squad selected — tap the map to order it. The judge rules every move."
+            : "Tap one of your squads — or tap it on the map — then tap where it goes."}
+        </p>
+      </section>
+
+      {/* orders — the judged command log */}
+      <section aria-label="Orders">
+        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Orders</p>
+        {ui.orderLog.length === 0 ? (
+          <p className="text-[11px] text-zinc-500">No orders yet — the judge is waiting.</p>
+        ) : (
+          <div className="flex flex-col gap-1" data-testid="orders-log">
+            {ui.orderLog.map((o) => (
+              <div
+                key={o.id}
+                className={`rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug ${
+                  o.verdict === "accepted"
+                    ? "border-emerald-400/30 bg-emerald-950/30"
+                    : "border-red-400/30 bg-red-950/30"
+                }`}
+              >
+                <span className="font-semibold text-zinc-200">{o.squadName}</span>
+                <span className="text-zinc-400"> → {o.dest} — </span>
+                <span
+                  className={`font-bold uppercase tracking-wide ${
+                    o.verdict === "accepted" ? "text-emerald-300" : "text-red-300"
+                  }`}
+                >
+                  {o.verdict}
+                </span>
+                {o.reason && <span className="block text-red-200/80">{o.reason}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* camera — tactical overhead or down in the dirt */}
       <section aria-label="Camera">
         <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Camera</p>
@@ -290,7 +363,7 @@ export function BattleControlsBody() {
 
       {/* tally */}
       <div className="flex items-center justify-between border-t border-white/10 pt-2 text-[11px] text-zinc-500">
-        <span>Phase 1 live view — observing only.</span>
+        <span>Click a squad, then click the map.</span>
         <span className="tabular-nums">
           <span className="text-amber-400/90">{ui.kills.attacker}✕</span>
           <span className="mx-1">·</span>

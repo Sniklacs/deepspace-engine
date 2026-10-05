@@ -40,11 +40,20 @@ import {
   bumpKill,
   registerTurrets,
   registerRoster,
+  registerSquads,
+  setSelectedSquad,
+  logOrder,
   resetSceneUI,
   setZoomLevel,
   recenterMap,
   BATTLE_SPEED_MUL,
 } from "../../game/war/battle-scene-ui-store";
+import {
+  buildSquads,
+  isDrivable,
+  judgeMoveOrder,
+  destLabel,
+} from "../../game/war/scene-orders";
 import {
   subscribeWindows,
   windowSnapshot,
@@ -193,6 +202,14 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   // Speed-scaled sim clock (seconds) — the battle-speed toggle scales this,
   // not the wall clock, so SLOW actually gives a commander time to think.
   const simTRef = useRef(0);
+  // Click-to-command visuals (canvas-local, not store state):
+  //  - orderPing: the accepted order's dashed path + pulsing destination.
+  //  - toast: the judge's refusal, shown on-canvas — never silent.
+  const orderPingRef = useRef<{ x: number; y: number; fx: number; fy: number; born: number } | null>(null);
+  const toastRef = useRef<{ text: string; born: number } | null>(null);
+  // Last squad alive-counts pushed to the store — the SQUADS panel refreshes
+  // only when something actually died.
+  const squadAliveRef = useRef<string>("");
   // Camera rig — the mode lives in the shared store; zoom/anchor ease here
   // so flipping the toggle glides instead of cutting.
   const camRef = useRef<CameraRig>({ ...CAM_HOME });
@@ -230,6 +247,13 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         const [side, kind] = k.split(":");
         return { side: side as "attacker" | "defender", kind: kind as SceneUnitKind, count };
       }),
+    );
+    // Command squads for the SQUADS panel — the five buses, living strength.
+    // (Drivable: attacker only. The defender is the Chorus AI.)
+    registerSquads(
+      buildSquads(unitsRef.current)
+        .filter((s) => isDrivable(s))
+        .map((s) => ({ id: s.id, name: s.name, alive: s.unitIds.length, total: s.unitIds.length })),
     );
   }, [scene]);
 
@@ -501,6 +525,19 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       if (clockAcc > 0.25) {
         clockAcc = 0;
         setClock(t);
+        // SQUADS panel: refresh living strength only when it changed.
+        const squads = buildSquads(unitsRef.current).filter(isDrivable);
+        const key = squads.map((s) => `${s.id}:${s.unitIds.length}`).join(",");
+        if (key !== squadAliveRef.current) {
+          squadAliveRef.current = key;
+          registerSquads(
+            squads.map((s) => ({ id: s.id, name: s.name, alive: s.unitIds.length, total: s.unitIds.length })),
+          );
+        }
+        // Rejection toast + order ping expire on their own.
+        const nowMs = performance.now();
+        if (toastRef.current && nowMs - toastRef.current.born > 2600) toastRef.current = null;
+        if (orderPingRef.current && t - orderPingRef.current.born > 3) orderPingRef.current = null;
       }
 
       render(ctx, phase);
@@ -753,6 +790,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         c.lineWidth = 1.5;
         c.beginPath(); c.arc(x, y, r + 4, 0, Math.PI * 2); c.stroke();
         c.restore();
+        // Selected squad: the commander's hand is on this bus — a bright
+        // pulsing outer ring, unmistakable at any zoom.
+        if (ui.selectedSquadId === u.squadId) {
+          c.save();
+          c.globalAlpha = 0.6 + 0.4 * Math.sin(Date.now() / 160);
+          c.strokeStyle = "#ffffff";
+          c.lineWidth = 2;
+          c.beginPath(); c.arc(x, y, r + 9, 0, Math.PI * 2); c.stroke();
+          c.restore();
+        }
         c.restore();
       };
 
@@ -891,6 +938,32 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       }
       c.restore();
 
+      // --- order ping: the accepted order, drawn then fading ----------------
+      // Dashed path from the squad's old centroid to the destination plus a
+      // pulsing gold ring on the objective. The order READS on the map.
+      const ping = orderPingRef.current;
+      if (ping) {
+        const age = simTRef.current - ping.born; // sim seconds — slows with battle speed
+        const plife = Math.max(0, 1 - age / 3);
+        if (plife > 0) {
+          c.save();
+          c.globalAlpha = plife;
+          c.strokeStyle = "rgba(255,255,255,0.85)";
+          c.lineWidth = 1.5;
+          c.setLineDash([8, 6]);
+          c.beginPath();
+          c.moveTo(X(ping.fx), Y(ping.fy));
+          c.lineTo(X(ping.x), Y(ping.y));
+          c.stroke();
+          c.setLineDash([]);
+          const pr = s * 0.032 * (1 + 0.25 * Math.sin(Date.now() / 150));
+          c.strokeStyle = "#fbbf24";
+          c.lineWidth = 2.5;
+          c.beginPath(); c.arc(X(ping.x), Y(ping.y), pr, 0, Math.PI * 2); c.stroke();
+          c.restore();
+        }
+      }
+
       c.restore(); // camera off — overlays below are screen space
 
       // --- night overlay --------------------------------------------------------
@@ -949,8 +1022,15 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           c.arcTo(bx, by, bx + pw, by, br);
           c.closePath();
           c.fill();
+          const sel = ui.selectedSquadId === u.squadId;
+          if (sel) {
+            c.globalAlpha = dim;
+            c.strokeStyle = "#ffffff";
+            c.lineWidth = 1;
+            c.stroke();
+          }
           c.globalAlpha = dim;
-          c.fillStyle = SIDE_COLOR[u.side];
+          c.fillStyle = sel ? "#ffffff" : SIDE_COLOR[u.side];
           c.fillText(label, sx, ly + 0.5);
         }
         c.restore();
@@ -978,6 +1058,43 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       c.globalAlpha = 0.95;
       c.fillText(SCENE_PHASES.find((p) => p.phase === phase)?.label ?? phase, 12, 20);
       c.restore();
+
+      // --- order toast: the judge's refusal, on the canvas ------------------
+      // Illegal orders are never silent — the reason shows where the tap
+      // happened to be seen: top-center, red-bordered, 2.6 seconds.
+      const toast = toastRef.current;
+      if (toast) {
+        const ageMs = performance.now() - toast.born;
+        const tlife = Math.max(0, 1 - ageMs / 2600);
+        if (tlife > 0) {
+          c.save();
+          c.globalAlpha = Math.min(1, tlife * 2.5);
+          c.font = "700 12px system-ui, sans-serif";
+          c.textAlign = "center";
+          c.textBaseline = "middle";
+          const ttw = c.measureText(toast.text).width;
+          const tpw = ttw + 28;
+          const tph = 30;
+          const tbx = w / 2 - tpw / 2;
+          const tby = 44;
+          const tbr = 8;
+          c.beginPath();
+          c.moveTo(tbx + tbr, tby);
+          c.arcTo(tbx + tpw, tby, tbx + tpw, tby + tph, tbr);
+          c.arcTo(tbx + tpw, tby + tph, tbx, tby + tph, tbr);
+          c.arcTo(tbx, tby + tph, tbx, tby, tbr);
+          c.arcTo(tbx, tby, tbx + tpw, tby, tbr);
+          c.closePath();
+          c.fillStyle = "rgba(24,10,10,0.9)";
+          c.fill();
+          c.strokeStyle = "#f87171";
+          c.lineWidth = 1.5;
+          c.stroke();
+          c.fillStyle = "#fca5a5";
+          c.fillText(toast.text, w / 2, tby + tph / 2 + 0.5);
+          c.restore();
+        }
+      }
 
       // --- ground-cam foreground --------------------------------------------------
       // Near-field silhouettes sliding against the camera anchor: the near
@@ -1082,8 +1199,42 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     }
   };
 
-  /** Tap select: gunner view → click an enemy to target; otherwise click one
-   *  of your turrets to take the gun. (Fractions 0..1 of the canvas.) */
+  /** Issue a click-to-command move order: judge it against the doctrine,
+   *  then move the squad or refuse with the reason — never silent. */
+  const issueOrder = (squadId: string, dx: number, dy: number) => {
+    const squadUnits = unitsRef.current.filter((u) => u.squadId === squadId && u.state !== "dead");
+    const squad = buildSquads(unitsRef.current).find((s) => s.id === squadId);
+    const name = squad ? squad.name : squadId;
+    const dest = { x: Math.max(0.05, Math.min(0.95, dx)), y: Math.max(0.05, Math.min(0.95, dy)) };
+    const verdict = judgeMoveOrder(squadUnits, dest);
+    logOrder({
+      squadName: name,
+      dest: destLabel(dest.x, dest.y),
+      verdict: verdict.ok ? "accepted" : "rejected",
+      reason: verdict.ok ? undefined : verdict.reason,
+    });
+    if (!verdict.ok) {
+      // The judge refused — say why, on the canvas, where the tap happened.
+      toastRef.current = { text: verdict.reason, born: performance.now() };
+      return;
+    }
+    // Accepted: the squad moves, holding formation around its centroid.
+    let cx = 0;
+    let cy = 0;
+    for (const u of squadUnits) { cx += u.x; cy += u.y; }
+    cx /= squadUnits.length;
+    cy /= squadUnits.length;
+    for (const u of squadUnits) {
+      u.tx = Math.max(0.06, Math.min(0.94, dest.x + (u.x - cx)));
+      u.ty = Math.max(0.06, Math.min(0.94, dest.y + (u.y - cy)));
+      if (u.state === "holding" || u.state === "advancing") u.state = "advancing";
+    }
+    orderPingRef.current = { x: dest.x, y: dest.y, fx: cx, fy: cy, born: simTRef.current };
+  };
+
+  /** Tap: gunner view → click an enemy to target; your turret → take the
+   *  gun; your unit → select its squad; with a squad selected → the tap is
+   *  a move order, judged by the doctrine. (Fractions 0..1 of the canvas.) */
   const handleTap = (px: number, py: number) => {
     // Invert the camera transform: screen fractions → tactical 0..1 coords,
     // so turret picks and gunner targeting land in ground mode too.
@@ -1104,7 +1255,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       if (best) setGunTarget(best.id);
       return;
     }
-    // Otherwise: click one of YOUR turrets to enter the gunner view.
+    // Click one of YOUR turrets to enter the gunner view.
     let best: SceneTurret | null = null;
     let bd = 0.05;
     for (const tr of turretsRef.current) {
@@ -1115,7 +1266,27 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     if (best) {
       setGunner(best.id);
       setManual(true); // hands on the weapon ⇒ manual mode
+      return;
     }
+    // Click one of YOUR units → select its squad (the bus).
+    let su: SceneUnit | null = null;
+    let sd = 0.06;
+    for (const u of unitsRef.current) {
+      if (u.side !== "attacker" || u.state === "dead") continue;
+      const d = Math.hypot(u.x - tx, u.y - ty);
+      if (d < sd) { sd = d; su = u; }
+    }
+    if (su) {
+      setSelectedSquad(su.squadId);
+      return;
+    }
+    // With a squad selected, the tap is a destination — judge the order.
+    if (ui.selectedSquadId) {
+      issueOrder(ui.selectedSquadId, tx, ty);
+      return;
+    }
+    // Empty tap, nothing selected: make sure nothing lingers selected.
+    setSelectedSquad(null);
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1381,7 +1552,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       {/* footer strip */}
       <div className="flex items-center justify-between border-t border-line/60 px-4 py-2 text-[11px] text-zinc-500">
         <span>
-          Phase 1 live view — observing only. Orders ship in phase 2.
+          Click one of your squads, then click the map — the judge rules every order.
         </span>
         <span className="tabular-nums">
           <span className="text-amber-400/90">{ui.kills.attacker}✕</span>

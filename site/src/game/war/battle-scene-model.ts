@@ -46,6 +46,12 @@ export interface SceneUnit {
   side: BattleSide;
   kind: SceneUnitKind;
   vector: ManeuverVector;
+  /**
+   * Command squad — the "bus" this unit rides. Attacker squads are one per
+   * player (A0..A4, leader + four, mapped by vector); the defender is the
+   * Chorus AI ("D"). The click-to-command layer selects and orders squads.
+   */
+  squadId: string;
   /** Tactical coords 0..1. Attacker stages left, defender holds right. */
   x: number;
   y: number;
@@ -162,6 +168,20 @@ interface DemoSpec {
   backX: number; // staging x for this side
 }
 
+/**
+ * Command squads, by player: the leader's bus plus four. Each attacker
+ * vector is one player's squad (MAIN→0, FLANK_LEFT→1, FLANK_RIGHT→2,
+ * REAR→3, RESERVE→4); the defender is the Chorus AI, one mind ("D").
+ * Hans drives the attacker squads — click a squad, click the map.
+ */
+export const VECTOR_PLAYER: Record<ManeuverVector, number> = {
+  MAIN: 0,
+  FLANK_LEFT: 1,
+  FLANK_RIGHT: 2,
+  REAR: 3,
+  RESERVE: 4,
+};
+
 function buildUnits(seed: number): SceneUnit[] {
   const rnd = mulberry32(seed);
   const units: SceneUnit[] = [];
@@ -199,6 +219,7 @@ function buildUnits(seed: number): SceneUnit[] {
         side: s.side,
         kind,
         vector: s.vector,
+        squadId: s.side === "attacker" ? `A${VECTOR_PLAYER[s.vector]}` : "D",
         x: s.backX + (rnd() - 0.5) * 0.05,
         y: stageY,
         tx: Math.max(0.08, Math.min(0.92, fightX + (rnd() - 0.5) * 0.1)),
