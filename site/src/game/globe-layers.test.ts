@@ -17,11 +17,16 @@ import {
   GLOBE_SITE_TIER_COLOR,
   hash2i,
   projectGlobe,
+  ridgeAxisAngle,
   satelliteWatchPosition,
   shadeTerrainGrid,
+  shorelineRadius,
   siteMarkerIcon,
   siteTier,  terrainColor,
   terrainElevation,
+  terrainPeaks,
+  TERRAIN_TUNING,
+  terrainSizeClass,
   terrainSpriteSize,
   valueNoise2D,
   worldSiteGlobePosition,
@@ -389,10 +394,11 @@ describe("buildElevationGrid", () => {
 
   test("matches terrainElevation at sample points", () => {
     const size = 33;
+    const cls = terrainSizeClass(size); // small
     const grid = buildElevationGrid(11, size);
     const at = (x: number, y: number) => grid[y * size + x];
     // center
-    expect(at(16, 16)).toBeCloseTo(terrainElevation(11, 0, 0), 6);
+    expect(at(16, 16)).toBeCloseTo(terrainElevation(11, 0, 0, cls), 6);
     // corner is outside the disc → 0
     expect(at(0, 0)).toBe(0);
     expect(at(32, 32)).toBe(0);
@@ -656,11 +662,12 @@ describe("WS3 satellites + beachhead", () => {
     expect(satelliteWatchPosition("zone-a", 2)).toEqual(satelliteWatchPosition("zone-a", 2));
   });
 
-  test("Chorus heart sits on the grade-V site", () => {
+  test("Chorus heart sits on the heart zone (dark-matter-observatory), not on sort order", () => {
     const heart = chorusHeartGlobePosition();
-    const g5 = chorusSiteIntel().find((s) => s.grade === 5)!;
-    expect(heart.lat).toBe(g5.lat);
-    expect(heart.lon).toBe(g5.lon);
+    const heartSite = chorusSiteIntel().find((s) => s.isHeart)!;
+    expect(heartSite.zoneId).toBe("dark-matter-observatory");
+    expect(heart.lat).toBe(heartSite.lat);
+    expect(heart.lon).toBe(heartSite.lon);
   });
 });
 
@@ -990,6 +997,248 @@ describe("WS3 zero-dots audit (Hans, Oct 4 2026)", () => {
       expect(ALL_ICONS).toContain(l.icon);
       for (const f of FORBIDDEN) {
         expect(l.icon.toLowerCase()).not.toContain(f);
+      }
+    }
+  });
+});
+
+describe("WAVE 3 — irregular coastlines (no discs)", () => {
+  test("shorelineRadius is deterministic per seed and angle", () => {
+    expect(shorelineRadius(7, 1.2)).toBe(shorelineRadius(7, 1.2));
+    expect(shorelineRadius(7, 1.2)).not.toBe(shorelineRadius(8, 1.2));
+    expect(shorelineRadius(7, 1.2)).not.toBe(shorelineRadius(7, 2.4));
+  });
+
+  test("shoreline is seamless at θ = ±π", () => {
+    for (let seed = 0; seed < 12; seed++) {
+      expect(shorelineRadius(seed, Math.PI)).toBeCloseTo(shorelineRadius(seed, -Math.PI), 9);
+    }
+  });
+
+  test("coastline radius varies substantially around every landmass — no discs", () => {
+    // (max − min) / mean over 72 angles. Empirically every one of the 46
+    // landmass seeds clears 0.33; the 0.25 bar leaves margin.
+    for (let seed = 0; seed < 46; seed++) {
+      let mn = Infinity;
+      let mx = -Infinity;
+      for (let k = 0; k < 72; k++) {
+        const r = shorelineRadius(seed, (k / 72) * Math.PI * 2);
+        mn = Math.min(mn, r);
+        mx = Math.max(mx, r);
+      }
+      expect((mx - mn) / ((mn + mx) / 2)).toBeGreaterThan(0.25);
+    }
+  });
+
+  test("shoreline stays inside the sprite disc with beach room", () => {
+    const t = TERRAIN_TUNING;
+    for (let seed = 0; seed < 46; seed++) {
+      for (let k = 0; k < 24; k++) {
+        const r = shorelineRadius(seed, (k / 24) * Math.PI * 2);
+        expect(r).toBeGreaterThanOrEqual(t.coastMinRadius);
+        expect(r).toBeLessThanOrEqual(t.coastMaxRadius);
+      }
+    }
+  });
+
+  test("elevation is exactly 0 outside the shoreline (real geography, not a blob)", () => {
+    for (let seed = 0; seed < 8; seed++) {
+      for (let k = 0; k < 16; k++) {
+        const theta = (k / 16) * Math.PI * 2;
+        const R = shorelineRadius(seed, theta);
+        // just outside the shoreline → ocean
+        const u = Math.cos(theta) * (R + 0.02);
+        const v = Math.sin(theta) * (R + 0.02);
+        expect(terrainElevation(seed, u, v, "large")).toBe(0);
+        // just inside the shoreline → land (beach band)
+        const u2 = Math.cos(theta) * (R - 0.03);
+        const v2 = Math.sin(theta) * (R - 0.03);
+        expect(terrainElevation(seed, u2, v2, "large")).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe("WAVE 3 — directional ridges + snow peaks", () => {
+  test("ridgeAxisAngle is deterministic and spans the half-circle", () => {
+    expect(ridgeAxisAngle(3)).toBe(ridgeAxisAngle(3));
+    expect(ridgeAxisAngle(3)).not.toBe(ridgeAxisAngle(4));
+    const angles = new Set<number>();
+    for (let seed = 0; seed < 46; seed++) {
+      const a = ridgeAxisAngle(seed);
+      expect(a).toBeGreaterThanOrEqual(0);
+      expect(a).toBeLessThan(Math.PI);
+      angles.add(Math.round(a * 8));
+    }
+    // axes spread out — not all ranges pointing the same way
+    expect(angles.size).toBeGreaterThan(10);
+  });
+
+  test("large landmasses reach the snow line", () => {
+    // 102px bake grids = the large sprite class (128px sprites).
+    for (const seed of [0, 1, 2, 3, 4, 5, 10, 20, 30, 40]) {
+      const grid = buildElevationGrid(seed, 102);
+      let mx = 0;
+      for (let i = 0; i < grid.length; i++) mx = Math.max(mx, grid[i]);
+      expect(mx).toBeGreaterThanOrEqual(TERRAIN_TUNING.snowLine);
+    }
+  });
+
+  test("medium landmasses reach the snow line too", () => {
+    for (const seed of [0, 7, 13, 29, 44]) {
+      const grid = buildElevationGrid(seed, 77);
+      let mx = 0;
+      for (let i = 0; i < grid.length; i++) mx = Math.max(mx, grid[i]);
+      expect(mx).toBeGreaterThanOrEqual(TERRAIN_TUNING.snowLine);
+    }
+  });
+
+  test("small islets get a high point that usually stops at rock, not snow", () => {
+    let snowCount = 0;
+    for (let seed = 0; seed < 46; seed++) {
+      const grid = buildElevationGrid(seed, 51);
+      let mx = 0;
+      for (let i = 0; i < grid.length; i++) mx = Math.max(mx, grid[i]);
+      expect(mx).toBeGreaterThan(0.5); // a real high point exists
+      if (mx >= TERRAIN_TUNING.snowLine) snowCount++;
+    }
+    // small islets shouldn't ALL be snow-capped
+    expect(snowCount).toBeLessThan(46);
+  });
+
+  test("peak anchors sit on the ridge axis, inside the shoreline", () => {
+    for (let seed = 0; seed < 20; seed++) {
+      for (const cls of ["small", "medium", "large"] as const) {
+        const peaks = terrainPeaks(seed, cls);
+        expect(peaks.length).toBeGreaterThan(0);
+        for (const p of peaks) {
+          const r = Math.hypot(p.x, p.y);
+          // well inside the minimum shoreline radius — never pokes the coast
+          expect(r).toBeLessThan(TERRAIN_TUNING.coastMinRadius - 0.05);
+          // strung along the ridge axis: |cross| small vs |along|
+          const phi = ridgeAxisAngle(seed);
+          const along = Math.abs(p.x * Math.cos(phi) + p.y * Math.sin(phi));
+          const cross = Math.abs(-p.x * Math.sin(phi) + p.y * Math.cos(phi));
+          expect(along * along + cross * cross).toBeCloseTo(r * r, 9);
+          expect(cross).toBeLessThan(0.25);
+        }
+      }
+    }
+  });
+
+  test("peak counts grow with size class", () => {
+    expect(terrainPeaks(5, "small")).toHaveLength(1);
+    expect(terrainPeaks(5, "medium")).toHaveLength(2);
+    expect(terrainPeaks(5, "large")).toHaveLength(3);
+  });
+
+  test("snow-line elevation renders near-white", () => {
+    for (const j of [-1, 0, 1]) {
+      const [r, g, b] = terrainColor(0.97, j);
+      expect(r).toBeGreaterThan(225);
+      expect(g).toBeGreaterThan(225);
+      expect(b).toBeGreaterThan(205);
+    }
+  });
+});
+
+describe("WAVE 3 — beach + biome palettes", () => {
+  test("low elevation reads as warm beach sand, not grass", () => {
+    const [r, g, b] = terrainColor(0.03, 0);
+    expect(r).toBeGreaterThan(b + 25); // warm, not blue-green
+    expect(r + g + b).toBeGreaterThan(500); // pale (old "shore is pale" contract)
+  });
+
+  test("biome families differ: arid / verdant / temperate", () => {
+    const arid = terrainColor(0.3, -1);
+    const verdant = terrainColor(0.3, 1);
+    const temperate = terrainColor(0.3, 0);
+    expect(arid).not.toEqual(verdant);
+    expect(arid).not.toEqual(temperate);
+    expect(verdant).not.toEqual(temperate);
+    // all still in the same neighborhood — a shift, not a recolor
+    for (const c of [arid, verdant]) {
+      const dist = Math.hypot(c[0] - temperate[0], c[1] - temperate[1], c[2] - temperate[2]);
+      expect(dist).toBeGreaterThan(0);
+      expect(dist).toBeLessThan(60);
+    }
+    // arid is warmer (more red vs blue) than verdant at the same elevation
+    expect(arid[0] - arid[2]).toBeGreaterThan(verdant[0] - verdant[2]);
+  });
+
+  test("mountains and snow ignore the biome shift", () => {
+    const rockA = terrainColor(0.75, -1);
+    const rockB = terrainColor(0.75, 1);
+    const dist = Math.hypot(rockA[0] - rockB[0], rockA[1] - rockB[1], rockA[2] - rockB[2]);
+    expect(dist).toBeLessThan(15);
+  });
+
+  test("great-plains band sits between lowland green and highland amber", () => {
+    const warmth = (e: number): number => {
+      const [r, , b] = terrainColor(e, 0);
+      return r - b;
+    };
+    // the hue marches warm: lowland green → golden plains → amber highland
+    expect(warmth(0.4)).toBeGreaterThan(warmth(0.24));
+    expect(warmth(0.56)).toBeGreaterThan(warmth(0.4));
+    // and pale rock still lifts brightness above the highlands
+    const lum = (e: number): number => {
+      const [r, g, b] = terrainColor(e, 0);
+      return 0.299 * r + 0.587 * g + 0.114 * b;
+    };
+    expect(lum(0.86)).toBeGreaterThan(lum(0.56));
+  });
+
+  test("beach alpha feathers from elevation — shoreline follows the real coast", () => {
+    const t = TERRAIN_TUNING;
+    const grid = buildElevationGrid(9, 64);
+    const px = shadeTerrainGrid(grid, 64, 0);
+    let partial = 0;
+    let full = 0;
+    for (let i = 0; i < grid.length; i++) {
+      const e = grid[i];
+      const s = e <= 0 ? 0 : Math.min(1, e / t.shoreFeather);
+      const expected = Math.round(255 * (s * s * (3 - 2 * s)));
+      const a = px[i * 4 + 3];
+      expect(Math.abs(a - expected)).toBeLessThanOrEqual(1);
+      if (a > 0 && a < 255) partial++;
+      if (a === 255) full++;
+    }
+    // a real feathered fringe exists between water and full land
+    expect(partial).toBeGreaterThan(0);
+    expect(full).toBeGreaterThan(0);
+  });
+});
+
+describe("WAVE 3 — determinism + size classes", () => {
+  test("elevation is deterministic per seed, coords, and size class", () => {
+    for (const cls of ["small", "medium", "large"] as const) {
+      expect(terrainElevation(3, 0.2, -0.4, cls)).toBe(terrainElevation(3, 0.2, -0.4, cls));
+    }
+  });
+
+  test("different size classes give different peak fields", () => {
+    // same seed/coords, small vs large differ at a peak anchor
+    const peaks = terrainPeaks(3, "large");
+    const p = peaks[0];
+    expect(terrainElevation(3, p.x, p.y, "large")).toBeGreaterThan(
+      terrainElevation(3, p.x, p.y, "small") + 0.05,
+    );
+  });
+
+  test("terrainSizeClass mirrors the sprite bake sizes", () => {
+    expect(terrainSizeClass(51)).toBe("small");
+    expect(terrainSizeClass(77)).toBe("medium");
+    expect(terrainSizeClass(102)).toBe("large");
+  });
+
+  test("elevation stays in [0, 1] across seeds, coords, and classes", () => {
+    for (const cls of ["small", "medium", "large"] as const) {
+      for (let i = 0; i < 60; i++) {
+        const u = (hash2i(i, 1, 99) * 2 - 1) * 1.2;
+        const v = (hash2i(i, 2, 99) * 2 - 1) * 1.2;
+        const e = terrainElevation(7, u, v, cls);
+        expect(e >= 0 && e <= 1).toBe(true);
       }
     }
   });

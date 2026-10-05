@@ -276,10 +276,11 @@ export function satelliteWatchPosition(
   return { lat, lon };
 }
 
-/** The Chorus-held heart: the grade-V site's position (the hardest Chorus
- *  ground on the globe). */
+/** The Chorus-held heart: the HEART ZONE's position (the hardest Chorus
+ *  ground on the globe). Named by zone, never by sort order — the old
+ *  "first grade-V site" read happened to land there only by name sorting. */
 export function chorusHeartGlobePosition(): { lat: number; lon: number } {
-  const heart = chorusSiteIntel().find((s) => s.grade === 5) ?? chorusSiteIntel()[0];
+  const heart = chorusSiteIntel().find((s) => s.isHeart) ?? chorusSiteIntel()[0];
   return { lat: heart.lat, lon: heart.lon };
 }
 
@@ -458,8 +459,10 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
       layer: "chorus",
       lat: site.lat,
       lon: site.lon,
-      label: site.siteName,
-      sublabel: `Grade ${site.gradeLabel} · Reverb ~${site.recommendedReverb.toLocaleString()}`,
+      label: site.isHeart ? `❖ ${site.siteName}` : site.siteName,
+      sublabel: site.isHeart
+        ? `The Chorus Heart · Reverb ~${site.recommendedReverb.toLocaleString()}`
+        : `Grade ${site.gradeLabel} · Reverb ~${site.recommendedReverb.toLocaleString()}`,
       color: CHORUS_GRADE_COLOR[site.grade] ?? "#ef4444",
       icon: "chorus",
       priority: 80,
@@ -648,10 +651,20 @@ export function countByLayer(markers: GlobeMarker[]): Record<GlobeLayerId, numbe
 // globe needs real landmass with topography and depth: elevation shading,
 // ridgelines/highlands, coastal falloff. Make it pretty.
 //
+// WAVE 3 (Oct 4 2026): irregular coastlines (angular shoreline noise —
+// bays, peninsulas, headlands; no discs), directional mountain RANGES along
+// a per-landmass dominant axis, sandy beach bands, guaranteed snow caps on
+// medium/large landmasses, and biome palettes (verdant / arid great-plains /
+// temperate) so regions feel like different places.
+//
 // Pure + seeded (deterministic per landmass). One elevation FIELD per
-// landmass: radial falloff from the landmass center (high interior, low
-// coast) plus ridged fractal noise for mountain chains. Shaded with a
-// directional hillshade so ridgelines read as terrain, not stickers.
+// landmass: plateau falloff from the ANGULAR shoreline (high interior, low
+// coast) × directional ridged fractal noise (mountain ranges along the
+// dominant axis) + rolling detail + gaussian snow-cap anchors. Shaded with
+// a directional hillshade so ridgelines read as terrain, not stickers.
+//
+// Palette + relief constants live in TERRAIN_TUNING / TERRAIN_STOPS —
+// Hans whacks the look there, never in the math below.
 
 /** Integer lattice hash → [0, 1). Deterministic for a given seed. */
 export function hash2i(x: number, y: number, seed: number): number {
@@ -699,65 +712,278 @@ export function fbm2D(seed: number, x: number, y: number, octaves = 4): number {
 }
 
 /**
- * Elevation at normalized sprite coords (u, v in [-1, 1]).
- * 0 = ocean/shore, 1 = highest peak. Domain-warped radial falloff (natural,
- * non-circular coastlines, high interior, low coast) × ridged fractal noise
- * (crisp mountain chains) + rolling detail (lowlands aren't glassy).
- * 0 outside the unit disc — the unwarped disc edge is ALWAYS ocean, so every
- * landmass reads as an island.
+ * Hans's terrain tuning knobs (WAVE 3, Oct 4 2026). Everything that sets the
+ * LOOK of the landmasses lives here — whack these, not the math below.
  */
-export function terrainElevation(seed: number, u: number, v: number): number {
+export const TERRAIN_TUNING = {
+  /** Mean shoreline radius, in sprite-disc units (the disc spans [-1, 1]). */
+  coastBaseRadius: 0.78,
+  /** Per-landmass coastline irregularity: the shoreline noise amplitude is
+   *  drawn per seed from [min, max]. 0.30–0.50 → bays, peninsulas,
+   *  headlands; every landmass reads as real terrain, never a disc. */
+  coastAmpMin: 0.3,
+  coastAmpMax: 0.5,
+  /** Shoreline radius clamp — keeps every coast inside the sprite disc with
+   *  room for the beach band and the shallow shelf outside it. */
+  coastMinRadius: 0.55,
+  coastMaxRadius: 0.92,
+  /** Elevation below this reads as beach sand (palette), not grass. */
+  sandElevation: 0.07,
+  /** Coastal alpha feathers out across [0, shoreFeather] → the waterline is
+   *  crisp but anti-aliased; the sand band stays visible over the shelf. */
+  shoreFeather: 0.05,
+  /** Dominant ridge axis: ridged noise runs ridgeFreqAcross across the axis
+   *  and ridgeFreqAlong along it → long mountain RANGES, not radial blobs. */
+  ridgeFreqAlong: 2.6,
+  ridgeFreqAcross: 7.5,
+  /** Domain-warp on the ridge field so the ranges aren't ruler-straight. */
+  ridgeWarp: 0.35,
+  /** Low raking key light from the upper-left + vertical exaggeration, so
+   *  relief casts readable shade at a glance. */
+  lightX: -0.62,
+  lightY: -0.66,
+  lightZ: 0.42,
+  exaggerate: 3.4,
+  /** Elevation at/above this renders snow (palette stop at 1.0). */
+  snowLine: 0.93,
+} as const;
+
+/** Landmass size class — drives the snow-cap anchors (bigger landmass = real peaks). */
+export type TerrainSizeClass = "small" | "medium" | "large";
+
+/**
+ * Bake-grid size → size class. Mirrors terrainSpriteSize: 64px sprites bake
+ * 51px grids (small), 96px → 77px (medium), 128px → 102px (large).
+ */
+export function terrainSizeClass(gridSize: number): TerrainSizeClass {
+  if (gridSize <= 60) return "small";
+  if (gridSize <= 90) return "medium";
+  return "large";
+}
+
+const COAST_SEED_A = 501;
+const COAST_SEED_B = 917;
+
+// Shoreline lookup: the per-pixel elevation loop needs R(θ) at every pixel,
+// so each landmass precomputes its coastline once into a 512-sample table
+// and the hot path interpolates. Same coastline, ~5× cheaper than raw fbm.
+const COAST_TABLE_SIZE = 512;
+const coastTableCache = new Map<number, Float32Array>();
+function coastTable(seed: number): Float32Array {
+  let t = coastTableCache.get(seed);
+  if (!t) {
+    t = new Float32Array(COAST_TABLE_SIZE);
+    for (let k = 0; k < COAST_TABLE_SIZE; k++) {
+      t[k] = shorelineRadius(seed, (k / COAST_TABLE_SIZE) * Math.PI * 2);
+    }
+    coastTableCache.set(seed, t);
+  }
+  return t;
+}
+
+/** Fast R(θ): linear interpolation over the landmass's coastline table. */
+function shorelineRadiusFast(seed: number, theta: number): number {
+  const t = coastTable(seed);
+  const x = ((theta / (Math.PI * 2)) % 1 + 1) % 1 * COAST_TABLE_SIZE;
+  const k0 = Math.floor(x) % COAST_TABLE_SIZE;
+  const k1 = (k0 + 1) % COAST_TABLE_SIZE;
+  const f = x - Math.floor(x);
+  return t[k0] * (1 - f) + t[k1] * f;
+}
+
+/**
+ * Shoreline radius at angle theta (radians) for a landmass seed. The coast
+ * is ANGULAR noise — the radius varies substantially around every
+ * landmass, so bays, peninsulas, and headlands emerge naturally and no
+ * landmass is a disc. Sampled on the circle (cos θ, sin θ), so it's
+ * seamless at θ = ±π. In sprite-disc units, clamped to
+ * [coastMinRadius, coastMaxRadius].
+ */
+export function shorelineRadius(seed: number, theta: number): number {
+  const t = TERRAIN_TUNING;
+  const cx = Math.cos(theta);
+  const sx = Math.sin(theta);
+  // Low-frequency swell + higher-frequency wiggle, contrast-boosted so the
+  // coast actually swings (raw fbm hugs the middle of its range).
+  const n1 = fbm2D(seed + COAST_SEED_A, cx * 2.8 + 3.7, sx * 2.8 + 11.2, 2) - 0.5;
+  const n2 = fbm2D(seed + COAST_SEED_B, cx * 5.6 + 8.9, sx * 5.6 + 2.6, 2) - 0.5;
+  let coast = n1 * 2.2 + n2 * 1.0;
+  coast = Math.max(-1, Math.min(1, coast));
+  const amp = t.coastAmpMin + (t.coastAmpMax - t.coastAmpMin) * hash2i(41, 7, seed);
+  const r = t.coastBaseRadius * (1 + amp * coast);
+  return Math.min(t.coastMaxRadius, Math.max(t.coastMinRadius, r));
+}
+
+/** Dominant ridge-axis angle (radians) for a landmass seed. */
+export function ridgeAxisAngle(seed: number): number {
+  return Math.PI * hash2i(3, 11, seed);
+}
+
+/** One snow-cap anchor: a mountain peak (summit + rocky shoulder) laid over
+ *  the elevation field with max(). Elliptical along the ridge axis. */
+export interface TerrainPeak {
+  x: number;
+  y: number;
+  amp: number;
+  sigma: number;
+}
+
+/**
+ * Snow-cap anchors strung along the ridge axis. Medium/large landmasses get
+ * peaks tall enough to reach the snow line (WAVE 3: maxima must touch
+ * snow); small islets get one high point that usually stops at rock.
+ * Deterministic per seed; every anchor sits well inside the minimum
+ * shoreline radius, so peaks never poke through the coast.
+ */
+export function terrainPeaks(seed: number, sizeClass: TerrainSizeClass): TerrainPeak[] {
+  const phi = ridgeAxisAngle(seed);
+  const ca = Math.cos(phi);
+  const sa = Math.sin(phi);
+  const along =
+    sizeClass === "large" ? [-0.42, 0.03, 0.4] : sizeClass === "medium" ? [-0.3, 0.28] : [0.0];
+  const amp = sizeClass === "small" ? 0.82 : 0.96;
+  const sigma = sizeClass === "large" ? 0.1 : sizeClass === "medium" ? 0.09 : 0.08;
+  return along.map((a, i) => {
+    // Interior, strung along the ridge axis: ranges get peaks, not the beach.
+    const s = a * 0.7 + (hash2i(200 + i, 3, seed) - 0.5) * 0.2;
+    const c = (hash2i(200 + i, 17, seed) - 0.5) * 0.35;
+    return { x: s * ca - c * sa, y: s * sa + c * ca, amp, sigma };
+  });
+}
+
+// Peak anchors are per-(seed, class) constants — cache them so the
+// per-pixel elevation loop never allocates.
+const peaksCache = new Map<string, TerrainPeak[]>();
+function cachedPeaks(seed: number, sizeClass: TerrainSizeClass): TerrainPeak[] {
+  const k = seed + ":" + sizeClass;
+  let p = peaksCache.get(k);
+  if (!p) {
+    p = terrainPeaks(seed, sizeClass);
+    peaksCache.set(k, p);
+  }
+  return p;
+}
+
+/**
+ * Elevation at normalized sprite coords (u, v in [-1, 1]).
+ * 0 = ocean, 1 = highest peak. Interior = plateau falloff from the ANGULAR
+ * shoreline (rr = d / R(θ): 0 at the center, 1 at the waterline) ×
+ * directional ridged relief (mountain ranges along the landmass's dominant
+ * axis) + rolling detail + gaussian snow-cap anchors. 0 outside the
+ * shoreline — the coast is wherever rr hits 1, so bays and peninsulas are
+ * real geography, not a warp on a disc.
+ *
+ * sizeClass drives the peak anchors: "large" gives the full mountain
+ * treatment (the default keeps the old terrainElevation(seed, u, v) call
+ * shape working); buildElevationGrid derives it from the bake size.
+ */
+export function terrainElevation(
+  seed: number,
+  u: number,
+  v: number,
+  sizeClass: TerrainSizeClass = "large",
+): number {
+  const t = TERRAIN_TUNING;
   const d = Math.sqrt(u * u + v * v);
   if (d >= 1) return 0;
-  // Domain warp → natural, non-circular coastlines.
-  const wob = fbm2D(seed + 501, u * 1.7 + 3.1, v * 1.7 + 9.4, 3) - 0.5;
-  const dw = d * (1 + 0.55 * wob);
-  if (dw >= 1) return 0;
-  const falloff = Math.pow(1 - dw, 0.8);
-  // Ridged multifractal — crisp mountain chains.
-  const n = fbm2D(seed, u * 4.2 + 11.7, v * 4.2 + 5.3, 5);
-  const r = 1 - Math.abs(2 * n - 1);
-  const ridge = r * r;
+  const R = shorelineRadiusFast(seed, Math.atan2(v, u));
+  const rr = d / R;
+  if (rr >= 1) return 0;
+  // Plateau falloff: high interior with a gentle top, steepening toward the
+  // shore — reads as terrain, not a cone and not a pancake.
+  const falloff = Math.pow(1 - smootherstep(rr), 0.85);
+  // Directional ridged relief along the dominant axis.
+  const phi = ridgeAxisAngle(seed);
+  const ca = Math.cos(phi);
+  const sa = Math.sin(phi);
+  const ax = u * ca + v * sa; // along the range
+  const bx = -u * sa + v * ca; // across the range
+  // Domain warp so the ranges aren't ruler-straight.
+  const wx = fbm2D(seed + 313, u * 3.1 + 1.3, v * 3.1 + 8.8, 2) - 0.5;
+  const wy = fbm2D(seed + 313, u * 3.1 + 4.9, v * 3.1 + 2.2, 2) - 0.5;
+  const nR = fbm2D(
+    seed + 701,
+    (ax + wx * t.ridgeWarp) * t.ridgeFreqAlong + 11.7,
+    (bx + wy * t.ridgeWarp) * t.ridgeFreqAcross + 5.3,
+    4,
+  );
+  const ridgeAniso = Math.pow(1 - Math.abs(2 * nR - 1), 1.6);
+  // Isotropic texture so the ranges don't read as corduroy.
+  const nI = fbm2D(seed + 702, u * 4.6 + 3.3, v * 4.6 + 7.1, 3);
+  const ridgeIso = Math.pow(1 - Math.abs(2 * nI - 1), 2);
+  const ridge = Math.max(ridgeAniso, 0.5 * ridgeIso);
   // Rolling detail so lowlands aren't glassy.
   const detail = fbm2D(seed + 313, u * 7.5 + 1.3, v * 7.5 + 8.8, 3);
   // Per-landmass character: some jagged, some rolling.
   const roughness = 0.55 + 0.45 * hash2i(7, 13, seed);
-  const relief = Math.min(1, ridge * roughness + detail * 0.4);
-  // Hard coastal guarantee on the UNWARPED disc: the shoreline always
-  // falls to ocean as d → 1, whatever the warp did.
-  const cm = Math.min(1, Math.max(0, (d - 0.9) / 0.1));
-  const coastMask = 1 - cm * cm * (3 - 2 * cm);
-  const e = falloff * (0.3 + 0.7 * relief) * coastMask;
+  // Spine shading: relief eases off far across the axis — ranges stand over
+  // foothills and plains instead of filling the whole island.
+  const spine = 1 - 0.45 * smootherstep(Math.min(1, Math.abs(bx) / R));
+  const relief = Math.min(1, ridge * roughness * 1.2 + detail * 0.28);
+  // Shaped relief: crests pop into the high bands, valleys stay lowland.
+  let e = falloff * (0.3 + 0.7 * Math.pow(relief, 1.25));
+  // Snow-cap anchors — guaranteed maxima on medium/large landmasses.
+  // Mountain profile (summit + wide rocky shoulder) laid over the field
+  // with max(): the cap is exactly amp tall, so small islets stop at rock
+  // while medium/large are guaranteed to touch the snow line. Elliptical
+  // along the ridge axis with a noisy edge — summits, not golf balls.
+  // peakFade pulls the caps back as rr → 1 so a peak can never leak past
+  // the shoreline.
+  const peakFade = 1 - smootherstep(Math.min(1, Math.max(0, (rr - 0.8) / 0.2)));
+  if (peakFade > 0) {
+    for (const p of cachedPeaks(seed, sizeClass)) {
+      const dx = u - p.x;
+      const dy = v - p.y;
+      const da = dx * ca + dy * sa; // along the range
+      const dc = -dx * sa + dy * ca; // across the range
+      const r0 = Math.sqrt((da / 1.5) * (da / 1.5) + (dc / 0.75) * (dc / 0.75));
+      if (r0 > p.sigma * 3.4) continue; // outside the cap entirely — skip the trig
+      // Noisy cap edge: sample the noise on the circle so it's seamless.
+      const pa = Math.atan2(dy, dx);
+      const edgeN =
+        valueNoise2D(seed + 911, Math.cos(pa) * 1.5 + p.x * 7.7, Math.sin(pa) * 1.5 + p.y * 3.1) -
+        0.5;
+      const pd = r0 * (1 + 0.45 * edgeN);
+      const shoulder = Math.min(1, Math.max(0, (pd - p.sigma) / (1.4 * p.sigma)));
+      const cap = peakFade * p.amp * (1 - smootherstep(shoulder));
+      if (cap > e) e = cap;
+    }
+  }
   return Math.min(1, Math.max(0, e));
 }
 
 /**
  * Full elevation field for one landmass sprite. Row-major, size×size,
  * coords span [-1, 1]. Computed ONCE per landmass at init — the render
- * loop never touches this.
+ * loop never touches this. The size class (→ snow-cap anchors) is derived
+ * from the bake size, mirroring terrainSpriteSize.
  */
 export function buildElevationGrid(seed: number, size: number): Float32Array {
+  const sizeClass = terrainSizeClass(size);
   const grid = new Float32Array(size * size);
   for (let y = 0; y < size; y++) {
     const v = (y / (size - 1)) * 2 - 1;
     for (let x = 0; x < size; x++) {
       const u = (x / (size - 1)) * 2 - 1;
-      grid[y * size + x] = terrainElevation(seed, u, v);
+      grid[y * size + x] = terrainElevation(seed, u, v, sizeClass);
     }
   }
   return grid;
 }
 
-// Elevation → color ramp: surf/shore → lowland teal-green → highland
-// olive/amber → pale rock → snow peak.
+// Elevation → color ramp: beach sand → coastal lowland → lowland green →
+// great-plains grassland (golden) → highland amber → rock foothills →
+// pale rock → snow peak. Biome bands, not one stamped gradient.
 const TERRAIN_STOPS: Array<[number, [number, number, number]]> = [
-  [0.0, [172, 224, 190]], // surf line — pale rim at the waterline
-  [0.08, [38, 122, 88]], // coastal lowland
-  [0.3, [44, 141, 92]], // lowland green
-  [0.52, [104, 122, 62]], // highland olive
-  [0.7, [168, 127, 66]], // amber highland
-  [0.86, [216, 207, 187]], // pale rock
-  [1.0, [244, 239, 226]], // snow peak
+  [0.0, [206, 196, 168]], // wet sand at the waterline — pale and warm
+  [0.055, [224, 206, 162]], // dry beach sand
+  [0.11, [52, 128, 90]], // coastal lowland
+  [0.24, [58, 148, 96]], // lowland green
+  [0.4, [122, 138, 74]], // great-plains grassland — golden green
+  [0.56, [146, 122, 72]], // highland amber
+  [0.7, [150, 118, 88]], // rock foothills — warm grey-brown
+  [0.86, [214, 205, 185]], // pale rock
+  [1.0, [246, 242, 230]], // snow peak
 ];
 
 function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
@@ -792,8 +1018,14 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 }
 
 /**
- * Elevation → [r, g, b]. hueJitter in [-1, 1] shifts each landmass's palette
- * slightly so the 46 landmasses don't look stamped from one swatch.
+ * Elevation → [r, g, b]. hueJitter in [-1, 1] sets the landmass's BIOME
+ * family as well as a small palette shift, so the 46 landmasses read as
+ * different places, not one stamped texture:
+ *   hueJitter ≤ -1/3 → arid great-plains (golden, warm)
+ *   hueJitter ≥ +1/3 → verdant (lush, saturated greens)
+ *   otherwise        → temperate (the middle ramp, near-neutral)
+ * The shift only touches low/mid elevations (e < 0.56) — mountains stay
+ * rocky and snow stays snow on every landmass.
  */
 export function terrainColor(e: number, hueJitter: number): [number, number, number] {
   const c = Math.min(1, Math.max(0, e));
@@ -808,43 +1040,54 @@ export function terrainColor(e: number, hueJitter: number): [number, number, num
   }
   const span = hi[0] - lo[0];
   const t = span > 0 ? (c - lo[0]) / span : 0;
-  const r = lo[1][0] + (hi[1][0] - lo[1][0]) * t;
-  const g = lo[1][1] + (hi[1][1] - lo[1][1]) * t;
-  const b = lo[1][2] + (hi[1][2] - lo[1][2]) * t;
-  if (hueJitter === 0) return [r, g, b];
-  const [h, s, l] = rgbToHsl(r, g, b);
-  return hslToRgb(h + hueJitter * 0.03, s, l);
+  let r = lo[1][0] + (hi[1][0] - lo[1][0]) * t;
+  let g = lo[1][1] + (hi[1][1] - lo[1][1]) * t;
+  let b = lo[1][2] + (hi[1][2] - lo[1][2]) * t;
+  if (c < 0.56) {
+    const [h, s, l] = rgbToHsl(r, g, b);
+    if (hueJitter <= -1 / 3) {
+      // arid great-plains: warmer, more golden
+      [r, g, b] = hslToRgb(h - 0.022, Math.min(1, s * 1.12), l);
+    } else if (hueJitter >= 1 / 3) {
+      // verdant: lusher, deeper greens
+      [r, g, b] = hslToRgb(h + 0.016, Math.min(1, s * 1.16), l);
+    } else if (hueJitter !== 0) {
+      [r, g, b] = hslToRgb(h + hueJitter * 0.01, s, l);
+    }
+  } else if (hueJitter !== 0) {
+    const [h, s, l] = rgbToHsl(r, g, b);
+    [r, g, b] = hslToRgb(h + hueJitter * 0.008, s, l);
+  }
+  return [r, g, b];
 }
 
 /**
  * Shade an elevation grid into RGBA pixels: directional hillshade (ridgelines
  * catch light on one flank, shadow on the other) + crevice darkening +
- * elevation palette + soft coastal alpha. Output is size*size*4, row-major.
+ * elevation palette + shoreline-following coastal alpha. Output is
+ * size*size*4, row-major.
  */
 export function shadeTerrainGrid(
   grid: Float32Array,
   size: number,
   hueJitter: number,
 ): Uint8ClampedArray<ArrayBuffer> {
+  const t = TERRAIN_TUNING;
   const out = new Uint8ClampedArray(new ArrayBuffer(size * size * 4));
-  const exaggerate = 3.4; // vertical exaggeration so relief reads at a glance
-  // Low raking key light from the upper-left — relief casts readable shade.
-  const lx = -0.62;
-  const ly = -0.66;
-  const lz = 0.42;
-  const llen = Math.sqrt(lx * lx + ly * ly + lz * lz);
+  const llen = Math.sqrt(t.lightX * t.lightX + t.lightY * t.lightY + t.lightZ * t.lightZ);
   for (let y = 0; y < size; y++) {
-    const v = (y / (size - 1)) * 2 - 1;
     for (let x = 0; x < size; x++) {
-      const u = (x / (size - 1)) * 2 - 1;
       const i = y * size + x;
       const o = i * 4;
-      const d = Math.sqrt(u * u + v * v);
-      // Soft coastal alpha: full land → transparent across d in [0.93, 1].
+      const e = grid[i];
+      // Coastal alpha from ELEVATION, not geometry: the shoreline is
+      // wherever e falls to 0, so alpha follows the actual (irregular)
+      // coast. The waterline feathers across [0, shoreFeather] — sandy
+      // shallows over the shelf water, not a hard cut and not a glow halo.
       let a = 0;
-      if (d < 1) {
-        const t = Math.min(1, Math.max(0, (d - 0.93) / 0.07));
-        a = 1 - t * t * (3 - 2 * t);
+      if (e > 0) {
+        const s = Math.min(1, e / t.shoreFeather);
+        a = s * s * (3 - 2 * s);
       }
       if (a <= 0) {
         out[o + 3] = 0;
@@ -857,11 +1100,14 @@ export function shadeTerrainGrid(
       const yp = y < size - 1 ? i + size : i;
       const gx = (grid[xp] - grid[xm]) * 0.5;
       const gy = (grid[yp] - grid[ym]) * 0.5;
-      const nx = -gx * exaggerate;
-      const ny = -gy * exaggerate;
+      const nx = -gx * t.exaggerate;
+      const ny = -gy * t.exaggerate;
       const nz = 1;
       const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
-      const diff = Math.max(0, (nx * lx + ny * ly + nz * lz) / (nlen * llen));
+      const diff = Math.max(
+        0,
+        (nx * t.lightX + ny * t.lightY + nz * t.lightZ) / (nlen * llen),
+      );
       let shade = 0.55 + 0.45 * diff;
       // Crevice darkening: concave cells (negative laplacian) go darker.
       const lap = (grid[xm] + grid[xp] + grid[ym] + grid[yp]) * 0.25 - grid[i];
