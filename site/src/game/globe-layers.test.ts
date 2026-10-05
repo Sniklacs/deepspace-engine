@@ -620,6 +620,14 @@ describe("WS3 satellites + beachhead", () => {
     expect(counts.beachhead).toBe(1);
   });
 
+  test("satellites layer is default-on (GLOBE WAVE 3 WS2)", () => {
+    const meta = GLOBE_LAYERS.find((l) => l.id === "satellites");
+    expect(meta).toBeDefined();
+    expect(meta!.defaultOn).toBe(true);
+    expect(meta!.label).toBe("Satellites");
+    expect(meta!.icon).toBe("satellite");
+  });
+
   test("satellites layer no longer contains the beachhead marker", () => {
     const ms = buildGlobeMarkers(baseState(), NOW);
     expect(ms.some((m) => m.layer === "satellites" && m.id === "beachhead")).toBe(false);
@@ -813,5 +821,21 @@ describe("WS-A arena stadium (Hans, Oct 4 2026)", () => {
     }
     expect(init.arena).toBe(true);
     expect(init.home).toBe(false);
+  });
+
+  test("satellites merge: explicit off survives, absent key defaults on (WAVE 3 WS2)", () => {
+    // mirrors WorldGlobe.tsx's layersOn init.
+    const merge = (saved: Partial<Record<string, boolean>>) => {
+      const init: Record<string, boolean> = Object.fromEntries(GLOBE_LAYERS.map((l) => [l.id, l.defaultOn]));
+      for (const l of GLOBE_LAYERS) {
+        if (typeof saved[l.id] === "boolean") init[l.id] = saved[l.id]!;
+      }
+      return init;
+    };
+    // no stored pref at all → new default applies
+    expect(merge({}).satellites).toBe(true);
+    // user explicitly toggled it off → choice preserved, not bulldozed
+    expect(merge({ satellites: false }).satellites).toBe(false);
+    expect(merge({ satellites: true }).satellites).toBe(true);
   });
 });

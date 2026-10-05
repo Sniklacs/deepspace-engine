@@ -87,7 +87,11 @@ export const GLOBE_LAYERS: GlobeLayerMeta[] = [
   { id: "sites", label: "World sites", color: "#7dd3fc", defaultOn: true, blurb: "T1 / T2 / T3 sites", icon: "ember" },
   { id: "husks", label: "Husks", color: "#9ca3af", defaultOn: true, blurb: "Dead colonies, claimable", icon: "husk" },
   { id: "memorials", label: "Memorials", color: "#fde68a", defaultOn: false, blurb: "Battle plaques", icon: "monument" },
-  { id: "satellites", label: "Satellites", color: "#38bdf8", defaultOn: false, blurb: "Orbital coverage ring", icon: "satellite" },
+  // GLOBE WAVE 3 WS2 (Hans, Oct 4 2026): satellites default ON — they're the
+  // intel layer that explains what markers are. Users who toggled it off
+  // keep their stored choice (merge in WorldGlobe.tsx only overrides the
+  // default when a stored boolean exists for the layer).
+  { id: "satellites", label: "Satellites", color: "#38bdf8", defaultOn: true, blurb: "Orbital coverage ring", icon: "satellite" },
 ];
 
 export const GLOBE_LAYER_META: Record<GlobeLayerId, GlobeLayerMeta> = Object.fromEntries(
@@ -559,9 +563,9 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
   });
 
   // WS3: the beachhead is open geography — everyone knows where it is, so
-  // it is marked openly. WS8: rides its own default-on layer (never the
-  // satellites toggle — that one defaults off and would hide it). High
-  // declutter priority so it never hides under other markers.
+  // it is marked openly. WS8: rides its own default-on layer (never hidden
+  // behind another layer's toggle). High declutter priority so it never
+  // hides under other markers.
   const bh = beachheadGlobePosition();
   markers.push({
     id: "beachhead",
