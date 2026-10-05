@@ -1263,7 +1263,7 @@ describe("WS3 visual-QA: globe icon glyph paths — every case draws a distinct 
     "arena",
   ];
 
-  function traceGlyph(kind: GlobeIconId): string[] {
+  function traceGlyph(kind: GlobeIconId, size = 24): string[] {
     const calls: string[] = [];
     const fmt = (v: unknown) =>
       typeof v === "number" ? v.toFixed(3) : String(v);
@@ -1281,7 +1281,7 @@ describe("WS3 visual-QA: globe icon glyph paths — every case draws a distinct 
     drawGlobeIconGlyph(
       ctx as unknown as CanvasRenderingContext2D,
       kind,
-      24,
+      size,
     );
     return calls;
   }
@@ -1307,18 +1307,46 @@ describe("WS3 visual-QA: globe icon glyph paths — every case draws a distinct 
     expect(new Set(sigs).size).toBe(ALL_ICONS.length);
   });
 
-  test("satellite renders a true dish: tilted cup (ellipse) + feed arm + feed dot", () => {
+  test("satellite renders a bold dish: crescent bowl (annular sector) + stub mast", () => {
     const calls = traceGlyph("satellite");
-    // cup bowl
-    expect(calls.some((c) => c.startsWith("ellipse("))).toBe(true);
-    // tilted ~45°
-    expect(calls.some((c) => c.startsWith("rotate("))).toBe(true);
-    // feed dot
-    expect(calls.filter((c) => c.startsWith("arc(")).length).toBeGreaterThan(0);
-    // mounting mast (a stroked line distinct from the thin feed arm)
+    // bowl — outer + inner arcs of the annular sector (the dish cup)
+    const arcs = calls.filter((c) => c.startsWith("arc("));
+    expect(arcs.length).toBeGreaterThan(1);
+    // stub mast — a stroked line with a thick width (no sub-pixel details)
     expect(calls.filter((c) => c.startsWith("stroke(")).length).toBeGreaterThan(
-      1,
+      0,
     );
+    const widths = calls
+      .filter((c) => c.startsWith("set:lineWidth="))
+      .map((c) => parseFloat(c.slice("set:lineWidth=".length)));
+    expect(Math.max(...widths) >= 3).toBe(true);
+    // base foot
+    expect(calls.some((c) => c.startsWith("fillRect("))).toBe(true);
+    // no tilt transform and no tiny feed dot — the previous pass's
+    // fine details vanished below 24px and read as a dot
+    expect(calls.some((c) => c.startsWith("rotate("))).toBe(false);
+  });
+
+  test("satellite dish reads at small size (s=16): bowl radius and mast stay chunky", () => {
+    const calls = traceGlyph("satellite", 16);
+    // bowl outer arc radius ≥ 6px at s=16 (the crescent must survive)
+    const radii = calls
+      .filter((c) => c.startsWith("arc("))
+      .map((c) => parseFloat(c.slice("arc(".length).split(",")[2]));
+    expect(Math.max(...radii) >= 6).toBe(true);
+    // mast lineWidth ≥ 3px at s=16
+    const widths = calls
+      .filter((c) => c.startsWith("set:lineWidth="))
+      .map((c) => parseFloat(c.slice("set:lineWidth=".length)));
+    expect(Math.max(...widths) >= 3).toBe(true);
+    // still paints a non-trivial path (bowl fill + mast stroke + foot)
+    const paints = calls.filter(
+      (c) =>
+        c.startsWith("fill(") ||
+        c.startsWith("stroke(") ||
+        c.startsWith("fillRect("),
+    );
+    expect(paints.length).toBeGreaterThan(2);
   });
 
   test("chorus sigil is bold: ring + core arcs with thick line widths and a filled core", () => {

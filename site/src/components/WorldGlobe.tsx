@@ -314,33 +314,29 @@ export function drawGlobeIconGlyph(g: CanvasRenderingContext2D, kind: GlobeIconI
       g.fillRect(-h * 0.5, h * 0.45, h * 1.0, h * 0.3);
       break;
     case "satellite": {
-      // True parabolic dish silhouette, tilted ~45° (opening upper-left):
-      // filled cup bowl + feed arm to a feed dot + mounting mast + base foot.
-      // Must read as a dish at ~20px on the globe and in the legend.
-      g.save();
-      g.rotate(-Math.PI / 4);
-      // cup — filled half-ellipse bowl
+      // Bold dish silhouette built for 16–24px: a thick crescent bowl
+      // (annular sector — the dish cup, opening skyward) + a stub mast +
+      // a base foot. NO sub-pixel details: the previous pass's thin feed
+      // arm (~2px) and feed dot (~1.5px) vanished at blit size and the
+      // bowl read as a plain dot. The crescent profile reads as a dish
+      // at 16px. Same glyph serves the globe, the orbit riders and the
+      // legend row (shape, not color).
+      const satCy = -h * 0.12;
+      const rOut = h * 0.82;
+      const rIn = h * 0.4;
+      // bowl — filled annular sector (∪ crescent, opening up)
       g.beginPath();
-      g.ellipse(0, -h * 0.2, h * 0.6, h * 0.42, 0, 0, Math.PI);
+      g.arc(0, satCy, rOut, Math.PI * 0.06, Math.PI * 0.94, false);
+      g.arc(0, satCy, rIn, Math.PI * 0.94, Math.PI * 0.06, true);
       g.closePath();
       g.fill();
-      // feed arm + feed dot (focal point above the cup)
-      g.lineWidth = Math.max(2, s * 0.08);
+      // stub mast + base foot
+      g.lineWidth = Math.max(3, s * 0.15);
       g.beginPath();
-      g.moveTo(0, -h * 0.05);
-      g.lineTo(0, -h * 0.58);
+      g.moveTo(0, satCy + rIn * 0.9);
+      g.lineTo(0, h * 0.74);
       g.stroke();
-      g.beginPath();
-      g.arc(0, -h * 0.62, h * 0.13, 0, Math.PI * 2);
-      g.fill();
-      // mounting mast + base foot
-      g.lineWidth = Math.max(3, s * 0.12);
-      g.beginPath();
-      g.moveTo(0, h * 0.18);
-      g.lineTo(0, h * 0.78);
-      g.stroke();
-      g.fillRect(-h * 0.28, h * 0.72, h * 0.56, h * 0.13);
-      g.restore();
+      g.fillRect(-h * 0.27, h * 0.68, h * 0.54, h * 0.15);
       break;
     }
     case "beachhead":
@@ -371,6 +367,15 @@ export function drawGlobeIconGlyph(g: CanvasRenderingContext2D, kind: GlobeIconI
   }
 }
 
+/** Bake-size overrides: the satellite dish glyph needs a bigger bake so it
+ *  reads at 16–24px blits — the standard s=24 bake renders any glyph at
+ *  half the blit size, which reduced the dish to a dot. Legend rows use
+ *  the same bake (globeIconURL), so they stay in sync automatically. */
+const BAKE_SIZE: Partial<Record<GlobeIconId, { under: number; over: number }>> =
+  {
+    satellite: { under: 40, over: 34 },
+  };
+
 /** Bake the (kind, color) sprite: dark outline for contrast + color fill. */
 function bakeIconSprite(kind: GlobeIconId, color: string): HTMLCanvasElement {
   const S = 48;
@@ -378,13 +383,14 @@ function bakeIconSprite(kind: GlobeIconId, color: string): HTMLCanvasElement {
   c.width = c.height = S;
   const g = c.getContext("2d")!;
   g.translate(S / 2, S / 2);
+  const { under, over } = BAKE_SIZE[kind] ?? { under: 30, over: 24 };
   // dark underlay → glyph pops on bright terrain and dark ocean alike
   g.fillStyle = "rgba(2,6,14,0.92)";
   g.strokeStyle = "rgba(2,6,14,0.92)";
-  drawGlobeIconGlyph(g, kind, 30);
+  drawGlobeIconGlyph(g, kind, under);
   g.fillStyle = color;
   g.strokeStyle = color;
-  drawGlobeIconGlyph(g, kind, 24);
+  drawGlobeIconGlyph(g, kind, over);
   return c;
 }
 
@@ -1045,9 +1051,15 @@ export default function WorldGlobe({
         const base = isSel ? 15 : 10;
         // WS5: night-side dim (subtle — readability wins).
         ctx.globalAlpha = 1 - 0.3 * (nightByMarker.get(m) ?? 0);
-        const spr = glowSprite(m.color);
-        const sprSize = base * 3.2;
-        ctx.drawImage(spr, s.sx - sprSize / 2, s.sy - sprSize / 2, sprSize, sprSize);
+        const isSatellite = m.ref.kind === "satellite";
+        // Satellite dishes carry their own dark underlay in the baked
+        // sprite — the soft glow halo swamped the dish into a plain dot,
+        // so satellites skip it (zero-dots rule).
+        if (!isSatellite) {
+          const spr = glowSprite(m.color);
+          const sprSize = base * 3.2;
+          ctx.drawImage(spr, s.sx - sprSize / 2, s.sy - sprSize / 2, sprSize, sprSize);
+        }
         // WS2: the marker ICON — shape carries the meaning, not the color.
         // One pre-baked sprite blit; 20px+ hit targets preserved below.
         // WS-A: the arena renders as the full stadium sprite, not a dot-icon.
@@ -1055,7 +1067,9 @@ export default function WorldGlobe({
         const icon = isArena ? arenaSprite(m.color) : iconSprite(m.icon, m.color);
         const iconSize = isArena
           ? (isSel ? ARENA_MARKER_SIZE.selected : ARENA_MARKER_SIZE.normal)
-          : (isSel ? 26 : 20);
+          : isSatellite
+            ? (isSel ? 30 : 24)
+            : (isSel ? 26 : 20);
         ctx.drawImage(icon, s.sx - iconSize / 2, s.sy - iconSize / 2, iconSize, iconSize);
         ctx.globalAlpha = 1; // WS5: pulse ring + label stay full-bright (UI)
         // pulse ring for raids (and selected)
