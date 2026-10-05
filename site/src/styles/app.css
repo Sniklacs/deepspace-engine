@@ -253,6 +253,9 @@
   scrollbar-width: none;
   -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
+  /* Hans, Oct 4 2026 (phone): vertical swipes over the strip must scroll the
+     page — only horizontal swipes scroll the strip. */
+  touch-action: pan-x pan-y;
 }
 .botnav > ul.botnav-scroll::-webkit-scrollbar {
   display: none;
