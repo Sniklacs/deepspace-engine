@@ -916,9 +916,6 @@ export function terrainElevation(
   const detail = fbm2D(seed + 313, u * 7.5 + 1.3, v * 7.5 + 8.8, 3);
   // Per-landmass character: some jagged, some rolling.
   const roughness = 0.55 + 0.45 * hash2i(7, 13, seed);
-  // Spine shading: relief eases off far across the axis — ranges stand over
-  // foothills and plains instead of filling the whole island.
-  const spine = 1 - 0.45 * smootherstep(Math.min(1, Math.abs(bx) / R));
   const relief = Math.min(1, ridge * roughness * 1.2 + detail * 0.28);
   // Shaped relief: crests pop into the high bands, valleys stay lowland.
   let e = falloff * (0.3 + 0.7 * Math.pow(relief, 1.25));
