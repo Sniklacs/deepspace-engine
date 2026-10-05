@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
   SCENE_PHASES,
+  mulberry32,
   sceneClockS,
   sceneNightFactor,
   scenePhaseAt,
@@ -29,6 +30,7 @@ import {
   setTurretsOn,
   setLogisticsFx,
   setManual,
+  setCameraMode,
   cycleDayNight,
   setGunner,
   setGunTarget,
@@ -66,6 +68,38 @@ const GROUND_ART = `${ART}/ground-arid.webp`;
 // Pre-scaled integer-sized ground tile for the seamless pattern fill.
 // Rebuilt only when the tile size changes (resize), never per-frame.
 let groundTile: { canvas: HTMLCanvasElement | null; size: number } = { canvas: null, size: -1 };
+
+// Near-field silhouettes for the ground camera: dark blurred tufts along the
+// bottom of the frame plus drifting dust motes. They slide against the camera
+// anchor (near field moves faster) — that's what sells "down in the dirt"
+// instead of "magnifying glass". Deterministic per tuft, positioned in
+// screen space each frame.
+const TUFTS = (() => {
+  const rnd = mulberry32(4242);
+  return Array.from({ length: 18 }, () => ({
+    x: rnd(),
+    y: 0.8 + rnd() * 0.25,
+    s: 16 + rnd() * 52,
+    depth: 0.4 + rnd() * 0.6,
+    mote: rnd() < 0.3,
+  }));
+})();
+
+interface CameraRig {
+  zoom: number;
+  ax: number;
+  ay: number;
+  /** vertical squash — the low grazing angle, not just a magnifier */
+  ysq: number;
+  /** screen-space focus height (0.5 = centered; ground sits lower) */
+  fy: number;
+  /** anchor when ground mode engaged — parallax reference */
+  gx: number;
+  gy: number;
+  wasGround: boolean;
+}
+
+const CAM_HOME: CameraRig = { zoom: 1, ax: 0.5, ay: 0.5, ysq: 1, fy: 0.5, gx: 0.5, gy: 0.5, wasGround: false };
 
 // Friend/foe identity (owner 2026-10-05): friendlies read blue-green,
 // enemies read red — unit rings, staging markers, turret fallback, HP pips.
@@ -125,6 +159,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   // Working copy of units — the animation loop mutates this, never the model.
   const unitsRef = useRef<SceneUnit[]>([]);
   const turretsRef = useRef<SceneTurret[]>([]);
+  // Camera rig — the mode lives in the shared store; zoom/anchor ease here
+  // so flipping the toggle glides instead of cutting.
+  const camRef = useRef<CameraRig>({ ...CAM_HOME });
   if (unitsRef.current.length === 0) {
     unitsRef.current = scene.units.map((u) => ({ ...u }));
     turretsRef.current = scene.turrets.map((t) => ({ ...t }));
@@ -137,6 +174,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       sceneIdRef.current = scene.id;
       unitsRef.current = scene.units.map((u) => ({ ...u }));
       turretsRef.current = scene.turrets.map((t) => ({ ...t }));
+      camRef.current = { ...CAM_HOME };
       resetSceneUI();
     }
     registerTurrets(
@@ -310,6 +348,63 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       fx.sweepOn = phase === "contact";
       fx.update(dt);
 
+      // --- camera: tactical overhead ↔ ground-level follow cam --------------
+      // The mode lives in the shared store; the rig eases toward its target
+      // (~1s exponential glide — no jarring cuts). Ground follows the
+      // friendly advance: the centroid of attackers on the move.
+      const cam = camRef.current;
+      const ground = ui.cameraMode === "ground";
+      if (ground && !cam.wasGround) {
+        cam.gx = cam.ax;
+        cam.gy = cam.ay;
+      }
+      cam.wasGround = ground;
+      const targetZoom = ground ? (W() > H() ? 3.2 : 2.6) : 1;
+      const targetYsq = ground ? 0.78 : 1; // low grazing angle, not a magnifier
+      const targetFy = ground ? (W() > H() ? 0.62 : 0.55) : 0.5;
+      let anx = 0.32;
+      let any = 0.5;
+      let nn = 0;
+      for (const u of unitsRef.current) {
+        if (u.side !== "attacker" || u.state === "dead" || u.state === "staging") continue;
+        if (u.state !== "advancing" && u.state !== "engaged" && u.state !== "holding") continue;
+        anx += u.x; any += u.y; nn++;
+      }
+      if (nn > 0) { anx /= nn; any /= nn; }
+      const halfW = 0.5 / targetZoom;
+      const halfH = 0.5 / (targetZoom * targetYsq);
+      const tax = ground ? Math.max(halfW * 0.7, Math.min(1 - halfW * 0.7, anx)) : 0.5;
+      const tay = ground ? Math.max(halfH * 0.7, Math.min(1 - halfH * 0.7, any)) : 0.5;
+      const k = 1 - Math.exp(-dt * 3.4);
+      cam.zoom += (targetZoom - cam.zoom) * k;
+      cam.ysq += (targetYsq - cam.ysq) * k;
+      cam.fy += (targetFy - cam.fy) * k;
+      cam.ax += (tax - cam.ax) * k;
+      cam.ay += (tay - cam.ay) * k;
+
+      // --- ground-mode texture: dust under the advance, near-miss tracers --
+      if (ground) {
+        for (const u of unitsRef.current) {
+          if (u.side === "attacker" && u.state === "advancing" && Math.random() < dt * 7) {
+            fx.dust(X(u.x), Y(u.y));
+          }
+        }
+        if (phase === "weapons-free" && Math.random() < dt * 2.2) {
+          // A tracer rips across the frame near the camera.
+          const jx = (Math.random() - 0.5) * 0.3;
+          const jy = (Math.random() - 0.5) * 0.24;
+          const x1 = (cam.ax + jx - 0.22) * W();
+          const x2 = (cam.ax + jx + 0.22) * W();
+          const y = (cam.ay + jy) * H();
+          fx.tracers.push({
+            x1, y1: y, x2, y2: y + (Math.random() - 0.5) * 30,
+            life: 0.3, maxLife: 0.3,
+            color: Math.random() < 0.5 ? "#ffd27a" : "#fda4af",
+            width: 3,
+          });
+        }
+      }
+
       // --- clock state (throttled) -----------------------------------------
       clockAcc += dt;
       if (clockAcc > 0.25) {
@@ -323,13 +418,26 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
 
     const render = (c: CanvasRenderingContext2D, phase: ScenePhase) => {
       const ui = sceneUISnapshot();
+      const cam = camRef.current;
+      const ground = ui.cameraMode === "ground";
       const w = W();
       const h = H();
       const s = S();
       c.save();
       c.scale(dpr(), dpr());
-      const sh = fx.shake(9);
+      // Explosions hit harder down at ground level.
+      const sh = fx.shake(ground ? 16 : 9);
       c.translate(sh.x, sh.y);
+
+      // --- camera ----------------------------------------------------------
+      // Tactical: identity (zoom 1, anchor 0.5/0.5, focus 0.5). Ground: the
+      // rig glides low over the friendly advance — zoomed, vertically
+      // squashed for a grazing angle, focused below center. Everything drawn
+      // inside this block is world space; overlays come after the restore.
+      c.save();
+      c.translate(w / 2, h * cam.fy);
+      c.scale(cam.zoom, cam.zoom * cam.ysq);
+      c.translate(-X(cam.ax), -Y(cam.ay));
 
       // Night factor: auto from battle longitude, or manual override.
       const night = ui.dayNight === "auto" ? sceneNightFactor(scene.lonDeg, Date.now()) : ui.dayNight === "night" ? 1 : 0;
@@ -422,7 +530,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       c.restore();
 
       // --- radar sweep during contact ---------------------------------------
-      if (fx.sweepOn) {
+      // Tactical only — zoomed in it would sit off-frame and read as noise.
+      if (fx.sweepOn && cam.zoom < 1.5) {
         c.save();
         c.translate(w / 2, h / 2);
         c.rotate(fx.sweep);
@@ -642,6 +751,17 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         }
       }
       c.restore();
+      // Kicked-up dust around the advance — the ground cam's texture.
+      c.save();
+      for (const d of fx.dusts) {
+        const da = alpha(d.life, d.maxLife);
+        c.globalAlpha = da * 0.32;
+        c.fillStyle = "#cbb98f";
+        c.beginPath(); c.arc(d.x, d.y, d.size, 0, Math.PI * 2); c.fill();
+      }
+      c.restore();
+
+      c.restore(); // camera off — overlays below are screen space
 
       // --- night overlay --------------------------------------------------------
       if (night > 0.02) {
@@ -686,6 +806,36 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       c.fillText(SCENE_PHASES.find((p) => p.phase === phase)?.label ?? phase, 12, 20);
       c.restore();
 
+      // --- ground-cam foreground --------------------------------------------------
+      // Near-field silhouettes sliding against the camera anchor: the near
+      // field moves opposite and faster, which is what reads as LOW.
+      if (cam.zoom > 1.4) {
+        const mdx = (cam.ax - cam.gx) * w;
+        const mdy = (cam.ay - cam.gy) * h;
+        c.save();
+        for (const t of TUFTS) {
+          const px = t.x * w - mdx * 2.4 * t.depth;
+          const py = t.y * h - mdy * 2.4 * t.depth;
+          const wrapW = w + 160;
+          const wx = ((((px + 80) % wrapW) + wrapW) % wrapW) - 80;
+          if (t.mote) {
+            c.globalAlpha = 0.35;
+            c.fillStyle = "#d6c9a8";
+            c.beginPath(); c.arc(wx, py, 1.6, 0, Math.PI * 2); c.fill();
+          } else {
+            const g5 = c.createRadialGradient(wx, py, 0, wx, py, t.s);
+            g5.addColorStop(0, "rgba(12,9,6,0.5)");
+            g5.addColorStop(1, "rgba(12,9,6,0)");
+            c.globalAlpha = 1;
+            c.fillStyle = g5;
+            c.beginPath();
+            c.ellipse(wx, py, t.s, t.s * 0.55, 0, 0, Math.PI * 2);
+            c.fill();
+          }
+        }
+        c.restore();
+      }
+
       c.restore(); // un-scale
     };
 
@@ -704,6 +854,13 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     const r = canvas.getBoundingClientRect();
     const px = (e.clientX - r.left) / r.width;
     const py = (e.clientY - r.top) / r.height;
+    // Invert the camera transform: screen fractions → tactical 0..1 coords,
+    // so turret picks and gunner targeting land in ground mode too.
+    const cam = camRef.current;
+    const w = Math.max(1, r.width);
+    const h = Math.max(1, r.height);
+    const tx = ((px * w - w / 2) / cam.zoom + cam.ax * w) / w;
+    const ty = ((py * h - h * cam.fy) / (cam.zoom * cam.ysq) + cam.ay * h) / h;
     const ui = sceneUISnapshot();
     if (ui.gunnerId) {
       // Gunner view: click an enemy unit to target it.
@@ -711,7 +868,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       let bd = 0.06;
       for (const u of unitsRef.current) {
         if (u.side === "attacker" || u.state === "dead" || u.state === "staging") continue;
-        const d = Math.hypot(u.x - px, u.y - py);
+        const d = Math.hypot(u.x - tx, u.y - ty);
         if (d < bd) { bd = d; best = u; }
       }
       if (best) setGunTarget(best.id);
@@ -722,7 +879,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     let bd = 0.05;
     for (const tr of turretsRef.current) {
       if (tr.side !== "attacker" || tr.hp01 <= 0) continue;
-      const d = Math.hypot(tr.x - px, tr.y - py);
+      const d = Math.hypot(tr.x - tx, tr.y - ty);
       if (d < bd) { bd = d; best = tr; }
     }
     if (best) {
@@ -876,6 +1033,12 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
               on={ui.dayNight !== "day"}
               onChange={cycleDayNight}
               accent="#38bdf8"
+            />
+            <ToggleSwitch
+              label={ui.cameraMode === "ground" ? "Ground" : "Tactical"}
+              on={ui.cameraMode === "ground"}
+              onChange={(on) => setCameraMode(on ? "ground" : "tactical")}
+              accent="#f0abfc"
             />
           </div>
           <p className="mt-2 max-w-[220px] text-[10px] leading-relaxed text-zinc-500">

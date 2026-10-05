@@ -17,6 +17,7 @@ import {
   setTurretsOn,
   setLogisticsFx,
   setManual,
+  setCameraMode,
   cycleDayNight,
   setGunner,
 } from "../../game/war/battle-scene-ui-store";
@@ -66,6 +67,22 @@ export function BattleControlsBody() {
           {ui.manual
             ? "Manual: turrets hold fire until you take the gunner cam. Pick a turret below, or tap one on the map."
             : "Auto: turrets engage on their own. Flip to manual to take a gun yourself."}
+        </p>
+      </section>
+
+      {/* camera — tactical overhead or down in the dirt */}
+      <section aria-label="Camera">
+        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Camera</p>
+        <ToggleSwitch
+          label={ui.cameraMode === "ground" ? "Ground" : "Tactical"}
+          on={ui.cameraMode === "ground"}
+          onChange={(on) => setCameraMode(on ? "ground" : "tactical")}
+          accent="#f0abfc"
+        />
+        <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
+          {ui.cameraMode === "ground"
+            ? "Ground: down in the dirt with the advance — spot your targets, then pull back up."
+            : "Tactical: the overhead view. Flip to ground to ride with the troops."}
         </p>
       </section>
 

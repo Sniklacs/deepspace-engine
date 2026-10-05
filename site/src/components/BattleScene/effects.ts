@@ -23,6 +23,9 @@ export interface Ring {
 export interface Beam {
   x1: number; y1: number; x2: number; y2: number; life: number; maxLife: number; color: string;
 }
+export interface Dust {
+  x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number;
+}
 
 export class Fx {
   tracers: Tracer[] = [];
@@ -30,6 +33,8 @@ export class Fx {
   booms: Boom[] = [];
   rings: Ring[] = [];
   beams: Beam[] = [];
+  /** Kicked-up dust around moving troops — the ground-cam's texture. */
+  dusts: Dust[] = [];
   /** Screen shake trauma 0..1 — decays; offset = trauma² × max. */
   trauma = 0;
   /** Radar sweep angle (radians), active during contact phase. */
@@ -82,6 +87,20 @@ export class Fx {
     this.beams.push({ x1, y1, x2, y2, life: 0.8, maxLife: 0.8, color: "rgba(248,113,113,0.8)" });
   }
 
+  /** Dust kicked up by a moving troop — soft tan puff, drifts and settles. */
+  dust(x: number, y: number): void {
+    if (this.dusts.length > 160) return;
+    this.dusts.push({
+      x: x + (Math.random() - 0.5) * 10,
+      y: y + (Math.random() - 0.5) * 6,
+      vx: (Math.random() - 0.5) * 26,
+      vy: -8 - Math.random() * 22,
+      life: 0.7 + Math.random() * 0.8,
+      maxLife: 1.5,
+      size: 5 + Math.random() * 9,
+    });
+  }
+
   update(dt: number): void {
     const step = <T extends { life: number }>(arr: T[]) => {
       for (let i = arr.length - 1; i >= 0; i--) {
@@ -90,6 +109,12 @@ export class Fx {
       }
     };
     step(this.tracers); step(this.flashes); step(this.rings); step(this.beams);
+    step(this.dusts);
+    for (const d of this.dusts) {
+      d.x += d.vx * dt; d.y += d.vy * dt;
+      d.vx *= 1 - 1.8 * dt; d.vy *= 1 - 1.2 * dt;
+      d.size += 10 * dt;
+    }
     for (let i = this.booms.length - 1; i >= 0; i--) {
       const b = this.booms[i];
       b.life -= dt;

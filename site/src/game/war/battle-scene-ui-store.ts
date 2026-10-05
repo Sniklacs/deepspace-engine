@@ -11,12 +11,17 @@ import type { ManeuverVector } from "./war-types";
 
 export type DayNightMode = "auto" | "day" | "night";
 
+/** Battle scene camera: the overhead tactical map, or down in the dirt. */
+export type CameraMode = "tactical" | "ground";
+
 export interface SceneUIState {
   vectorsOn: Record<ManeuverVector, boolean>;
   turretsOn: boolean;
   logisticsFx: boolean;
   manual: boolean;
   dayNight: DayNightMode;
+  /** "ground" drops the camera low with the friendly advance (owner 2026-10-05). */
+  cameraMode: CameraMode;
   gunnerId: string | null;
   gunTarget: string | null;
   /** battle-clock seconds — the scene loop writes this ~4x/sec */
@@ -32,6 +37,7 @@ const INITIAL: SceneUIState = {
   logisticsFx: true,
   manual: false,
   dayNight: "auto",
+  cameraMode: "tactical",
   gunnerId: null,
   gunTarget: null,
   tS: 0,
@@ -97,6 +103,12 @@ export function setManual(on: boolean): void {
 export function setDayNight(mode: DayNightMode): void {
   if (state.dayNight === mode) return;
   set({ dayNight: mode });
+}
+
+/** Flip between the overhead tactical map and the ground-level camera. */
+export function setCameraMode(mode: CameraMode): void {
+  if (state.cameraMode === mode) return;
+  set({ cameraMode: mode });
 }
 
 /** Cycle the day/night skin: auto → night → day → auto. */

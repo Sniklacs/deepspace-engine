@@ -15,6 +15,7 @@ import {
   setLogisticsFx,
   setManual,
   setDayNight,
+  setCameraMode,
   cycleDayNight,
   setGunner,
   setGunTarget,
@@ -60,6 +61,32 @@ describe("toggles", () => {
     expect(sceneUISnapshot().dayNight).toBe("auto");
     setDayNight("night");
     expect(sceneUISnapshot().dayNight).toBe("night");
+  });
+});
+
+describe("camera mode", () => {
+  test("defaults to tactical and flips to ground", () => {
+    expect(sceneUISnapshot().cameraMode).toBe("tactical");
+    setCameraMode("ground");
+    expect(sceneUISnapshot().cameraMode).toBe("ground");
+    setCameraMode("tactical");
+    expect(sceneUISnapshot().cameraMode).toBe("tactical");
+  });
+
+  test("no-ops when the mode is unchanged", () => {
+    let calls = 0;
+    const unsub = subscribeSceneUI(() => {
+      calls += 1;
+    });
+    setCameraMode("tactical");
+    unsub();
+    expect(calls).toBe(0);
+  });
+
+  test("survives a scene reset like the other player preferences", () => {
+    setCameraMode("ground");
+    resetSceneUI();
+    expect(sceneUISnapshot().cameraMode).toBe("ground");
   });
 });
 
