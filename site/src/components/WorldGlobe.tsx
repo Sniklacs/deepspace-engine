@@ -19,11 +19,17 @@ import {
   buildElevationGrid,
   countByLayer,
   declutterMarkers,
+  DEFAULT_GLOBE_FILTERS,
   GLOBE_LAYERS,
   GLOBE_LAYER_META,
+  GLOBE_SITE_TIER_COLOR,
   projectGlobe,
   shadeTerrainGrid,
+  siteMarkerIcon,
+  SITE_TIER_LIST,
   terrainSpriteSize,
+  type GlobeFilters,
+  type GlobeIconId,
   type GlobeLayerId,
   type GlobeMarker,
   type ScreenMarker,
@@ -33,6 +39,7 @@ import { useT } from "./i18n/I18n";
 import { playClick, playDeselect, playSelect, playWhoosh } from "../game/audio/ui-sounds";
 
 const LAYER_STORE_KEY = "worldglobe.layers.v1";
+const FILTER_STORE_KEY = "worldglobe.filters.v1";
 const MIN_DIST_PX = 26;
 const TILT_MAX = 55;
 
@@ -109,6 +116,199 @@ const STARS: Star[] = (() => {
   return out;
 })();
 
+// ---------------------------------------------------------------------------
+// WS2 icon sprites (Hans, Oct 4 2026): shape carries meaning, not color.
+// One pre-baked offscreen canvas per (kind, color); the render loop blits
+// it — no per-frame path drawing (phone performance). Silhouettes are
+// deliberately simple: they must read at ~16px on the globe.
+// ---------------------------------------------------------------------------
+
+/** Draw one icon glyph centered on `g`, filling a box of side `s`. */
+export function drawGlobeIconGlyph(g: CanvasRenderingContext2D, kind: GlobeIconId, s: number) {
+  const h = s / 2;
+  g.lineJoin = "round";
+  g.lineCap = "round";
+  switch (kind) {
+    case "hut":
+      // square + triangle roof
+      g.fillRect(-h * 0.55, -h * 0.1, h * 1.1, h * 0.85);
+      g.beginPath();
+      g.moveTo(-h * 0.8, -h * 0.1);
+      g.lineTo(0, -h * 0.85);
+      g.lineTo(h * 0.8, -h * 0.1);
+      g.closePath();
+      g.fill();
+      break;
+    case "home": {
+      // bigger settlement: hut + watchtower + flag (unmistakable, Hans's)
+      g.fillRect(-h * 0.85, -h * 0.05, h * 1.1, h * 0.8);
+      g.beginPath();
+      g.moveTo(-h * 1.05, -h * 0.05);
+      g.lineTo(-h * 0.3, -h * 0.7);
+      g.lineTo(h * 0.45, -h * 0.05);
+      g.closePath();
+      g.fill();
+      g.fillRect(h * 0.5, -h * 0.95, h * 0.22, h * 1.7);
+      g.beginPath();
+      g.moveTo(h * 0.72, -h * 0.95);
+      g.lineTo(h * 1.25, -h * 0.78);
+      g.lineTo(h * 0.72, -h * 0.58);
+      g.closePath();
+      g.fill();
+      break;
+    }
+    case "husk":
+      // broken hut: hut + dark crack
+      g.fillRect(-h * 0.55, -h * 0.1, h * 1.1, h * 0.85);
+      g.beginPath();
+      g.moveTo(-h * 0.8, -h * 0.1);
+      g.lineTo(0, -h * 0.85);
+      g.lineTo(h * 0.8, -h * 0.1);
+      g.closePath();
+      g.fill();
+      g.save();
+      g.globalCompositeOperation = "destination-out";
+      g.lineWidth = Math.max(2, s * 0.07);
+      g.beginPath();
+      g.moveTo(-h * 0.25, -h * 0.8);
+      g.lineTo(h * 0.1, -h * 0.2);
+      g.lineTo(-h * 0.15, h * 0.35);
+      g.lineTo(h * 0.3, h * 0.75);
+      g.stroke();
+      g.restore();
+      break;
+    case "raid":
+      // crossed swords
+      g.lineWidth = Math.max(3, s * 0.13);
+      g.beginPath();
+      g.moveTo(-h * 0.7, h * 0.7);
+      g.lineTo(h * 0.7, -h * 0.7);
+      g.moveTo(h * 0.7, h * 0.7);
+      g.lineTo(-h * 0.7, -h * 0.7);
+      g.stroke();
+      break;
+    case "chorus":
+      // the Chorus sigil: ring + core + three spokes
+      g.lineWidth = Math.max(2.5, s * 0.09);
+      g.beginPath();
+      g.arc(0, 0, h * 0.62, 0, Math.PI * 2);
+      g.stroke();
+      for (let i = 0; i < 3; i++) {
+        const a = (i * Math.PI * 2) / 3 - Math.PI / 2;
+        g.beginPath();
+        g.moveTo(Math.cos(a) * h * 0.1, Math.sin(a) * h * 0.1);
+        g.lineTo(Math.cos(a) * h * 0.62, Math.sin(a) * h * 0.62);
+        g.stroke();
+      }
+      g.beginPath();
+      g.arc(0, 0, h * 0.2, 0, Math.PI * 2);
+      g.fill();
+      break;
+    case "ember":
+      // flame teardrop
+      g.beginPath();
+      g.moveTo(0, -h * 0.9);
+      g.quadraticCurveTo(h * 0.65, -h * 0.15, h * 0.42, h * 0.35);
+      g.quadraticCurveTo(h * 0.3, h * 0.75, 0, h * 0.75);
+      g.quadraticCurveTo(-h * 0.55, h * 0.75, -h * 0.42, h * 0.15);
+      g.quadraticCurveTo(-h * 0.35, -h * 0.3, 0, -h * 0.9);
+      g.closePath();
+      g.fill();
+      break;
+    case "chipset":
+      // square with pins on all four sides
+      g.fillRect(-h * 0.45, -h * 0.45, h * 0.9, h * 0.9);
+      g.lineWidth = Math.max(2, s * 0.08);
+      for (const q of [-0.25, 0, 0.25]) {
+        g.beginPath();
+        g.moveTo(q * h * 2, -h * 0.45);
+        g.lineTo(q * h * 2, -h * 0.85);
+        g.moveTo(q * h * 2, h * 0.45);
+        g.lineTo(q * h * 2, h * 0.85);
+        g.moveTo(-h * 0.45, q * h * 2);
+        g.lineTo(-h * 0.85, q * h * 2);
+        g.moveTo(h * 0.45, q * h * 2);
+        g.lineTo(h * 0.85, q * h * 2);
+        g.stroke();
+      }
+      break;
+    case "monument":
+      // obelisk plaque on a base
+      g.beginPath();
+      g.moveTo(-h * 0.3, -h * 0.85);
+      g.lineTo(h * 0.3, -h * 0.85);
+      g.lineTo(h * 0.2, h * 0.45);
+      g.lineTo(-h * 0.2, h * 0.45);
+      g.closePath();
+      g.fill();
+      g.fillRect(-h * 0.5, h * 0.45, h * 1.0, h * 0.3);
+      break;
+    case "satellite":
+      // body + two solar panels
+      g.fillRect(-h * 0.25, -h * 0.25, h * 0.5, h * 0.5);
+      g.fillRect(-h * 0.9, -h * 0.15, h * 0.55, h * 0.3);
+      g.fillRect(h * 0.35, -h * 0.15, h * 0.55, h * 0.3);
+      g.beginPath();
+      g.arc(0, -h * 0.55, h * 0.12, 0, Math.PI * 2);
+      g.fill();
+      break;
+    case "beachhead":
+      // banner on a pole — the open invasion mark
+      g.lineWidth = Math.max(2.5, s * 0.09);
+      g.beginPath();
+      g.moveTo(-h * 0.35, h * 0.9);
+      g.lineTo(-h * 0.35, -h * 0.9);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(-h * 0.35, -h * 0.9);
+      g.lineTo(h * 0.85, -h * 0.55);
+      g.lineTo(-h * 0.35, -h * 0.2);
+      g.closePath();
+      g.fill();
+      break;
+  }
+}
+
+/** Bake the (kind, color) sprite: dark outline for contrast + color fill. */
+function bakeIconSprite(kind: GlobeIconId, color: string): HTMLCanvasElement {
+  const S = 48;
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d")!;
+  g.translate(S / 2, S / 2);
+  // dark underlay → glyph pops on bright terrain and dark ocean alike
+  g.fillStyle = "rgba(2,6,14,0.92)";
+  g.strokeStyle = "rgba(2,6,14,0.92)";
+  drawGlobeIconGlyph(g, kind, 30);
+  g.fillStyle = color;
+  g.strokeStyle = color;
+  drawGlobeIconGlyph(g, kind, 24);
+  return c;
+}
+
+const iconCache = new Map<string, HTMLCanvasElement>();
+function iconSprite(kind: GlobeIconId, color: string): HTMLCanvasElement {
+  const key = `${kind}|${color}`;
+  let c = iconCache.get(key);
+  if (!c) {
+    c = bakeIconSprite(kind, color);
+    iconCache.set(key, c);
+  }
+  return c;
+}
+
+/** Same glyph as a data URL for HTML legend rows (same silhouette as the
+ *  globe blit). Cached per (kind, color). */
+const iconURLCache = new Map<string, string>();
+export function globeIconURL(kind: GlobeIconId, color: string): string {
+  const key = `${kind}|${color}`;
+  let u = iconURLCache.get(key);
+  if (!u) {
+    u = bakeIconSprite(kind, color).toDataURL();
+    iconURLCache.set(key, u);
+  }
+  return u;
+}
 // Glow sprite cache — one radial-gradient canvas per color, reused for every
 // marker so the POP stays cheap.
 const glowCache = new Map<string, HTMLCanvasElement>();
@@ -215,6 +415,30 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
   const [linkHint, setLinkHint] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(true);
 
+  // ---- WS7 layer filters (Hans, Oct 4 2026): tier filtering for sites,
+  // persisted like the layer toggles. Pure filter logic in globe-layers.ts.
+  const [filters, setFilters] = useState<GlobeFilters>(() => {
+    const init: GlobeFilters = { siteTiers: { ...DEFAULT_GLOBE_FILTERS.siteTiers } };
+    try {
+      const raw = localStorage.getItem(FILTER_STORE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as Partial<GlobeFilters>;
+        for (const t of SITE_TIER_LIST) {
+          if (typeof saved.siteTiers?.[t] === "boolean") init.siteTiers[t] = saved.siteTiers[t]!;
+        }
+      }
+    } catch { /* corrupted prefs → defaults */ }
+    return init;
+  });
+  const toggleTier = useCallback((tier: 1 | 2 | 3) => {
+    setFilters((prev) => {
+      const next: GlobeFilters = { siteTiers: { ...prev.siteTiers, [tier]: !prev.siteTiers[tier] } };
+      try { localStorage.setItem(FILTER_STORE_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+    playClick();
+  }, []);
+
   const markers = useMemo(() => buildGlobeMarkers(state, now), [state, now]);
   const counts = useMemo(() => countByLayer(markers), [markers]);
   markersRef.current = markers;
@@ -244,9 +468,11 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
     setLinkHint(null);
   }, []);
 
-  // layersOn/selectedId refs for the render loop (avoid re-subscribing)
+  // layersOn/selectedId/filters refs for the render loop (avoid re-subscribing)
   const layersOnRef = useRef(layersOn);
   layersOnRef.current = layersOn;
+  const tiersOnRef = useRef(filters.siteTiers);
+  tiersOnRef.current = filters.siteTiers;
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
 
@@ -473,6 +699,9 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
       const projected: ScreenMarker[] = [];
       for (const m of markersRef.current) {
         if (!layersOnRef.current[m.layer]) continue;
+        // WS7: tier filter — T1/T2/T3 world-site markers gate independently
+        // of the layer toggle.
+        if (m.layer === "sites" && m.ref.kind === "site" && !tiersOnRef.current[m.ref.tier]) continue;
         const p = projectGlobe(m.lat, m.lon, v.spin, v.tilt);
         if (!p.visible) continue;
         projected.push({ marker: m, sx: cx + p.x * R, sy: cy + p.y * R });
@@ -486,11 +715,11 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
         const spr = glowSprite(m.color);
         const sprSize = base * 3.2;
         ctx.drawImage(spr, s.sx - sprSize / 2, s.sy - sprSize / 2, sprSize, sprSize);
-        // core
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(s.sx, s.sy, isSel ? 4 : 3, 0, Math.PI * 2);
-        ctx.fill();
+        // WS2: the marker ICON — shape carries the meaning, not the color.
+        // One pre-baked sprite blit; 20px+ hit targets preserved below.
+        const icon = iconSprite(m.icon, m.color);
+        const iconSize = isSel ? 26 : 20;
+        ctx.drawImage(icon, s.sx - iconSize / 2, s.sy - iconSize / 2, iconSize, iconSize);
         // pulse ring for raids (and selected)
         if (m.pulse || isSel) {
           const pr = base + 5 + 4 * Math.sin(time * 4);
@@ -705,17 +934,46 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
                       layersOn[l.id] ? "text-gray-100" : "text-gray-500 opacity-60"
                     }`}
                   >
-                    <span
+                    {/* WS2: the same icon that rides the globe marker, so
+                        legend and world read identically (shape, not color). */}
+                    <img
+                      src={globeIconURL(l.icon, l.color)}
+                      alt=""
                       aria-hidden
-                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{
-                        background: l.color,
-                        boxShadow: layersOn[l.id] ? `0 0 6px ${l.color}` : "none",
-                      }}
+                      className="h-4 w-4 shrink-0"
+                      style={{ filter: layersOn[l.id] ? `drop-shadow(0 0 4px ${l.color})` : "none" }}
                     />
                     <span className="flex-1">{t(`worldglobe.layer.${l.id}`, l.label)}</span>
                     <span className="rounded-full bg-white/10 px-1.5 text-[10px] text-gray-300">{counts[l.id]}</span>
                   </button>
+                  {/* WS7: tier filters for world sites — T1/T2/T3 gate
+                      independently of the layer toggle. */}
+                  {l.id === "sites" && (
+                    <div className="mb-0.5 ml-7 flex gap-1" role="group" aria-label={t("worldglobe.siteTiers", "Site tiers")}>
+                      {SITE_TIER_LIST.map((tier) => (
+                        <button
+                          key={tier}
+                          type="button"
+                          onClick={() => toggleTier(tier)}
+                          aria-pressed={filters.siteTiers[tier]}
+                          title={t(`worldglobe.tier.${tier}`, tier === 3 ? "T3 — hard sites (chipsets)" : `T${tier} sites`)}
+                          className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${
+                            filters.siteTiers[tier]
+                              ? "border-white/20 bg-white/10 text-gray-100"
+                              : "border-white/5 bg-transparent text-gray-500 opacity-50"
+                          }`}
+                        >
+                          <img
+                            src={globeIconURL(siteMarkerIcon(tier), GLOBE_SITE_TIER_COLOR[tier])}
+                            alt=""
+                            aria-hidden
+                            className="h-3.5 w-3.5"
+                          />
+                          T{tier}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -917,6 +1175,22 @@ function SheetStats({ marker }: { marker: GlobeMarker }) {
       </div>
     );
   }
+  if (r.kind === "satellite") {
+    return (
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <Stat k={t("worldglobe.watches", "Watches")} v={r.zoneName} />
+        <Stat k={t("worldglobe.coverage", "Coverage")} v={t("worldglobe.coverageVisual", "Visual map only")} />
+      </div>
+    );
+  }
+  if (r.kind === "beachhead") {
+    return (
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <Stat k={t("worldglobe.beachhead", "Beachhead")} v={t("worldglobe.beachheadOpen", "Open ground")} />
+        <Stat k={t("worldglobe.knownTo", "Known to")} v={t("worldglobe.knownToAll", "Everyone")} />
+      </div>
+    );
+  }
   return null;
 }
 
@@ -983,6 +1257,20 @@ function SheetActions({ marker, onAction }: { marker: GlobeMarker; onAction: (la
     return (
       <div className="flex flex-wrap gap-2">
         <ActionButton primary label={t("worldglobe.rallyDefense", "🛡️ Rally the defense")} onClick={go(t("worldglobe.rallyDefense", "Defense rally"))} />
+      </div>
+    );
+  }
+  if (r.kind === "satellite") {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <ActionButton label={t("worldglobe.coverageDetails", "Coverage details")} onClick={go(t("worldglobe.coverageDetails", "Satellite coverage"))} />
+      </div>
+    );
+  }
+  if (r.kind === "beachhead") {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <ActionButton primary label={t("worldglobe.beachheadPlans", "Invasion plans")} onClick={go(t("worldglobe.beachheadPlans", "Beachhead plans"))} />
       </div>
     );
   }

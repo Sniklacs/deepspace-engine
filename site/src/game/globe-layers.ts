@@ -36,6 +36,22 @@ export type GlobeLayerId =
   | "raids"
   | "satellites";
 
+/** Marker icon kinds (Hans, Oct 4 2026, night — WS2: icons, not dots).
+ *  Accessibility: shape carries the meaning, not color. Each kind is a
+ *  simple silhouette that reads at ~16px — no fine detail. WorldGlobe.tsx
+ *  bakes one sprite per (kind, color) and blits it per marker. */
+export type GlobeIconId =
+  | "home" // the player's colony — bigger, unmistakable settlement
+  | "raid" // crossed swords — incoming raid
+  | "chorus" // the Chorus sigil — ring + core
+  | "hut" // other players' colonies
+  | "ember" // ember site / T1–T2 world site — flame teardrop
+  | "chipset" // T3 / hard site — chipsets only drop in T3s
+  | "husk" // dead colony — broken hut
+  | "monument" // memorial — obelisk plaque
+  | "satellite" // orbital watcher — body + panels
+  | "beachhead"; // beachhead banner — everyone knows where it is
+
 export interface GlobeLayerMeta {
   id: GlobeLayerId;
   /** Legend label. */
@@ -46,18 +62,20 @@ export interface GlobeLayerMeta {
   defaultOn: boolean;
   /** One-line legend blurb. */
   blurb: string;
+  /** Representative icon shown in the legend next to the label. */
+  icon: GlobeIconId;
 }
 
 /** Legend order = render order. */
 export const GLOBE_LAYERS: GlobeLayerMeta[] = [
-  { id: "home", label: "Your colony", color: "#fbbf24", defaultOn: true, blurb: "Home — tap to enter" },
-  { id: "raids", label: "Incoming raids", color: "#ef4444", defaultOn: true, blurb: "Raid signatures inbound" },
-  { id: "chorus", label: "Chorus sites", color: "#f87171", defaultOn: true, blurb: "Raid ladder, grades I–V" },
-  { id: "colonies", label: "Colonies", color: "#34d399", defaultOn: true, blurb: "Known colonies by owner" },
-  { id: "sites", label: "World sites", color: "#7dd3fc", defaultOn: true, blurb: "T1 / T2 / T3 sites" },
-  { id: "husks", label: "Husks", color: "#9ca3af", defaultOn: true, blurb: "Dead colonies, claimable" },
-  { id: "memorials", label: "Memorials", color: "#fde68a", defaultOn: false, blurb: "Battle plaques" },
-  { id: "satellites", label: "Satellites", color: "#38bdf8", defaultOn: false, blurb: "Orbital coverage ring" },
+  { id: "home", label: "Your colony", color: "#fbbf24", defaultOn: true, blurb: "Home — tap to enter", icon: "home" },
+  { id: "raids", label: "Incoming raids", color: "#ef4444", defaultOn: true, blurb: "Raid signatures inbound", icon: "raid" },
+  { id: "chorus", label: "Chorus sites", color: "#f87171", defaultOn: true, blurb: "Raid ladder, grades I–V", icon: "chorus" },
+  { id: "colonies", label: "Colonies", color: "#34d399", defaultOn: true, blurb: "Known colonies by owner", icon: "hut" },
+  { id: "sites", label: "World sites", color: "#7dd3fc", defaultOn: true, blurb: "T1 / T2 / T3 sites", icon: "ember" },
+  { id: "husks", label: "Husks", color: "#9ca3af", defaultOn: true, blurb: "Dead colonies, claimable", icon: "husk" },
+  { id: "memorials", label: "Memorials", color: "#fde68a", defaultOn: false, blurb: "Battle plaques", icon: "monument" },
+  { id: "satellites", label: "Satellites", color: "#38bdf8", defaultOn: false, blurb: "Orbital coverage ring", icon: "satellite" },
 ];
 
 export const GLOBE_LAYER_META: Record<GlobeLayerId, GlobeLayerMeta> = Object.fromEntries(
@@ -71,7 +89,9 @@ export type GlobeMarkerRef =
   | { kind: "site"; zone: Zone; tier: 1 | 2 | 3 }
   | { kind: "chorus"; site: ChorusSiteIntel }
   | { kind: "memorial"; nodeId: string; name: string }
-  | { kind: "raid"; raid: IncomingRaidAlert };
+  | { kind: "raid"; raid: IncomingRaidAlert }
+  | { kind: "satellite"; zoneId: string; zoneName: string }
+  | { kind: "beachhead" };
 
 export interface GlobeMarker {
   /** Stable unique id. */
@@ -84,6 +104,8 @@ export interface GlobeMarker {
   sublabel: string;
   /** Glow color. */
   color: string;
+  /** Marker icon kind — shape carries the meaning, not the color. */
+  icon: GlobeIconId;
   /** Declutter priority — higher wins when markers overlap. */
   priority: number;
   /** Pulsing ring (raids, selected). */
@@ -133,6 +155,78 @@ export function worldSiteGlobePosition(zoneId: string, tier: 1 | 2 | 3): { lat: 
 /** Memorial position: hash of its node id. */
 export function memorialGlobePosition(nodeId: string): { lat: number; lon: number } {
   return colonyGlobePosition("memorial:" + nodeId);
+}
+
+// ---------------------------------------------------------------------------
+// WS2+WS3 icon metadata + satellite/beachhead geography (Hans, Oct 4 2026)
+// ---------------------------------------------------------------------------
+
+/** World-site marker icon: T3/hard sites get the chipset (chipsets only
+ *  drop in T3s); T1/T2 sites get the ember flame. */
+export function siteMarkerIcon(tier: 1 | 2 | 3): GlobeIconId {
+  return tier === 3 ? "chipset" : "ember";
+}
+
+/** Satellite watch position: rendered NEXT TO the site it watches, like any
+ *  map — offset a few degrees northeast so it never stacks on the site
+ *  marker. Pure coordination layer only (full intel mechanics are future). */
+export function satelliteWatchPosition(
+  zoneId: string,
+  tier: 1 | 2 | 3,
+): { lat: number; lon: number } {
+  const s = worldSiteGlobePosition(zoneId, tier);
+  const lat = Math.max(-78, Math.min(78, s.lat + 5 + hash01(zoneId + ":slat") * 3));
+  let lon = s.lon + 6 + hash01(zoneId + ":slon") * 3;
+  lon = ((lon + 540) % 360) - 180;
+  return { lat, lon };
+}
+
+/** The Chorus-held heart: the grade-V site's position (the hardest Chorus
+ *  ground on the globe). */
+export function chorusHeartGlobePosition(): { lat: number; lon: number } {
+  const heart = chorusSiteIntel().find((s) => s.grade === 5) ?? chorusSiteIntel()[0];
+  return { lat: heart.lat, lon: heart.lon };
+}
+
+/** The beachhead: fixed, open geography — everyone knows where it is, so it
+ *  is marked openly. Deterministic constant (not hashed) so players can
+ *  learn it. */
+export function beachheadGlobePosition(): { lat: number; lon: number } {
+  return { lat: 12, lon: 100 };
+}
+
+// ---------------------------------------------------------------------------
+// WS7 layer filters (Hans, Oct 4 2026): real filter control as layers grow.
+// Site tiers filter T1/T2/T3 markers independently of the layer toggle.
+// ---------------------------------------------------------------------------
+
+export interface GlobeFilters {
+  /** Which site tiers (T1/T2/T3) are visible. True = shown. */
+  siteTiers: Record<1 | 2 | 3, boolean>;
+}
+
+export const DEFAULT_GLOBE_FILTERS: GlobeFilters = {
+  siteTiers: { 1: true, 2: true, 3: true },
+};
+
+export const SITE_TIER_LIST: ReadonlyArray<1 | 2 | 3> = [1, 2, 3];
+
+/**
+ * Apply filter state to a marker set. Pure. The layer toggle still gates
+ * whole layers — this only narrows within them. Unknown/empty input reads
+ * as DEFAULT_GLOBE_FILTERS (filters never hide anything by accident).
+ */
+export function applyGlobeFilters(markers: GlobeMarker[], filters: Partial<GlobeFilters>): GlobeMarker[] {
+  const tiers: Record<1 | 2 | 3, boolean> = {
+    1: filters.siteTiers?.[1] ?? true,
+    2: filters.siteTiers?.[2] ?? true,
+    3: filters.siteTiers?.[3] ?? true,
+  };
+  if (tiers[1] && tiers[2] && tiers[3]) return markers;
+  return markers.filter((m) => {
+    if (m.ref.kind === "site") return tiers[m.ref.tier];
+    return true;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +293,9 @@ const SITE_TIER_COLOR: Record<1 | 2 | 3, string> = {
   3: "#f472b6",
 };
 
+/** Marker glow color per world-site tier (exported for the WS7 tier chips). */
+export const GLOBE_SITE_TIER_COLOR = SITE_TIER_COLOR;
+
 function zoneName(zoneId: string): string {
   return ZONES.find((z) => z.id === zoneId)?.name ?? zoneId;
 }
@@ -223,6 +320,7 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
     label: homeLabel,
     sublabel: "HOME",
     color: GLOBE_LAYER_META.home.color,
+    icon: "home",
     priority: 100,
     ref: { kind: "home" },
   });
@@ -243,6 +341,7 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
       label: r.attackerNames.join(", ") || "Unknown raiders",
       sublabel: `Touchdown in ${etaMin > 0 ? `${etaMin}m ` : ""}${etaSec}s`,
       color: GLOBE_LAYER_META.raids.color,
+      icon: "raid",
       priority: 95,
       pulse: true,
       ref: { kind: "raid", raid: r },
@@ -259,6 +358,7 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
       label: site.siteName,
       sublabel: `Grade ${site.gradeLabel} · ${site.strength.toLocaleString()} str`,
       color: CHORUS_GRADE_COLOR[site.grade] ?? "#ef4444",
+      icon: "chorus",
       priority: 80,
       ref: { kind: "chorus", site },
     });
@@ -282,6 +382,7 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
         : c.status === "abandoned"
           ? "#fbbf24"
           : GLOBE_LAYER_META.colonies.color,
+      icon: isHusk ? "husk" : "hut",
       priority: isHusk ? 45 : 70,
       ref: { kind: "colony", colony: c, key },
     });
@@ -299,6 +400,7 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
       label: zone.name,
       sublabel: `T${tier} site`,
       color: SITE_TIER_COLOR[tier],
+      icon: siteMarkerIcon(tier),
       priority: 55,
       ref: { kind: "site", zone, tier },
     });
@@ -316,10 +418,62 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
       label: zoneName(nodeId),
       sublabel: "Memorial",
       color: GLOBE_LAYER_META.memorials.color,
+      icon: "monument",
       priority: 35,
       ref: { kind: "memorial", nodeId, name: zoneName(nodeId) },
     });
   }
+
+  // WS3 (Hans, Oct 4 2026): satellites render next to their sites like any
+  // map — one watcher per contestable world site (T1/T2/T3) plus one over
+  // the Chorus-held heart. Visual coordination layer ONLY: stage colors,
+  // blind-spot invisibility and the full intel mechanics are future design
+  // (satellites.md) and are NOT built here.
+  for (const zone of ZONES) {
+    const tier = siteTier(zone.risk);
+    const pos = satelliteWatchPosition(zone.id, tier);
+    markers.push({
+      id: `sat:${zone.id}`,
+      layer: "satellites",
+      lat: pos.lat,
+      lon: pos.lon,
+      label: `${zone.name} watch`,
+      sublabel: `Satellite — T${tier} site`,
+      color: GLOBE_LAYER_META.satellites.color,
+      icon: "satellite",
+      priority: 30,
+      ref: { kind: "satellite", zoneId: zone.id, zoneName: zone.name },
+    });
+  }
+  const heartPos = chorusHeartGlobePosition();
+  markers.push({
+    id: "sat:heart",
+    layer: "satellites",
+    lat: heartPos.lat,
+    lon: heartPos.lon,
+    label: "Chorus heart watch",
+    sublabel: "Satellite — Chorus-held heart",
+    color: GLOBE_LAYER_META.satellites.color,
+    icon: "satellite",
+    priority: 32,
+    ref: { kind: "satellite", zoneId: "heart", zoneName: "Chorus heart" },
+  });
+
+  // WS3: the beachhead is open geography — everyone knows where it is, so
+  // it is marked openly. High declutter priority so it never hides.
+  const bh = beachheadGlobePosition();
+  markers.push({
+    id: "beachhead",
+    layer: "satellites",
+    lat: bh.lat,
+    lon: bh.lon,
+    label: "The Beachhead",
+    sublabel: "Invasion landing ground",
+    color: "#fbbf24",
+    icon: "beachhead",
+    priority: 65,
+    ref: { kind: "beachhead" },
+  });
 
   return markers;
 }

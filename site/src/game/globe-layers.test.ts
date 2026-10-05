@@ -2,25 +2,35 @@
 // Run: bun test site/src/game/globe-layers.test.ts
 import { describe, expect, test } from "bun:test";
 import {
+  applyGlobeFilters,
+  beachheadGlobePosition,
   buildElevationGrid,
   buildGlobeMarkers,
+  chorusHeartGlobePosition,
   colonyGlobePosition,
   countByLayer,
   declutterMarkers,
+  DEFAULT_GLOBE_FILTERS,
   fbm2D,
   GLOBE_LAYERS,
+  GLOBE_SITE_TIER_COLOR,
   hash2i,
   projectGlobe,
+  satelliteWatchPosition,
   shadeTerrainGrid,
+  siteMarkerIcon,
   siteTier,
   terrainColor,
   terrainElevation,
   terrainSpriteSize,
   valueNoise2D,
   worldSiteGlobePosition,
+  type GlobeIconId,
   type GlobeMarker,
   type ScreenMarker,
 } from "./globe-layers";
+import { ZONES } from "./zones";
+import { chorusSiteIntel } from "./chorus-intel";
 
 const NOW = 1_700_000_000_000;
 
@@ -462,5 +472,250 @@ describe("terrainSpriteSize", () => {
     expect(terrainSpriteSize(5)).toBe(64);
     expect(terrainSpriteSize(10)).toBe(96);
     expect(terrainSpriteSize(15)).toBe(128);
+  });
+});
+
+describe("WS2 icon metadata — every layer has an icon, every marker carries one", () => {
+  function baseState(over: Record<string, unknown> = {}) {
+    return {
+      gameId: "g1",
+      playerName: "Hans",
+      worldMap: {
+        known: {
+          "s1:c1": { id: "c1", serverId: "s1", ownerName: "Rival", race: "grays", status: "active", lastScouted: NOW },
+          "s1:c2": { id: "c2", serverId: "s1", ownerName: "Ghost", race: "grays", status: "husk", lastScouted: NOW },
+        },
+        raids: [],
+        raidWarnings: [],
+        incomingRaids: [{ raidId: "r1", attackerNames: ["Karg"], landsAt: NOW + 60000, resolved: false }],
+        reports: {},
+        probes: [],
+        lastActive: NOW,
+      },
+      memorials: [],
+      ...over,
+    } as unknown as Parameters<typeof buildGlobeMarkers>[0];
+  }
+
+  test("layer meta carries a representative icon per layer", () => {
+    const kinds = new Set<string>();
+    for (const l of GLOBE_LAYERS) {
+      expect(typeof l.icon).toBe("string");
+      expect((l.icon as string).length).toBeGreaterThan(0);
+      kinds.add(l.id);
+    }
+    // spot-check Hans's mapping
+    const byId = Object.fromEntries(GLOBE_LAYERS.map((l) => [l.id, l.icon]));
+    expect(byId.home).toBe("home");
+    expect(byId.colonies).toBe("hut");
+    expect(byId.husks).toBe("husk");
+    expect(byId.chorus).toBe("chorus");
+    expect(byId.sites).toBe("ember");
+    expect(byId.satellites).toBe("satellite");
+    expect(byId.memorials).toBe("monument");
+    expect(byId.raids).toBe("raid");
+    // eight layers, eight distinct representative icons (shape carries meaning)
+    const icons = GLOBE_LAYERS.map((l) => l.icon);
+    expect(new Set(icons).size).toBe(GLOBE_LAYERS.length);
+  });
+
+  test("every built marker carries a valid icon", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    expect(ms.length).toBeGreaterThan(0);
+    for (const m of ms) {
+      expect(typeof m.icon).toBe("string");
+    }
+  });
+
+  test("marker icons match Hans's mapping", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    const iconOf = (id: string): GlobeIconId | undefined => ms.find((m) => m.id === id)?.icon;
+    expect(iconOf("home")).toBe("home");
+    expect(iconOf("raid:r1")).toBe("raid");
+    expect(iconOf("beachhead")).toBe("beachhead");
+    // husks get the broken hut, active colonies the hut
+    const huskIcon = ms.find((m) => m.layer === "husks")?.icon;
+    const colonyIcon = ms.find((m) => m.layer === "colonies")?.icon;
+    expect(huskIcon).toBe("husk");
+    expect(colonyIcon).toBe("hut");
+    // all chorus markers carry the Chorus sigil
+    for (const m of ms.filter((m) => m.layer === "chorus")) {
+      expect(m.icon).toBe("chorus");
+    }
+    // all satellite watchers carry the satellite icon
+    for (const m of ms.filter((m) => m.layer === "satellites" && m.ref.kind === "satellite")) {
+      expect(m.icon).toBe("satellite");
+    }
+  });
+
+  test("siteMarkerIcon: T3 → chipset, T1/T2 → ember", () => {
+    expect(siteMarkerIcon(1)).toBe("ember");
+    expect(siteMarkerIcon(2)).toBe("ember");
+    expect(siteMarkerIcon(3)).toBe("chipset");
+  });
+
+  test("built site markers carry tier-matching icons", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    for (const m of ms.filter((m) => m.layer === "sites")) {
+      if (m.ref.kind !== "site") throw new Error("site layer marker without site ref");
+      expect(m.icon).toBe(siteMarkerIcon(m.ref.tier));
+    }
+    // the tier mapping is risk-driven: <34 → T1, <67 → T2, else T3
+    expect(siteTier(10)).toBe(1);
+    expect(siteTier(50)).toBe(2);
+    expect(siteTier(90)).toBe(3);
+  });
+
+  test("tier colors exist for the legend chips", () => {
+    expect(GLOBE_SITE_TIER_COLOR[1]).toBe("#7dd3fc");
+    expect(GLOBE_SITE_TIER_COLOR[2]).toBe("#a78bfa");
+    expect(GLOBE_SITE_TIER_COLOR[3]).toBe("#f472b6");
+  });
+});
+
+describe("WS3 satellites + beachhead", () => {
+  function baseState(over: Record<string, unknown> = {}) {
+    return {
+      gameId: "g1",
+      playerName: "Hans",
+      worldMap: { known: {}, raids: [], raidWarnings: [], incomingRaids: [], reports: {}, probes: [], lastActive: NOW },
+      memorials: [],
+      ...over,
+    } as unknown as Parameters<typeof buildGlobeMarkers>[0];
+  }
+
+  test("one satellite watch per world site + the Chorus heart", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    const sats = ms.filter((m) => m.layer === "satellites" && m.ref.kind === "satellite");
+    expect(sats).toHaveLength(ZONES.length + 1);
+    expect(sats.some((m) => m.id === "sat:heart")).toBe(true);
+    for (const z of ZONES) {
+      expect(sats.some((m) => m.id === `sat:${z.id}`)).toBe(true);
+    }
+  });
+
+  test("beachhead marker is fixed and openly marked", () => {
+    const a = beachheadGlobePosition();
+    const b = beachheadGlobePosition();
+    expect(a).toEqual(b);
+    expect(a).toEqual({ lat: 12, lon: 100 });
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    const bh = ms.find((m) => m.id === "beachhead");
+    expect(bh).toBeDefined();
+    expect(bh!.icon).toBe("beachhead");
+    expect(bh!.lat).toBe(12);
+    expect(bh!.lon).toBe(100);
+  });
+
+  test("satellite watch positions sit next to their sites", () => {
+    for (const z of ZONES) {
+      const tier = siteTier(z.risk);
+      const site = worldSiteGlobePosition(z.id, tier);
+      const sat = satelliteWatchPosition(z.id, tier);
+      // near enough to read as "next to", far enough to never stack
+      const dist = Math.abs(sat.lat - site.lat) + Math.abs(sat.lon - site.lon);
+      expect(dist).toBeGreaterThan(2);
+      expect(dist).toBeLessThan(20);
+      expect(Math.abs(sat.lat) <= 78).toBe(true);
+      expect(Math.abs(sat.lon) <= 180).toBe(true);
+    }
+  });
+
+  test("satellite watch positions are deterministic", () => {
+    expect(satelliteWatchPosition("zone-a", 2)).toEqual(satelliteWatchPosition("zone-a", 2));
+  });
+
+  test("Chorus heart sits on the grade-V site", () => {
+    const heart = chorusHeartGlobePosition();
+    const g5 = chorusSiteIntel().find((s) => s.grade === 5)!;
+    expect(heart.lat).toBe(g5.lat);
+    expect(heart.lon).toBe(g5.lon);
+  });
+});
+
+describe("WS7 applyGlobeFilters", () => {
+  function baseState(over: Record<string, unknown> = {}) {
+    return {
+      gameId: "g1",
+      playerName: "Hans",
+      worldMap: { known: {}, raids: [], raidWarnings: [], incomingRaids: [], reports: {}, probes: [], lastActive: NOW },
+      memorials: [],
+      ...over,
+    } as unknown as Parameters<typeof buildGlobeMarkers>[0];
+  }
+
+  test("defaults keep everything", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    const out = applyGlobeFilters(ms, DEFAULT_GLOBE_FILTERS);
+    expect(out).toBe(ms); // all-on fast path returns the same array
+    expect(out.length).toBe(ms.length);
+  });
+
+  test("empty/unknown filters never hide anything", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    expect(applyGlobeFilters(ms, {})).toHaveLength(ms.length);
+    expect(applyGlobeFilters(ms, { siteTiers: { 1: true, 2: true, 3: true } })).toHaveLength(ms.length);
+  });
+
+  test("T3 off hides only T3 site markers", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    const t3 = ms.filter((m) => m.ref.kind === "site" && m.ref.tier === 3);
+    expect(t3.length).toBeGreaterThan(0);
+    const out = applyGlobeFilters(ms, { siteTiers: { 1: true, 2: true, 3: false } });
+    expect(out.some((m) => m.ref.kind === "site" && m.ref.tier === 3)).toBe(false);
+    expect(out.some((m) => m.ref.kind === "site" && m.ref.tier === 1)).toBe(true);
+    expect(out.some((m) => m.ref.kind === "site" && m.ref.tier === 2)).toBe(true);
+    expect(out).toHaveLength(ms.length - t3.length);
+  });
+
+  test("non-site layers are never touched by tier filters", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    const out = applyGlobeFilters(ms, { siteTiers: { 1: false, 2: false, 3: false } });
+    for (const l of GLOBE_LAYERS.map((x) => x.id).filter((id) => id !== "sites")) {
+      const want = ms.filter((m) => m.layer === l).length;
+      expect(out.filter((m) => m.layer === l)).toHaveLength(want);
+    }
+    expect(out.some((m) => m.layer === "sites")).toBe(false);
+  });
+});
+
+describe("declutter with icons", () => {
+  function iconMarker(id: string, icon: GlobeIconId, priority: number, sx: number, sy: number): ScreenMarker {
+    return {
+      marker: {
+        id,
+        layer: "colonies",
+        lat: 0,
+        lon: 0,
+        label: id,
+        sublabel: "",
+        color: "#fff",
+        icon,
+        priority,
+        ref: { kind: "home" },
+      } as GlobeMarker,
+      sx,
+      sy,
+    };
+  }
+
+  test("26px declutter keeps higher priority regardless of icon", () => {
+    const kept = declutterMarkers(
+      [iconMarker("low", "hut", 10, 0, 0), iconMarker("high", "beachhead", 90, 5, 5)],
+      26,
+    );
+    expect(kept.map((k) => k.marker.id)).toEqual(["high"]);
+  });
+
+  test("icon markers at 26px+ separation all survive", () => {
+    const kept = declutterMarkers(
+      [
+        iconMarker("a", "hut", 70, 0, 0),
+        iconMarker("b", "ember", 55, 30, 0),
+        iconMarker("c", "chipset", 55, 0, 30),
+      ],
+      26,
+    );
+    expect(kept).toHaveLength(3);
   });
 });
