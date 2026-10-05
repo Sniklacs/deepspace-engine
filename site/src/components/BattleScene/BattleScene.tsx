@@ -9,7 +9,7 @@
 // ticks come from the engine's battleMoment when provided; otherwise a
 // scripted demo curve.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
   SCENE_PHASES,
   sceneClockS,
@@ -21,6 +21,30 @@ import {
   type SceneTurret,
   type SceneUnit,
 } from "../../game/war/battle-scene-model";
+import {
+  subscribeSceneUI,
+  sceneUISnapshot,
+  sceneUIServerSnapshot,
+  setVectorOn,
+  setTurretsOn,
+  setLogisticsFx,
+  setManual,
+  cycleDayNight,
+  setGunner,
+  setGunTarget,
+  setClock,
+  bumpKill,
+  registerTurrets,
+  resetSceneUI,
+} from "../../game/war/battle-scene-ui-store";
+import {
+  subscribeWindows,
+  windowSnapshot,
+  windowServerSnapshot,
+  isWindowOpen,
+  openWindow,
+  closeWindowsOfKind,
+} from "../../game/windows/window-store";
 import type { ManeuverVector } from "../../game/war/war-types";
 import { Fx } from "./effects";
 import { ToggleSwitch } from "./ToggleSwitch";
@@ -46,6 +70,15 @@ interface Props {
   scene: SceneBattle;
   /** Live casualty counts from battleMoment — drives unit deaths when present. */
   liveCasualties?: { attacker: number; defender: number } | null;
+  /**
+   * "embedded" (default): the panel layout used inside tabs — header, canvas,
+   * control deck, footer. "fullscreen": the canvas fills the viewport
+   * edge-to-edge behind a slim header overlay; the controls live in the
+   * floating glass window instead of a deck (owner 2026-10-05).
+   */
+  variant?: "embedded" | "fullscreen";
+  /** fullscreen only: back out to wherever the scene was opened from */
+  onClose?: () => void;
 }
 
 interface SpriteSet { [k: string]: HTMLImageElement | null; ground: HTMLImageElement | null }
@@ -66,11 +99,22 @@ const VEC_LABEL: Record<ManeuverVector, string> = {
   MAIN: "Main", FLANK_LEFT: "Flank L", FLANK_RIGHT: "Flank R", REAR: "Rear", RESERVE: "Reserve",
 };
 
-export function BattleScene({ scene, liveCasualties = null }: Props) {
+export function BattleScene({ scene, liveCasualties = null, variant = "embedded", onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const sprites = useMemo(loadSprites, []);
   const fx = useMemo(() => new Fx(), []);
+  const fullscreen = variant === "fullscreen";
+  // Ref mirror of the variant for the animation loop (avoids re-subscribing).
+  const fullscreenRef = useRef(fullscreen);
+  fullscreenRef.current = fullscreen;
+
+  // Shared UI state: the canvas and the floating glass control window read
+  // and write the same store (owner 2026-10-05).
+  const ui = useSyncExternalStore(subscribeSceneUI, sceneUISnapshot, sceneUIServerSnapshot);
+  // Whether the floating controls window is open (fullscreen only).
+  useSyncExternalStore(subscribeWindows, windowSnapshot, windowServerSnapshot);
+  const controlsOpen = isWindowOpen("battle-controls");
 
   // Working copy of units — the animation loop mutates this, never the model.
   const unitsRef = useRef<SceneUnit[]>([]);
@@ -80,31 +124,21 @@ export function BattleScene({ scene, liveCasualties = null }: Props) {
     turretsRef.current = scene.turrets.map((t) => ({ ...t }));
   }
 
-  const [vectorsOn, setVectorsOn] = useState<Record<ManeuverVector, boolean>>({
-    MAIN: true, FLANK_LEFT: true, FLANK_RIGHT: true, REAR: true, RESERVE: true,
-  });
-  const [turretsOn, setTurretsOn] = useState(true);
-  const [logisticsFx, setLogisticsFx] = useState(true);
-  const [manual, setManual] = useState(false);
-  const [dayNight, setDayNight] = useState<"auto" | "day" | "night">("auto");
-  const [gunnerId, setGunnerId] = useState<string | null>(null);
-  const [gunTarget, setGunTarget] = useState<string | null>(null);
-  const [tS, setTS] = useState(0);
-  const [kills, setKills] = useState({ attacker: 0, defender: 0 });
-
-  const uiRef = useRef({ vectorsOn, turretsOn, logisticsFx, manual, dayNight, gunnerId, gunTarget });
-  uiRef.current = { vectorsOn, turretsOn, logisticsFx, manual, dayNight, gunnerId, gunTarget };
-
-  // Reset working copy when the scene identity changes.
+  // Reset working copy + shared UI when the scene identity changes.
   const sceneIdRef = useRef(scene.id);
   useEffect(() => {
     if (sceneIdRef.current !== scene.id) {
       sceneIdRef.current = scene.id;
       unitsRef.current = scene.units.map((u) => ({ ...u }));
       turretsRef.current = scene.turrets.map((t) => ({ ...t }));
-      setGunnerId(null);
-      setGunTarget(null);
+      resetSceneUI();
     }
+    registerTurrets(
+      turretsRef.current
+        .map((t, i) => ({ t, i }))
+        .filter(({ t }) => t.side === "attacker" && t.hp01 > 0)
+        .map(({ t, i }) => ({ id: t.id, idx: i })),
+    );
   }, [scene]);
 
   // ---- main loop ---------------------------------------------------------
@@ -126,10 +160,13 @@ export function BattleScene({ scene, liveCasualties = null }: Props) {
 
     const resize = () => {
       const r = wrap.getBoundingClientRect();
-      canvas.width = Math.max(320, Math.floor(r.width * dpr()));
-      canvas.height = Math.max(200, Math.floor((r.width * 0.62) * dpr()));
+      const d = dpr();
+      canvas.width = Math.max(320, Math.floor(r.width * d));
+      // Fullscreen: the canvas fills the viewport; embedded: 16:10-ish panel.
+      const hCss = fullscreenRef.current ? Math.max(200, r.height) : Math.max(200, r.width * 0.62);
+      canvas.height = Math.max(200, Math.floor(hCss * d));
       canvas.style.width = `${r.width}px`;
-      canvas.style.height = `${r.width * 0.62}px`;
+      canvas.style.height = `${hCss}px`;
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -155,14 +192,14 @@ export function BattleScene({ scene, liveCasualties = null }: Props) {
       u.state = "dead";
       u.hp01 = 0;
       fx.explode(X(u.x), Y(u.y), u.kind === "thunder" ? 1.5 : 1);
-      setKills((k) => ({ ...k, [u.side]: k[u.side as "attacker" | "defender"] + 1 }));
+      bumpKill(u.side as "attacker" | "defender");
     };
 
     const step = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const t = sceneClockS(scene, Date.now());
-      const ui = uiRef.current;
+      const ui = sceneUISnapshot();
       const phase = scenePhaseAt(t);
 
       // --- unit state machine -------------------------------------------
@@ -271,7 +308,7 @@ export function BattleScene({ scene, liveCasualties = null }: Props) {
       clockAcc += dt;
       if (clockAcc > 0.25) {
         clockAcc = 0;
-        setTS(t);
+        setClock(t);
       }
 
       render(ctx, phase);
@@ -279,7 +316,7 @@ export function BattleScene({ scene, liveCasualties = null }: Props) {
     };
 
     const render = (c: CanvasRenderingContext2D, phase: ScenePhase) => {
-      const ui = uiRef.current;
+      const ui = sceneUISnapshot();
       const w = W();
       const h = H();
       const s = S();
@@ -594,7 +631,7 @@ export function BattleScene({ scene, liveCasualties = null }: Props) {
     const r = canvas.getBoundingClientRect();
     const px = (e.clientX - r.left) / r.width;
     const py = (e.clientY - r.top) / r.height;
-    const ui = uiRef.current;
+    const ui = sceneUISnapshot();
     if (ui.gunnerId) {
       // Gunner view: click an enemy unit to target it.
       let best: SceneUnit | null = null;
@@ -616,13 +653,102 @@ export function BattleScene({ scene, liveCasualties = null }: Props) {
       if (d < bd) { bd = d; best = tr; }
     }
     if (best) {
-      setGunnerId(best.id);
+      setGunner(best.id);
       setManual(true); // hands on the weapon ⇒ manual mode
     }
   };
 
-  const gunner = gunnerId ? turretsRef.current.find((t) => t.id === gunnerId) : null;
+  const toggleControls = () => {
+    if (isWindowOpen("battle-controls")) closeWindowsOfKind("battle-controls");
+    else openWindow("battle-controls", { titleFallback: "Battle controls" });
+  };
 
+  const gunner = ui.gunnerId ? turretsRef.current.find((t) => t.id === ui.gunnerId) : null;
+
+  const sceneSub = (
+    <>
+      <span className="text-amber-400">{scene.attackerName}</span>
+      <span className="mx-1.5 text-zinc-600">vs</span>
+      <span className="text-rose-400">{scene.defenderName}</span>
+    </>
+  );
+
+  const gunnerOverlay = gunner && (
+    <>
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="rounded-full border-2 border-cyan-300/70" style={{ width: "46%", aspectRatio: "1", boxShadow: "0 0 40px rgba(103,232,249,0.25), inset 0 0 60px rgba(0,0,0,0.55)" }}>
+          <div className="flex h-full items-center justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-[0.25em] text-cyan-200/90">
+              {ui.gunTarget ? "target locked" : "gunner cam — click an enemy to engage"}
+            </span>
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => setGunner(null)}
+        className="absolute right-3 top-3 rounded-lg border border-cyan-300/40 bg-black/70 px-3 py-1.5 text-xs font-semibold text-cyan-200 hover:bg-black/90"
+      >
+        Exit gunner ✕
+      </button>
+    </>
+  );
+
+  // ---- fullscreen: the scene owns the whole viewport -----------------------
+  // Clean screen by default: slim SceneHeader overlay + one small Controls
+  // button. The toggle deck, doctrine clock, and gunner picker live in the
+  // floating glass window (summoned with Controls, dismissed by tapping it
+  // again or closing the window).
+  if (fullscreen) {
+    return (
+      <div className="fixed inset-0 z-[60] bg-[#0b0d13]" data-testid="battle-scene-fullscreen">
+        {/* canvas fills the viewport edge to edge */}
+        <div ref={wrapRef} className="absolute inset-0">
+          <canvas ref={canvasRef} onClick={onCanvasClick} className="block cursor-crosshair" aria-label="Battle scene tactical map" />
+          {gunnerOverlay}
+        </div>
+
+        {/* slim header overlay — where you're standing + tier + UTC clock */}
+        <div
+          className="absolute inset-x-0 top-0 z-10 border-b border-white/10 bg-black/55 backdrop-blur-md"
+          style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.5rem)" }}
+        >
+          <div className="flex items-center justify-between gap-3 px-3 pb-2">
+            <div className="min-w-0 flex-1">
+              <SceneHeader name={scene.name} tier={scene.tier} sub={sceneSub} />
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              data-testid="battle-scene-close"
+              aria-label="Back to the Arena"
+              className="flex-none rounded-full border border-white/20 bg-black/55 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-200 backdrop-blur-md hover:bg-black/80"
+            >
+              ✕ Arena
+            </button>
+          </div>
+        </div>
+
+        {/* the one small control: summons/dismisses the floating glass deck */}
+        <button
+          type="button"
+          onClick={toggleControls}
+          data-testid="battle-controls-toggle"
+          aria-expanded={controlsOpen}
+          className={`absolute bottom-4 right-3 z-10 rounded-full border px-4 py-2 text-[11px] font-semibold uppercase tracking-wider backdrop-blur-md ${
+            controlsOpen
+              ? "border-cyan-300/50 bg-cyan-950/60 text-cyan-200"
+              : "border-white/20 bg-black/55 text-zinc-200 hover:bg-black/80"
+          }`}
+          style={{ bottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
+        >
+          ⚙ Controls
+        </button>
+      </div>
+    );
+  }
+
+  // ---- embedded: the tab panel layout (unchanged) ---------------------------
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-[#0b0d13]">
       {/* header — where you're standing + tier + server clock */}
@@ -630,42 +756,17 @@ export function BattleScene({ scene, liveCasualties = null }: Props) {
         <SceneHeader
           name={scene.name}
           tier={scene.tier}
-          sub={
-            <>
-              <span className="text-amber-400">{scene.attackerName}</span>
-              <span className="mx-1.5 text-zinc-600">vs</span>
-              <span className="text-rose-400">{scene.defenderName}</span>
-            </>
-          }
+          sub={sceneSub}
         />
         <div className="mt-2">
-          <BattleClock tS={tS} compact />
+          <BattleClock tS={ui.tS} compact />
         </div>
       </div>
 
       {/* canvas */}
       <div ref={wrapRef} className="relative w-full">
         <canvas ref={canvasRef} onClick={onCanvasClick} className="block cursor-crosshair" aria-label="Battle scene tactical map" />
-        {gunner && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="rounded-full border-2 border-cyan-300/70" style={{ width: "46%", aspectRatio: "1", boxShadow: "0 0 40px rgba(103,232,249,0.25), inset 0 0 60px rgba(0,0,0,0.55)" }}>
-              <div className="flex h-full items-center justify-center">
-                <span className="text-[10px] font-bold uppercase tracking-[0.25em] text-cyan-200/90">
-                  {gunTarget ? "target locked" : "gunner cam — click an enemy to engage"}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-        {gunner && (
-          <button
-            type="button"
-            onClick={() => { setGunnerId(null); setGunTarget(null); }}
-            className="absolute right-3 top-3 rounded-lg border border-cyan-300/40 bg-black/70 px-3 py-1.5 text-xs font-semibold text-cyan-200 hover:bg-black/90"
-          >
-            Exit gunner ✕
-          </button>
-        )}
+        {gunnerOverlay}
       </div>
 
       {/* control deck */}
@@ -677,30 +778,30 @@ export function BattleScene({ scene, liveCasualties = null }: Props) {
               <ToggleSwitch
                 key={v}
                 label={VEC_LABEL[v]}
-                on={vectorsOn[v]}
-                onChange={(on) => setVectorsOn((s) => ({ ...s, [v]: on }))}
+                on={ui.vectorsOn[v]}
+                onChange={(on) => setVectorOn(v, on)}
                 accent="#a78bfa"
               />
             ))}
           </div>
           <div className="mt-3 flex flex-wrap gap-x-5 gap-y-3">
-            <ToggleSwitch label="Turrets" on={turretsOn} onChange={setTurretsOn} accent="#67e8f9" />
-            <ToggleSwitch label="Logistics FX" on={logisticsFx} onChange={setLogisticsFx} accent="#5eead4" />
+            <ToggleSwitch label="Turrets" on={ui.turretsOn} onChange={setTurretsOn} accent="#67e8f9" />
+            <ToggleSwitch label="Logistics FX" on={ui.logisticsFx} onChange={setLogisticsFx} accent="#5eead4" />
           </div>
         </div>
         <div>
           <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Command</p>
           <div className="flex flex-wrap gap-x-5 gap-y-3">
-            <ToggleSwitch label={manual ? "Manual" : "Auto"} on={manual} onChange={setManual} accent={manual ? "#f87171" : "#a3e635"} />
+            <ToggleSwitch label={ui.manual ? "Manual" : "Auto"} on={ui.manual} onChange={setManual} accent={ui.manual ? "#f87171" : "#a3e635"} />
             <ToggleSwitch
-              label={dayNight === "auto" ? "Day/Night auto" : dayNight === "day" ? "Day" : "Night"}
-              on={dayNight !== "day"}
-              onChange={(on) => setDayNight(on ? (dayNight === "night" ? "auto" : "night") : "day")}
+              label={ui.dayNight === "auto" ? "Day/Night auto" : ui.dayNight === "day" ? "Day" : "Night"}
+              on={ui.dayNight !== "day"}
+              onChange={cycleDayNight}
               accent="#38bdf8"
             />
           </div>
           <p className="mt-2 max-w-[220px] text-[10px] leading-relaxed text-zinc-500">
-            {manual
+            {ui.manual
               ? "Manual: turrets hold fire until you take the gunner cam. Click one of your turrets."
               : "Auto: turrets engage on their own. Flip to manual to take a gun yourself."}
           </p>
@@ -713,9 +814,9 @@ export function BattleScene({ scene, liveCasualties = null }: Props) {
           Phase 1 live view — observing only. Orders ship in phase 2.
         </span>
         <span className="tabular-nums">
-          <span className="text-amber-400/90">{kills.attacker}✕</span>
+          <span className="text-amber-400/90">{ui.kills.attacker}✕</span>
           <span className="mx-1">·</span>
-          <span className="text-rose-400/90">{kills.defender}✕</span>
+          <span className="text-rose-400/90">{ui.kills.defender}✕</span>
           <span className="ml-1">down</span>
         </span>
       </div>

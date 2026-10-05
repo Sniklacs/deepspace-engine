@@ -584,6 +584,48 @@
     bottom: calc(var(--chat-vk, 0px) + var(--spacing-nav) + var(--dock-h, 0px) + env(safe-area-inset-bottom) + 0.5rem);
   }
 }
+/* BATTLE CONTROLS (owner 2026-10-05) — the floating glass control deck for
+   the full-screen battle scene. Compact by default on phones: bottom-right,
+   above the nav, never swallowing the scene. Draggable by the title bar and
+   resizable by the corner grip like every EVE window; size/position are
+   remembered per kind. The glass look is the shipped style for this kind. */
+.win-frame[data-kind="battle-controls"] {
+  left: auto;
+  right: 0.5rem;
+  top: auto;
+  bottom: calc(var(--spacing-nav) + var(--dock-h, 0px) + env(safe-area-inset-bottom) + 3.5rem);
+  width: min(21rem, calc(100vw - 1rem));
+  max-height: 64vh;
+  background: linear-gradient(160deg, rgba(13, 17, 26, 0.84), rgba(13, 17, 26, 0.62));
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(14px) saturate(1.25);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+.win-frame[data-kind="battle-controls"] .win-titlebar {
+  background: rgba(10, 14, 22, 0.55);
+}
+@media (min-width: 640px) {
+  .win-frame[data-kind="battle-controls"] {
+    left: auto;
+    right: 1.5rem;
+    top: auto;
+    bottom: 6rem;
+    margin-inline: 0;
+    width: 22rem;
+    max-height: 70vh;
+  }
+}
+/* Title bars are drag handles now (owner 2026-10-05): grab one to float the
+   window around the screen; double-click snaps back to the default spot. */
+.win-titlebar {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.win-titlebar:active {
+  cursor: grabbing;
+}
 @keyframes sheetZoomIn {
   from { transform: translate(-50%, -46%); opacity: 0; }
   to { transform: translate(-50%, -50%); opacity: 1; }

@@ -26,7 +26,7 @@ import { availableWeight } from "../game/war/troops";
 import { snapshotHero } from "../game/prologue/act1-battle";
 import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
-import { BattleScene } from "./BattleScene/BattleScene";
+import { BattleSceneFullscreen } from "./BattleScene/BattleSceneFullscreen";
 import { buildDemoScene } from "../game/war/battle-scene-model";
 
 type Act = (fn: () => Promise<unknown>, label: string) => void;
@@ -506,9 +506,7 @@ export default function ArenaPanel({ state, token, onAction }: {
           </button>
         </div>
         {showScene && (
-          <div className="mt-3">
-            <BattleScene scene={buildDemoScene(Date.now())} />
-          </div>
+          <BattleSceneFullscreen scene={buildDemoScene(Date.now())} onClose={() => setShowScene(false)} />
         )}
       </div>
 

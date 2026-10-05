@@ -25,7 +25,7 @@
 // This store owns chrome state ONLY (open/minimized/z-order/size). Window
 // CONTENT data (chat messages, research state) stays in its own store.
 
-export type WindowKind = "chat" | "satellite-research";
+export type WindowKind = "chat" | "satellite-research" | "battle-controls";
 
 export interface WindowProps {
   /** satellite-research: the covered node id, e.g. "rim-3" */
@@ -48,6 +48,8 @@ export interface WindowInstance {
   z: number;
   /** player-chosen size (EVE-style resize); null = default CSS sizing */
   size: { w: number; h: number } | null;
+  /** player-dragged position (EVE-style float); null = default CSS placement */
+  pos: { x: number; y: number } | null;
 }
 
 /** Minimum window size — below this the content is unusable. */
@@ -102,6 +104,47 @@ function sizeStorageKey(kind: WindowKind): string {
   return `unbound:win-size:${kind}`;
 }
 
+function posStorageKey(kind: WindowKind): string {
+  return `unbound:win-pos:${kind}`;
+}
+
+function loadRememberedPos(kind: WindowKind): { x: number; y: number } | null {
+  const mem = rememberedPositions.get(kind);
+  if (mem) return { ...mem };
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(posStorageKey(kind));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<{ x: number; y: number }>;
+    if (typeof parsed.x !== "number" || typeof parsed.y !== "number") return null;
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+    const pos = {
+      x: Math.round(Math.min(Math.max(parsed.x, -vw + 96), vw - 96)),
+      y: Math.round(Math.min(Math.max(parsed.y, 0), vh - 96)),
+    };
+    rememberedPositions.set(kind, pos);
+    return { ...pos };
+  } catch {
+    return null;
+  }
+}
+
+function rememberPos(kind: WindowKind, pos: { x: number; y: number }, persist: boolean): void {
+  rememberedPositions.set(kind, { ...pos });
+  if (!persist) return;
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(posStorageKey(kind), JSON.stringify(pos));
+    }
+  } catch {
+    /* private mode etc. — the in-memory position still works for the session */
+  }
+}
+
+/** Per-kind remembered drag positions — EVE remembers where you left them. */
+const rememberedPositions = new Map<WindowKind, { x: number; y: number }>();
+
 function loadRememberedSize(kind: WindowKind): { w: number; h: number } | null {
   const mem = rememberedSizes.get(kind);
   if (mem) return { ...mem };
@@ -144,6 +187,8 @@ function defaultTitle(kind: WindowKind): { titleKey: string; titleFallback: stri
       return { titleKey: "windows.chatTitle", titleFallback: "Chat" };
     case "satellite-research":
       return { titleKey: "windows.satResearchTitle", titleFallback: "Satellite research" };
+    case "battle-controls":
+      return { titleKey: "windows.battleControlsTitle", titleFallback: "Battle controls" };
   }
 }
 
@@ -188,6 +233,8 @@ export function openWindow(kind: WindowKind, opts: OpenWindowOpts = {}): string 
           z: seq,
           // EVE remembers: reopen at the player's last size for this kind.
           size: loadRememberedSize(kind),
+          // EVE remembers: reopen where the player left it.
+          pos: loadRememberedPos(kind),
         },
       ],
     };
@@ -269,8 +316,7 @@ export function resizeWindow(id: string, w: number, h: number, persist = true): 
 }
 
 /** Forget a window's custom size (double-click the resize grip). */
-export function resetWindowSize(id: string): void {
-  const win = state.windows.find((x) => x.id === id);
+export function resetWindowSize(id: string): void {  const win = state.windows.find((x) => x.id === id);
   if (!win || !win.size) return;
   rememberedSizes.delete(win.kind);
   try {
@@ -281,6 +327,47 @@ export function resetWindowSize(id: string): void {
   state = {
     ...state,
     windows: state.windows.map((x) => (x.id === id ? { ...x, size: null } : x)),
+  };
+  emit();
+}
+
+/**
+ * Drag a window (EVE-style float: the player moves it by the title bar).
+ * The position is remembered per kind and restored when the window reopens.
+ * Pass persist=false while a drag is in flight — the frame re-calls with
+ * persist=true on pointer-up so localStorage isn't hammered mid-drag.
+ */
+export function moveWindow(id: string, x: number, y: number, persist = true): void {
+  const win = state.windows.find((w) => w.id === id);
+  if (!win) return;
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+  // Keep a grab-handle's worth of the window on screen.
+  const pos = {
+    x: Math.round(Math.min(Math.max(x, -vw + 96), vw - 96)),
+    y: Math.round(Math.min(Math.max(y, 0), vh - 96)),
+  };
+  rememberPos(win.kind, pos, persist);
+  state = {
+    ...state,
+    windows: state.windows.map((w) => (w.id === id ? { ...w, pos } : w)),
+  };
+  emit();
+}
+
+/** Forget a window's dragged position (double-click the title bar). */
+export function resetWindowPos(id: string): void {
+  const win = state.windows.find((w) => w.id === id);
+  if (!win || !win.pos) return;
+  rememberedPositions.delete(win.kind);
+  try {
+    if (typeof localStorage !== "undefined") localStorage.removeItem(posStorageKey(win.kind));
+  } catch {
+    /* ignore */
+  }
+  state = {
+    ...state,
+    windows: state.windows.map((w) => (w.id === id ? { ...w, pos: null } : w)),
   };
   emit();
 }
@@ -330,5 +417,6 @@ export function minimizedWindows(): WindowInstance[] {
 export function resetWindows(): void {
   state = initialState;
   rememberedSizes.clear();
+  rememberedPositions.clear();
   emit();
 }

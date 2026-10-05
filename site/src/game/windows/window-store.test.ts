@@ -13,6 +13,8 @@ import {
   focusWindow,
   resizeWindow,
   resetWindowSize,
+  moveWindow,
+  resetWindowPos,
   isWindowOpen,
   visibleWindows,
   minimizedWindows,
@@ -190,5 +192,58 @@ describe("resize", () => {
     resetWindows();
     openWindow("chat");
     expect(windowSnapshot().windows[0]?.size).toBeNull();
+  });
+});
+
+describe("battle-controls kind (owner 2026-10-05)", () => {
+  test("opens with the battle-controls title and a stable id", () => {
+    const id = openWindow("battle-controls");
+    expect(id).toBe("battle-controls::battle-controls");
+    expect(isWindowOpen("battle-controls")).toBe(true);
+    const w = windowSnapshot().windows.find((x) => x.id === id);
+    expect(w?.titleFallback).toBe("Battle controls");
+  });
+
+  test("closeWindowsOfKind dismisses the floating deck", () => {
+    openWindow("battle-controls");
+    closeWindowsOfKind("battle-controls");
+    expect(isWindowOpen("battle-controls")).toBe(false);
+  });
+});
+
+describe("moveWindow (owner 2026-10-05: EVE-style float)", () => {
+  test("new windows start at the default CSS placement", () => {
+    const id = openWindow("battle-controls");
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.pos).toBeNull();
+  });
+
+  test("moveWindow records the dragged position", () => {
+    const id = openWindow("battle-controls");
+    moveWindow(id, 120, 200);
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.pos).toEqual({ x: 120, y: 200 });
+  });
+
+  test("moveWindow clamps so a grab-handle stays on screen", () => {
+    const id = openWindow("battle-controls");
+    moveWindow(id, -99999, -99999);
+    const pos = windowSnapshot().windows.find((w) => w.id === id)?.pos;
+    expect(pos).not.toBeNull();
+    expect(pos!.y).toBe(0);
+  });
+
+  test("resetWindowPos forgets the dragged position", () => {
+    const id = openWindow("battle-controls");
+    moveWindow(id, 120, 200);
+    resetWindowPos(id);
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.pos).toBeNull();
+  });
+
+  test("resetWindows clears remembered positions (test isolation)", () => {
+    const id = openWindow("battle-controls");
+    moveWindow(id, 120, 200);
+    closeWindow(id);
+    resetWindows();
+    openWindow("battle-controls");
+    expect(windowSnapshot().windows[0]?.pos).toBeNull();
   });
 });

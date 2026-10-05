@@ -12,11 +12,13 @@
 // Phone: near-full-screen panel by default. Desktop (sm+): centered panel.
 // Windows never auto-close on navigation — the store is the truth and the
 // host remounts them.
-import { useRef, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, type CSSProperties, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { useT } from "../i18n/I18n";
 import { Icon } from "../icons";
 import {
   focusWindow,
+  moveWindow,
+  resetWindowPos,
   resizeWindow,
   resetWindowSize,
   WIN_MIN_W,
@@ -34,19 +36,10 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
   const title = t(win.titleKey, win.titleFallback);
   const frameRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
-
-  // Inline geometry once the player has resized: explicit width/height, with
-  // the conflicting pinned edges released. Chat anchors to the BOTTOM so the
-  // virtual-keyboard offset in CSS keeps working; other windows anchor
-  // top-left. (Untouched windows keep the pure-CSS default sizing.)
-  const sizeStyle = win.size
-    ? {
-        width: win.size.w,
-        height: win.size.h,
-        right: "auto" as const,
-        ...(win.kind === "chat" ? { top: "auto" as const } : { bottom: "auto" as const }),
-      }
-    : undefined;
+  // Title-bar float drag (owner 2026-10-05): EVE-style windows are floatable —
+  // grab the title bar to move the window around the screen. Double-click the
+  // title bar to snap back to the default placement.
+  const moveRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number; lastX: number; lastY: number; moved: boolean } | null>(null);
 
   const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -82,6 +75,58 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
     if (s) resizeWindow(win.id, s.w, s.h, true);
   };
 
+  // ---- title-bar float drag ----------------------------------------------
+  const onTitleDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+    // Chrome buttons handle their own taps.
+    if ((e.target as HTMLElement).closest("button")) return;
+    const el = frameRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const baseX = win.pos?.x ?? r.left;
+    const baseY = win.pos?.y ?? r.top;
+    moveRef.current = { startX: e.clientX, startY: e.clientY, baseX, baseY, lastX: baseX, lastY: baseY, moved: false };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onTitleDragMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const m = moveRef.current;
+    if (!m) return;
+    if (!m.moved && Math.abs(e.clientX - m.startX) + Math.abs(e.clientY - m.startY) > 4) {
+      m.moved = true;
+      focusWindow(win.id);
+    }
+    if (!m.moved) return;
+    m.lastX = m.baseX + (e.clientX - m.startX);
+    m.lastY = m.baseY + (e.clientY - m.startY);
+    // persist=false mid-drag; the final position is persisted on pointer-up.
+    moveWindow(win.id, m.lastX, m.lastY, false);
+  };
+
+  const onTitleDragEnd = () => {
+    const m = moveRef.current;
+    if (!m) return;
+    moveRef.current = null;
+    if (!m.moved) return;
+    moveWindow(win.id, m.lastX, m.lastY, true);
+  };
+
+  // Inline geometry once the player has moved/resized: explicit position and
+  // size, with the conflicting pinned edges released. Chat anchors to the
+  // BOTTOM when only resized (so the virtual-keyboard offset in CSS keeps
+  // working); a dragged window pins to its dragged top-left. Untouched
+  // windows keep the pure-CSS default sizing/placement.
+  const frameStyle: CSSProperties = {
+    zIndex: 70 + win.z,
+    ...(win.pos ? { left: win.pos.x, top: win.pos.y, right: "auto" as const, bottom: "auto" as const } : {}),
+    ...(win.size
+      ? {
+          width: win.size.w,
+          height: win.size.h,
+          ...(win.pos ? {} : { right: "auto" as const, ...(win.kind === "chat" ? { top: "auto" as const } : { bottom: "auto" as const }) }),
+        }
+      : {}),
+  };
+
   return (
     <section
       role="dialog"
@@ -92,10 +137,18 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
       ref={frameRef}
       onPointerDown={() => focusWindow(win.id)}
       className="win-frame"
-      style={{ zIndex: 70 + win.z, ...sizeStyle }}
+      style={frameStyle}
     >
-      {/* title bar — the window's nameplate. − parks it, × closes it. */}
-      <div className="win-titlebar">
+      {/* title bar — the window's nameplate and drag handle. − parks it, ×
+          closes it. Double-click snaps back to the default placement. */}
+      <div
+        className="win-titlebar"
+        onPointerDown={onTitleDragStart}
+        onPointerMove={onTitleDragMove}
+        onPointerUp={onTitleDragEnd}
+        onPointerCancel={onTitleDragEnd}
+        onDoubleClick={(e) => { e.stopPropagation(); resetWindowPos(win.id); }}
+      >
         <h2 className="min-w-0 flex-1 truncate text-[15px] font-bold text-text-1">{title}</h2>
         <div className="flex flex-none items-center gap-1.5">
           <button
