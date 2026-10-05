@@ -1,7 +1,7 @@
 // Tests for the world map view's pure logic (components/WorldMapView.tsx) —
 // design/abandoned-colonies-world-map.md §2. Run: bun test site/src/components/WorldMapView.test.ts
 import { describe, expect, test } from "bun:test";
-import { abandonCountdownText, sortColonies, statusColor } from "./WorldMapView";
+import { abandonCountdownText, sortColonies, statusColor, toggleAccordion } from "./WorldMapView";
 import { colonyMarkerName, type KnownColony } from "../game/worldmap";
 
 const NOW = 1_700_000_000_000;
@@ -76,5 +76,24 @@ describe("abandonCountdownText", () => {
   test("zero or negative clamps", () => {
     expect(abandonCountdownText(0)).toBe("0");
     expect(abandonCountdownText(-1000)).toBe("0");
+  });
+});
+
+describe("toggleAccordion", () => {
+  test("tapping a closed row opens its action box", () => {
+    expect(toggleAccordion(null, "s1:c1")).toBe("s1:c1");
+  });
+  test("tapping the open row collapses it", () => {
+    expect(toggleAccordion("s1:c1", "s1:c1")).toBe(null);
+  });
+  test("tapping a different row switches — the first collapses (single-open)", () => {
+    expect(toggleAccordion("s1:c1", "s1:c2")).toBe("s1:c2");
+  });
+  test("opening from empty then switching twice lands on the last tapped", () => {
+    let open: string | null = null;
+    open = toggleAccordion(open, "s1:a");
+    open = toggleAccordion(open, "s1:b");
+    open = toggleAccordion(open, "s1:c");
+    expect(open).toBe("s1:c");
   });
 });

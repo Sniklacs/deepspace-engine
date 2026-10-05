@@ -16,11 +16,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GameState } from "../game/types";
 import {
   buildGlobeMarkers,
+  buildElevationGrid,
   countByLayer,
   declutterMarkers,
   GLOBE_LAYERS,
   GLOBE_LAYER_META,
   projectGlobe,
+  shadeTerrainGrid,
+  terrainSpriteSize,
   type GlobeLayerId,
   type GlobeMarker,
   type ScreenMarker,
@@ -35,6 +38,25 @@ const TILT_MAX = 55;
 
 type ViewState = { spin: number; tilt: number; scale: number; targetScale: number };
 
+/** Snap-to-site request (owner 2026-10-04): center the globe on (lat, lon).
+ *  `nonce` re-triggers the ease even for the same target (fresh tap). */
+export type GlobeFocusTarget = { lat: number; lon: number; nonce: number };
+
+/** Spin/tilt that centers (lat, lon) on screen. From projectGlobe's math,
+ *  spin = −lon centers the meridian; tilt = lat centers the latitude,
+ *  clamped to the drag range. Pure — tested in WorldGlobe.test.ts. */
+export function focusViewTarget(lat: number, lon: number): { spin: number; tilt: number } {
+  return {
+    spin: (((-lon % 360) + 360) % 360),
+    tilt: Math.max(-TILT_MAX, Math.min(TILT_MAX, lat)),
+  };
+}
+
+/** Shortest signed spin delta (degrees) — the ease never takes the long way. */
+export function shortestSpinDelta(from: number, to: number): number {
+  return ((to - from + 540) % 360) - 180;
+}
+
 // Seeded RNG — stable procedural detail across sessions.
 function mulberry32(seed: number) {
   return function () {
@@ -46,11 +68,14 @@ function mulberry32(seed: number) {
   };
 }
 
-interface Blob { lat: number; lon: number; r: number; shade: number }
+interface Blob { lat: number; lon: number; r: number; shade: number; seed: number }
 interface Light { lat: number; lon: number }
 interface Star { x: number; y: number; r: number; tw: number; ph: number }
 
-// Procedural geography — one alien world, same every visit.
+// Procedural geography — one alien world, same every visit. Each landmass
+// carries a deterministic elevation seed; WorldGlobe bakes one topographic
+// sprite per landmass from it ONCE at init (see ensureTerrainSprites) and
+// the render loop only blits the sprites.
 const BLOBS: Blob[] = (() => {
   const rng = mulberry32(20261004);
   const out: Blob[] = [];
@@ -60,6 +85,7 @@ const BLOBS: Blob[] = (() => {
       lon: rng() * 360 - 180,
       r: 5 + rng() * 11,
       shade: rng(),
+      seed: i,
     });
   }
   return out;
@@ -113,7 +139,44 @@ function roundRectPath(g: CanvasRenderingContext2D, x: number, y: number, w: num
   g.closePath();
 }
 
-export default function WorldGlobe({ state, now }: { state: GameState; now: number }) {
+// Terrain sprites — baked ONCE from the elevation field (globe-layers.ts),
+// then blitted per frame. Per-frame cost ≈ one drawImage per visible
+// landmass, i.e. no worse than the old flat ellipse fills. Each sprite spans
+// 1.25× the landmass radius: the outer ring is the shallow coastal shelf,
+// the inner disc is the hillshaded terrain.
+let terrainSprites: HTMLCanvasElement[] | null = null;
+
+function bakeLandmassSprite(b: Blob): HTMLCanvasElement {
+  const S = terrainSpriteSize(b.r);
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d")!;
+  // Coastal shelf — shallow-water ring, brightest right at the shoreline.
+  // (Center is covered by the terrain disc drawn over it.)
+  const shelf = g.createRadialGradient(S / 2, S / 2, S * 0.28, S / 2, S / 2, S / 2);
+  shelf.addColorStop(0, "rgba(126,196,232,0)");
+  shelf.addColorStop(0.74, "rgba(126,196,232,0.30)");
+  shelf.addColorStop(0.82, "rgba(140,205,240,0.55)");
+  shelf.addColorStop(1, "rgba(140,205,240,0)");
+  g.fillStyle = shelf;
+  g.fillRect(0, 0, S, S);
+  // Terrain disc — elevation grid → hillshaded pixels.
+  const T = Math.round(S * 0.8);
+  const grid = buildElevationGrid(b.seed, T);
+  const px = shadeTerrainGrid(grid, T, (b.shade - 0.5) * 2);
+  const tc = document.createElement("canvas");
+  tc.width = tc.height = T;
+  tc.getContext("2d")!.putImageData(new ImageData(px, T, T), 0, 0);
+  g.drawImage(tc, (S - T) / 2, (S - T) / 2);
+  return c;
+}
+
+function ensureTerrainSprites(): HTMLCanvasElement[] {
+  if (!terrainSprites) terrainSprites = BLOBS.map(bakeLandmassSprite);
+  return terrainSprites;
+}
+
+export default function WorldGlobe({ state, now, focusTarget }: { state: GameState; now: number; focusTarget?: GlobeFocusTarget }) {
   const t = useT();
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -127,6 +190,15 @@ export default function WorldGlobe({ state, now }: { state: GameState; now: numb
   const screenPos = useRef(new Map<string, { x: number; y: number; r: number }>());
   const markersRef = useRef<GlobeMarker[]>([]);
   const reduceMotion = useRef(false);
+
+  // ---- snap-to-site (owner 2026-10-04): a new focusTarget nonce computes the
+  // spin/tilt that centers (lat, lon); the render loop eases to it below.
+  // Same render-time ref pattern as markersRef/layersOnRef above.
+  const focusAnim = useRef<{ spin: number; tilt: number; nonce: number } | null>(null);
+  if (focusTarget && focusTarget.nonce !== focusAnim.current?.nonce) {
+    const target = focusViewTarget(focusTarget.lat, focusTarget.lon);
+    focusAnim.current = { ...target, nonce: focusTarget.nonce };
+  }
 
   const [layersOn, setLayersOn] = useState<Record<GlobeLayerId, boolean>>(() => {
     const init = Object.fromEntries(GLOBE_LAYERS.map((l) => [l.id, l.defaultOn])) as Record<GlobeLayerId, boolean>;
@@ -209,6 +281,9 @@ export default function WorldGlobe({ state, now }: { state: GameState; now: numb
     };
     canvas.addEventListener("wheel", wheelHandler, { passive: false });
 
+    // Bake the topographic landmass sprites once — the frame loop only blits.
+    const landSprites = ensureTerrainSprites();
+
     let raf = 0;
     let last = performance.now();
     const frame = (ms: number) => {
@@ -222,6 +297,19 @@ export default function WorldGlobe({ state, now }: { state: GameState; now: numb
       // gentle ambient drift when idle (never while dragging)
       if (!drag.current && !reduceMotion.current && ms - lastInteract.current > 5000) {
         v.spin += dt * 1.6;
+      }
+
+      // snap-to-site: ease rotation to the focused target (shortest spin
+      // path). Never fights a grab — pan/spin/zoom always win.
+      const f = focusAnim.current;
+      if (f && !drag.current) {
+        const k = Math.min(1, dt * 4);
+        v.spin += shortestSpinDelta(v.spin, f.spin) * k;
+        v.tilt += (f.tilt - v.tilt) * k;
+        lastInteract.current = ms; // keep ambient drift from fighting the ease
+        if (Math.abs(shortestSpinDelta(v.spin, f.spin)) < 0.2 && Math.abs(f.tilt - v.tilt) < 0.2) {
+          focusAnim.current = null;
+        }
       }
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -266,17 +354,22 @@ export default function WorldGlobe({ state, now }: { state: GameState; now: numb
       ctx.fillStyle = ocean;
       ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
 
-      // 4 — landmasses (true 3D rotation)
-      for (const b of BLOBS) {
+      // 4 — landmasses with baked topography (true 3D rotation; one blit each)
+      const squash = 0.72; // screen-space foreshortening, as before
+      for (let i = 0; i < BLOBS.length; i++) {
+        const b = BLOBS[i];
         const p = projectGlobe(b.lat, b.lon, v.spin, v.tilt);
         if (!p.visible) continue;
-        const rPx = (b.r * Math.PI) / 180 * R;
+        const rPx = (b.r * Math.PI) / 180 * R * 1.25; // sprite spans 1.25× r
         const a = 0.45 + 0.55 * p.z;
-        ctx.globalAlpha = a * 0.9;
-        ctx.fillStyle = b.shade > 0.5 ? "#17604c" : "#124a44";
-        ctx.beginPath();
-        ctx.ellipse(cx + p.x * R, cy + p.y * R, rPx, rPx * 0.72, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.globalAlpha = a * 0.95;
+        ctx.drawImage(
+          landSprites[i],
+          cx + p.x * R - rPx,
+          cy + p.y * R - rPx * squash,
+          rPx * 2,
+          rPx * 2 * squash,
+        );
       }
       ctx.globalAlpha = 1;
 
@@ -571,7 +664,7 @@ export default function WorldGlobe({ state, now }: { state: GameState; now: numb
     <section aria-label={t("worldglobe.title", "The World")} className="relative">
       <div
         ref={wrapRef}
-        className="relative w-full touch-none select-none overflow-hidden rounded-2xl border border-white/10 bg-[#02040a]"
+        className="relative w-full touch-pan-y select-none overflow-hidden rounded-2xl border border-white/10 bg-[#02040a]"
         style={{ height: "62dvh", minHeight: 400 }}
       >
         <canvas
@@ -579,7 +672,7 @@ export default function WorldGlobe({ state, now }: { state: GameState; now: numb
           role="img"
           aria-label={t("worldglobe.canvasLabel", "Interactive globe of the world. Drag to spin, pinch or scroll to zoom, tap a marker for details.")}
           className="absolute inset-0 h-full w-full"
-          style={{ touchAction: "none" }}
+          style={{ touchAction: "pan-y" }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

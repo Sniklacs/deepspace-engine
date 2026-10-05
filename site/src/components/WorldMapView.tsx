@@ -6,7 +6,7 @@
 // Tap a card → detail panel. Abandoned → the Explore Yes/No confirmation.
 // Hans's rule: every button is always tappable; a tap that can't proceed
 // shows the reason inline, right below the button.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TacticalBattleView } from "./TacticalBattleView";
 import type { GameState } from "../game/types";
 import {
@@ -43,7 +43,8 @@ import { useT } from "./i18n/I18n";
 import { sound } from "../game/sound";
 import { Bdi } from "./ui/Bdi";
 import MemorialsView from "./MemorialsView";
-import WorldGlobe from "./WorldGlobe";
+import WorldGlobe, { type GlobeFocusTarget } from "./WorldGlobe";
+import { colonyGlobePosition } from "../game/globe-layers";
 import { memorialNodeIds } from "../game/memorials";
 import { allianceOf } from "../game/war/alliances";
 import { openRallies } from "../game/war/rallies";
@@ -113,6 +114,13 @@ export function statusLabel(t: (k: string, f: string) => string, status: ColonyS
     case "sub_colony":
       return t("worldmap.statusSubColony", "Sub colony");
   }
+}
+
+/** Colony-list accordion state (owner 2026-10-04): single-open — tapping the
+ *  open row collapses it, tapping a different row switches the open box to
+ *  it. Pure — tested in WorldMapView.test.ts. */
+export function toggleAccordion(openKey: string | null, tappedKey: string): string | null {
+  return openKey === tappedKey ? null : tappedKey;
 }
 
 // ---------------------------------------------------------------------------
@@ -885,12 +893,13 @@ function DeploymentPanel({
 
 function ColonyCard({
   colony,
-  selected,
+  expanded,
   onSelect,
   hasMemorial,
 }: {
   colony: KnownColony;
-  selected: boolean;
+  /** The row's action box is open directly beneath it. */
+  expanded: boolean;
   onSelect: () => void;
   /** A battle plaque stands at this site (owner 2026-09-30). */
   hasMemorial?: boolean;
@@ -904,9 +913,9 @@ function ColonyCard({
         sound.click();
         onSelect();
       }}
-      aria-pressed={selected}
+      aria-expanded={expanded}
       className={`w-full rounded-xl border p-3 text-start transition-colors ${
-        selected ? "border-amber-400/60 bg-amber-400/10" : "border-white/10 bg-black/30 hover:border-white/25"
+        expanded ? "border-amber-400/60 bg-amber-400/10" : "border-white/10 bg-black/30 hover:border-white/25"
       }`}
     >
       <div className="flex items-center justify-between gap-2">
@@ -925,8 +934,13 @@ function ColonyCard({
             </span>
           )}
         </span>
-        <span className="shrink-0 text-[10px] uppercase tracking-wide" style={{ color }}>
-          {statusLabel(t, colony.status)}
+        <span className="flex shrink-0 items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wide" style={{ color }}>
+            {statusLabel(t, colony.status)}
+          </span>
+          <span aria-hidden="true" className="text-[10px] text-gray-500">
+            {expanded ? "▾" : "▸"}
+          </span>
         </span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
@@ -944,6 +958,26 @@ function ColonyCard({
           </span>
         )}
       </div>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WS5 — the raided site as a tappable element (owner 2026-10-04): tapping it
+// snaps the globe to the site. Phone-first: real <button>, padded, underlined
+// so it reads as tappable at 360px.
+// ---------------------------------------------------------------------------
+
+function SnapToSiteButton({ nodeName, onSnap }: { nodeName: string; onSnap: () => void }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      onClick={onSnap}
+      aria-label={t("raid.snapToSite", "Snap the globe to {node}", { node: nodeName })}
+      className="rounded px-1.5 py-1 text-amber-200 underline decoration-amber-200/40 underline-offset-2 hover:bg-amber-400/10"
+    >
+      🎯 {nodeName}
     </button>
   );
 }
@@ -1352,6 +1386,10 @@ export default function WorldMapView({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [exploreNote, setExploreNote] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // WS5 (owner 2026-10-04): snap-to-site — tapping an incoming raid's
+  // location eases the globe to the raided site.
+  const [globeFocus, setGlobeFocus] = useState<GlobeFocusTarget | null>(null);
+  const raidEntryRefs = useRef<Record<string, HTMLDivElement | null>>({});
   // Pending raid target: when the user taps "Raid" with no party yet, we form
   // the party and remember the colony — once the party appears (server round-trip),
   // we auto-set it as the target so the user doesn't have to tap twice.
@@ -1390,6 +1428,21 @@ export default function WorldMapView({
   // composition/count + troop count. Matches the klaxon alarm's gating.
   const raidIntel = useMemo(() => satelliteIntelFor(state, colonyNodeId(state)), [state]);
   const raidNodeName = useMemo(() => coveredNodeName(colonyNodeId(state)), [state]);
+
+  // WS5 (owner 2026-10-04): incoming raids are always inbound to the player's
+  // own colony — the raided site's globe position is the home marker's own.
+  const homeGlobePos = useMemo(
+    () => colonyGlobePosition("home:" + (state.gameId ?? "colony")),
+    [state.gameId],
+  );
+
+  /** Tap a raid's location → the globe snaps to the raided site, and the
+   *  raid's entry (with its defense/rally buttons) scrolls into view. */
+  const snapToRaidSite = (raidId: string) => {
+    sound.click();
+    setGlobeFocus({ lat: homeGlobePos.lat, lon: homeGlobePos.lon, nonce: Date.now() });
+    raidEntryRefs.current[raidId]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
 
   // RESPOND (owner 2026-10-04): which incoming raids already have a defense
   // rally mustering — one defense rally per raid (same dedupe key the klaxon
@@ -1455,8 +1508,9 @@ export default function WorldMapView({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-3 p-4 pb-24">
       {/* THE GLOBE (owner 2026-10-04): the world page IS the globe — the main
-          core workstation. Everything below stays exactly as it was. */}
-      <WorldGlobe state={state} now={now} />
+          core workstation. Everything below stays exactly as it was.
+          WS5: focusTarget snaps the globe to an incoming raid's site. */}
+      <WorldGlobe state={state} now={now} focusTarget={globeFocus ?? undefined} />
       <header>
         <h2 className="text-lg font-bold text-white">{t("worldmap.title", "World Map")}</h2>
         <p className="mt-0.5 text-[12px] leading-relaxed text-gray-400">
@@ -1521,14 +1575,21 @@ export default function WorldMapView({
             const totalClasses = new Set(r.shipClasses ?? []).size;
             const moreUnknown = totalClasses > partialShips.length;
             return (
-              <div key={r.raidId} className="mt-2 rounded-lg border border-red-400/30 bg-black/40 p-2">
+              <div
+                key={r.raidId}
+                ref={(el) => {
+                  raidEntryRefs.current[r.raidId] = el;
+                }}
+                className="mt-2 rounded-lg border border-red-400/30 bg-black/40 p-2"
+              >
                 {raidIntel === "presence" ? (
                   <>
                     <p className="text-[12px] font-semibold text-red-100">
                       {t("raid.unidentifiedSignature", "🚨 UNIDENTIFIED SIGNATURE")}
                     </p>
                     <p className="mt-0.5 text-[11px] text-gray-400">
-                      {t("raid.inboundTo", "Inbound to")}{" "}<span className="text-amber-200">{raidNodeName}</span>
+                      {t("raid.inboundTo", "Inbound to")}{" "}
+                      <SnapToSiteButton nodeName={raidNodeName} onSnap={() => snapToRaidSite(r.raidId)} />
                     </p>
                   </>
                 ) : (
@@ -1544,6 +1605,11 @@ export default function WorldMapView({
                           {" · ~"}{r.troopCount.toLocaleString()} {t("raid.troops", "troops")}
                         </>
                       )}
+                    </p>
+                    {/* WS5: the raided site is tappable at every intel stage. */}
+                    <p className="mt-0.5 text-[11px] text-gray-400">
+                      {t("raid.inboundTo", "Inbound to")}{" "}
+                      <SnapToSiteButton nodeName={raidNodeName} onSnap={() => snapToRaidSite(r.raidId)} />
                     </p>
                     {raidIntel === "identity" && partialShips.length > 0 && (
                       <p className="mt-0.5 text-[11px] text-gray-400">
@@ -1699,31 +1765,36 @@ export default function WorldMapView({
         <div className="flex flex-col gap-2">
           {colonies.map((c) => {
             const key = colonyKey(c.serverId, c.id);
+            const open = selectedKey === key;
             return (
-              <ColonyCard
-                key={key}
-                colony={c}
-                selected={selectedKey === key}
-                onSelect={() => setSelectedKey(selectedKey === key ? null : key)}
-                hasMemorial={memorialSites.has(key)}
-              />
+              <div key={key}>
+                <ColonyCard
+                  colony={c}
+                  expanded={open}
+                  onSelect={() => setSelectedKey(toggleAccordion(selectedKey, key))}
+                  hasMemorial={memorialSites.has(key)}
+                />
+                {/* WS4 (owner 2026-10-04): the raid/glean action box opens
+                    inline directly beneath its own row — wizard philosophy,
+                    no scrolling to the bottom of the page. */}
+                {open && (
+                  <div className="mt-1.5">
+                    <ColonyDetail
+                      colony={c}
+                      colonyKeyStr={key}
+                      now={now}
+                      state={state}
+                      onClose={() => setSelectedKey(null)}
+                      onExplore={handleExplore}
+                      onRaid={handleRaid}
+                      onClaimHusk={onClaimHusk}
+                    />
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
-      )}
-
-      {/* Detail panel for the tapped colony */}
-      {selected && selectedKey && (
-        <ColonyDetail
-          colony={selected}
-          colonyKeyStr={selectedKey}
-          now={now}
-          state={state}
-          onClose={() => setSelectedKey(null)}
-          onExplore={handleExplore}
-          onRaid={handleRaid}
-          onClaimHusk={onClaimHusk ? (_colony, key) => onClaimHusk(selected, key) : undefined}
-        />
       )}
 
       {/* v1: gleaning isn't wired yet — honest inline note, not a dead button. */}
