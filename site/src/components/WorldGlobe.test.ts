@@ -4,7 +4,7 @@
 // these tests cover the pure kernel: spin/tilt targeting + shortest-path
 // deltas. Run: bun test site/src/components/WorldGlobe.test.ts
 import { describe, expect, test } from "bun:test";
-import { focusViewTarget, shortestSpinDelta } from "./WorldGlobe";
+import { ARENA_MARKER_SIZE, focusViewTarget, shortestSpinDelta } from "./WorldGlobe";
 import { projectGlobe } from "../game/globe-layers";
 
 describe("focusViewTarget", () => {
@@ -68,5 +68,14 @@ describe("shortestSpinDelta", () => {
   test("same angle gives zero", () => {
     expect(shortestSpinDelta(42, 42)).toBe(0);
     expect(shortestSpinDelta(10, 370)).toBe(0);
+  });
+});
+
+describe("WS-A ARENA_MARKER_SIZE", () => {
+  test("stadium renders ~2-3x the dot-icon size (reads at small size)", () => {
+    const DOT_ICON_PX = 20;
+    expect(ARENA_MARKER_SIZE.normal >= 2 * DOT_ICON_PX).toBe(true);
+    expect(ARENA_MARKER_SIZE.normal <= 3 * DOT_ICON_PX).toBe(true);
+    expect(ARENA_MARKER_SIZE.selected).toBeGreaterThan(ARENA_MARKER_SIZE.normal);
   });
 });

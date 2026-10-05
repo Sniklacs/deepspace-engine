@@ -21,7 +21,8 @@ import {
   topAlliances,
   worldFlavor,
 } from "../game/world-intel";
-import { recommendedReverbForGrade, type ChorusGradeId } from "../game/chorus-intel";
+import { recommendedReverbForGrade } from "../game/chorus-intel";
+import type { ChorusGradeId } from "../game/war/chorus-sites";
 import { useT } from "./i18n/I18n";
 import { sound } from "../game/sound";
 

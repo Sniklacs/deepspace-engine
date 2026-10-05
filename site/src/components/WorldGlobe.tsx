@@ -18,6 +18,7 @@ import {
   buildGlobeMarkers,
   buildElevationGrid,
   countByLayer,
+  currentHomeGlobePosition,
   declutterMarkers,
   DEFAULT_GLOBE_FILTERS,
   GLOBE_LAYERS,
@@ -28,12 +29,20 @@ import {
   siteMarkerIcon,
   SITE_TIER_LIST,
   terrainSpriteSize,
+  unprojectGlobe,
   type GlobeFilters,
   type GlobeIconId,
   type GlobeLayerId,
   type GlobeMarker,
   type ScreenMarker,
 } from "../game/globe-layers";
+import {
+  alliedKnownColonies,
+  clampHiveCandidate,
+  hiveMoveBlockers,
+  hiveMoveCost,
+  meanAllyDistanceKm,
+} from "../game/hive-relocation";
 import { racePortrait } from "./HeroCard";
 import { useT } from "./i18n/I18n";
 import { playClick, playDeselect, playSelect, playWhoosh } from "../game/audio/ui-sounds";
@@ -266,6 +275,17 @@ export function drawGlobeIconGlyph(g: CanvasRenderingContext2D, kind: GlobeIconI
       g.closePath();
       g.fill();
       break;
+    case "arena":
+      // stadium silhouette for the legend — oval bowl ring + inner field.
+      // (The globe itself renders the full stadium sprite, not this glyph.)
+      g.lineWidth = Math.max(3, s * 0.16);
+      g.beginPath();
+      g.ellipse(0, 0, h * 0.85, h * 0.5, 0, 0, Math.PI * 2);
+      g.stroke();
+      g.beginPath();
+      g.ellipse(0, 0, h * 0.5, h * 0.28, 0, 0, Math.PI * 2);
+      g.fill();
+      break;
   }
 }
 
@@ -308,6 +328,133 @@ export function globeIconURL(kind: GlobeIconId, color: string): string {
     iconURLCache.set(key, u);
   }
   return u;
+}
+
+// ---------------------------------------------------------------------------
+// WS-A stadium (Hans, Oct 4 2026): the arena is NOT a flat icon — it's an
+// actual little STADIUM sitting on the globe, ~2–3× icon size, readable at
+// small size on phones. Oval ring walls, glowing field, four floodlight
+// towers, a beacon beam, and energy dazzle per Hans's art rule
+// ("everything pops" — skin, not quickly). One pre-baked offscreen canvas
+// per color; the render loop blits it like any other sprite, so phone
+// performance is unchanged. 2D sprite = inherently billboarded.
+// ---------------------------------------------------------------------------
+
+/** On-globe billboarded size of the arena stadium (px). */
+export const ARENA_MARKER_SIZE = { normal: 52, selected: 68 };
+
+function bakeArenaStadiumSprite(color: string): HTMLCanvasElement {
+  const S = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d")!;
+  g.translate(S / 2, S / 2);
+  const u = S / 128; // design units; sprite spans ±64u
+  g.lineJoin = "round";
+  g.lineCap = "round";
+
+  // --- ground plate: seats the stadium on the globe surface ---
+  g.fillStyle = "rgba(2,6,14,0.55)";
+  g.beginPath();
+  g.ellipse(0, 16 * u, 56 * u, 30 * u, 0, 0, Math.PI * 2);
+  g.fill();
+
+  // --- floodlight towers: four pylons behind the bowl, glowing heads ---
+  const towers: Array<[number, number]> = [
+    [-52 * u, -30 * u],
+    [52 * u, -30 * u],
+    [-56 * u, 18 * u],
+    [56 * u, 18 * u],
+  ];
+  for (const [tx, ty] of towers) {
+    g.strokeStyle = "rgba(226,232,240,0.9)";
+    g.lineWidth = Math.max(3, 5 * u);
+    g.beginPath();
+    g.moveTo(tx, ty + 16 * u);
+    g.lineTo(tx, ty - 22 * u);
+    g.stroke();
+    // head glow — the dazzle
+    const hg = g.createRadialGradient(tx, ty - 24 * u, 0, tx, ty - 24 * u, 15 * u);
+    hg.addColorStop(0, "#ffffff");
+    hg.addColorStop(0.4, color);
+    hg.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = hg;
+    g.beginPath();
+    g.arc(tx, ty - 24 * u, 15 * u, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // --- beacon beam: shoots skyward so the arena reads across the globe ---
+  const beam = g.createLinearGradient(0, -62 * u, 0, -10 * u);
+  beam.addColorStop(0, color + "00");
+  beam.addColorStop(1, color + "88");
+  g.fillStyle = beam;
+  g.beginPath();
+  g.moveTo(-10 * u, -10 * u);
+  g.lineTo(10 * u, -10 * u);
+  g.lineTo(3.5 * u, -60 * u);
+  g.lineTo(-3.5 * u, -60 * u);
+  g.closePath();
+  g.fill();
+
+  // --- bowl: back rim (distant stands) ---
+  g.fillStyle = "rgba(100,116,139,0.95)";
+  g.beginPath();
+  g.ellipse(0, -8 * u, 48 * u, 22 * u, 0, 0, Math.PI * 2);
+  g.fill();
+
+  // --- glowing field ---
+  const fg = g.createRadialGradient(0, -8 * u, 0, 0, -8 * u, 34 * u);
+  fg.addColorStop(0, "#d9f99d");
+  fg.addColorStop(0.55, "#4ade80");
+  fg.addColorStop(1, "#166534");
+  g.fillStyle = fg;
+  g.beginPath();
+  g.ellipse(0, -8 * u, 36 * u, 16 * u, 0, 0, Math.PI * 2);
+  g.fill();
+
+  // --- field energy line — the POP ---
+  g.strokeStyle = color;
+  g.lineWidth = Math.max(2, 3 * u);
+  g.shadowColor = color;
+  g.shadowBlur = 10 * u;
+  g.beginPath();
+  g.ellipse(0, -8 * u, 30 * u, 13 * u, 0, 0, Math.PI * 2);
+  g.stroke();
+  g.shadowBlur = 0;
+
+  // --- front wall (near stands): occludes the field's lower half so the
+  //     bowl reads 3D instead of flat ---
+  g.fillStyle = "#1e293b";
+  g.strokeStyle = "rgba(255,255,255,0.35)";
+  g.lineWidth = Math.max(2, 3 * u);
+  g.beginPath();
+  g.ellipse(0, 4 * u, 48 * u, 22 * u, 0, 0, Math.PI);
+  g.fill();
+  g.stroke();
+
+  // --- crowd lights: bright dots along the near rim ---
+  g.fillStyle = "rgba(254,240,138,0.95)";
+  for (let i = 0; i <= 12; i++) {
+    const a = (i / 12) * Math.PI;
+    const sx = Math.cos(a) * 44 * u;
+    const sy = 4 * u + Math.sin(a) * 19 * u;
+    g.beginPath();
+    g.arc(sx, sy, 2.2 * u, 0, Math.PI * 2);
+    g.fill();
+  }
+  return c;
+}
+
+const arenaSpriteCache = new Map<string, HTMLCanvasElement>();
+function arenaSprite(color: string): HTMLCanvasElement {
+  const key = `arena|${color}`;
+  let c = arenaSpriteCache.get(key);
+  if (!c) {
+    c = bakeArenaStadiumSprite(color);
+    arenaSpriteCache.set(key, c);
+  }
+  return c;
 }
 // Glow sprite cache — one radial-gradient canvas per color, reused for every
 // marker so the POP stays cheap.
@@ -376,7 +523,21 @@ function ensureTerrainSprites(): HTMLCanvasElement[] {
   return terrainSprites;
 }
 
-export default function WorldGlobe({ state, now, focusTarget }: { state: GameState; now: number; focusTarget?: GlobeFocusTarget }) {
+export default function WorldGlobe({
+  state,
+  now,
+  focusTarget,
+  onRelocateColony,
+}: {
+  state: GameState;
+  now: number;
+  focusTarget?: GlobeFocusTarget;
+  /** Hive relocation (owner 2026-10-04, WS-E): called with the picked
+   *  lat/lon on confirm. Resolves with an inline error message, or null on
+   *  success (Hans's UI rule — the button stays tappable and explains).
+   *  Unwired = the sheet says the linking pass lands next. */
+  onRelocateColony?: (lat: number, lon: number) => Promise<string | null>;
+}) {
   const t = useT();
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -439,7 +600,44 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
     playClick();
   }, []);
 
-  const markers = useMemo(() => buildGlobeMarkers(state, now), [state, now]);
+  // ---- HIVE RELOCATION pick-mode (Hans, Oct 4 2026, WS-E) ----
+  // Pick-mode is modal: the globe shows a banner, taps set a candidate
+  // point, and the confirmation panel shows distance / war-band response
+  // delta / cost before the player commits.
+  const [hivePick, setHivePick] = useState(false);
+  const [hiveCandidate, setHiveCandidate] = useState<{ lat: number; lon: number } | null>(null);
+  const [hiveError, setHiveError] = useState<string | null>(null);
+  const [hiveDone, setHiveDone] = useState<string | null>(null);
+  const [hiveBusy, setHiveBusy] = useState(false);
+  const [hiveSheetNote, setHiveSheetNote] = useState<string | null>(null);
+  const hivePickRef = useRef(hivePick);
+  hivePickRef.current = hivePick;
+
+  /** State-level relocation blockers (cooldown / under attack / party away)
+   *  — shown inline on the home sheet, never a dead button. */
+  const hiveBlockers = useMemo(() => hiveMoveBlockers(state, now), [state, now]);
+
+  const markers = useMemo(() => {
+    const base = buildGlobeMarkers(state, now);
+    // The picked hive point rides the globe as a pulsing gold marker while
+    // the confirmation panel is open.
+    if (hiveCandidate) {
+      base.push({
+        id: "hive-candidate",
+        layer: "home",
+        lat: hiveCandidate.lat,
+        lon: hiveCandidate.lon,
+        label: "Hive point",
+        sublabel: "Candidate — confirm below",
+        color: "#fbbf24",
+        icon: "home",
+        priority: 101,
+        pulse: true,
+        ref: { kind: "home" },
+      });
+    }
+    return base;
+  }, [state, now, hiveCandidate]);
   const counts = useMemo(() => countByLayer(markers), [markers]);
   markersRef.current = markers;
   const selected = useMemo(() => markers.find((m) => m.id === selectedId) ?? null, [markers, selectedId]);
@@ -717,8 +915,12 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
         ctx.drawImage(spr, s.sx - sprSize / 2, s.sy - sprSize / 2, sprSize, sprSize);
         // WS2: the marker ICON — shape carries the meaning, not the color.
         // One pre-baked sprite blit; 20px+ hit targets preserved below.
-        const icon = iconSprite(m.icon, m.color);
-        const iconSize = isSel ? 26 : 20;
+        // WS-A: the arena renders as the full stadium sprite, not a dot-icon.
+        const isArena = m.ref.kind === "arena";
+        const icon = isArena ? arenaSprite(m.color) : iconSprite(m.icon, m.color);
+        const iconSize = isArena
+          ? (isSel ? ARENA_MARKER_SIZE.selected : ARENA_MARKER_SIZE.normal)
+          : (isSel ? 26 : 20);
         ctx.drawImage(icon, s.sx - iconSize / 2, s.sy - iconSize / 2, iconSize, iconSize);
         // pulse ring for raids (and selected)
         if (m.pulse || isSel) {
@@ -757,6 +959,78 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ---- HIVE RELOCATION flow (Hans, Oct 4 2026, WS-E) ----
+  /** Tap coords → globe lat/lon under the current view. Null when the tap
+   *  misses the sphere (beyond the limb). */
+  const tapToGlobe = useCallback((clientX: number, clientY: number): { lat: number; lon: number } | null => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const v = view.current;
+    const w = Math.max(1, rect.width);
+    const h = Math.max(1, rect.height);
+    const R = Math.min(w, h) * 0.40 * v.scale; // same R the render loop uses
+    const sx = (clientX - rect.left - w / 2) / R;
+    const sy = (clientY - rect.top - h / 2) / R;
+    const g = unprojectGlobe(sx, sy, v.spin, v.tilt);
+    return g ? clampHiveCandidate(g) : null;
+  }, []);
+
+  /** "Relocate to hive" from the home sheet → pick-mode. Blockers are shown
+   *  inline per Hans's UI rule — the button never just sits dead. */
+  const startHivePick = useCallback(() => {
+    setHiveDone(null);
+    if (hiveBlockers.length > 0) {
+      setHiveSheetNote(hiveBlockers[0]);
+      playClick();
+      return;
+    }
+    setHiveSheetNote(null);
+    setHiveCandidate(null);
+    setHiveError(null);
+    setSelectedId(null);
+    setLinkHint(null);
+    setHivePick(true);
+    playSelect();
+  }, [hiveBlockers]);
+
+  const cancelHivePick = useCallback(() => {
+    setHivePick(false);
+    setHiveCandidate(null);
+    setHiveError(null);
+    setHiveBusy(false);
+    playDeselect();
+  }, []);
+
+  /** Confirm: the server re-validates everything (cooldown, raids, distance,
+   *  cost) — the panel's numbers are the estimate, the fn is the truth. */
+  const confirmHiveMove = useCallback(async () => {
+    if (!hiveCandidate || hiveBusy) return;
+    if (!onRelocateColony) {
+      setHiveError(
+        t("worldglobe.hiveUnwired", "Relocation isn't wired up yet — the server side lands in the linking pass."),
+      );
+      return;
+    }
+    setHiveBusy(true);
+    setHiveError(null);
+    try {
+      const err = await onRelocateColony(hiveCandidate.lat, hiveCandidate.lon);
+      if (err) {
+        setHiveError(err);
+      } else {
+        setHivePick(false);
+        setHiveCandidate(null);
+        setHiveDone(
+          t("worldglobe.hiveDone", "Your colony is on the move — the hive point is set. Welcome home."),
+        );
+      }
+    } catch {
+      setHiveError(t("worldglobe.hiveFailed", "The relocation didn't go through — try again."));
+    } finally {
+      setHiveBusy(false);
+    }
+  }, [hiveCandidate, hiveBusy, onRelocateColony, t]);
 
   // ---- interaction ----
   const hitTest = useCallback((x: number, y: number): string | null => {
@@ -813,6 +1087,17 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
     if (!d) return;
     lastInteract.current = performance.now();
     if (!d.moved) {
+      // HIVE PICK-MODE: any tap on the globe sets the candidate point —
+      // markers aren't selectable while the banner is up.
+      if (hivePickRef.current) {
+        const pt = tapToGlobe(e.clientX, e.clientY);
+        if (pt) {
+          playSelect();
+          setHiveCandidate(pt);
+          setHiveError(null);
+        }
+        return;
+      }
       const id = hitTest(e.clientX, e.clientY);
       if (id) {
         if (id === selectedIdRef.current) {
@@ -844,7 +1129,7 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-  }, [hitTest]);
+  }, [hitTest, tapToGlobe]);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (e.touches.length === 2) {
@@ -888,6 +1173,7 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
     );
     playClick();
   }, [t]);
+
 
   return (
     <section aria-label={t("worldglobe.title", "The World")} className="relative">
@@ -980,6 +1266,42 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
           )}
         </div>
 
+        {/* HIVE PICK-MODE banner (Hans, Oct 4 2026, WS-E) */}
+        {hivePick && (
+          <div className="absolute left-1/2 top-2 z-10 w-max max-w-[92%] -translate-x-1/2">
+            <div className="flex items-center gap-2 rounded-full border border-amber-300/40 bg-black/70 px-3 py-1.5 backdrop-blur-sm">
+              <span aria-hidden>📍</span>
+              <p className="text-[12px] font-semibold text-amber-100">
+                {t("worldglobe.hiveBanner", "Tap the globe to choose your hive point")}
+              </p>
+              <button
+                type="button"
+                onClick={cancelHivePick}
+                className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[11px] font-bold text-white"
+              >
+                {t("worldglobe.cancel", "Cancel")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Relocation confirmation (Hans's UI rule: tap explain inline) */}
+        {hiveDone && (
+          <div className="absolute left-1/2 top-14 z-10 w-max max-w-[92%] -translate-x-1/2">
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-300/40 bg-emerald-950/80 px-3 py-2 backdrop-blur-sm">
+              <p role="status" className="text-[12px] font-semibold text-emerald-100">{hiveDone}</p>
+              <button
+                type="button"
+                onClick={() => setHiveDone(null)}
+                aria-label={t("worldglobe.close", "Close")}
+                className="flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[11px] text-white"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Zoom controls */}
         <div className="absolute bottom-2 right-2 z-10 flex flex-col gap-1.5">
           <button
@@ -1010,7 +1332,26 @@ export default function WorldGlobe({ state, now, focusTarget }: { state: GameSta
 
         {/* Detail sheet */}
         {selected && (
-          <DetailSheet marker={selected} onClose={closeSheet} onAction={soonHint} hint={linkHint} />
+          <DetailSheet
+            marker={selected}
+            onClose={closeSheet}
+            onAction={soonHint}
+            hint={linkHint}
+            onHivePick={selected.ref.kind === "home" ? startHivePick : undefined}
+            hiveNote={selected.ref.kind === "home" ? hiveSheetNote : null}
+          />
+        )}
+
+        {/* Hive relocation confirmation (Hans, Oct 4 2026, WS-E) */}
+        {hivePick && hiveCandidate && (
+          <HiveConfirmPanel
+            state={state}
+            candidate={hiveCandidate}
+            busy={hiveBusy}
+            error={hiveError}
+            onConfirm={confirmHiveMove}
+            onCancel={cancelHivePick}
+          />
         )}
       </div>
       <p className="mt-1.5 text-center text-[11px] text-gray-500">
@@ -1029,11 +1370,17 @@ function DetailSheet({
   onClose,
   onAction,
   hint,
+  onHivePick,
+  hiveNote,
 }: {
   marker: GlobeMarker;
   onClose: () => void;
   onAction: (label: string) => void;
   hint: string | null;
+  /** Hive relocation (WS-E): opens globe pick-mode from the home sheet. */
+  onHivePick?: () => void;
+  /** Inline blocker note shown under the relocate button (Hans's UI rule). */
+  hiveNote?: string | null;
 }) {
   const t = useT();
   const meta = GLOBE_LAYER_META[marker.layer];
@@ -1070,7 +1417,7 @@ function DetailSheet({
       </div>
 
       <div className="px-4 pb-4">
-        <SheetActions marker={marker} onAction={onAction} />
+        <SheetActions marker={marker} onAction={onAction} onHivePick={onHivePick} hiveNote={hiveNote} />
         {hint && (
           <p role="status" className="mt-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-gray-300">
             {hint}
@@ -1191,6 +1538,14 @@ function SheetStats({ marker }: { marker: GlobeMarker }) {
       </div>
     );
   }
+  if (r.kind === "arena") {
+    return (
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <Stat k={t("worldglobe.arenaOpen", "Open to")} v={t("worldglobe.arenaOpenAll", "Everybody")} />
+        <Stat k={t("worldglobe.arenaFights", "Fights")} v={t("worldglobe.arenaModes", "Practice · duels")} />
+      </div>
+    );
+  }
   return null;
 }
 
@@ -1210,7 +1565,17 @@ function ActionButton({ label, primary, onClick }: { label: string; primary?: bo
   );
 }
 
-function SheetActions({ marker, onAction }: { marker: GlobeMarker; onAction: (label: string) => void }) {
+function SheetActions({
+  marker,
+  onAction,
+  onHivePick,
+  hiveNote,
+}: {
+  marker: GlobeMarker;
+  onAction: (label: string) => void;
+  onHivePick?: () => void;
+  hiveNote?: string | null;
+}) {
   const t = useT();
   const r = marker.ref;
   const go = (label: string) => () => onAction(label);
@@ -1224,8 +1589,20 @@ function SheetActions({ marker, onAction }: { marker: GlobeMarker; onAction: (la
   }
   if (r.kind === "home") {
     return (
-      <div className="flex flex-wrap gap-2">
-        <ActionButton primary label={t("worldglobe.enterColony", "Enter colony")} onClick={go(t("worldglobe.enterColony", "Enter colony"))} />
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
+          <ActionButton primary label={t("worldglobe.enterColony", "Enter colony")} onClick={go(t("worldglobe.enterColony", "Enter colony"))} />
+          {/* HIVE RELOCATION (Hans, Oct 4 2026, WS-E): always tappable — a
+              tap while blocked shows the blocker inline (Hans's UI rule). */}
+          {onHivePick && (
+            <ActionButton label={t("worldglobe.relocateHive", "📍 Relocate to hive")} onClick={onHivePick} />
+          )}
+        </div>
+        {hiveNote && (
+          <p role="status" className="rounded-lg border border-amber-300/25 bg-amber-950/40 px-3 py-2 text-[12px] leading-relaxed text-amber-100">
+            {hiveNote}
+          </p>
+        )}
       </div>
     );
   }
@@ -1274,5 +1651,125 @@ function SheetActions({ marker, onAction }: { marker: GlobeMarker; onAction: (la
       </div>
     );
   }
+  if (r.kind === "arena") {
+    // Layout-first: the arena engine wires up in the linking pass — these
+    // buttons show the honest "wires up soon" note, never a dead click.
+    return (
+      <div className="flex flex-wrap gap-2">
+        <ActionButton primary label={t("worldglobe.enterArena", "🏟️ ENTER ARENA")} onClick={go(t("worldglobe.enterArena", "Arena entry"))} />
+        <ActionButton label={t("worldglobe.arenaLadder", "View the ladder")} onClick={go(t("worldglobe.arenaLadder", "Arena ladder"))} />
+      </div>
+    );
+  }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Hive relocation confirmation (Hans, Oct 4 2026, WS-E)
+// ---------------------------------------------------------------------------
+
+function HiveConfirmPanel({
+  state,
+  candidate,
+  busy,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  state: GameState;
+  candidate: { lat: number; lon: number };
+  busy: boolean;
+  error: string | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  const from = currentHomeGlobePosition(state);
+  const cost = hiveMoveCost(from, candidate);
+  const allies = alliedKnownColonies(state);
+  const meanNow = meanAllyDistanceKm(allies, from);
+  const meanNew = meanAllyDistanceKm(allies, candidate);
+  const delta = meanNew - meanNow;
+  const fmtKm = (km: number) => `${Math.round(km).toLocaleString()} km`;
+  const closer = delta <= 0;
+
+  return (
+    <div
+      role="dialog"
+      aria-label={t("worldglobe.hiveConfirmTitle", "Confirm hive relocation")}
+      className="absolute inset-x-0 bottom-0 z-20 max-h-[62%] overflow-y-auto rounded-t-2xl border-t border-amber-300/40 bg-[#0a0d18]/95 backdrop-blur-md"
+      style={{ boxShadow: "0 -12px 48px rgba(251,191,36,0.25)" }}
+    >
+      <div className="flex justify-center pt-2">
+        <div className="h-1 w-10 rounded-full bg-white/25" />
+      </div>
+      <div className="px-4 pb-5 pt-1">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-amber-300">
+          {t("worldglobe.hiveConfirmKicker", "Hive relocation")}
+        </p>
+        <h3 className="mt-0.5 text-[17px] font-bold leading-tight text-white">
+          {t("worldglobe.hiveConfirmTitle", "Move your colony here?")}
+        </h3>
+        <p className="mt-0.5 text-[12px] text-gray-400">
+          {t("worldglobe.hivePoint", "Hive point: {lat}°, {lon}°", {
+            lat: candidate.lat.toFixed(1),
+            lon: candidate.lon.toFixed(1),
+          })}
+        </p>
+
+        <div className="mt-2 grid grid-cols-2 gap-1.5">
+          <Stat
+            k={t("worldglobe.hiveDistance", "Distance")}
+            v={`${cost.distanceDeg.toFixed(1)}° · ${fmtKm(cost.distanceKm)}`}
+          />
+          <Stat
+            k={t("worldglobe.hiveCost", "Cost")}
+            v={t("worldglobe.hiveCostValue", "{supplies} supplies + {fuel} fuel", {
+              supplies: cost.supplies.toLocaleString(),
+              fuel: cost.fuel.toLocaleString(),
+            })}
+          />
+          <div className="col-span-2 rounded-lg bg-white/5 px-2 py-1.5">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
+              {t("worldglobe.hiveResponse", "War-band response")}
+            </div>
+            <div className="text-[13px] font-semibold text-gray-100">
+              {allies.length === 0
+                ? t(
+                    "worldglobe.hiveNoAllies",
+                    "No allied colonies on your map yet — your hive sets the rally point alone.",
+                  )
+                : t(
+                    "worldglobe.hiveResponseValue",
+                    "{n} allied {n, plural, one {colony} other {colonies}}: mean {now} → {next} ({dir} by {delta})",
+                    {
+                      n: allies.length,
+                      now: fmtKm(meanNow),
+                      next: fmtKm(meanNew),
+                      dir: closer
+                        ? t("worldglobe.hiveCloser", "closer")
+                        : t("worldglobe.hiveFarther", "farther"),
+                      delta: fmtKm(Math.abs(delta)),
+                    },
+                  )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <ActionButton
+            primary
+            label={busy ? t("worldglobe.hiveMoving", "Moving…") : t("worldglobe.hiveConfirm", "✅ Confirm relocation")}
+            onClick={onConfirm}
+          />
+          <ActionButton label={t("worldglobe.cancel", "Cancel")} onClick={onCancel} />
+        </div>
+        {error && (
+          <p role="status" className="mt-2 rounded-lg border border-red-400/30 bg-red-950/40 px-3 py-2 text-[12px] leading-relaxed text-red-100">
+            {error}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
