@@ -18,12 +18,57 @@ import {
   setLogisticsFx,
   setManual,
   setCameraMode,
+  setBattleSpeed,
+  setLabelsOn,
   cycleDayNight,
   setGunner,
+  BATTLE_SPEEDS,
+  type BattleSpeed,
 } from "../../game/war/battle-scene-ui-store";
+import { TROOP_KINDS, UNIT_KIND_LABEL } from "../../game/war/battle-scene-model";
 import type { ManeuverVector } from "../../game/war/war-types";
 import { BattleClock } from "../BattleScene/BattleClock";
 import { ToggleSwitch } from "../BattleScene/ToggleSwitch";
+
+const ART = "/art/battle/units";
+
+/** Three-way battle-speed selector in the skeuomorphic deck style —
+ *  SLOW / NORMAL / FAST. SLOW is the default: the fight breathes. */
+function SpeedSwitch({ value, onChange }: { value: BattleSpeed; onChange: (s: BattleSpeed) => void }) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Battle speed"
+      className="flex overflow-hidden rounded-lg border border-black/60"
+      style={{ background: "linear-gradient(180deg,#1b1d24 0%,#101218 60%,#1b1d24 100%)" }}
+    >
+      {BATTLE_SPEEDS.map((sp) => {
+        const active = value === sp;
+        return (
+          <button
+            key={sp}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(sp)}
+            className="flex-1 px-3.5 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors"
+            style={
+              active
+                ? {
+                    background: "linear-gradient(180deg,#3a2f12 0%,#2a220d 100%)",
+                    color: "#fbbf24",
+                    boxShadow: "inset 0 2px 8px rgba(0,0,0,0.85), 0 0 8px rgba(251,191,36,0.25)",
+                  }
+                : { color: "#63636b" }
+            }
+          >
+            {sp}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 const VEC_LABEL: Record<ManeuverVector, string> = {
   MAIN: "Main",
@@ -70,6 +115,59 @@ export function BattleControlsBody() {
         </p>
       </section>
 
+      {/* battle speed — slow it down, give the commander time to think */}
+      <section aria-label="Battle speed">
+        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Battle speed</p>
+        <SpeedSwitch value={ui.battleSpeed} onChange={setBattleSpeed} />
+        <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
+          {ui.battleSpeed === "slow"
+            ? "Slow: half pace — read the field, call your shots."
+            : ui.battleSpeed === "normal"
+              ? "Normal: full pace."
+              : "Fast: 1.75x — when you want the tape, not the tension."}
+        </p>
+      </section>
+
+      {/* field force — know what you're loading, at a glance */}
+      <section aria-label="Field force">
+        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Field force</p>
+        {ui.roster.length === 0 ? (
+          <p className="text-[11px] text-zinc-500">Mustering…</p>
+        ) : (
+          (["attacker", "defender"] as const).map((side) => {
+            const rows = TROOP_KINDS.map((kind) => ({
+              kind,
+              count: ui.roster.find((r) => r.side === side && r.kind === kind)?.count ?? 0,
+            })).filter((r) => r.count > 0);
+            if (rows.length === 0) return null;
+            return (
+              <div key={side} className="mb-2 last:mb-0">
+                <p
+                  className="mb-1 text-[10px] font-bold uppercase tracking-wider"
+                  style={{ color: side === "attacker" ? "#34d399" : "#ef4444" }}
+                >
+                  {side === "attacker" ? "Attackers" : "Defenders"}
+                </p>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                  {rows.map(({ kind, count }) => (
+                    <div key={kind} className="flex items-center gap-2">
+                      <img
+                        src={`${ART}/${kind}.webp`}
+                        alt=""
+                        className="h-6 w-6 shrink-0 object-contain"
+                        loading="lazy"
+                      />
+                      <span className="text-[11px] font-medium text-zinc-200">{UNIT_KIND_LABEL[kind]}</span>
+                      <span className="ml-auto text-[11px] tabular-nums text-zinc-400">×{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </section>
+
       {/* camera — tactical overhead or down in the dirt */}
       <section aria-label="Camera">
         <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Camera</p>
@@ -103,6 +201,7 @@ export function BattleControlsBody() {
         <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-2.5">
           <ToggleSwitch label="Turrets" on={ui.turretsOn} onChange={setTurretsOn} accent="#67e8f9" />
           <ToggleSwitch label="Logistics FX" on={ui.logisticsFx} onChange={setLogisticsFx} accent="#5eead4" />
+          <ToggleSwitch label="Labels" on={ui.labelsOn} onChange={setLabelsOn} accent="#fbbf24" />
         </div>
       </section>
 

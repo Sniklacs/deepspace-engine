@@ -8,11 +8,35 @@
 // Follows the window-store pattern: plain subscribe/getSnapshot, no provider.
 
 import type { ManeuverVector } from "./war-types";
+import type { SceneUnitKind } from "./battle-scene-model";
 
 export type DayNightMode = "auto" | "day" | "night";
 
 /** Battle scene camera: the overhead tactical map, or down in the dirt. */
 export type CameraMode = "tactical" | "ground";
+
+/**
+ * Battle-sim speed. The demo was running at wall-clock 1x and Hans
+ * couldn't react — "slow it down, give me time to make something happen."
+ * SLOW (0.5x) is the default; the sim clock, movement, tracers, and
+ * casualty ticks all scale with it.
+ */
+export type BattleSpeed = "slow" | "normal" | "fast";
+
+export const BATTLE_SPEED_MUL: Record<BattleSpeed, number> = {
+  slow: 0.5,
+  normal: 1,
+  fast: 1.75,
+};
+
+export const BATTLE_SPEEDS: BattleSpeed[] = ["slow", "normal", "fast"];
+
+/** One row of the FIELD FORCE roster — what's actually on the field. */
+export interface RosterEntry {
+  side: "attacker" | "defender";
+  kind: SceneUnitKind;
+  count: number;
+}
 
 export interface SceneUIState {
   vectorsOn: Record<ManeuverVector, boolean>;
@@ -22,6 +46,10 @@ export interface SceneUIState {
   dayNight: DayNightMode;
   /** "ground" drops the camera low with the friendly advance (owner 2026-10-05). */
   cameraMode: CameraMode;
+  /** Sim speed — the player's pacing preference, persists across scenes. */
+  battleSpeed: BattleSpeed;
+  /** On-canvas unit type tags (BULWARK, REAVER, …), default on. */
+  labelsOn: boolean;
   gunnerId: string | null;
   gunTarget: string | null;
   /** battle-clock seconds — the scene loop writes this ~4x/sec */
@@ -29,6 +57,8 @@ export interface SceneUIState {
   kills: { attacker: number; defender: number };
   /** attacker turrets, for the gunner-cam picker in the control window */
   turrets: { id: string; idx: number }[];
+  /** force roster for the FIELD FORCE panel — what's on the field by type */
+  roster: RosterEntry[];
 }
 
 const INITIAL: SceneUIState = {
@@ -38,11 +68,14 @@ const INITIAL: SceneUIState = {
   manual: false,
   dayNight: "auto",
   cameraMode: "tactical",
+  battleSpeed: "slow",
+  labelsOn: true,
   gunnerId: null,
   gunTarget: null,
   tS: 0,
   kills: { attacker: 0, defender: 0 },
   turrets: [],
+  roster: [],
 };
 
 let state: SceneUIState = INITIAL;
@@ -111,6 +144,25 @@ export function setCameraMode(mode: CameraMode): void {
   set({ cameraMode: mode });
 }
 
+/** Battle-sim speed: slow / normal / fast. The sim clock, unit movement,
+ *  tracers, and casualty ticks all scale with it (owner 2026-10-05). */
+export function setBattleSpeed(speed: BattleSpeed): void {
+  if (state.battleSpeed === speed) return;
+  set({ battleSpeed: speed });
+}
+
+/** Cycle slow → normal → fast → slow. */
+export function cycleBattleSpeed(): void {
+  const i = BATTLE_SPEEDS.indexOf(state.battleSpeed);
+  setBattleSpeed(BATTLE_SPEEDS[(i + 1) % BATTLE_SPEEDS.length]);
+}
+
+/** On-canvas unit type tags. */
+export function setLabelsOn(on: boolean): void {
+  if (state.labelsOn === on) return;
+  set({ labelsOn: on });
+}
+
 /** Cycle the day/night skin: auto → night → day → auto. */
 export function cycleDayNight(): void {
   setDayNight(state.dayNight === "auto" ? "night" : state.dayNight === "night" ? "day" : "auto");
@@ -140,7 +192,13 @@ export function registerTurrets(turrets: { id: string; idx: number }[]): void {
   set({ turrets });
 }
 
-/** Fresh scene identity: drop per-scene UI (clock, kills, gunner, turrets). */
+/** Force roster for the FIELD FORCE panel — counts by side + unit kind. */
+export function registerRoster(roster: RosterEntry[]): void {
+  set({ roster });
+}
+
+/** Fresh scene identity: drop per-scene UI (clock, kills, gunner, turrets, roster).
+ *  The player's preferences (camera, speed, labels, layers, command) survive. */
 export function resetSceneUI(): void {
   set({
     tS: 0,
@@ -148,6 +206,7 @@ export function resetSceneUI(): void {
     gunnerId: null,
     gunTarget: null,
     turrets: [],
+    roster: [],
   });
 }
 

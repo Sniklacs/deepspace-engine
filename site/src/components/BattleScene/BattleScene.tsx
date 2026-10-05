@@ -13,14 +13,15 @@ import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
   SCENE_PHASES,
   mulberry32,
-  sceneClockS,
   sceneNightFactor,
   scenePhaseAt,
   VECTOR_LANES,
+  UNIT_KIND_LABEL,
   type SceneBattle,
   type ScenePhase,
   type SceneTurret,
   type SceneUnit,
+  type SceneUnitKind,
 } from "../../game/war/battle-scene-model";
 import {
   subscribeSceneUI,
@@ -32,12 +33,15 @@ import {
   setManual,
   setCameraMode,
   cycleDayNight,
+  setLabelsOn,
   setGunner,
   setGunTarget,
   setClock,
   bumpKill,
   registerTurrets,
+  registerRoster,
   resetSceneUI,
+  BATTLE_SPEED_MUL,
 } from "../../game/war/battle-scene-ui-store";
 import {
   subscribeWindows,
@@ -51,6 +55,7 @@ import type { ManeuverVector } from "../../game/war/war-types";
 import { Fx } from "./effects";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { BattleClock } from "./BattleClock";
+import { BattleLegend } from "./BattleLegend";
 import { SceneHeader } from "../SceneHeader";
 
 const ART = "/art/battle/units";
@@ -159,6 +164,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   // Working copy of units — the animation loop mutates this, never the model.
   const unitsRef = useRef<SceneUnit[]>([]);
   const turretsRef = useRef<SceneTurret[]>([]);
+  // Speed-scaled sim clock (seconds) — the battle-speed toggle scales this,
+  // not the wall clock, so SLOW actually gives a commander time to think.
+  const simTRef = useRef(0);
   // Camera rig — the mode lives in the shared store; zoom/anchor ease here
   // so flipping the toggle glides instead of cutting.
   const camRef = useRef<CameraRig>({ ...CAM_HOME });
@@ -175,6 +183,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       unitsRef.current = scene.units.map((u) => ({ ...u }));
       turretsRef.current = scene.turrets.map((t) => ({ ...t }));
       camRef.current = { ...CAM_HOME };
+      simTRef.current = 0;
       resetSceneUI();
     }
     registerTurrets(
@@ -182,6 +191,19 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         .map((t, i) => ({ t, i }))
         .filter(({ t }) => t.side === "attacker" && t.hp01 > 0)
         .map(({ t, i }) => ({ id: t.id, idx: i })),
+    );
+    // Force roster for the FIELD FORCE panel — what's on the field by type.
+    // (The practice scene is canned; real loadout-to-field mapping is P2.)
+    const counts = new Map<string, number>();
+    for (const u of unitsRef.current) {
+      const k = `${u.side}:${u.kind}`;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    registerRoster(
+      [...counts.entries()].map(([k, count]) => {
+        const [side, kind] = k.split(":");
+        return { side: side as "attacker" | "defender", kind: kind as SceneUnitKind, count };
+      }),
     );
   }, [scene]);
 
@@ -242,8 +264,13 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     const step = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      const t = sceneClockS(scene, Date.now());
       const ui = sceneUISnapshot();
+      // Battle speed scales the SIM — the clock, movement, tracers, and
+      // casualty ticks all run at the player's chosen pace. SLOW (0.5x) is
+      // the default: the fight breathes, the commander gets time to think.
+      const sdt = dt * BATTLE_SPEED_MUL[ui.battleSpeed];
+      simTRef.current += sdt;
+      const t = simTRef.current;
       const phase = scenePhaseAt(t);
 
       // --- unit state machine -------------------------------------------
@@ -256,7 +283,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           const dx = u.tx - u.x;
           const dy = u.ty - u.y;
           const d = Math.hypot(dx, dy);
-          const speed = (u.kind === "thunder" ? 0.02 : u.kind === "warden" ? 0.035 : 0.05) * dt * 10;
+          const speed = (u.kind === "thunder" ? 0.02 : u.kind === "warden" ? 0.035 : 0.05) * sdt * 10;
           if (d < 0.015) {
             u.x = u.tx; u.y = u.ty;
             u.state = "holding";
@@ -272,7 +299,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       }
 
       // --- combat ---------------------------------------------------------
-      fireAcc += dt;
+      fireAcc += sdt;
       if (phase === "weapons-free" && fireAcc > 0.28) {
         fireAcc = 0;
         const engaged = unitsRef.current.filter((u) => u.state === "engaged");
@@ -322,7 +349,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         }
       } else if (phase === "weapons-free") {
         // Demo curve: steady attrition so the scene tells a story.
-        if (Math.random() < dt * 1.2) {
+        if (Math.random() < sdt * 1.2) {
           const cands = unitsRef.current.filter((u) => u.state === "engaged" || u.state === "holding");
           const v = cands[Math.floor(Math.random() * cands.length)];
           if (v) { v.hp01 -= 0.34; if (v.hp01 <= 0) killUnit(v); }
@@ -330,7 +357,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       }
 
       // --- logistics autopilot: jamming rings + target painting -----------
-      jamAcc += dt;
+      jamAcc += sdt;
       if (ui.logisticsFx && jamAcc > 1.4) {
         jamAcc = 0;
         for (const u of unitsRef.current) {
@@ -346,7 +373,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         }
       }
       fx.sweepOn = phase === "contact";
-      fx.update(dt);
+      fx.update(sdt); // fx runs on sim time — tracers/explosions slow with the battle
 
       // --- camera: tactical overhead ↔ ground-level follow cam --------------
       // The mode lives in the shared store; the rig eases toward its target
@@ -385,11 +412,11 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       // --- ground-mode texture: dust under the advance, near-miss tracers --
       if (ground) {
         for (const u of unitsRef.current) {
-          if (u.side === "attacker" && u.state === "advancing" && Math.random() < dt * 7) {
+          if (u.side === "attacker" && u.state === "advancing" && Math.random() < sdt * 7) {
             fx.dust(X(u.x), Y(u.y));
           }
         }
-        if (phase === "weapons-free" && Math.random() < dt * 2.2) {
+        if (phase === "weapons-free" && Math.random() < sdt * 2.2) {
           // A tracer rips across the frame near the camera.
           const jx = (Math.random() - 0.5) * 0.3;
           const jy = (Math.random() - 0.5) * 0.24;
@@ -594,10 +621,45 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         if (img && img.complete && img.naturalWidth > 0) {
           c.drawImage(img, x - r, y - r, r * 2, r * 2);
         } else {
+          // Distinct fallback glyph per kind — types read even before the
+          // art loads (or where dots are all that fit): square = Bulwark,
+          // triangle = Reaver, diamond = Longeye, hexagon = Thunder,
+          // ring = Warden. Side-colored like everything else.
+          const rr = r * 0.85;
           c.fillStyle = SIDE_COLOR[u.side];
-          c.beginPath(); c.arc(x, y, r * 0.8, 0, Math.PI * 2); c.fill();
-          c.fillStyle = SIDE_DIM[u.side];
-          c.beginPath(); c.arc(x, y, r * 0.4, 0, Math.PI * 2); c.fill();
+          c.beginPath();
+          if (u.kind === "bulwark") {
+            c.rect(x - rr, y - rr, rr * 2, rr * 2);
+          } else if (u.kind === "reaver") {
+            c.moveTo(x, y - rr);
+            c.lineTo(x + rr, y + rr);
+            c.lineTo(x - rr, y + rr);
+            c.closePath();
+          } else if (u.kind === "longeye") {
+            c.moveTo(x, y - rr);
+            c.lineTo(x + rr, y);
+            c.lineTo(x, y + rr);
+            c.lineTo(x - rr, y);
+            c.closePath();
+          } else if (u.kind === "thunder") {
+            for (let i = 0; i < 6; i++) {
+              const a = Math.PI / 6 + (i * Math.PI) / 3;
+              const gx = x + rr * Math.cos(a);
+              const gy = y + rr * Math.sin(a);
+              if (i === 0) c.moveTo(gx, gy);
+              else c.lineTo(gx, gy);
+            }
+            c.closePath();
+          } else {
+            // warden: ring; dropship/turret: dot.
+            c.arc(x, y, rr, 0, Math.PI * 2);
+          }
+          c.fill();
+          c.strokeStyle = SIDE_DIM[u.side];
+          c.lineWidth = 1.5;
+          c.beginPath();
+          c.arc(x, y, r * 0.35, 0, Math.PI * 2);
+          c.stroke();
         }
         // HP pip with a side-colored border so the pip also reads friend/foe.
         if (u.hp01 < 1) {
@@ -779,6 +841,49 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
             c.fillStyle = g4;
             c.beginPath(); c.arc(X(tr.x), Y(tr.y), 26, 0, Math.PI * 2); c.fill();
           }
+        }
+        c.restore();
+      }
+
+      // --- unit labels ---------------------------------------------------------
+      // "Name the damn icons." Every unit carries its type tag in screen
+      // space (crisp at any zoom — no squash distortion): BULWARK, REAVER,
+      // LONGEYE, THUNDER, WARDEN, DROPSHIP. Side-colored text on a dark
+      // pill, matching the friend/foe rings. Staging ghosts get dim tags so
+      // the muster reads too. Toggleable in the Controls glass (LABELS).
+      if (ui.labelsOn) {
+        c.save();
+        c.font = "700 9px system-ui, sans-serif";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        for (const u of unitsRef.current) {
+          if (u.state === "dead" || !ui.vectorsOn[u.vector]) continue;
+          const sx = (u.x - cam.ax) * cam.zoom * w + w / 2;
+          const sy = (u.y - cam.ay) * cam.zoom * cam.ysq * h + h * cam.fy;
+          if (sx < -70 || sx > w + 70 || sy < -40 || sy > h + 40) continue;
+          const dim = u.state === "staging" ? 0.55 : 1;
+          const label = UNIT_KIND_LABEL[u.kind].toUpperCase();
+          const tw = c.measureText(label).width;
+          const rScr = Math.max(7, s * 0.022) * cam.zoom;
+          const ly = sy - rScr - 13;
+          const pw = tw + 9;
+          const ph = 13;
+          c.globalAlpha = 0.62 * dim;
+          c.fillStyle = "#000";
+          c.beginPath();
+          const bx = sx - pw / 2;
+          const by = ly - ph / 2;
+          const br = 4;
+          c.moveTo(bx + br, by);
+          c.arcTo(bx + pw, by, bx + pw, by + ph, br);
+          c.arcTo(bx + pw, by + ph, bx, by + ph, br);
+          c.arcTo(bx, by + ph, bx, by, br);
+          c.arcTo(bx, by, bx + pw, by, br);
+          c.closePath();
+          c.fill();
+          c.globalAlpha = dim;
+          c.fillStyle = SIDE_COLOR[u.side];
+          c.fillText(label, sx, ly + 0.5);
         }
         c.restore();
       }
@@ -979,6 +1084,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         >
           ⚙ Controls
         </button>
+
+        {/* collapsible icon key — what am I looking at */}
+        <BattleLegend />
       </div>
     );
   }
@@ -1002,6 +1110,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       <div ref={wrapRef} className="relative w-full">
         <canvas ref={canvasRef} onClick={onCanvasClick} className="block cursor-crosshair" aria-label="Battle scene tactical map" />
         {gunnerOverlay}
+        <BattleLegend />
       </div>
 
       {/* control deck */}
@@ -1022,6 +1131,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           <div className="mt-3 flex flex-wrap gap-x-5 gap-y-3">
             <ToggleSwitch label="Turrets" on={ui.turretsOn} onChange={setTurretsOn} accent="#67e8f9" />
             <ToggleSwitch label="Logistics FX" on={ui.logisticsFx} onChange={setLogisticsFx} accent="#5eead4" />
+            <ToggleSwitch label="Labels" on={ui.labelsOn} onChange={setLabelsOn} accent="#fbbf24" />
           </div>
         </div>
         <div>

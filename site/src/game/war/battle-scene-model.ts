@@ -15,6 +15,24 @@ import type { TroopType } from "./troops";
 /** Renderable unit kinds on the tactical map. */
 export type SceneUnitKind = TroopType | "dropship" | "turret";
 
+/**
+ * Display names for every icon on the field (owner 2026-10-05: "name the
+ * damn icons"). Shared by the canvas tags, the legend, and the FIELD FORCE
+ * roster so the visual language is identical everywhere.
+ */
+export const UNIT_KIND_LABEL: Record<SceneUnitKind, string> = {
+  bulwark: "Bulwark",
+  reaver: "Reaver",
+  longeye: "Longeye",
+  thunder: "Thunder",
+  warden: "Warden",
+  dropship: "Dropship",
+  turret: "Turret",
+};
+
+/** Troop types only, in doctrine order — the roster/legend row order. */
+export const TROOP_KINDS: SceneUnitKind[] = ["bulwark", "reaver", "longeye", "thunder", "warden"];
+
 export type SceneUnitState =
   | "staging" // in dropship / at muster, not yet on the field
   | "advancing" // moving to assigned position

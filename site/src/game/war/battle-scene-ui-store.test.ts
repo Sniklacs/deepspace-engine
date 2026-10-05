@@ -16,14 +16,19 @@ import {
   setManual,
   setDayNight,
   setCameraMode,
+  setBattleSpeed,
+  setLabelsOn,
   cycleDayNight,
+  cycleBattleSpeed,
   setGunner,
   setGunTarget,
   setClock,
   bumpKill,
   registerTurrets,
+  registerRoster,
   resetSceneUI,
   resetSceneUIStore,
+  BATTLE_SPEED_MUL,
 } from "./battle-scene-ui-store";
 
 beforeEach(() => {
@@ -87,6 +92,64 @@ describe("camera mode", () => {
     setCameraMode("ground");
     resetSceneUI();
     expect(sceneUISnapshot().cameraMode).toBe("ground");
+  });
+});
+
+describe("battle speed", () => {
+  test("defaults to slow, multipliers ascend", () => {
+    expect(sceneUISnapshot().battleSpeed).toBe("slow");
+    expect(BATTLE_SPEED_MUL.slow).toBeLessThan(BATTLE_SPEED_MUL.normal);
+    expect(BATTLE_SPEED_MUL.normal).toBeLessThan(BATTLE_SPEED_MUL.fast);
+  });
+
+  test("flips and cycles slow → normal → fast → slow", () => {
+    setBattleSpeed("fast");
+    expect(sceneUISnapshot().battleSpeed).toBe("fast");
+    cycleBattleSpeed();
+    expect(sceneUISnapshot().battleSpeed).toBe("slow");
+    cycleBattleSpeed();
+    expect(sceneUISnapshot().battleSpeed).toBe("normal");
+  });
+
+  test("no-ops when unchanged", () => {
+    let calls = 0;
+    const unsub = subscribeSceneUI(() => {
+      calls += 1;
+    });
+    setBattleSpeed("slow");
+    unsub();
+    expect(calls).toBe(0);
+  });
+
+  test("survives a scene reset like the other player preferences", () => {
+    setBattleSpeed("fast");
+    resetSceneUI();
+    expect(sceneUISnapshot().battleSpeed).toBe("fast");
+  });
+});
+
+describe("unit labels", () => {
+  test("default on, flips, survives a scene reset", () => {
+    expect(sceneUISnapshot().labelsOn).toBe(true);
+    setLabelsOn(false);
+    expect(sceneUISnapshot().labelsOn).toBe(false);
+    resetSceneUI();
+    expect(sceneUISnapshot().labelsOn).toBe(false);
+  });
+});
+
+describe("field force roster", () => {
+  test("registers counts and clears on scene reset", () => {
+    registerRoster([
+      { side: "attacker", kind: "bulwark", count: 12 },
+      { side: "defender", kind: "thunder", count: 3 },
+    ]);
+    expect(sceneUISnapshot().roster).toEqual([
+      { side: "attacker", kind: "bulwark", count: 12 },
+      { side: "defender", kind: "thunder", count: 3 },
+    ]);
+    resetSceneUI();
+    expect(sceneUISnapshot().roster).toEqual([]);
   });
 });
 

@@ -8,8 +8,20 @@ import {
   sceneNightFactor,
   scenePhaseAt,
   SCENE_PHASES,
+  TROOP_KINDS,
+  UNIT_KIND_LABEL,
   VECTOR_LANES,
 } from "./battle-scene-model";
+
+describe("unit kind labels", () => {
+  test("every renderable kind has a display name, troops in doctrine order", () => {
+    expect(TROOP_KINDS).toEqual(["bulwark", "reaver", "longeye", "thunder", "warden"]);
+    for (const kind of [...TROOP_KINDS, "dropship", "turret"] as const) {
+      expect(UNIT_KIND_LABEL[kind]).toMatch(/^[A-Z][a-z]+$/);
+    }
+    expect(UNIT_KIND_LABEL.thunder).toBe("Thunder");
+  });
+});
 
 describe("scene phases", () => {
   test("doctrine boundaries: 30/45/60", () => {
