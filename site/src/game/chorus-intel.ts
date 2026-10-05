@@ -20,7 +20,7 @@
 // (seeded from the zone id — stable across renders and sessions) and the
 // grade artwork path.
 
-import { CHORUS_GRADES, CHORUS_SITES, type ChorusGradeId } from "./war/chorus-sites";
+import { CHORUS_GRADES, CHORUS_SITES, chorusSiteStrength, chorusSiteTroops, isChorusHeart, type ChorusGradeId } from "./war/chorus-sites";
 import { ZONES } from "./zones";
 
 /** One Chorus site, enriched for display. */
@@ -35,8 +35,12 @@ export interface ChorusSiteIntel {
   gradeLabel: string;
   /** Garrison force power — same scale as the player's own force. */
   strength: number;
-  /** Garrison troop count at this grade. */
+  /** Garrison troop count at this site (the heart's, at the heart). */
   garrisonTroops: number;
+  /** True only at the Chorus-held heart (dark-matter-observatory) — the
+   *  endgame target. Its numbers sit above grade V by named multiples
+   *  (CHORUS_HEART, war/chorus-sites.ts §5). */
+  isHeart: boolean;
   /** Recommended attacking troop count (1.5× garrison, rounded up to 10). */
   recommendedTroops: number;
   /** Recommended loadout reverb (== strength — same force-power scale). */
@@ -93,7 +97,18 @@ export function siteGlobePosition(zoneId: string, grade: ChorusGradeId): { lat: 
  *  rounded up to the nearest 10. A recommendation, not a promise. */
 export function recommendedTroopsForGrade(grade: ChorusGradeId): number {
   const g = CHORUS_GRADES[grade - 1];
-  return Math.ceil((g.troops * 1.5) / 10) * 10;
+  return troopsRecommendation(g.troops);
+}
+
+/** One shared formula: 1.5× a garrison, rounded up to the nearest 10. */
+function troopsRecommendation(troops: number): number {
+  return Math.ceil((troops * 1.5) / 10) * 10;
+}
+
+/** Recommended attacking troop count for a SITE — 1.5× ITS garrison, so the
+ *  heart reads 1.5× the heart's garrison (4,500), not 1.5× grade V's. */
+export function recommendedTroopsForSite(zoneId: string): number {
+  return troopsRecommendation(chorusSiteTroops(zoneId) ?? 0);
 }
 
 /** Recommended loadout reverb for a grade: the grade's own strength.
@@ -119,20 +134,26 @@ function zoneName(zoneId: string): string {
   return n;
 }
 
-/** All 15 Chorus sites, enriched, sorted grade-ascending then by name. */
+/** All 15 Chorus sites, enriched, sorted grade-ascending then by name. The
+ *  heart (dark-matter-observatory) carries the heart's numbers — strength
+ *  5,360, garrison 3,000, rec. troops 4,500, rec. reverb 5,360 — everything
+ *  else reads the grade ladder. */
 export function chorusSiteIntel(): ChorusSiteIntel[] {
   return CHORUS_SITES.map((s) => {
     const grade = CHORUS_GRADES[s.grade - 1];
     const pos = siteGlobePosition(s.zoneId, s.grade);
+    const strength = chorusSiteStrength(s.zoneId) ?? grade.strength;
+    const garrisonTroops = chorusSiteTroops(s.zoneId) ?? grade.troops;
     return {
       zoneId: s.zoneId,
       siteName: zoneName(s.zoneId),
       grade: s.grade,
       gradeLabel: GRADE_LABEL[s.grade],
-      strength: grade.strength,
-      garrisonTroops: grade.troops,
-      recommendedTroops: recommendedTroopsForGrade(s.grade),
-      recommendedReverb: recommendedReverbForGrade(s.grade),
+      strength,
+      garrisonTroops,
+      isHeart: isChorusHeart(s.zoneId),
+      recommendedTroops: recommendedTroopsForSite(s.zoneId),
+      recommendedReverb: strength,
       lat: pos.lat,
       lon: pos.lon,
       art: chorusGradeArt(s.grade),

@@ -5,6 +5,7 @@ import {
   hash01,
   recommendedReverbForGrade,
   recommendedTroopsForGrade,
+  recommendedTroopsForSite,
   siteGlobePosition,
 } from "./chorus-intel";
 
@@ -21,7 +22,7 @@ describe("chorus-intel", () => {
     expect(names).toContain("Super-Collider Ruins");
   });
 
-  test("strengths match the pinned grade ladder (21/100/186/345/1330)", () => {
+  test("strengths match the pinned grade ladder (21/100/186/345/1330) + the heart (5360)", () => {
     const sites = chorusSiteIntel();
     const byGrade: Record<number, number[]> = {};
     for (const s of sites) (byGrade[s.grade] ||= []).push(s.strength);
@@ -29,14 +30,25 @@ describe("chorus-intel", () => {
     expect(byGrade[2]).toEqual([100, 100, 100]);
     expect(byGrade[3]).toEqual([186, 186, 186]);
     expect(byGrade[4]).toEqual([345, 345, 345]);
-    expect(byGrade[5]).toEqual([1330, 1330, 1330]);
+    // Two grade-V sites read the ladder; the heart sits above it.
+    expect(byGrade[5].filter((n) => n === 1330)).toHaveLength(2);
+    const heart = sites.find((s) => s.isHeart)!;
+    expect(heart.zoneId).toBe("dark-matter-observatory");
+    expect(heart.strength).toBe(5360);
+    expect(heart.strength).toBeGreaterThan(1330);
   });
 
-  test("garrison troops match the pinned ladder (25/50/100/200/400)", () => {
+  test("garrison troops match the pinned ladder (25/50/100/200/400) + the heart (3000)", () => {
     const sites = chorusSiteIntel();
-    const byGrade: Record<number, number> = {};
-    for (const s of sites) byGrade[s.grade] = s.garrisonTroops;
-    expect(byGrade).toEqual({ 1: 25, 2: 50, 3: 100, 4: 200, 5: 400 });
+    const byGrade: Record<number, number[]> = {};
+    for (const s of sites) (byGrade[s.grade] ||= []).push(s.garrisonTroops);
+    expect(byGrade[1]).toEqual([25, 25, 25]);
+    expect(byGrade[2]).toEqual([50, 50, 50]);
+    expect(byGrade[3]).toEqual([100, 100, 100]);
+    expect(byGrade[4]).toEqual([200, 200, 200]);
+    expect(byGrade[5].filter((n) => n === 400)).toHaveLength(2);
+    const heart = sites.find((s) => s.isHeart)!;
+    expect(heart.garrisonTroops).toBe(3000);
   });
 
   test("recommended reverb equals grade strength (same force-power scale)", () => {
@@ -53,6 +65,21 @@ describe("chorus-intel", () => {
     expect(recommendedTroopsForGrade(3)).toBe(150); // 100*1.5
     expect(recommendedTroopsForGrade(4)).toBe(300); // 200*1.5
     expect(recommendedTroopsForGrade(5)).toBe(600); // 400*1.5
+    // The heart recommends 1.5× ITS garrison: a full-rally ask.
+    expect(recommendedTroopsForSite("dark-matter-observatory")).toBe(4500); // 3000*1.5
+    expect(recommendedTroopsForSite("collider-ruins")).toBe(600);
+  });
+
+  test("the heart's recommended reverb is its own strength", () => {
+    const heart = chorusSiteIntel().find((s) => s.isHeart)!;
+    expect(heart.recommendedReverb).toBe(5360);
+    expect(heart.recommendedReverb).toBe(heart.strength);
+  });
+
+  test("isHeart is set only on the heart site", () => {
+    const sites = chorusSiteIntel();
+    expect(sites.filter((s) => s.isHeart)).toHaveLength(1);
+    expect(sites.find((s) => s.isHeart)!.zoneId).toBe("dark-matter-observatory");
   });
 
   test("globe positions are deterministic and in-bounds", () => {

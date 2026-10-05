@@ -1001,7 +1001,12 @@ export default function WorldGlobe({
       }
 
       // 11 — markers
-      const projected: (ScreenMarker & { nf: number })[] = [];
+      const projected: ScreenMarker[] = [];
+      // WS5: night factor in view space per marker, keyed by marker object
+      // (declutter keeps the same references, so this survives it). The
+      // markers sit IN the world, so the night side dims them slightly —
+      // they stay readable; they're UI. Hit-testing untouched.
+      const nightByMarker = new Map<GlobeMarker, number>();
       for (const m of markersRef.current) {
         if (!layersOnRef.current[m.layer]) continue;
         // WS7: tier filter — T1/T2/T3 world-site markers gate independently
@@ -1009,15 +1014,8 @@ export default function WorldGlobe({
         if (m.layer === "sites" && m.ref.kind === "site" && !tiersOnRef.current[m.ref.tier]) continue;
         const p = projectGlobe(m.lat, m.lon, v.spin, v.tilt);
         if (!p.visible) continue;
-        // WS5: night factor in view space per marker — the markers sit IN
-        // the world, so the night side dims them slightly (they stay
-        // readable; they're UI). Doesn't touch hit-testing or declutter.
-        projected.push({
-          marker: m,
-          sx: cx + p.x * R,
-          sy: cy + p.y * R,
-          nf: nightFactor(p.x, p.y, p.z, sun.x, sun.y, sun.z),
-        });
+        nightByMarker.set(m, nightFactor(p.x, p.y, p.z, sun.x, sun.y, sun.z));
+        projected.push({ marker: m, sx: cx + p.x * R, sy: cy + p.y * R });
       }
       const shown = declutterMarkers(projected, MIN_DIST_PX);
       screenPos.current.clear();
@@ -1026,7 +1024,7 @@ export default function WorldGlobe({
         const isSel = m.id === selectedIdRef.current;
         const base = isSel ? 15 : 10;
         // WS5: night-side dim (subtle — readability wins).
-        ctx.globalAlpha = 1 - 0.3 * s.nf;
+        ctx.globalAlpha = 1 - 0.3 * (nightByMarker.get(m) ?? 0);
         const spr = glowSprite(m.color);
         const sprSize = base * 3.2;
         ctx.drawImage(spr, s.sx - sprSize / 2, s.sy - sprSize / 2, sprSize, sprSize);
@@ -1607,11 +1605,21 @@ function SheetStats({ marker }: { marker: GlobeMarker }) {
   if (r.kind === "chorus") {
     const s = r.site;
     return (
-      <div className="mt-2 grid grid-cols-2 gap-1.5">
-        <Stat k={t("worldglobe.strength", "Strength")} v={s.strength.toLocaleString()} />
-        <Stat k={t("worldglobe.garrison", "Garrison")} v={s.garrisonTroops.toLocaleString()} />
-        <Stat k={t("worldglobe.recTroops", "Rec. troops")} v={s.recommendedTroops.toLocaleString()} />
-        <Stat k={t("worldglobe.recReverb", "Rec. reverb")} v={s.recommendedReverb.toLocaleString()} />
+      <div className="mt-2">
+        {s.isHeart && (
+          <p className="mb-1.5 rounded-lg border border-red-400/40 bg-red-950/50 px-2.5 py-1.5 text-[11px] font-bold leading-snug text-red-200">
+            {t(
+              "worldglobe.chorusHeart",
+              "❖ The Chorus Heart — endgame. Bring a full rally at max reverb."
+            )}
+          </p>
+        )}
+        <div className="grid grid-cols-2 gap-1.5">
+          <Stat k={t("worldglobe.strength", "Strength")} v={s.strength.toLocaleString()} />
+          <Stat k={t("worldglobe.garrison", "Garrison")} v={s.garrisonTroops.toLocaleString()} />
+          <Stat k={t("worldglobe.recTroops", "Rec. troops")} v={s.recommendedTroops.toLocaleString()} />
+          <Stat k={t("worldglobe.recReverb", "Rec. reverb")} v={s.recommendedReverb.toLocaleString()} />
+        </div>
       </div>
     );
   }

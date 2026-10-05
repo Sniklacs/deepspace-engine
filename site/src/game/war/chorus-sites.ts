@@ -314,6 +314,11 @@ function chorusCellAt(strength: number, index: number, colonyId: string): Battle
  * of its own, and the casualty figures on a report are that fight's toll, not a
  * permanent weakening.
  *
+ * At the heart zone the HEART garrison is fielded instead (§5): more cells,
+ * stronger cells, more kit, more troops — still at the grade-V FOB stage
+ * ceiling, because the heart is a final boss staged at the top of the shipped
+ * five, not a sixth FOB stage.
+ *
  * Returns a FRESH object every call, and `null` for a zone that holds no site
  * (only 15 of the 29 zones do).
  */
@@ -323,13 +328,18 @@ export function chorusGarrison(zone: Zone | string): CommittedForce | null {
   const id = site.zoneId;
   const grade = CHORUS_GRADES[site.grade - 1];
   const colonyId = `${CHORUS_SITE_COLONY_ID_PREFIX}-${id}`;
+  const heart = isChorusHeart(zone);
+  const cells = heart ? CHORUS_HEART.cells : grade.cells;
+  const cellStrength = heart ? CHORUS_HEART.cellStrength : grade.cellStrength;
+  const kits = heart ? [CHORUS_HEART.kit] : grade.kit ? [grade.kit] : [];
+  const troops = heart ? CHORUS_HEART.troops : grade.troops;
   return {
     side: "defender",
     colonyId,
     colonyName: CHORUS_NAME,
-    heroSquad: Array.from({ length: grade.cells }, (_, i) => chorusCellAt(grade.cellStrength, i, colonyId)),
-    weapons: grade.kit ? [{ ...grade.kit }] : [],
-    troops: grade.troops,
+    heroSquad: Array.from({ length: cells }, (_, i) => chorusCellAt(cellStrength, i, colonyId)),
+    weapons: kits.map((k) => ({ ...k })),
+    troops,
     fobStage: grade.fobStage,
   };
 }
@@ -378,6 +388,80 @@ export function chorusSiteStock(zone: Zone | string): ChorusSiteStock | null {
     artifactQty: grade.loot.artifactQty,
     emberYield: z.emberYield,
   };
+}
+
+// ============================================================================
+// §5 THE CHORUS HEART — the endgame target (HANS, Oct 4 2026)
+//
+// The dark-matter-observatory is the Chorus-HELD HEART at the center of the
+// ladder (design/circuit-fullscreen-page.md) — the one site the artifacts sit
+// behind. HANS'S RULE (agreed): anything dropping artifacts demands a real
+// fight. So the heart is NOT a grade-V site with nicer paint — it sits ABOVE
+// grade V by named multiples:
+//
+//   strength 5,360  (4.0× grade V's 1,330 — a full-rally, max-reverb target)
+//   troops   3,000  (7.5× grade V's 400)
+//   cells    8 × cellStrength 8   (grade V: 2 × 3)
+//   kit      assault-family at the stage ceiling ×4   (grade V: ×1)
+//
+// The heart is still grade V / FOB stage 4 — not a sixth FOB stage, but a
+// final boss staged at the top of the shipped five, so the stage ceiling
+// still caps what it fields. Its `strength` is the same pinned figure the
+// grades carry: whatever `computeForcePower` returns for the heart garrison,
+// asserted by chorus-sites.test.ts so it can never drift from the engine.
+// Tune the rows, never the strength.
+// ============================================================================
+
+/** The zone that holds the heart — the design doc's "the Chorus-held heart
+ *  at center". One named constant: nothing else in the tree names the zone. */
+export const CHORUS_HEART_ZONE_ID = "dark-matter-observatory";
+
+/** The heart's tuning rows. ONE place, named, no magic numbers elsewhere.
+ *  Every row climbs grade V's; the ratios are the design (4.0× strength,
+ *  7.5× troops), the absolute figures are calibration. */
+export interface ChorusHeartTuning {
+  /** Garrison troops the heart fields. */
+  troops: number;
+  /** Mirror-strength warform cells fielded (see CHORUS_CELL_TEMPLATE). */
+  cells: number;
+  /** Each heart cell's mirror strength — the `chorusCell` scale factor. */
+  cellStrength: number;
+  /** The assault-family kit the heart fields, at the stage ceiling. */
+  kit: CommittedWeapon;
+  /** PINNED — `computeForcePower(chorusGarrison(CHORUS_HEART_ZONE_ID))`, the
+   *  same assertion the grades carry (chorus-sites.test.ts). If the engine's
+   *  pricing moves, the test names the new figure; tune the rows, carry the
+   *  result. */
+  strength: number;
+}
+
+export const CHORUS_HEART: ChorusHeartTuning = {
+  troops: 3000,
+  cells: 8,
+  cellStrength: 8,
+  kit: { family: "assault", tier: 4, count: 4 },
+  strength: 5360,
+};
+
+/** True only at the heart zone. */
+export function isChorusHeart(zone: Zone | string): boolean {
+  return zoneIdOf(zone) === CHORUS_HEART_ZONE_ID;
+}
+
+/** A site's display strength — the heart's pinned strength at the heart, the
+ *  grade's strength everywhere else. Null where no site stands. */
+export function chorusSiteStrength(zone: Zone | string): number | null {
+  const site = chorusSiteOf(zone);
+  if (!site) return null;
+  return isChorusHeart(zone) ? CHORUS_HEART.strength : CHORUS_GRADES[site.grade - 1].strength;
+}
+
+/** A site's garrison troop count — the heart's at the heart, the grade's
+ *  elsewhere. Null where no site stands. */
+export function chorusSiteTroops(zone: Zone | string): number | null {
+  const site = chorusSiteOf(zone);
+  if (!site) return null;
+  return isChorusHeart(zone) ? CHORUS_HEART.troops : CHORUS_GRADES[site.grade - 1].troops;
 }
 
 // ============================================================================
