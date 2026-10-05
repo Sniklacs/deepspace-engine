@@ -26,6 +26,8 @@ import { availableWeight } from "../game/war/troops";
 import { snapshotHero } from "../game/prologue/act1-battle";
 import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
+import { BattleScene } from "./BattleScene/BattleScene";
+import { buildDemoScene } from "../game/war/battle-scene-model";
 
 type Act = (fn: () => Promise<unknown>, label: string) => void;
 
@@ -446,6 +448,7 @@ export default function ArenaPanel({ state, token, onAction }: {
   const [ladderTick, setLadderTick] = useState(0);
   const ladder = useArenaLadder(token, ladderTick);
   const [showForm, setShowForm] = useState(false);
+  const [showScene, setShowScene] = useState(false);
   const challenges = useMemo(() => state.arenaChallenges ?? [], [state]);
   const bouts = useMemo(() => state.arenaBouts ?? [], [state]);
 
@@ -472,6 +475,41 @@ export default function ArenaPanel({ state, token, onAction }: {
       <div className="grid gap-3 sm:grid-cols-2">
         <ArenaModeBanner mode="bloodless" compact />
         <ArenaModeBanner mode="stakes" compact />
+      </div>
+
+      {/* PROVING GROUND (owner 2026-10-05): the 2D battle scene lives on the
+          Arena tab — the arena is bloodless mock battles on the real engine,
+          so the practice scene belongs here, one tap away, not behind the
+          war-gated Battles tab. Observe-only in P1. */}
+      <div className="rounded-xl border border-line bg-surf-1/60 p-4" data-testid="arena-proving-ground">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h4 className="text-sm font-semibold text-text-1">
+              {t("arena.provingGround", "🎬 Proving ground")}
+            </h4>
+            <p className="mt-0.5 text-xs text-text-3">
+              {t(
+                "arena.provingGroundBlurb",
+                "Watch a practice battle play out on the real engine — approach, touchdown, first contact, weapons free. Observe only.",
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowScene((s) => !s)}
+            data-testid="arena-watch-scene"
+            className="shrink-0 rounded-lg border border-amber-400/40 bg-black/60 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-200 hover:bg-black/80"
+          >
+            {showScene
+              ? t("arena.hideScene", "Hide scene")
+              : t("arena.watchScene", "Watch practice battle")}
+          </button>
+        </div>
+        {showScene && (
+          <div className="mt-3">
+            <BattleScene scene={buildDemoScene(Date.now())} />
+          </div>
+        )}
       </div>
 
       {incoming.length > 0 && (
