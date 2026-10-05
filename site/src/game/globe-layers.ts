@@ -32,9 +32,11 @@ export type GlobeLayerId =
   | "husks"
   | "sites"
   | "chorus"
+  | "arena"
   | "memorials"
   | "raids"
-  | "satellites";
+  | "satellites"
+  | "beachhead";
 
 /** Marker icon kinds (Hans, Oct 4 2026, night — WS2: icons, not dots).
  *  Accessibility: shape carries the meaning, not color. Each kind is a
@@ -50,7 +52,9 @@ export type GlobeIconId =
   | "husk" // dead colony — broken hut
   | "monument" // memorial — obelisk plaque
   | "satellite" // orbital watcher — body + panels
-  | "beachhead"; // beachhead banner — everyone knows where it is
+  | "beachhead" // beachhead banner — everyone knows where it is
+  | "arena"; // stadium bowl — the arena's legend silhouette; the globe
+             // itself renders the full stadium sprite (WorldGlobe.tsx)
 
 export interface GlobeLayerMeta {
   id: GlobeLayerId;
@@ -70,7 +74,15 @@ export interface GlobeLayerMeta {
 export const GLOBE_LAYERS: GlobeLayerMeta[] = [
   { id: "home", label: "Your colony", color: "#fbbf24", defaultOn: true, blurb: "Home — tap to enter", icon: "home" },
   { id: "raids", label: "Incoming raids", color: "#ef4444", defaultOn: true, blurb: "Raid signatures inbound", icon: "raid" },
+  // WS8 (Hans, Oct 4 2026): the beachhead is never hidden — everybody knows
+  // where it is, so it rides its own default-on layer, never behind the
+  // satellites toggle.
+  { id: "beachhead", label: "Beachhead", color: "#fbbf24", defaultOn: true, blurb: "Invasion landing ground — open geography", icon: "beachhead" },
   { id: "chorus", label: "Chorus sites", color: "#f87171", defaultOn: true, blurb: "Raid ladder, grades I–V", icon: "chorus" },
+  // WS-A (Hans, Oct 4 2026): the arena gets a marker on the globe — open to
+  // everybody, so it's marked openly like the beachhead. Fuchsia glow, a
+  // color no other layer uses (shape still carries the meaning).
+  { id: "arena", label: "Arena", color: "#e879f9", defaultOn: true, blurb: "Open to everybody — duel & practice", icon: "arena" },
   { id: "colonies", label: "Colonies", color: "#34d399", defaultOn: true, blurb: "Known colonies by owner", icon: "hut" },
   { id: "sites", label: "World sites", color: "#7dd3fc", defaultOn: true, blurb: "T1 / T2 / T3 sites", icon: "ember" },
   { id: "husks", label: "Husks", color: "#9ca3af", defaultOn: true, blurb: "Dead colonies, claimable", icon: "husk" },
@@ -91,7 +103,8 @@ export type GlobeMarkerRef =
   | { kind: "memorial"; nodeId: string; name: string }
   | { kind: "raid"; raid: IncomingRaidAlert }
   | { kind: "satellite"; zoneId: string; zoneName: string }
-  | { kind: "beachhead" };
+  | { kind: "beachhead" }
+  | { kind: "arena" };
 
 export interface GlobeMarker {
   /** Stable unique id. */
@@ -121,6 +134,84 @@ export interface GlobeMarker {
 export function colonyGlobePosition(key: string): { lat: number; lon: number } {
   const lat = (hash01(key + ":clat") * 2 - 1) * 68;
   const lon = hash01(key + ":clon") * 360 - 180;
+  return { lat, lon };
+}
+
+// ---------------------------------------------------------------------------
+// Hive relocation geography (Hans, Oct 4 2026, Globe Wave 2 WS-E): the
+// player's colony can move to a hive set point on the globe.
+// ---------------------------------------------------------------------------
+
+/** v1 flavor scale: km per degree of great-circle distance. Earth-like on
+ *  purpose — defense-response distances feel real on the confirmation
+ *  panel. Never used for physics; physics uses degrees. */
+export const GLOBE_KM_PER_DEGREE = 111;
+
+/** The home colony's current globe position: the hive override when the
+ *  player has relocated (worldmap.ts `homeGlobeOverride`), else the
+ *  deterministic hash position. buildGlobeMarkers (home marker + raid fans)
+ *  and snap-to-site share this so the globe and the raid panel always agree
+ *  on where home is. Migration-safe: absent override = hash position. */
+export function currentHomeGlobePosition(state: GameState): { lat: number; lon: number } {
+  const override = state.worldMap?.homeGlobeOverride;
+  if (override && Number.isFinite(override.lat) && Number.isFinite(override.lon)) {
+    return { lat: override.lat, lon: override.lon };
+  }
+  return colonyGlobePosition("home:" + (state.gameId ?? "colony"));
+}
+
+/** Great-circle angular distance between two lat/lon points, in degrees.
+ *  Haversine — the hive validator (min separation, move distance) and the
+ *  defense-response delta both use it. Pure — tested in WorldGlobe.test.ts. */
+export function greatCircleDeg(
+  aLat: number,
+  aLon: number,
+  bLat: number,
+  bLon: number,
+): number {
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLon = ((bLon - aLon) * Math.PI) / 180;
+  const la1 = (aLat * Math.PI) / 180;
+  const la2 = (bLat * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2;
+  return (2 * Math.asin(Math.min(1, Math.sqrt(h))) * 180) / Math.PI;
+}
+
+/** Inverse of projectGlobe: unit-sphere screen coords (sx = px/R,
+ *  sy = py/R, y-down like projectGlobe's output) → lat/lon for the current
+ *  view (spinDeg/tiltDeg as the globe is rendered). Returns null when the
+ *  point misses the sphere (beyond the limb — no valid lat/lon there).
+ *  Powers hive pick-mode: tapping empty globe picks the hive point. Pure —
+ *  tested in WorldGlobe.test.ts. */
+export function unprojectGlobe(
+  sx: number,
+  sy: number,
+  spinDeg: number,
+  tiltDeg: number,
+): { lat: number; lon: number } | null {
+  // projectGlobe emits y = -y2, so y2 = -sy; x2 = sx.
+  const x2 = sx;
+  const y2 = -sy;
+  const rr = x2 * x2 + y2 * y2;
+  if (rr > 1) return null;
+  const z2 = Math.sqrt(Math.max(0, 1 - rr));
+  // reverse the tilt-about-X: (y1, z1) = (y2 cos t + z2 sin t, -y2 sin t + z2 cos t)
+  const t = (tiltDeg * Math.PI) / 180;
+  const ct = Math.cos(t);
+  const st = Math.sin(t);
+  const y1 = y2 * ct + z2 * st;
+  const z1 = -y2 * st + z2 * ct;
+  // reverse the spin-about-Y: (x0, z0) = (x1 cos s - z1 sin s, x1 sin s + z1 cos s)
+  const s = (spinDeg * Math.PI) / 180;
+  const cs = Math.cos(s);
+  const ss = Math.sin(s);
+  const x0 = x2 * cs - z1 * ss;
+  const z0 = x2 * ss + z1 * cs;
+  const lat = (Math.asin(Math.max(-1, Math.min(1, y1))) * 180) / Math.PI;
+  let lon = (Math.atan2(x0, z0) * 180) / Math.PI;
+  lon = ((lon + 540) % 360) - 180;
   return { lat, lon };
 }
 
@@ -193,6 +284,14 @@ export function chorusHeartGlobePosition(): { lat: number; lon: number } {
  *  learn it. */
 export function beachheadGlobePosition(): { lat: number; lon: number } {
   return { lat: 12, lon: 100 };
+}
+
+/** The arena: fixed, open geography — a little stadium everyone can see,
+ *  and everyone can enter. Equatorial and well clear of the beachhead
+ *  (12, 100) and of the T1–T3 tier clusters, so it always has room to
+ *  breathe. Deterministic constant (not hashed) so players can learn it. */
+export function arenaGlobePosition(): { lat: number; lon: number } {
+  return { lat: -8, lon: -40 };
 }
 
 // ---------------------------------------------------------------------------
@@ -307,10 +406,10 @@ function zoneName(zoneId: string): string {
 export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] {
   const markers: GlobeMarker[] = [];
   const wm = state.worldMap;
-  const gameId = state.gameId ?? "colony";
 
   // Home — the player's own colony. Distinct gold marker, top priority.
-  const homePos = colonyGlobePosition("home:" + gameId);
+  // Hive relocation (WS-E): the override is the position once set.
+  const homePos = currentHomeGlobePosition(state);
   const homeLabel = state.playerName ? colonyMarkerName(state.playerName) : "Your colony";
   markers.push({
     id: "home",
@@ -356,7 +455,7 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
       lat: site.lat,
       lon: site.lon,
       label: site.siteName,
-      sublabel: `Grade ${site.gradeLabel} · ${site.strength.toLocaleString()} str`,
+      sublabel: `Grade ${site.gradeLabel} · Reverb ~${site.recommendedReverb.toLocaleString()}`,
       color: CHORUS_GRADE_COLOR[site.grade] ?? "#ef4444",
       icon: "chorus",
       priority: 80,
@@ -460,11 +559,13 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
   });
 
   // WS3: the beachhead is open geography — everyone knows where it is, so
-  // it is marked openly. High declutter priority so it never hides.
+  // it is marked openly. WS8: rides its own default-on layer (never the
+  // satellites toggle — that one defaults off and would hide it). High
+  // declutter priority so it never hides under other markers.
   const bh = beachheadGlobePosition();
   markers.push({
     id: "beachhead",
-    layer: "satellites",
+    layer: "beachhead",
     lat: bh.lat,
     lon: bh.lon,
     label: "The Beachhead",
@@ -473,6 +574,24 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
     icon: "beachhead",
     priority: 65,
     ref: { kind: "beachhead" },
+  });
+
+  // WS-A (Hans, Oct 4 2026): the arena is open to everybody, so it sits on
+  // the world map like the beachhead — openly marked. On the globe it
+  // renders as a full stadium sprite, not a dot-icon (WorldGlobe.tsx).
+  // High declutter priority so the stadium never hides behind a marker fan.
+  const arenaPos = arenaGlobePosition();
+  markers.push({
+    id: "arena",
+    layer: "arena",
+    lat: arenaPos.lat,
+    lon: arenaPos.lon,
+    label: "The Arena",
+    sublabel: "Open to everybody — duel & practice",
+    color: GLOBE_LAYER_META.arena.color,
+    icon: "arena",
+    priority: 75,
+    ref: { kind: "arena" },
   });
 
   return markers;

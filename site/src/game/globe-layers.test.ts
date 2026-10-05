@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyGlobeFilters,
+  arenaGlobePosition,
   beachheadGlobePosition,
   buildElevationGrid,
   buildGlobeMarkers,
@@ -19,8 +20,7 @@ import {
   satelliteWatchPosition,
   shadeTerrainGrid,
   siteMarkerIcon,
-  siteTier,
-  terrainColor,
+  siteTier,  terrainColor,
   terrainElevation,
   terrainSpriteSize,
   valueNoise2D,
@@ -605,6 +605,29 @@ describe("WS3 satellites + beachhead", () => {
     expect(bh!.icon).toBe("beachhead");
     expect(bh!.lat).toBe(12);
     expect(bh!.lon).toBe(100);
+    // WS8: rides its own default-on layer, never the satellites toggle.
+    expect(bh!.layer).toBe("beachhead");
+    expect(bh!.priority).toBeGreaterThan(64);
+  });
+
+  test("beachhead layer exists and is default-on", () => {
+    const meta = GLOBE_LAYERS.find((l) => l.id === "beachhead");
+    expect(meta).toBeDefined();
+    expect(meta!.defaultOn).toBe(true);
+    expect(meta!.label).toBe("Beachhead");
+    expect(meta!.icon).toBe("beachhead");
+    const counts = countByLayer(buildGlobeMarkers(baseState(), NOW));
+    expect(counts.beachhead).toBe(1);
+  });
+
+  test("satellites layer no longer contains the beachhead marker", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    expect(ms.some((m) => m.layer === "satellites" && m.id === "beachhead")).toBe(false);
+    expect(ms.some((m) => m.layer === "satellites" && m.ref.kind === "beachhead")).toBe(false);
+    // satellites layer is still intact: one watch per zone + the heart
+    const sats = ms.filter((m) => m.layer === "satellites");
+    expect(sats).toHaveLength(ZONES.length + 1);
+    expect(sats.every((m) => m.ref.kind === "satellite")).toBe(true);
   });
 
   test("satellite watch positions sit next to their sites", () => {
@@ -717,5 +740,78 @@ describe("declutter with icons", () => {
       26,
     );
     expect(kept).toHaveLength(3);
+  });
+});
+
+describe("WS-A arena stadium (Hans, Oct 4 2026)", () => {
+  function baseState(over: Record<string, unknown> = {}) {
+    return {
+      gameId: "g1",
+      playerName: "Hans",
+      worldMap: { known: {}, raids: [], raidWarnings: [], incomingRaids: [], reports: {}, probes: [], lastActive: NOW },
+      memorials: [],
+      ...over,
+    } as unknown as Parameters<typeof buildGlobeMarkers>[0];
+  }
+
+  test("arena layer exists, on by default, open to everybody", () => {
+    const meta = GLOBE_LAYERS.find((l) => l.id === "arena");
+    expect(meta).toBeDefined();
+    expect(meta!.label).toBe("Arena");
+    expect(meta!.defaultOn).toBe(true);
+    expect(meta!.blurb.toLowerCase().includes("everybody")).toBe(true);
+    expect(meta!.icon).toBe("arena");
+  });
+
+  test("arena color is distinct from every other layer's color", () => {
+    const arenaColor = GLOBE_LAYERS.find((l) => l.id === "arena")!.color.toLowerCase();
+    const others = GLOBE_LAYERS.filter((l) => l.id !== "arena").map((l) => l.color.toLowerCase());
+    expect(others.includes(arenaColor)).toBe(false);
+    // shape still carries the meaning: every layer keeps a unique icon
+    const icons = GLOBE_LAYERS.map((l) => l.icon);
+    expect(new Set(icons).size).toBe(GLOBE_LAYERS.length);
+  });
+
+  test("arenaGlobePosition is fixed, equatorial, and clear of the beachhead", () => {
+    const a = arenaGlobePosition();
+    const b = arenaGlobePosition();
+    expect(a).toEqual(b);
+    expect(a).toEqual({ lat: -8, lon: -40 });
+    expect(Math.abs(a.lat) <= 20).toBe(true); // equatorial
+    // well clear of the beachhead (12, 100)
+    const bh = beachheadGlobePosition();
+    const dist = Math.abs(a.lat - bh.lat) + Math.abs(a.lon - bh.lon);
+    expect(dist).toBeGreaterThan(100);
+    expect(Math.abs(a.lat) <= 78).toBe(true);
+    expect(Math.abs(a.lon) <= 180).toBe(true);
+  });
+
+  test("arena marker is built with the stadium rendering path", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    const arena = ms.find((m) => m.id === "arena");
+    expect(arena).toBeDefined();
+    expect(arena!.layer).toBe("arena");
+    expect(arena!.ref.kind).toBe("arena");
+    expect(arena!.icon).toBe("arena");
+    expect(arena!.label).toBe("The Arena");
+    expect(arena!.sublabel.toLowerCase().includes("everybody")).toBe(true);
+    expect(arena!.lat).toBe(-8);
+    expect(arena!.lon).toBe(-40);
+    // prominent: below raids/home, above the colony fan
+    expect(arena!.priority >= 70).toBe(true);
+    const counts = countByLayer(ms);
+    expect(counts.arena).toBe(1);
+  });
+
+  test("saved prefs without the arena id still default it on (graceful)", () => {
+    // mirrors WorldGlobe.tsx's layersOn init: saved prefs are partial, new
+    // ids fall back to their defaultOn from GLOBE_LAYERS.
+    const saved = { home: false } as Partial<Record<string, boolean>>;
+    const init: Record<string, boolean> = Object.fromEntries(GLOBE_LAYERS.map((l) => [l.id, l.defaultOn]));
+    for (const l of GLOBE_LAYERS) {
+      if (typeof saved[l.id] === "boolean") init[l.id] = saved[l.id]!;
+    }
+    expect(init.arena).toBe(true);
+    expect(init.home).toBe(false);
   });
 });
