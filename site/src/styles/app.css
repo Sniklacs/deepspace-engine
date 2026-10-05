@@ -243,6 +243,34 @@
   padding-inline: var(--safe-inline-start) var(--safe-inline-end);
 }
 
+/* The nav strip scrolls on narrow screens: 12 tabs at a readable minimum
+   width do not fit a 375px phone, so the strip swipes horizontally (scrollbar
+   hidden, snap proximity) and every tab stays one tap away. On the wide
+   shell layout the strip goes back to the even, edge-to-edge bar. */
+.botnav > ul.botnav-scroll {
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+.botnav > ul.botnav-scroll::-webkit-scrollbar {
+  display: none;
+}
+.botnav > ul.botnav-scroll > li {
+  flex: none;
+  min-width: 68px;
+  scroll-snap-align: start;
+}
+[data-shell-layout="wide"] .botnav > ul.botnav-scroll {
+  overflow: visible;
+}
+[data-shell-layout="wide"] .botnav > ul.botnav-scroll > li {
+  flex: 1 1 0%;
+  min-width: 0;
+  scroll-snap-align: none;
+}
+
 /* A bottom sheet's last row must clear the home indicator, and the modal wrap
    keeps its dialogs off the top cutout. */
 .sheet-panel {

@@ -1,10 +1,14 @@
 // BottomNav — the fixed 64px slot bar (game-ui-shell-spec §1.3).
 //
-// Five fixed slots (Cradle · Expeditions · Lab · Armory · Circuit) plus the
-// conditional WAR slot (Battles). The active slot is encoded four ways — hue,
+// Twelve slots (Cradle · Exploration · Lab · Armory · Barracks · Loadout ·
+// Formations · Arena · Alliance · Circuit · World) plus the conditional WAR
+// slot (Battles). On narrow screens the strip scrolls horizontally so every
+// tab keeps a readable 68px minimum instead of being crushed; the active tab
+// scrolls itself into view. The active slot is encoded four ways — hue,
 // a top rule, label weight and icon stroke — plus `aria-current="page"`; a
 // badge is a real count or an "an action awaits" dot with its own aria-label,
 // never colour alone.
+import { useEffect, useRef } from "react";
 import { NAV, visibleNavIds } from "../../game/nav-slots";
 import type { Tab } from "../../game/nav-slots";
 import type { NavBadge } from "../../game/nav-badges";
@@ -24,19 +28,23 @@ export default function BottomNav({
 }) {
   const t = useT();
   const ids = visibleNavIds(!!badges.battles);
+  const activeTabRef = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [tab]);
   return (
     <nav
       aria-label={t("nav.sections")}
       data-testid="bottom-nav"
       className="botnav fixed inset-x-0 bottom-0 z-40 border-t border-line-strong bg-surf-1/95 backdrop-blur-sm"
     >
-      <ul className="mx-auto flex h-nav w-full max-w-6xl items-stretch">
+      <ul className="botnav-scroll mx-auto flex h-nav w-full max-w-6xl items-stretch">
         {NAV.filter((n) => ids.includes(n.id)).map((n) => {
           const b = badges[n.id] ?? {};
           const active = tab === n.id;
           const ready = b.lit || (b.count ?? 0) > 0 || b.live;
           return (
-            <li key={n.id} className="flex-1">
+            <li key={n.id} ref={active ? activeTabRef : undefined} className="flex-1">
               <button
                 type="button"
                 id={n.id === "circuit" ? "nav-tab-circuit" : undefined}
