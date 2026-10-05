@@ -67,8 +67,10 @@ const GROUND_ART = `${ART}/ground-arid.webp`;
 // Rebuilt only when the tile size changes (resize), never per-frame.
 let groundTile: { canvas: HTMLCanvasElement | null; size: number } = { canvas: null, size: -1 };
 
-const SIDE_COLOR: Record<string, string> = { attacker: "#f59e0b", defender: "#fb7185" };
-const SIDE_DIM: Record<string, string> = { attacker: "#92400e", defender: "#881337" };
+// Friend/foe identity (owner 2026-10-05): friendlies read blue-green,
+// enemies read red — unit rings, staging markers, turret fallback, HP pips.
+const SIDE_COLOR: Record<string, string> = { attacker: "#34d399", defender: "#ef4444" };
+const SIDE_DIM: Record<string, string> = { attacker: "#065f46", defender: "#7f1d1d" };
 
 interface Props {
   scene: SceneBattle;
@@ -375,17 +377,37 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       }
 
       // --- vector lanes ----------------------------------------------------
-      c.save();
-      c.globalAlpha = 0.16;
+      // Tactical lane markings, not color bands: a whisper of fill plus
+      // dashed edge lines in the lane color. The old solid 0.16 fills stacked
+      // where lanes overlap (MAIN/REAR/RESERVE all sit at y=0.5) into muddy
+      // saturated bands — that was the "weird offset colors" on the phone.
+      const LANE_COLOR: Record<ManeuverVector, string> = {
+        MAIN: "#f59e0b",
+        FLANK_LEFT: "#a78bfa",
+        FLANK_RIGHT: "#a78bfa",
+        REAR: "#a78bfa",
+        RESERVE: "#38bdf8",
+      };
       for (const v of Object.keys(VECTOR_LANES) as ManeuverVector[]) {
         if (!ui.vectorsOn[v]) continue;
         const lane = VECTOR_LANES[v];
         const y0 = Y(lane.y - lane.spread);
         const y1 = Y(lane.y + lane.spread);
-        c.fillStyle = v === "MAIN" ? "#f59e0b" : v === "RESERVE" ? "#38bdf8" : "#a78bfa";
+        const lc = LANE_COLOR[v];
+        c.save();
+        c.globalAlpha = 0.05;
+        c.fillStyle = lc;
         c.fillRect(0, y0, w, y1 - y0);
+        c.restore();
+        c.save();
+        c.globalAlpha = 0.5;
+        c.strokeStyle = lc;
+        c.lineWidth = 1.5;
+        c.setLineDash([10, 8]);
+        c.beginPath(); c.moveTo(0, y0); c.lineTo(w, y0); c.stroke();
+        c.beginPath(); c.moveTo(0, y1); c.lineTo(w, y1); c.stroke();
+        c.restore();
       }
-      c.restore();
 
       // --- grid -------------------------------------------------------------
       c.save();
@@ -423,12 +445,20 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         const x = X(u.x);
         const y = Y(u.y);
         const r = Math.max(7, s * 0.022) * (u.kind === "thunder" ? 1.7 : u.kind === "dropship" ? 2.2 : 1);
-        // Staging: ghost at muster.
+        // Staging: ghost at muster, with a side-colored dashed ring so you
+        // know whose muster it is at a glance.
         if (u.state === "staging") {
           c.save();
           c.globalAlpha = 0.25;
           c.fillStyle = SIDE_COLOR[u.side];
           c.beginPath(); c.arc(x, y, r * 0.8, 0, Math.PI * 2); c.fill();
+          c.restore();
+          c.save();
+          c.globalAlpha = 0.8;
+          c.strokeStyle = SIDE_COLOR[u.side];
+          c.lineWidth = 1.5;
+          c.setLineDash([4, 4]);
+          c.beginPath(); c.arc(x, y, r * 0.8 + 2, 0, Math.PI * 2); c.stroke();
           c.restore();
           return;
         }
@@ -460,13 +490,30 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           c.fillStyle = SIDE_DIM[u.side];
           c.beginPath(); c.arc(x, y, r * 0.4, 0, Math.PI * 2); c.fill();
         }
-        // HP pip.
+        // HP pip with a side-colored border so the pip also reads friend/foe.
         if (u.hp01 < 1) {
           c.fillStyle = "rgba(0,0,0,0.6)";
           c.fillRect(x - r, y - r - 6, r * 2, 3);
           c.fillStyle = u.hp01 > 0.5 ? "#a3e635" : u.hp01 > 0.25 ? "#fbbf24" : "#f87171";
           c.fillRect(x - r, y - r - 6, r * 2 * Math.max(0, u.hp01), 3);
+          c.strokeStyle = SIDE_COLOR[u.side];
+          c.lineWidth = 1;
+          c.strokeRect(x - r - 0.5, y - r - 6.5, r * 2 + 1, 4);
         }
+        // Friend/foe ring: crisp side-colored ring over a soft under-glow —
+        // at a glance you know which dots are yours. 2D Plus glow, no cartoon.
+        c.save();
+        c.globalAlpha = 0.3;
+        c.strokeStyle = SIDE_COLOR[u.side];
+        c.lineWidth = 6;
+        c.beginPath(); c.arc(x, y, r + 4, 0, Math.PI * 2); c.stroke();
+        c.restore();
+        c.save();
+        c.globalAlpha = 0.9;
+        c.strokeStyle = SIDE_COLOR[u.side];
+        c.lineWidth = 1.5;
+        c.beginPath(); c.arc(x, y, r + 4, 0, Math.PI * 2); c.stroke();
+        c.restore();
         c.restore();
       };
 
@@ -734,14 +781,19 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           {gunnerOverlay}
         </div>
 
-        {/* slim header overlay — where you're standing + tier + UTC clock */}
+        {/* slim header overlay — where you're standing + tier + BATTLE CLOCK.
+            Mid-fight the doctrine timeline is what matters, not the world UTC
+            clock. The floating Battle controls window keeps its own clock copy. */}
         <div
           className="absolute inset-x-0 top-0 z-10 border-b border-white/10 bg-black/55 backdrop-blur-md"
           style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.5rem)" }}
         >
-          <div className="flex items-center justify-between gap-3 px-3 pb-2">
+          <div className="flex items-start justify-between gap-3 px-3 pb-2">
             <div className="min-w-0 flex-1">
-              <SceneHeader name={scene.name} tier={scene.tier} sub={sceneSub} />
+              <SceneHeader name={scene.name} tier={scene.tier} sub={sceneSub} clock={false} />
+              <div className="mt-1.5 max-w-[430px]" data-testid="battle-scene-header-clock">
+                <BattleClock tS={ui.tS} compact />
+              </div>
             </div>
             <button
               type="button"

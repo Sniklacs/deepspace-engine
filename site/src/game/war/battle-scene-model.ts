@@ -164,10 +164,17 @@ function buildUnits(seed: number): SceneUnit[] {
   for (const s of specs) {
     const lane = VECTOR_LANES[s.vector];
     const dir = s.side === "attacker" ? 1 : -1;
-    // Assigned fighting position: mid-field biased by vector.
-    const fightX = s.vector === "REAR" ? 0.5 - dir * 0.18 : s.vector === "RESERVE" ? 0.5 - dir * 0.3 : 0.5 + (rnd() - 0.5) * 0.08;
+    // Assigned fighting position: mid-field biased by vector, with a side
+    // lean that tells the story — attackers push past midfield, defenders
+    // hold their ground. (Owner 2026-10-05: no unit should ever read as
+    // spawning inside the enemy's defensive positions.)
+    const sideLean = s.vector === "REAR" ? 0.18 : s.vector === "RESERVE" ? 0.3 : 0.08;
+    const fightX = 0.5 - dir * sideLean + (rnd() - 0.5) * 0.08;
     for (let i = 0; i < s.count; i++) {
       const kind = s.kinds[Math.floor(rnd() * s.kinds.length)];
+      // Stage on your OWN side, inside your OWN vector lane — muster reads
+      // as an ordered formation, not a blob around mid-height.
+      const stageY = Math.max(0.06, Math.min(0.94, lane.y + (rnd() - 0.5) * 2 * lane.spread));
       const ty = Math.max(0.06, Math.min(0.94, lane.y + (rnd() - 0.5) * 2 * lane.spread));
       units.push({
         id: `u${n++}`,
@@ -175,7 +182,7 @@ function buildUnits(seed: number): SceneUnit[] {
         kind,
         vector: s.vector,
         x: s.backX + (rnd() - 0.5) * 0.05,
-        y: Math.max(0.05, Math.min(0.95, 0.5 + (rnd() - 0.5) * 0.5)),
+        y: stageY,
         tx: Math.max(0.08, Math.min(0.92, fightX + (rnd() - 0.5) * 0.1)),
         ty,
         hp01: 1,
