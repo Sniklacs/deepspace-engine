@@ -2,13 +2,21 @@
 // Run: bun test site/src/game/globe-layers.test.ts
 import { describe, expect, test } from "bun:test";
 import {
+  buildElevationGrid,
   buildGlobeMarkers,
   colonyGlobePosition,
   countByLayer,
   declutterMarkers,
+  fbm2D,
   GLOBE_LAYERS,
+  hash2i,
   projectGlobe,
+  shadeTerrainGrid,
   siteTier,
+  terrainColor,
+  terrainElevation,
+  terrainSpriteSize,
+  valueNoise2D,
   worldSiteGlobePosition,
   type GlobeMarker,
   type ScreenMarker,
@@ -314,5 +322,145 @@ describe("home marker tappability (regression 2026-10-04)", () => {
     const pos = screenPos.get("home");
     expect(pos).toBeDefined();
     expect(hitTest(pos!.x, pos!.y)).toBe("home");
+  });
+});
+
+describe("terrain elevation", () => {
+  test("deterministic for the same seed and coords", () => {
+    expect(terrainElevation(3, 0.2, -0.4)).toBe(terrainElevation(3, 0.2, -0.4));
+  });
+
+  test("different seeds give different terrain", () => {
+    expect(terrainElevation(3, 0.2, -0.4)).not.toBe(terrainElevation(4, 0.2, -0.4));
+  });
+
+  test("elevation stays in [0, 1]", () => {
+    for (let i = 0; i < 200; i++) {
+      const u = (hash2i(i, 1, 99) * 2 - 1) * 1.2;
+      const v = (hash2i(i, 2, 99) * 2 - 1) * 1.2;
+      const e = terrainElevation(7, u, v);
+      expect(e >= 0 && e <= 1).toBe(true);
+    }
+  });
+
+  test("zero outside the unit disc", () => {
+    expect(terrainElevation(7, 1, 0)).toBe(0);
+    expect(terrainElevation(7, 0.8, 0.8)).toBe(0);
+    expect(terrainElevation(7, -1.2, 0)).toBe(0);
+  });
+
+  test("radial falloff: center higher than the coast", () => {
+    // every landmass seed should read as an island, not a donut
+    for (let seed = 0; seed < 46; seed++) {
+      const center = terrainElevation(seed, 0, 0);
+      const coast = terrainElevation(seed, 0.97, 0);
+      expect(center).toBeGreaterThan(coast);
+      expect(coast).toBeLessThan(0.25);
+    }
+  });
+
+  test("noise functions are deterministic and bounded", () => {
+    expect(valueNoise2D(5, 1.5, -2.5)).toBe(valueNoise2D(5, 1.5, -2.5));
+    expect(fbm2D(5, 1.5, -2.5)).toBe(fbm2D(5, 1.5, -2.5));
+    for (let i = 0; i < 50; i++) {
+      const n = fbm2D(5, i * 0.37, -i * 0.11);
+      expect(n >= 0 && n <= 1).toBe(true);
+    }
+  });
+});
+
+describe("buildElevationGrid", () => {
+  test("size and determinism", () => {
+    const a = buildElevationGrid(11, 32);
+    const b = buildElevationGrid(11, 32);
+    expect(a.length).toBe(32 * 32);
+    expect(a).toEqual(b);
+  });
+
+  test("matches terrainElevation at sample points", () => {
+    const size = 33;
+    const grid = buildElevationGrid(11, size);
+    const at = (x: number, y: number) => grid[y * size + x];
+    // center
+    expect(at(16, 16)).toBeCloseTo(terrainElevation(11, 0, 0), 6);
+    // corner is outside the disc → 0
+    expect(at(0, 0)).toBe(0);
+    expect(at(32, 32)).toBe(0);
+  });
+});
+
+describe("terrainColor", () => {
+  test("shore is pale, peaks are near-white", () => {
+    const [r0, g0, b0] = terrainColor(0, 0);
+    const [r1, g1, b1] = terrainColor(1, 0);
+    // shore: pale (high channels)
+    expect(r0 + g0 + b0).toBeGreaterThan(500);
+    // peak: near-white
+    expect(r1).toBeGreaterThan(220);
+    expect(g1).toBeGreaterThan(220);
+    expect(b1).toBeGreaterThan(200);
+  });
+
+  test("brightness rises with elevation", () => {
+    const lum = (e: number): number => {
+      const [r, g, b] = terrainColor(e, 0);
+      return 0.299 * r + 0.587 * g + 0.114 * b;
+    };
+    expect(lum(1)).toBeGreaterThan(lum(0.5));
+    expect(lum(0.5)).toBeGreaterThan(lum(0.15));
+  });
+
+  test("hue jitter shifts the palette per landmass", () => {
+    const a = terrainColor(0.4, 0);
+    const b = terrainColor(0.4, 1);
+    expect(a).not.toEqual(b);
+    // but stays in the same neighborhood (small shift, not a recolor)
+    const dist = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    expect(dist).toBeGreaterThan(0);
+    expect(dist).toBeLessThan(60);
+  });
+});
+
+describe("shadeTerrainGrid", () => {
+  test("output shape and determinism", () => {
+    const grid = buildElevationGrid(21, 24);
+    const a = shadeTerrainGrid(grid, 24, 0.5);
+    const b = shadeTerrainGrid(grid, 24, 0.5);
+    expect(a.length).toBe(24 * 24 * 4);
+    expect(a).toEqual(b);
+  });
+
+  test("transparent outside the disc, opaque-ish at the center", () => {
+    const size = 33;
+    const grid = buildElevationGrid(21, size);
+    const px = shadeTerrainGrid(grid, size, 0);
+    const corner = 0 * 4 + 3;
+    expect(px[corner]).toBe(0); // top-left corner, outside disc
+    const center = (16 * size + 16) * 4 + 3;
+    expect(px[center]).toBeGreaterThan(200);
+  });
+
+  test("no NaN/Infinity in output", () => {
+    const grid = buildElevationGrid(21, 32);
+    const px = shadeTerrainGrid(grid, 32, -0.7);
+    for (let i = 0; i < px.length; i++) {
+      expect(Number.isFinite(px[i])).toBe(true);
+    }
+  });
+
+  test("flat grid shades uniformly without artifacts", () => {
+    const grid = new Float32Array(16 * 16).fill(0.4);
+    const px = shadeTerrainGrid(grid, 16, 0);
+    const center = (8 * 16 + 8) * 4;
+    expect(px[center + 3]).toBe(255);
+    expect(Number.isFinite(px[center])).toBe(true);
+  });
+});
+
+describe("terrainSpriteSize", () => {
+  test("scales with blob radius", () => {
+    expect(terrainSpriteSize(5)).toBe(64);
+    expect(terrainSpriteSize(10)).toBe(96);
+    expect(terrainSpriteSize(15)).toBe(128);
   });
 });

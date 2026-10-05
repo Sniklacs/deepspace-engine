@@ -9,6 +9,10 @@
 // destinations (enter colony, launch raid, rally defense) is the linking
 // pass and lives outside this file.
 //
+// TERRAIN (Hans, Oct 4 2026, night): the landmass topography math also lives
+// here — pure, seeded, DOM-free. WorldGlobe.tsx bakes one sprite per landmass
+// from it ONCE at init; the render loop only blits the sprites.
+//
 // Reuses existing math, never reinvents it:
 //   • Chorus site intel/strength/reverb/grades → game/chorus-intel.ts
 //   • Deterministic globe positions for Chorus sites → siteGlobePosition
@@ -358,4 +362,249 @@ export function countByLayer(markers: GlobeMarker[]): Record<GlobeLayerId, numbe
   const counts = Object.fromEntries(GLOBE_LAYERS.map((l) => [l.id, 0])) as Record<GlobeLayerId, number>;
   for (const m of markers) counts[m.layer] += 1;
   return counts;
+}
+
+// ---------------------------------------------------------------------------
+// Terrain elevation — procedural topography for the globe's landmasses.
+//
+// Hans (Oct 4 2026, night): the flat green splotches don't impress — the
+// globe needs real landmass with topography and depth: elevation shading,
+// ridgelines/highlands, coastal falloff. Make it pretty.
+//
+// Pure + seeded (deterministic per landmass). One elevation FIELD per
+// landmass: radial falloff from the landmass center (high interior, low
+// coast) plus ridged fractal noise for mountain chains. Shaded with a
+// directional hillshade so ridgelines read as terrain, not stickers.
+
+/** Integer lattice hash → [0, 1). Deterministic for a given seed. */
+export function hash2i(x: number, y: number, seed: number): number {
+  let h = seed | 0;
+  h = Math.imul(h ^ (x | 0), 0x9e3779b1);
+  h = Math.imul(h ^ (y | 0), 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+function smootherstep(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+
+/** Smooth value noise in [0, 1]. */
+export function valueNoise2D(seed: number, x: number, y: number): number {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const xf = x - xi;
+  const yf = y - yi;
+  const a = hash2i(xi, yi, seed);
+  const b = hash2i(xi + 1, yi, seed);
+  const c = hash2i(xi, yi + 1, seed);
+  const d = hash2i(xi + 1, yi + 1, seed);
+  const u = smootherstep(xf);
+  const v = smootherstep(yf);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+/** Fractal sum of value noise, normalized to [0, 1]. */
+export function fbm2D(seed: number, x: number, y: number, octaves = 4): number {
+  let sum = 0;
+  let amp = 0.5;
+  let total = 0;
+  let freq = 1;
+  for (let o = 0; o < octaves; o++) {
+    sum += amp * valueNoise2D(seed + o * 101, x * freq, y * freq);
+    total += amp;
+    amp *= 0.5;
+    freq *= 2.03;
+  }
+  return sum / total;
+}
+
+/**
+ * Elevation at normalized sprite coords (u, v in [-1, 1]).
+ * 0 = ocean/shore, 1 = highest peak. Domain-warped radial falloff (natural,
+ * non-circular coastlines, high interior, low coast) × ridged fractal noise
+ * (crisp mountain chains) + rolling detail (lowlands aren't glassy).
+ * 0 outside the unit disc — the unwarped disc edge is ALWAYS ocean, so every
+ * landmass reads as an island.
+ */
+export function terrainElevation(seed: number, u: number, v: number): number {
+  const d = Math.sqrt(u * u + v * v);
+  if (d >= 1) return 0;
+  // Domain warp → natural, non-circular coastlines.
+  const wob = fbm2D(seed + 501, u * 1.7 + 3.1, v * 1.7 + 9.4, 3) - 0.5;
+  const dw = d * (1 + 0.55 * wob);
+  if (dw >= 1) return 0;
+  const falloff = Math.pow(1 - dw, 0.8);
+  // Ridged multifractal — crisp mountain chains.
+  const n = fbm2D(seed, u * 4.2 + 11.7, v * 4.2 + 5.3, 5);
+  const r = 1 - Math.abs(2 * n - 1);
+  const ridge = r * r;
+  // Rolling detail so lowlands aren't glassy.
+  const detail = fbm2D(seed + 313, u * 7.5 + 1.3, v * 7.5 + 8.8, 3);
+  // Per-landmass character: some jagged, some rolling.
+  const roughness = 0.55 + 0.45 * hash2i(7, 13, seed);
+  const relief = Math.min(1, ridge * roughness + detail * 0.4);
+  // Hard coastal guarantee on the UNWARPED disc: the shoreline always
+  // falls to ocean as d → 1, whatever the warp did.
+  const cm = Math.min(1, Math.max(0, (d - 0.9) / 0.1));
+  const coastMask = 1 - cm * cm * (3 - 2 * cm);
+  const e = falloff * (0.3 + 0.7 * relief) * coastMask;
+  return Math.min(1, Math.max(0, e));
+}
+
+/**
+ * Full elevation field for one landmass sprite. Row-major, size×size,
+ * coords span [-1, 1]. Computed ONCE per landmass at init — the render
+ * loop never touches this.
+ */
+export function buildElevationGrid(seed: number, size: number): Float32Array {
+  const grid = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    const v = (y / (size - 1)) * 2 - 1;
+    for (let x = 0; x < size; x++) {
+      const u = (x / (size - 1)) * 2 - 1;
+      grid[y * size + x] = terrainElevation(seed, u, v);
+    }
+  }
+  return grid;
+}
+
+// Elevation → color ramp: surf/shore → lowland teal-green → highland
+// olive/amber → pale rock → snow peak.
+const TERRAIN_STOPS: Array<[number, [number, number, number]]> = [
+  [0.0, [172, 224, 190]], // surf line — pale rim at the waterline
+  [0.08, [38, 122, 88]], // coastal lowland
+  [0.3, [44, 141, 92]], // lowland green
+  [0.52, [104, 122, 62]], // highland olive
+  [0.7, [168, 127, 66]], // amber highland
+  [0.86, [216, 207, 187]], // pale rock
+  [1.0, [244, 239, 226]], // snow peak
+];
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  const l = (mx + mn) / 2;
+  if (mx === mn) return [0, 0, l];
+  const d = mx - mn;
+  const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  let h = 0;
+  if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (mx === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return [h, s, l];
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  h = ((h % 1) + 1) % 1;
+  if (s === 0) return [l * 255, l * 255, l * 255];
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const f = (t: number): number => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255];
+}
+
+/**
+ * Elevation → [r, g, b]. hueJitter in [-1, 1] shifts each landmass's palette
+ * slightly so the 46 landmasses don't look stamped from one swatch.
+ */
+export function terrainColor(e: number, hueJitter: number): [number, number, number] {
+  const c = Math.min(1, Math.max(0, e));
+  let lo = TERRAIN_STOPS[0];
+  let hi = TERRAIN_STOPS[TERRAIN_STOPS.length - 1];
+  for (let i = 0; i < TERRAIN_STOPS.length - 1; i++) {
+    if (c >= TERRAIN_STOPS[i][0] && c <= TERRAIN_STOPS[i + 1][0]) {
+      lo = TERRAIN_STOPS[i];
+      hi = TERRAIN_STOPS[i + 1];
+      break;
+    }
+  }
+  const span = hi[0] - lo[0];
+  const t = span > 0 ? (c - lo[0]) / span : 0;
+  const r = lo[1][0] + (hi[1][0] - lo[1][0]) * t;
+  const g = lo[1][1] + (hi[1][1] - lo[1][1]) * t;
+  const b = lo[1][2] + (hi[1][2] - lo[1][2]) * t;
+  if (hueJitter === 0) return [r, g, b];
+  const [h, s, l] = rgbToHsl(r, g, b);
+  return hslToRgb(h + hueJitter * 0.03, s, l);
+}
+
+/**
+ * Shade an elevation grid into RGBA pixels: directional hillshade (ridgelines
+ * catch light on one flank, shadow on the other) + crevice darkening +
+ * elevation palette + soft coastal alpha. Output is size*size*4, row-major.
+ */
+export function shadeTerrainGrid(
+  grid: Float32Array,
+  size: number,
+  hueJitter: number,
+): Uint8ClampedArray<ArrayBuffer> {
+  const out = new Uint8ClampedArray(new ArrayBuffer(size * size * 4));
+  const exaggerate = 3.4; // vertical exaggeration so relief reads at a glance
+  // Low raking key light from the upper-left — relief casts readable shade.
+  const lx = -0.62;
+  const ly = -0.66;
+  const lz = 0.42;
+  const llen = Math.sqrt(lx * lx + ly * ly + lz * lz);
+  for (let y = 0; y < size; y++) {
+    const v = (y / (size - 1)) * 2 - 1;
+    for (let x = 0; x < size; x++) {
+      const u = (x / (size - 1)) * 2 - 1;
+      const i = y * size + x;
+      const o = i * 4;
+      const d = Math.sqrt(u * u + v * v);
+      // Soft coastal alpha: full land → transparent across d in [0.93, 1].
+      let a = 0;
+      if (d < 1) {
+        const t = Math.min(1, Math.max(0, (d - 0.93) / 0.07));
+        a = 1 - t * t * (3 - 2 * t);
+      }
+      if (a <= 0) {
+        out[o + 3] = 0;
+        continue;
+      }
+      // Central differences on the grid (clamped at borders).
+      const xm = x > 0 ? i - 1 : i;
+      const xp = x < size - 1 ? i + 1 : i;
+      const ym = y > 0 ? i - size : i;
+      const yp = y < size - 1 ? i + size : i;
+      const gx = (grid[xp] - grid[xm]) * 0.5;
+      const gy = (grid[yp] - grid[ym]) * 0.5;
+      const nx = -gx * exaggerate;
+      const ny = -gy * exaggerate;
+      const nz = 1;
+      const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      const diff = Math.max(0, (nx * lx + ny * ly + nz * lz) / (nlen * llen));
+      let shade = 0.55 + 0.45 * diff;
+      // Crevice darkening: concave cells (negative laplacian) go darker.
+      const lap = (grid[xm] + grid[xp] + grid[ym] + grid[yp]) * 0.25 - grid[i];
+      if (lap < 0) shade *= Math.max(0.55, 1 + 1.2 * lap);
+      const [r, g, b] = terrainColor(grid[i], hueJitter);
+      out[o] = r * shade;
+      out[o + 1] = g * shade;
+      out[o + 2] = b * shade;
+      out[o + 3] = a * 255;
+    }
+  }
+  return out;
+}
+
+/**
+ * Bake resolution for a landmass sprite from its angular radius. Blobs are
+ * tens of px on screen — small sprites keep init fast and memory tiny.
+ */
+export function terrainSpriteSize(blobRadiusDeg: number): number {
+  if (blobRadiusDeg < 8) return 64;
+  if (blobRadiusDeg < 12) return 96;
+  return 128;
 }
