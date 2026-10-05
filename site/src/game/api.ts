@@ -54,6 +54,7 @@ import {
   stampRosterSegment,
 } from "./war/roster-commit";
 import { availableWeight, releaseWeight } from "./war/troops";
+import { validateHiveMove, applyHiveMove } from "./hive-relocation";
 import type { BattlePlan } from "./war/maneuvers";
 import type { PlannedManeuver } from "./war/maneuvers";
 import {
@@ -2456,6 +2457,35 @@ const plantForwardBaseFn = createServerFn({ method: "POST" }).validator(
   return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
 });
 
+/** HIVE RELOCATION (owner 2026-10-04, Globe Wave 2 WS-E): move the home
+ *  colony to a player-picked point on the globe. Validated server action:
+ *  7-day cooldown, blocked while under attack or with a raid party away,
+ *  ≥4° from any other known colony, |lat| ≤ 78 (clamped). Cost: 500
+ *  supplies flat (the hive kit) + a distance-scaled fuel jump charge —
+ *  deducted from home stores up front. All rules live in
+ *  game/hive-relocation.ts; this fn validates, applies, and persists. */
+const relocateColonyFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().min(1).max(512),
+    lat: z.number().min(-90).max(90),
+    lon: z.number().min(-180).max(180),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const now = Date.now();
+  const st = engine.advance(saves.games[saves.activeGameId], now);
+  const v = validateHiveMove(st, { lat: data.lat, lon: data.lon }, now);
+  if (!v.ok || !v.cost) return { ok: false, error: v.error ?? "Relocation refused." };
+  applyHiveMove(st, v.cost, { lat: data.lat, lon: data.lon }, now);
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
 /** Muster troops AT a forward base (forward-base.md §4): the only production
  *  a beachhead has. Same linear queues, same costs — paid from the RAIDED
  *  stockpile. No home convoys, no alliance help, 500-cap. */
@@ -3118,6 +3148,7 @@ export {
   musterTroopsFn,
   hireMercenariesFn,
   plantForwardBaseFn,
+  relocateColonyFn,
   musterForwardTroopsFn,
   hireServerBandFn,
   allianceCreateFn,

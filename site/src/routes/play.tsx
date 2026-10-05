@@ -19,6 +19,7 @@ import {
   applyTimeTokenFn,
   leaveActOneFn,
   setMemorialEpitaphFn,
+  relocateColonyFn,
 } from "../game/api";
 import type { GameSummary } from "../game/api";
 import { RACES, UNBOUND_LEGEND, getRace, raceModLines } from "../game/races";
@@ -385,6 +386,22 @@ function PlayPage() {
   // Returns null on success (the caller clears/navigates), or an inline
   // error message when the rally can't be called (Hans's UI rule: the button
   // stays visible and tapping says what's missing).
+  // HIVE RELOCATION (owner 2026-10-04, WS-E): "Relocate to hive" → globe
+  // pick-mode → confirm. Returns null on success, or an inline error
+  // message when the move can't happen (Hans's UI rule: the button stays
+  // tappable and explains).
+  const relocateColony = async (lat: number, lon: number): Promise<string | null> => {
+    const res: any = await act(
+      () => relocateColonyFn({ data: { token: token!, lat, lon } }),
+      "relocate",
+    );
+    if (res && res.ok === false) {
+      return res.errorKey ? timeTokenRefusalText(t, res.errorKey) : (res.error ?? "Relocation refused.");
+    }
+    if (!res || !res.ok) return t("play.errors.cradleBroke", "Something broke in the Cradle.");
+    return null;
+  };
+
   const respondToIncomingRaid = async (input: {
     raidId: string;
     nodeName: string;
@@ -783,6 +800,7 @@ function PlayPage() {
           onEpitaph={(plaqueId, epitaph) => act(() => setMemorialEpitaphFn({ data: { token: token!, plaqueId, epitaph } }), "setMemorialEpitaph")}
           onRespondToRaid={(r) => respondToIncomingRaid(r)}
           onOpenWarBand={() => switchTab("battles")}
+          onRelocateColony={relocateColony}
         />
         </>
       )}

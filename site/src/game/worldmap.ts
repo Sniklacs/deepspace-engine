@@ -166,6 +166,16 @@ export interface WorldMapState {
   /** Incoming raids from OTHER worlds (cross-server). Populated by the
    *  /api/raid-incoming endpoint. The defender sees these as warnings. */
   incomingRaids: import("./raid-protocol").IncomingRaidAlert[];
+  /** HIVE RELOCATION (owner 2026-10-04, Globe Wave 2 WS-E): the player's
+   *  chosen home position on the globe. Optional for migration — absent
+   *  (or null) means the deterministic hash position
+   *  (colonyGlobePosition("home:" + gameId)). buildGlobeMarkers reads it
+   *  via currentHomeGlobePosition(). */
+  homeGlobeOverride?: { lat: number; lon: number } | null;
+  /** HIVE RELOCATION: epoch ms of the last completed relocation. The hive
+   *  kit needs 7 days to recharge (HIVE_MOVE_COOLDOWN_MS). Optional for
+   *  migration — absent = never moved, no cooldown. */
+  lastHiveMoveAt?: number;
   /** Monotonic counters for id generation. */
   seq: number;
 }

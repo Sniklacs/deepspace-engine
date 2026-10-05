@@ -609,7 +609,6 @@ export default function WorldGlobe({
   const [hiveError, setHiveError] = useState<string | null>(null);
   const [hiveDone, setHiveDone] = useState<string | null>(null);
   const [hiveBusy, setHiveBusy] = useState(false);
-  const [hiveSheetNote, setHiveSheetNote] = useState<string | null>(null);
   const hivePickRef = useRef(hivePick);
   hivePickRef.current = hivePick;
 
@@ -980,12 +979,12 @@ export default function WorldGlobe({
    *  inline per Hans's UI rule — the button never just sits dead. */
   const startHivePick = useCallback(() => {
     setHiveDone(null);
+    // Blocked: the first blocker is already shown inline under the button —
+    // the tap is acknowledged, never dead.
     if (hiveBlockers.length > 0) {
-      setHiveSheetNote(hiveBlockers[0]);
       playClick();
       return;
     }
-    setHiveSheetNote(null);
     setHiveCandidate(null);
     setHiveError(null);
     setSelectedId(null);
@@ -1338,7 +1337,7 @@ export default function WorldGlobe({
             onAction={soonHint}
             hint={linkHint}
             onHivePick={selected.ref.kind === "home" ? startHivePick : undefined}
-            hiveNote={selected.ref.kind === "home" ? hiveSheetNote : null}
+            hiveNote={selected.ref.kind === "home" ? (hiveBlockers[0] ?? null) : null}
           />
         )}
 
@@ -1741,9 +1740,13 @@ function HiveConfirmPanel({
                   )
                 : t(
                     "worldglobe.hiveResponseValue",
-                    "{n} allied {n, plural, one {colony} other {colonies}}: mean {now} → {next} ({dir} by {delta})",
+                    "{n} allied {word}: mean {now} → {next} ({dir} by {delta})",
                     {
                       n: allies.length,
+                      word:
+                        allies.length === 1
+                          ? t("worldglobe.hiveColonyOne", "colony")
+                          : t("worldglobe.hiveColonyMany", "colonies"),
                       now: fmtKm(meanNow),
                       next: fmtKm(meanNew),
                       dir: closer
