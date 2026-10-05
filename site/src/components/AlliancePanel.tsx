@@ -660,7 +660,10 @@ function RallyBoard({ now, me, isOfficer, rallies, token, onAction }: {
   const [pledgeHint, setPledgeHint] = useState<{ id: string; msg: string } | null>(null);
   const post = (fn: () => Promise<GameResult>, label: string) => { if (token) onAction(fn, label); };
   const myPledge = (r: Rally) => r.pledges.find((p) => p.colonyId === me);
-  const canCall = isOfficer;
+  // Rally permission (owner 2026-10-04): any alliance member can call a
+  // rally — the form is no longer officers-only. (Launch / cancel / set-plan
+  // buttons below stay caller-or-officer, per the rally flow.)
+  const canCall = true;
   return (
     <div data-testid="alliance-rally" className="scroll-mt-28">
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Rally board</h4>

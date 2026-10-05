@@ -139,11 +139,21 @@ describe("createRally", () => {
       { name: "X", target: { kind: "chorus-site", label: "H", zoneId: "z" }, launchAt: NOW + 80 * 3_600_000 }, NOW).ok).toBe(false);
   });
 
-  test("a plain member cannot call a rally", () => {
+  test("a plain member CAN call a rally (owner 2026-10-04: not officers-only)", () => {
     const { st, aid } = withRallySetup();
     const r = createRally(
       st, { id: "col-b", name: "Beta" }, aid,
       { name: "Mutiny", target: { kind: "chorus-site", label: "H", zoneId: "z" }, launchAt: NOW + 3_600_000 },
+      NOW,
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  test("a non-member still cannot call a rally", () => {
+    const { st, aid } = withRallySetup();
+    const r = createRally(
+      st, { id: "col-c", name: "Gamma" }, aid,
+      { name: "Outsider", target: { kind: "chorus-site", label: "H", zoneId: "z" }, launchAt: NOW + 3_600_000 },
       NOW,
     );
     expect(r.ok).toBe(false);

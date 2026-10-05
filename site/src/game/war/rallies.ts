@@ -197,10 +197,9 @@ export function createRally(
 ): AllianceResult<Rally> {
   const a = allianceOf(state, caller.id);
   if (!a || a.id !== allianceId) return { ok: false, error: "Rallies are called for your own alliance." };
-  const role = memberRole(a, caller.id);
-  if (role !== "leader" && role !== "officer") {
-    return { ok: false, error: "Only officers can call a rally." };
-  }
+  // Rally permission (owner 2026-10-04): ANY alliance member can call a
+  // rally — not officers-only. The membership guard above stays: no
+  // alliance, no rally.
   const name = (input.name ?? "").trim().slice(0, 60);
   if (name.length < 3) return { ok: false, error: "Name the rally — at least 3 characters." };
   const lead = input.launchAt - now;
