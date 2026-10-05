@@ -36,6 +36,8 @@ export interface RosterEntry {
   side: "attacker" | "defender";
   kind: SceneUnitKind;
   count: number;
+  /** Tier breakdown: index 0 = T1 count … index 3 = T4 count. */
+  tiers: [number, number, number, number];
 }
 
 /** One drivable bus for the SQUADS panel — name + living strength. */

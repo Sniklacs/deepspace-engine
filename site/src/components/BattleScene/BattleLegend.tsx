@@ -60,6 +60,11 @@ export function BattleLegend() {
               <span className="text-[10px] text-zinc-300">Enemy</span>
             </div>
           </div>
+          <div className="mt-2 border-t border-white/10 pt-1.5">
+            <p className="text-[10px] leading-relaxed text-zinc-400">
+              Unit tags read <span className="font-semibold text-zinc-200">TYPE · T1–T4</span> — the tier mark is force quality at a glance.
+            </p>
+          </div>
         </div>
       )}
     </div>

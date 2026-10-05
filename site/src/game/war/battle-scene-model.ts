@@ -45,6 +45,8 @@ export interface SceneUnit {
   id: string;
   side: BattleSide;
   kind: SceneUnitKind;
+  /** Tech tier 1–4 — force quality at a glance (owner 2026-10-05). */
+  tier: 1 | 2 | 3 | 4;
   vector: ManeuverVector;
   /**
    * Command squad — the "bus" this unit rides. Attacker squads are one per
@@ -109,6 +111,30 @@ export function scenePhaseAt(tS: number): ScenePhase {
   if (tS < 45) return "touchdown";
   if (tS < 60) return "contact";
   return "weapons-free";
+}
+
+/**
+ * Casualty fraction at which a side's force breaks (demo threshold victory).
+ * Doctrine: battles break on casualty thresholds, not mutual annihilation.
+ */
+export const DEMO_BREAK_FRAC = 0.65;
+
+/**
+ * Pure: which side (if any) has broken at the casualty threshold.
+ * Returns the VICTOR side ("attacker" holds the field when the defender
+ * breaks, and vice versa), or null while both sides still fight.
+ */
+export function demoBreakVictor(
+  units: { side: string; state: string }[],
+): "attacker" | "defender" | null {
+  for (const side of ["attacker", "defender"] as const) {
+    const total = units.filter((u) => u.side === side).length;
+    const dead = units.filter((u) => u.side === side && u.state === "dead").length;
+    if (total > 0 && dead / total >= DEMO_BREAK_FRAC) {
+      return side === "attacker" ? "defender" : "attacker";
+    }
+  }
+  return null;
 }
 
 /** Vector → lane layout on the tactical map (0..1 coords). */
@@ -210,6 +236,12 @@ function buildUnits(seed: number): SceneUnit[] {
     const fightX = 0.5 - dir * sideLean + (rnd() - 0.5) * 0.08;
     for (let i = 0; i < s.count; i++) {
       const kind = s.kinds[Math.floor(rnd() * s.kinds.length)];
+      // Tier mix (owner 2026-10-05): weight T2/T3, some T1 chaff, a few T4
+      // elites. Siege is never chaff — thunder floors at T2. Deterministic
+      // per seed so the demo muster is stable.
+      const roll = rnd();
+      let tier: 1 | 2 | 3 | 4 = roll < 0.25 ? 1 : roll < 0.6 ? 2 : roll < 0.9 ? 3 : 4;
+      if (kind === "thunder" && tier === 1) tier = 2;
       // Stage on your OWN side, inside your OWN vector lane — muster reads
       // as an ordered formation, not a blob around mid-height.
       const stageY = Math.max(0.06, Math.min(0.94, lane.y + (rnd() - 0.5) * 2 * lane.spread));
@@ -218,6 +250,7 @@ function buildUnits(seed: number): SceneUnit[] {
         id: `u${n++}`,
         side: s.side,
         kind,
+        tier,
         vector: s.vector,
         squadId: s.side === "attacker" ? `A${VECTOR_PLAYER[s.vector]}` : "D",
         x: s.backX + (rnd() - 0.5) * 0.05,

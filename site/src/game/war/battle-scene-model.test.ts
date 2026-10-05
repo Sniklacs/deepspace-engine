@@ -2,6 +2,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildDemoScene,
+  demoBreakVictor,
+  DEMO_BREAK_FRAC,
   fmtSceneClock,
   mulberry32,
   sceneClockS,
@@ -105,5 +107,65 @@ describe("clock", () => {
     const a = mulberry32(42);
     const b = mulberry32(42);
     expect([a(), a(), a()]).toEqual([b(), b(), b()]);
+  });
+});
+
+describe("demo break threshold", () => {
+  const mk = (side: string, dead: number, alive: number) => [
+    ...Array.from({ length: dead }, () => ({ side, state: "dead" })),
+    ...Array.from({ length: alive }, () => ({ side, state: "holding" })),
+  ];
+  test("no victor while both sides fight", () => {
+    const units = [...mk("attacker", 0, 40), ...mk("defender", 0, 40)];
+    expect(demoBreakVictor(units)).toBeNull();
+  });
+  test("no victor just under the threshold", () => {
+    // 64% < 65%: still fighting.
+    const units = [...mk("attacker", 25, 15), ...mk("defender", 0, 40)];
+    expect(25 / 40).toBeLessThan(DEMO_BREAK_FRAC);
+    expect(demoBreakVictor(units)).toBeNull();
+  });
+  test("attacker breaks at the threshold — defender holds the field", () => {
+    const units = [...mk("attacker", 26, 14), ...mk("defender", 5, 35)];
+    expect(demoBreakVictor(units)).toBe("defender");
+  });
+  test("defender breaks at the threshold — attacker holds the field", () => {
+    const units = [...mk("attacker", 5, 35), ...mk("defender", 26, 14)];
+    expect(demoBreakVictor(units)).toBe("attacker");
+  });
+  test("empty force never breaks", () => {
+    expect(demoBreakVictor([])).toBeNull();
+  });
+});
+
+describe("demo unit tiers", () => {
+  test("every unit carries a tier 1-4", () => {
+    const s = buildDemoScene(1_000_000);
+    expect(s.units.length).toBeGreaterThan(0);
+    for (const u of s.units) {
+      expect(u.tier >= 1 && u.tier <= 4).toBe(true);
+    }
+  });
+  test("tier mix weights T2/T3 with some T1 chaff and few T4 elites", () => {
+    const s = buildDemoScene(1_000_000);
+    const n = [0, 0, 0, 0];
+    for (const u of s.units) n[u.tier - 1] += 1;
+    const total = s.units.length;
+    // T2+T3 are the bulk of the force.
+    expect((n[1] + n[2]) / total).toBeGreaterThan(0.5);
+    // Some chaff, few elites.
+    expect(n[0] / total).toBeGreaterThan(0.1);
+    expect(n[3] / total).toBeLessThan(0.25);
+  });
+  test("thunder siege is never T1 chaff", () => {
+    const s = buildDemoScene(1_000_000);
+    for (const u of s.units) {
+      if (u.kind === "thunder") expect(u.tier).toBeGreaterThan(1);
+    }
+  });
+  test("tier assignment is deterministic per seed", () => {
+    const a = buildDemoScene(1_000_000).units.map((u) => u.tier).join(",");
+    const b = buildDemoScene(1_000_000).units.map((u) => u.tier).join(",");
+    expect(a).toBe(b);
   });
 });

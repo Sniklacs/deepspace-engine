@@ -30,6 +30,7 @@ function unit(
     id: `t${n++}`,
     side,
     kind,
+    tier: 2,
     vector,
     squadId: squadId ?? (side === "attacker" ? `A${player}` : "D"),
     x: 0.3,

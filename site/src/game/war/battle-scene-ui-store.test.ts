@@ -146,12 +146,12 @@ describe("unit labels", () => {
 describe("field force roster", () => {
   test("registers counts and clears on scene reset", () => {
     registerRoster([
-      { side: "attacker", kind: "bulwark", count: 12 },
-      { side: "defender", kind: "thunder", count: 3 },
+      { side: "attacker", kind: "bulwark", count: 12, tiers: [3, 5, 3, 1] },
+      { side: "defender", kind: "thunder", count: 3, tiers: [0, 1, 1, 1] },
     ]);
     expect(sceneUISnapshot().roster).toEqual([
-      { side: "attacker", kind: "bulwark", count: 12 },
-      { side: "defender", kind: "thunder", count: 3 },
+      { side: "attacker", kind: "bulwark", count: 12, tiers: [3, 5, 3, 1] },
+      { side: "defender", kind: "thunder", count: 3, tiers: [0, 1, 1, 1] },
     ]);
     resetSceneUI();
     expect(sceneUISnapshot().roster).toEqual([]);

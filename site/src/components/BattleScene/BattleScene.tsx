@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
   SCENE_PHASES,
+  demoBreakVictor,
   mulberry32,
   sceneNightFactor,
   scenePhaseAt,
@@ -207,6 +208,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   //  - toast: the judge's refusal, shown on-canvas — never silent.
   const orderPingRef = useRef<{ x: number; y: number; fx: number; fy: number; born: number } | null>(null);
   const toastRef = useRef<{ text: string; born: number } | null>(null);
+  // Threshold victory (demo): when a side loses >= DEMO_BREAK_FRAC of its
+  // force, the field breaks — the other side holds it. Doctrine: casualty
+  // thresholds, not mutual annihilation.
+  const victorRef = useRef<"attacker" | "defender" | null>(null);
   // Last squad alive-counts pushed to the store — the SQUADS panel refreshes
   // only when something actually died.
   const squadAliveRef = useRef<string>("");
@@ -227,6 +232,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       turretsRef.current = scene.turrets.map((t) => ({ ...t }));
       camRef.current = { ...CAM_HOME };
       simTRef.current = 0;
+      victorRef.current = null;
       resetSceneUI();
     }
     registerTurrets(
@@ -235,17 +241,21 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         .filter(({ t }) => t.side === "attacker" && t.hp01 > 0)
         .map(({ t, i }) => ({ id: t.id, idx: i })),
     );
-    // Force roster for the FIELD FORCE panel — what's on the field by type.
+    // Force roster for the FIELD FORCE panel — what's on the field by type,
+    // with a tier breakdown per row (owner 2026-10-05: read force quality).
     // (The practice scene is canned; real loadout-to-field mapping is P2.)
-    const counts = new Map<string, number>();
+    const counts = new Map<string, { count: number; tiers: [number, number, number, number] }>();
     for (const u of unitsRef.current) {
       const k = `${u.side}:${u.kind}`;
-      counts.set(k, (counts.get(k) ?? 0) + 1);
+      let e = counts.get(k);
+      if (!e) { e = { count: 0, tiers: [0, 0, 0, 0] }; counts.set(k, e); }
+      e.count += 1;
+      e.tiers[u.tier - 1] += 1;
     }
     registerRoster(
-      [...counts.entries()].map(([k, count]) => {
+      [...counts.entries()].map(([k, e]) => {
         const [side, kind] = k.split(":");
-        return { side: side as "attacker" | "defender", kind: kind as SceneUnitKind, count };
+        return { side: side as "attacker" | "defender", kind: kind as SceneUnitKind, count: e.count, tiers: e.tiers };
       }),
     );
     // Command squads for the SQUADS panel — the five buses, living strength.
@@ -318,6 +328,11 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       u.hp01 = 0;
       fx.explode(X(u.x), Y(u.y), u.kind === "thunder" ? 1.5 : 1);
       bumpKill(u.side as "attacker" | "defender");
+      // Demo only: the field breaks at the casualty threshold — the other
+      // side holds it. Live battles resolve on the engine's own ticks.
+      if (!liveCasualties && !victorRef.current) {
+        victorRef.current = demoBreakVictor(unitsRef.current);
+      }
     };
 
     const step = (now: number) => {
@@ -327,7 +342,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       // Battle speed scales the SIM — the clock, movement, tracers, and
       // casualty ticks all run at the player's chosen pace. SLOW (0.5x) is
       // the default: the fight breathes, the commander gets time to think.
-      const sdt = dt * BATTLE_SPEED_MUL[ui.battleSpeed];
+      // Resolved: the field is decided — freeze the sim, keep rendering.
+      const sdt = victorRef.current ? 0 : dt * BATTLE_SPEED_MUL[ui.battleSpeed];
       simTRef.current += sdt;
       const t = simTRef.current;
       const phase = scenePhaseAt(t);
@@ -368,7 +384,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           const e = nearestEnemy(u.x, u.y, u.side, 0.3);
           if (!e) { u.state = "holding"; continue; }
           fx.fire(X(u.x), Y(u.y), X(e.x), Y(e.y), u.side === "attacker" ? "#ffd27a" : "#fda4af");
-          e.hp01 -= 0.06 + Math.random() * 0.1;
+          // Tuned down (owner 2026-10-05): the demo used to annihilate both
+          // sides in under a minute of weapons-free. Hits stay frequent so
+          // the tracers keep flying — they just don't kill as fast.
+          e.hp01 -= 0.015 + Math.random() * 0.03;
           if (e.hp01 <= 0) killUnit(e);
         }
         // Turret fire (auto mode, or gunner-directed).
@@ -384,7 +403,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           if (target) {
             tr.aim = Math.atan2(Y(target.y) - Y(tr.y), X(target.x) - X(tr.x));
             fx.fire(X(tr.x), Y(tr.y), X(target.x), Y(target.y), "#a5f3fc");
-            target.hp01 -= 0.12 + Math.random() * 0.12;
+            // Tuned down with the rest (owner 2026-10-05).
+            target.hp01 -= 0.04 + Math.random() * 0.05;
             if (target.hp01 <= 0) killUnit(target);
           }
         }
@@ -407,11 +427,14 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           }
         }
       } else if (phase === "weapons-free") {
-        // Demo curve: steady attrition so the scene tells a story.
-        if (Math.random() < sdt * 1.2) {
+        // Demo curve: slow-burn attrition so the scene tells a longer story.
+        // Tuned down (owner 2026-10-05): approach through first contact stays
+        // near-bloodless, mid-battle mounts, late battle grinds — but the
+        // field breaks at the casualty threshold before mutual annihilation.
+        if (Math.random() < sdt * 0.3) {
           const cands = unitsRef.current.filter((u) => u.state === "engaged" || u.state === "holding");
           const v = cands[Math.floor(Math.random() * cands.length)];
-          if (v) { v.hp01 -= 0.34; if (v.hp01 <= 0) killUnit(v); }
+          if (v) { v.hp01 -= 0.25; if (v.hp01 <= 0) killUnit(v); }
         }
       }
 
@@ -1023,7 +1046,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           const sy = (u.y - cam.ay) * cam.zoom * cam.ysq * h + h * cam.fy;
           if (sx < -70 || sx > w + 70 || sy < -40 || sy > h + 40) continue;
           const dim = u.state === "staging" ? 0.55 : u.state === "dead" ? 0.38 : 1;
-          const label = UNIT_KIND_LABEL[u.kind].toUpperCase();
+          const label = `${UNIT_KIND_LABEL[u.kind].toUpperCase()} · T${u.tier}`;
           const tw = c.measureText(label).width;
           const rScr = Math.max(7, s * 0.022) * cam.zoom;
           const ly = sy - rScr - 13;
@@ -1072,12 +1095,44 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         "weapons-free": "#f87171",
         resolved: "#a1a1aa",
       };
-      const pc = PHASE_COLORS[phase];
+      const pc = PHASE_COLORS[victorRef.current ? "resolved" : phase];
       c.font = "700 11px system-ui, sans-serif";
       c.fillStyle = pc;
       c.globalAlpha = 0.95;
-      c.fillText(SCENE_PHASES.find((p) => p.phase === phase)?.label ?? phase, 12, 20);
+      c.fillText(
+        victorRef.current ? "RESOLVED" : (SCENE_PHASES.find((p) => p.phase === phase)?.label ?? phase),
+        12, 20,
+      );
       c.restore();
+
+      // --- victor banner: threshold victory, center screen ------------------
+      // The field breaks at the casualty threshold — one side holds it.
+      const victor = victorRef.current;
+      if (victor) {
+        const vname = victor === "attacker" ? scene.attackerName : scene.defenderName;
+        const vcolor = victor === "attacker" ? "#34d399" : "#ef4444";
+        c.save();
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        const vtext = `${vname.toUpperCase()} HOLDS THE FIELD`;
+        c.font = "800 24px system-ui, sans-serif";
+        const vw = c.measureText(vtext).width + 64;
+        c.fillStyle = "rgba(0,0,0,0.62)";
+        c.beginPath();
+        c.roundRect(w / 2 - vw / 2, h / 2 - 44, vw, 88, 12);
+        c.fill();
+        c.strokeStyle = vcolor;
+        c.globalAlpha = 0.7;
+        c.lineWidth = 1.5;
+        c.stroke();
+        c.globalAlpha = 1;
+        c.fillStyle = vcolor;
+        c.fillText(vtext, w / 2, h / 2 - 12);
+        c.font = "600 12px system-ui, sans-serif";
+        c.fillStyle = "#d4d4d8";
+        c.fillText("casualty threshold reached — the field breaks", w / 2, h / 2 + 20);
+        c.restore();
+      }
 
       // --- order toast: the judge's refusal, on the canvas ------------------
       // Illegal orders are never silent — the reason shows where the tap

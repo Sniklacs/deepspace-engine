@@ -138,10 +138,14 @@ export function BattleControlsBody() {
           <p className="text-[11px] text-zinc-500">Mustering…</p>
         ) : (
           (["attacker", "defender"] as const).map((side) => {
-            const rows = TROOP_KINDS.map((kind) => ({
-              kind,
-              count: ui.roster.find((r) => r.side === side && r.kind === kind)?.count ?? 0,
-            })).filter((r) => r.count > 0);
+            const rows = TROOP_KINDS.map((kind) => {
+              const entry = ui.roster.find((r) => r.side === side && r.kind === kind);
+              return {
+                kind,
+                count: entry?.count ?? 0,
+                tiers: entry?.tiers ?? ([0, 0, 0, 0] as [number, number, number, number]),
+              };
+            }).filter((r) => r.count > 0);
             if (rows.length === 0) return null;
             return (
               <div key={side} className="mb-2 last:mb-0">
@@ -152,16 +156,21 @@ export function BattleControlsBody() {
                   {side === "attacker" ? "Attackers" : "Defenders"}
                 </p>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                  {rows.map(({ kind, count }) => (
-                    <div key={kind} className="flex items-center gap-2">
-                      <img
-                        src={`${ART}/${kind}.webp`}
-                        alt=""
-                        className="h-6 w-6 shrink-0 object-contain"
-                        loading="lazy"
-                      />
-                      <span className="text-[11px] font-medium text-zinc-200">{UNIT_KIND_LABEL[kind]}</span>
-                      <span className="ml-auto text-[11px] tabular-nums text-zinc-400">×{count}</span>
+                  {rows.map(({ kind, count, tiers }) => (
+                    <div key={kind} className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={`${ART}/${kind}.webp`}
+                          alt=""
+                          className="h-6 w-6 shrink-0 object-contain"
+                          loading="lazy"
+                        />
+                        <span className="text-[11px] font-medium text-zinc-200">{UNIT_KIND_LABEL[kind]}</span>
+                        <span className="ml-auto text-[11px] tabular-nums text-zinc-400">×{count}</span>
+                      </div>
+                      <p className="pl-8 text-[10px] tabular-nums text-zinc-500">
+                        {tiers.map((n, i) => (n > 0 ? `T${i + 1} ×${n}` : null)).filter(Boolean).join(" · ")}
+                      </p>
                     </div>
                   ))}
                 </div>
