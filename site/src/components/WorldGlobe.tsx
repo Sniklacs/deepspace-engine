@@ -46,6 +46,13 @@ import {
 import { racePortrait } from "./HeroCard";
 import { useT } from "./i18n/I18n";
 import { playClick, playDeselect, playSelect, playWhoosh } from "../game/audio/ui-sounds";
+// WS5 — real day/night cycle (GLOBE WAVE 3): player-anchored subsolar point
+// + view-space night factor. Pure math lives in ../game/solar.
+import {
+  anchoredSubsolarPoint,
+  nightFactor,
+  sunViewVector,
+} from "../game/solar";
 
 const LAYER_STORE_KEY = "worldglobe.layers.v1";
 const FILTER_STORE_KEY = "worldglobe.filters.v1";
@@ -71,6 +78,57 @@ export function focusViewTarget(lat: number, lon: number): { spin: number; tilt:
 /** Shortest signed spin delta (degrees) — the ease never takes the long way. */
 export function shortestSpinDelta(from: number, to: number): number {
   return ((to - from + 540) % 360) - 180;
+}
+
+// ---------------------------------------------------------------------------
+// WS5 — real day/night terminator (GLOBE WAVE 3). The visible night cap is
+// the disk region {z ≥ 0, dot(p, sun) ≤ 0} in view space (x right, y down on
+// screen, z toward the viewer — projectGlobe's convention). Its boundary is
+// two arcs: the terminator half-circle (z ≥ 0) and the night-side limb arc.
+// Sampled into a canvas path; exact for every spin/tilt, no per-pixel cost.
+// ---------------------------------------------------------------------------
+function traceNightPath(
+  ctx: CanvasRenderingContext2D,
+  sun: { x: number; y: number; z: number },
+  cx: number, cy: number, R: number,
+): "none" | "full" | "partial" {
+  const sz = sun.z;
+  if (sz >= 0.999) return "none"; // sun dead ahead — no night anywhere visible
+  if (sz <= -0.999) return "full"; // sun dead behind — the whole disk is night
+  const sxy = Math.hypot(sun.x, sun.y); // > 0 here (unit vector)
+  // Limb ∩ terminator: the two points with x²+y²=1, z=0, dot(p,sun)=0.
+  const qx = -sun.y / sxy, qy = sun.x / sxy; // P1; P2 = −P1
+  // Terminator-plane basis: e1 = P1, e2 = normalize(sun × P1).
+  let e2x = -sz * qy, e2y = sz * qx, e2z = sun.x * qy - sun.y * qx;
+  const e2l = Math.hypot(e2x, e2y, e2z) || 1;
+  e2x /= e2l; e2y /= e2l; e2z /= e2l;
+  const dir = e2z > 0 ? 1 : -1; // the half-circle with z ≥ 0
+  const N = 72;
+  ctx.beginPath();
+  for (let i = 0; i <= N; i++) {
+    const t = dir * (i / N) * Math.PI;
+    const px = Math.cos(t) * qx + Math.sin(t) * e2x;
+    const py = Math.cos(t) * qy + Math.sin(t) * e2y;
+    const sx = cx + px * R, sy = cy + py * R;
+    if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+  }
+  // Limb arc from P2 back to P1 through the night-side midpoint
+  // m = −sun.xy/|sun.xy| (the limb point farthest from the sun).
+  const TAU = Math.PI * 2;
+  const norm = (a: number) => ((a % TAU) + TAU) % TAU;
+  const n2 = norm(Math.atan2(-qy, -qx)); // P2's angle
+  const n1 = norm(Math.atan2(qy, qx));   // P1's angle
+  const nm = norm(Math.atan2(-sun.y / sxy, -sun.x / sxy)); // night midpoint
+  const ccw = (from: number, to: number) => norm(to - from);
+  const d = ccw(n2, nm) < ccw(n2, n1) ? 1 : -1; // direction via the night side
+  const total = d === 1 ? ccw(n2, n1) : TAU - ccw(n2, n1);
+  const M = 72;
+  for (let i = 1; i <= M; i++) {
+    const a = n2 + d * (total * i) / M;
+    ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+  }
+  ctx.closePath();
+  return "partial";
 }
 
 // Seeded RNG — stable procedural detail across sessions.
@@ -551,6 +609,11 @@ export default function WorldGlobe({
   const screenPos = useRef(new Map<string, { x: number; y: number; r: number }>());
   const markersRef = useRef<GlobeMarker[]>([]);
   const reduceMotion = useRef(false);
+  // WS5 — real day/night cycle (GLOBE WAVE 3): the player-anchored subsolar
+  // point, refreshed on a 60s tick + visibility regain (see render loop).
+  // homePosRef tracks hive relocation so the phase re-anchors when home moves.
+  const sunRef = useRef({ lat: 0, lon: 180 });
+  const homePosRef = useRef({ lat: 0, lon: 0 });
 
   // ---- snap-to-site (owner 2026-10-04): a new focusTarget nonce computes the
   // spin/tilt that centers (lat, lon); the render loop eases to it below.
@@ -639,6 +702,9 @@ export default function WorldGlobe({
   }, [state, now, hiveCandidate]);
   const counts = useMemo(() => countByLayer(markers), [markers]);
   markersRef.current = markers;
+  // WS5: keep the day/night anchor on the CURRENT home position — hive
+  // relocation re-anchors the phase on the next sun tick.
+  homePosRef.current = currentHomeGlobePosition(state);
   const selected = useMemo(() => markers.find((m) => m.id === selectedId) ?? null, [markers, selectedId]);
 
   const toggleLayer = useCallback((id: GlobeLayerId) => {
@@ -707,6 +773,18 @@ export default function WorldGlobe({
     // Bake the topographic landmass sprites once — the frame loop only blits.
     const landSprites = ensureTerrainSprites();
 
+    // WS5 — the server's first real clock: refresh the player-anchored
+    // subsolar point every 60s and whenever the tab regains visibility
+    // (a backgrounded PWA can sit on a stale phase for hours). The frame
+    // loop reads sunRef each frame — spin/zoom/tilt stay in sync for free.
+    const updateSun = () => {
+      sunRef.current = anchoredSubsolarPoint(homePosRef.current.lon, new Date());
+    };
+    updateSun();
+    const sunTimer = window.setInterval(updateSun, 60_000);
+    const onVis = () => { if (document.visibilityState === "visible") updateSun(); };
+    document.addEventListener("visibilitychange", onVis);
+
     let raf = 0;
     let last = performance.now();
     const frame = (ms: number) => {
@@ -740,6 +818,10 @@ export default function WorldGlobe({
       const cx = w / 2, cy = h / 2;
       const R = Math.min(w, h) * 0.40 * v.scale;
       const time = ms / 1000;
+      // WS5 — real day/night: the sun in view space from the cached
+      // player-anchored subsolar point. Per-frame so the terminator tracks
+      // spin/zoom/tilt exactly; the subsolar point itself ticks every 60s.
+      const sun = sunViewVector(sunRef.current.lat, sunRef.current.lon, v.spin, v.tilt);
 
       // 1 — starfield (parallax drift with spin)
       ctx.fillStyle = "#02040a";
@@ -836,24 +918,48 @@ export default function WorldGlobe({
         ctx.stroke();
       }
 
-      // 7 — city lights on the night band
+      // 7 — REAL terminator shading (WS5, GLOBE WAVE 3): the night cap is the
+      // disk region on the far side of the subsolar point, traced exactly in
+      // view space so it survives spin/zoom/tilt. Two fills: a soft twilight
+      // band (slightly expanded, low alpha) + the full night (same peak
+      // darkness as the old static gradient: rgba(2,6,14,0.55)).
+      const nightKind = traceNightPath(ctx, sun, cx, cy, R);
+      if (nightKind === "full") {
+        ctx.fillStyle = "rgba(2,6,14,0.55)";
+        ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+      } else if (nightKind === "partial") {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(1.045, 1.045);
+        ctx.translate(-cx, -cy);
+        ctx.fillStyle = "rgba(2,6,14,0.20)";
+        ctx.fill();
+        ctx.restore();
+        ctx.fillStyle = "rgba(2,6,14,0.55)";
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // 8 — city lights, drawn AFTER the night shading so they shine through
+      // the dark (WS5). Invisible by day, brighter the deeper the night —
+      // the cheap win the night side deserves. Re-clips to the disk.
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.clip();
       ctx.globalCompositeOperation = "lighter";
       for (const L of CITY_LIGHTS) {
         const p = projectGlobe(L.lat, L.lon, v.spin, v.tilt);
-        if (p.z < -0.15 || p.z > 0.5) continue;
-        ctx.globalAlpha = 0.55 * (0.5 - p.z);
+        if (!p.visible) continue;
+        const nf = nightFactor(p.x, p.y, p.z, sun.x, sun.y, sun.z);
+        if (nf < 0.03) continue;
+        ctx.globalAlpha = 0.25 + 0.75 * nf;
         ctx.fillStyle = "#fcd34d";
-        ctx.fillRect(cx + p.x * R - 0.8, cy + p.y * R - 0.8, 1.6, 1.6);
+        const s = 1.2 + 1.4 * nf;
+        ctx.fillRect(cx + p.x * R - s / 2, cy + p.y * R - s / 2, s, s);
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
-
-      // 8 — terminator shading
-      const term = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
-      term.addColorStop(0, "rgba(2,6,14,0)");
-      term.addColorStop(1, "rgba(2,6,14,0.55)");
-      ctx.fillStyle = term;
-      ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
       ctx.restore();
 
       // 9 — rim light (the POP)
@@ -882,18 +988,20 @@ export default function WorldGlobe({
           const ex = Math.cos(a) * R * 1.5;
           const ey = Math.sin(a) * R * 1.5 * 0.36;
           const blink = 0.5 + 0.5 * Math.sin(time * 3 + i * 2);
+          // Zero-dots audit (WS3): orbit riders are SATELLITES — the dish
+          // glyph, not plain dots. Same silhouette as the satellites-layer
+          // markers and the legend row (shape, not color).
+          const satSpr = iconSprite("satellite", "#7dd3fc");
+          const satSize = 16;
           ctx.globalAlpha = 0.5 + 0.5 * blink;
-          ctx.fillStyle = "#7dd3fc";
-          ctx.beginPath();
-          ctx.arc(ex, ey, 2.6, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.drawImage(satSpr, ex - satSize / 2, ey - satSize / 2, satSize, satSize);
         }
         ctx.globalAlpha = 1;
         ctx.restore();
       }
 
       // 11 — markers
-      const projected: ScreenMarker[] = [];
+      const projected: (ScreenMarker & { nf: number })[] = [];
       for (const m of markersRef.current) {
         if (!layersOnRef.current[m.layer]) continue;
         // WS7: tier filter — T1/T2/T3 world-site markers gate independently
@@ -901,7 +1009,15 @@ export default function WorldGlobe({
         if (m.layer === "sites" && m.ref.kind === "site" && !tiersOnRef.current[m.ref.tier]) continue;
         const p = projectGlobe(m.lat, m.lon, v.spin, v.tilt);
         if (!p.visible) continue;
-        projected.push({ marker: m, sx: cx + p.x * R, sy: cy + p.y * R });
+        // WS5: night factor in view space per marker — the markers sit IN
+        // the world, so the night side dims them slightly (they stay
+        // readable; they're UI). Doesn't touch hit-testing or declutter.
+        projected.push({
+          marker: m,
+          sx: cx + p.x * R,
+          sy: cy + p.y * R,
+          nf: nightFactor(p.x, p.y, p.z, sun.x, sun.y, sun.z),
+        });
       }
       const shown = declutterMarkers(projected, MIN_DIST_PX);
       screenPos.current.clear();
@@ -909,6 +1025,8 @@ export default function WorldGlobe({
         const m = s.marker;
         const isSel = m.id === selectedIdRef.current;
         const base = isSel ? 15 : 10;
+        // WS5: night-side dim (subtle — readability wins).
+        ctx.globalAlpha = 1 - 0.3 * s.nf;
         const spr = glowSprite(m.color);
         const sprSize = base * 3.2;
         ctx.drawImage(spr, s.sx - sprSize / 2, s.sy - sprSize / 2, sprSize, sprSize);
@@ -921,6 +1039,7 @@ export default function WorldGlobe({
           ? (isSel ? ARENA_MARKER_SIZE.selected : ARENA_MARKER_SIZE.normal)
           : (isSel ? 26 : 20);
         ctx.drawImage(icon, s.sx - iconSize / 2, s.sy - iconSize / 2, iconSize, iconSize);
+        ctx.globalAlpha = 1; // WS5: pulse ring + label stay full-bright (UI)
         // pulse ring for raids (and selected)
         if (m.pulse || isSel) {
           const pr = base + 5 + 4 * Math.sin(time * 4);
@@ -953,6 +1072,8 @@ export default function WorldGlobe({
     raf = requestAnimationFrame(frame);
     return () => {
       cancelAnimationFrame(raf);
+      window.clearInterval(sunTimer); // WS5
+      document.removeEventListener("visibilitychange", onVis); // WS5
       canvas.removeEventListener("wheel", wheelHandler);
       ro.disconnect();
     };
@@ -1442,15 +1563,21 @@ function SheetArt({ marker }: { marker: GlobeMarker }) {
     }
   }
   if (!src) {
+    // Zero-dots audit (WS3): no plain-circle gradient placeholder — the
+    // marker's own globe icon rides here, so sheet and world read
+    // identically (shape, not color).
     return (
-      <div
+      <img
+        src={globeIconURL(marker.icon, marker.color)}
+        alt=""
         aria-hidden
-        className="h-20 w-16 shrink-0 rounded-lg border"
+        className="h-20 w-16 shrink-0 rounded-lg border object-contain p-2"
         style={{
           borderColor: `${marker.color}55`,
-          background: `radial-gradient(circle at 50% 35%, ${marker.color}55, rgba(0,0,0,0.4))`,
+          background: "rgba(0,0,0,0.4)",
           boxShadow: `0 0 18px ${marker.color}33`,
         }}
+        loading="lazy"
       />
     );
   }

@@ -839,3 +839,158 @@ describe("WS-A arena stadium (Hans, Oct 4 2026)", () => {
     expect(merge({ satellites: true }).satellites).toBe(true);
   });
 });
+
+describe("WS3 zero-dots audit (Hans, Oct 4 2026)", () => {
+  // Hans: shape carries the meaning, not color — colorblind players can't
+  // tell colored dots apart. Every marker kind on the globe canvas and every
+  // legend row must resolve to a defined icon kind. This is the regression
+  // guard: representative game state covering ALL kinds, asserting each one
+  // resolves to a real icon — no dot/circle fallback allowed anywhere.
+  function auditState() {
+    return {
+      gameId: "g1",
+      playerName: "Hans",
+      worldMap: {
+        known: {
+          "s1:active1": {
+            id: "active1",
+            serverId: "s1",
+            ownerName: "Friend",
+            race: "grays",
+            status: "active",
+            lastScouted: NOW,
+          },
+          "s1:husk1": {
+            id: "husk1",
+            serverId: "s1",
+            ownerName: "Rival",
+            race: "draconians",
+            status: "husk",
+            lastScouted: NOW,
+          },
+        },
+        raids: [],
+        raidWarnings: [],
+        incomingRaids: [
+          {
+            raidId: "r1",
+            attackerWorldId: "w2",
+            attackerWorldName: "World 2",
+            attackerNames: ["Raider"],
+            targetColonyId: "c1",
+            shipCount: 3,
+            troopCount: 500,
+            landsAt: NOW + 60_000,
+            launchedAt: NOW - 60_000,
+            seen: false,
+          },
+        ],
+        reports: {},
+        probes: [],
+        lastActive: NOW,
+      },
+      memorials: [
+        {
+          id: "m1",
+          battleId: "b1",
+          nodeId: "n1",
+          siteName: "Site",
+          season: "S1",
+          at: NOW,
+          attackerName: "A",
+          defenderName: "D",
+          attackerLosses: 100,
+          defenderLosses: 100,
+          fallenHeroes: [],
+          victor: "draw",
+          epitaph: null,
+          epitaphBy: null,
+        },
+      ],
+    } as unknown as Parameters<typeof buildGlobeMarkers>[0];
+  }
+
+  /** The full icon vocabulary — every GlobeIconId that may ride a marker. */
+  const ALL_ICONS: GlobeIconId[] = [
+    "home",
+    "raid",
+    "chorus",
+    "hut",
+    "ember",
+    "chipset",
+    "husk",
+    "monument",
+    "satellite",
+    "beachhead",
+    "arena",
+  ];
+
+  /** No dot/circle/default fallback may ever ride a marker or legend row. */
+  const FORBIDDEN = ["dot", "circle", "default", "unknown", "placeholder", "none"];
+
+  test("all twelve marker kinds resolve to a defined icon", () => {
+    const ms = buildGlobeMarkers(auditState(), NOW);
+    const byId = new Map(ms.map((m) => [m.id, m]));
+
+    // home — the player's colony, bigger unmistakable settlement
+    expect(byId.get("home")?.icon).toBe("home");
+    // colony — another player's active colony, the hut
+    expect(ms.find((m) => m.layer === "colonies")?.icon).toBe("hut");
+    // husk — dead colony, broken hut
+    expect(ms.find((m) => m.layer === "husks")?.icon).toBe("husk");
+    // chorus — every Chorus site carries the sigil
+    const chorus = ms.filter((m) => m.layer === "chorus");
+    expect(chorus.length).toBeGreaterThan(0);
+    for (const m of chorus) expect(m.icon).toBe("chorus");
+    // T1 / T2 — ember; T3 — chipset (chipsets only drop in T3s)
+    const sites = ms.filter((m) => m.layer === "sites");
+    const t1 = sites.find((m) => m.ref.kind === "site" && m.ref.tier === 1);
+    const t2 = sites.find((m) => m.ref.kind === "site" && m.ref.tier === 2);
+    const t3 = sites.find((m) => m.ref.kind === "site" && m.ref.tier === 3);
+    expect(t1).toBeDefined();
+    expect(t2).toBeDefined();
+    expect(t3).toBeDefined();
+    expect(t1!.icon).toBe("ember");
+    expect(t2!.icon).toBe("ember");
+    expect(t3!.icon).toBe("chipset");
+    // raid — crossed swords
+    expect(byId.get("raid:r1")?.icon).toBe("raid");
+    // memorial — obelisk
+    expect(ms.find((m) => m.layer === "memorials")?.icon).toBe("monument");
+    // satellite — dish next to every site + the Chorus heart
+    const sats = ms.filter((m) => m.layer === "satellites");
+    expect(sats.length).toBeGreaterThan(0);
+    for (const m of sats) expect(m.icon).toBe("satellite");
+    // beachhead — banner, open geography
+    expect(byId.get("beachhead")?.icon).toBe("beachhead");
+    // arena — stadium silhouette (globe blits the full stadium sprite)
+    expect(byId.get("arena")?.icon).toBe("arena");
+  });
+
+  test("no marker anywhere falls back to a dot/circle", () => {
+    const ms = buildGlobeMarkers(auditState(), NOW);
+    expect(ms.length).toBeGreaterThan(0);
+    for (const m of ms) {
+      expect(ALL_ICONS).toContain(m.icon);
+      for (const f of FORBIDDEN) {
+        expect(m.icon.toLowerCase()).not.toContain(f);
+      }
+    }
+    // and every icon kind in the vocabulary actually rides at least one
+    // marker — dead glyphs are how dot fallbacks hide.
+    const seen = new Set(ms.map((m) => m.icon));
+    for (const k of ALL_ICONS) {
+      expect(seen.has(k)).toBe(true);
+    }
+  });
+
+  test("every legend row carries a defined icon — no CSS-dot rows", () => {
+    expect(GLOBE_LAYERS.length).toBeGreaterThan(0);
+    for (const l of GLOBE_LAYERS) {
+      expect(ALL_ICONS).toContain(l.icon);
+      for (const f of FORBIDDEN) {
+        expect(l.icon.toLowerCase()).not.toContain(f);
+      }
+    }
+  });
+});
