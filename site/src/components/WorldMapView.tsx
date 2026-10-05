@@ -44,7 +44,8 @@ import { sound } from "../game/sound";
 import { Bdi } from "./ui/Bdi";
 import MemorialsView from "./MemorialsView";
 import WorldGlobe, { type GlobeFocusTarget } from "./WorldGlobe";
-import { colonyGlobePosition } from "../game/globe-layers";
+import WorldIntelPanel from "./WorldIntelPanel";
+import { currentHomeGlobePosition } from "../game/globe-layers";
 import { memorialNodeIds } from "../game/memorials";
 import { allianceOf } from "../game/war/alliances";
 import { openRallies } from "../game/war/rallies";
@@ -1350,9 +1351,14 @@ export default function WorldMapView({
   onEpitaph,
   onRespondToRaid,
   onOpenWarBand,
+  onRelocateColony,
 }: {
   state: GameState;
   now: number;
+  /** Hive relocation (owner 2026-10-04, WS-E): confirm a picked hive point.
+   *  Resolves with an inline error message, or null on success (Hans's UI
+   *  rule). Unwired = the globe says the linking pass lands next. */
+  onRelocateColony?: (lat: number, lon: number) => Promise<string | null>;
   /** Called when the player confirms exploring an abandoned colony. v1: the
    *  parent may not wire gleaning yet — then the detail shows a "soon" note. */
   onExplore?: (colony: KnownColony) => void;
@@ -1431,10 +1437,8 @@ export default function WorldMapView({
 
   // WS5 (owner 2026-10-04): incoming raids are always inbound to the player's
   // own colony — the raided site's globe position is the home marker's own.
-  const homeGlobePos = useMemo(
-    () => colonyGlobePosition("home:" + (state.gameId ?? "colony")),
-    [state.gameId],
-  );
+  // Hive-aware (WS-E): follows the relocation override when set.
+  const homeGlobePos = useMemo(() => currentHomeGlobePosition(state), [state]);
 
   /** Tap a raid's location → the globe snaps to the raided site, and the
    *  raid's entry (with its defense/rally buttons) scrolls into view. */
@@ -1510,7 +1514,21 @@ export default function WorldMapView({
       {/* THE GLOBE (owner 2026-10-04): the world page IS the globe — the main
           core workstation. Everything below stays exactly as it was.
           WS5: focusTarget snaps the globe to an incoming raid's site. */}
-      <WorldGlobe state={state} now={now} focusTarget={globeFocus ?? undefined} />
+      <WorldGlobe
+        state={state}
+        now={now}
+        focusTarget={globeFocus ?? undefined}
+        onRelocateColony={onRelocateColony}
+      />
+
+      {/* WORLD INTEL (owner 2026-10-04, WS D): planet flavor (labeled as
+          flavor, never telemetry), live colony/alliance counts, and the
+          Chorus reverb ladder. Alliance rows snap the globe to their turf
+          via the same WS5 globeFocus mechanism as snap-to-site. */}
+      <WorldIntelPanel
+        state={state}
+        onSnap={(lat, lon) => setGlobeFocus({ lat, lon, nonce: Date.now() })}
+      />
       <header>
         <h2 className="text-lg font-bold text-white">{t("worldmap.title", "World Map")}</h2>
         <p className="mt-0.5 text-[12px] leading-relaxed text-gray-400">
