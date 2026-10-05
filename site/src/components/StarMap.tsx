@@ -1178,7 +1178,7 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
             {t("starmap.title", "The Sealed System")}
           </h2>
           <p style={{ margin: "2px 0 0", fontSize: 13, color: "rgba(220,230,245,0.7)" }}>
-            {t("starmap.subtitle", "Six worlds, one quarantine. Drag to spin — tap a world to claim it.")}
+            {t("starmap.subtitle", "Six worlds, one quarantine. Drag to spin — tap a world to inspect it, then claim your colony.")}
           </p>
         </div>
         <button

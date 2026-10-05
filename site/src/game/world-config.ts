@@ -36,10 +36,37 @@ export interface WorldConfig {
   debugWorld: boolean;
 }
 
-function parseRaceLock(): RaceId | null {
-  const v = env("RACE_LOCK");
+function parseRaceLockValue(v: string | undefined): RaceId | null {
   if (!v || v === "null" || v === "open") return null;
   return v as RaceId;
+}
+
+/** The env keys that define a world's identity (build-vercel.sh must export
+ *  all of these before the Vite build so the client bundle bakes them). */
+export interface WorldEnvMap {
+  WORLD_ID?: string;
+  WORLD_NAME?: string;
+  RACE_LOCK?: string;
+  WORLD_TAGLINE?: string;
+  DEBUG_WORLD?: string;
+}
+
+/**
+ * Pure factory — builds a WorldConfig from an explicit env map. The module
+ * const below wires the real env; tests pass their own map, which is how the
+ * draconians-build regression is pinned without fighting module-load order
+ * (owner P0 2026-10-05).
+ */
+export function buildWorldConfig(e: WorldEnvMap): WorldConfig {
+  return {
+    worldId: e.WORLD_ID ?? "watchers-beta",
+    worldName: e.WORLD_NAME ?? "The Shattered Academies",
+    raceLock: e.RACE_LOCK !== undefined ? parseRaceLockValue(e.RACE_LOCK) : "watchers",
+    tagline:
+      e.WORLD_TAGLINE ??
+      "The Watchers debug world — the beta test bed. This world belongs to the Fallen Teachers, and only Watcher colonies may be founded here.",
+    debugWorld: (e.DEBUG_WORLD ?? "true") === "true",
+  };
 }
 
 /** Read config from process.env (server/SSR runtime, local shell) or from
@@ -55,15 +82,13 @@ function env(key: string): string | undefined {
   return undefined;
 }
 
-export const WORLD_CONFIG: WorldConfig = {
-  worldId: env("WORLD_ID") ?? "watchers-beta",
-  worldName: env("WORLD_NAME") ?? "The Shattered Academies",
-  raceLock: env("RACE_LOCK") !== undefined ? parseRaceLock() : "watchers",
-  tagline:
-    env("WORLD_TAGLINE") ??
-    "The Watchers debug world — the beta test bed. This world belongs to the Fallen Teachers, and only Watcher colonies may be founded here.",
-  debugWorld: (env("DEBUG_WORLD") ?? "true") === "true",
-};
+export const WORLD_CONFIG: WorldConfig = buildWorldConfig({
+  WORLD_ID: env("WORLD_ID"),
+  WORLD_NAME: env("WORLD_NAME"),
+  RACE_LOCK: env("RACE_LOCK"),
+  WORLD_TAGLINE: env("WORLD_TAGLINE"),
+  DEBUG_WORLD: env("DEBUG_WORLD"),
+});
 
 /** Trimmed, non-secret view for the client UI. */
 export const WORLD_CONFIG_PUBLIC = {
@@ -76,14 +101,14 @@ export const WORLD_CONFIG_PUBLIC = {
 export type WorldConfigPublic = typeof WORLD_CONFIG_PUBLIC;
 
 /** The races the client may offer on this world (just the lock when locked). */
-export function worldAllowedRaces(): RaceId[] {
-  return WORLD_CONFIG.raceLock ? [WORLD_CONFIG.raceLock] : RACES.map((r) => r.id);
+export function worldAllowedRaces(config: WorldConfig = WORLD_CONFIG): RaceId[] {
+  return config.raceLock ? [config.raceLock] : RACES.map((r) => r.id);
 }
 
 /** The locked race's readable short label ("The Watchers (The Grigori)" → "Watchers"). */
-export function worldLockPlain(): string {
-  if (!WORLD_CONFIG.raceLock) return "";
-  return RACES.find((r) => r.id === WORLD_CONFIG.raceLock)!.name
+export function worldLockPlain(config: WorldConfig = WORLD_CONFIG): string {
+  if (!config.raceLock) return "";
+  return RACES.find((r) => r.id === config.raceLock)!.name
     .replace(/^The /, "")
     .replace(/\s*\(.*\)$/, "")
     .trim();
@@ -95,14 +120,14 @@ export function worldLockPlain(): string {
  * world, or null when it may. Server-side only — the client never trusts this
  * to gate anything; it just renders the same answer.
  */
-export function worldRaceError(raceId: RaceId | undefined | null): string | null {
-  const lock = WORLD_CONFIG.raceLock;
+export function worldRaceError(raceId: RaceId | undefined | null, config: WorldConfig = WORLD_CONFIG): string | null {
+  const lock = config.raceLock;
   if (lock && raceId !== lock) {
-    const plain = worldLockPlain();
+    const plain = worldLockPlain(config);
     const denied = raceId ? RACES.find((r) => r.id === raceId) : null;
     return denied
-      ? `${denied.name} cannot be founded on this world — it is the ${plain} debug world (${WORLD_CONFIG.worldName}). Only ${plain} colonies may be founded here.`
-      : `This world is the ${plain} debug world (${WORLD_CONFIG.worldName}) — only ${plain} colonies may be founded here.`;
+      ? `${denied.name} cannot be founded on this world — it is the ${plain} debug world (${config.worldName}). Only ${plain} colonies may be founded here.`
+      : `This world is the ${plain} debug world (${config.worldName}) — only ${plain} colonies may be founded here.`;
   }
   return null;
 }

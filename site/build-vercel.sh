@@ -18,6 +18,36 @@ echo "[1/3] vite build (light — safe under the sandbox memory cap)"
 # (Settings → On this device). Falls back to "dev" outside a git checkout.
 export VITE_BUILD_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
 echo "build sha: $VITE_BUILD_SHA"
+# WORLD IDENTITY (owner P0 2026-10-05): the client bundle bakes the world's
+# identity at build time (vite.config `define.__WORLD_ENV__`), while the
+# server reads process.env at runtime. If these are unset here, the client
+# silently falls back to the watchers-beta defaults ("The Shattered Academies",
+# raceLock=watchers) on EVERY deployment — the server then rejects colony
+# founding with a race-lock error the UI swallows, and new players hit a dead
+# "Found The Cradle" button. These values MUST match the Vercel project's env
+# vars for the deployment target.
+WORLD="${1:-watchers-beta}"
+case "$WORLD" in
+  draconians-world)
+    export WORLD_ID="draconians-world"
+    export WORLD_NAME="The Ashen Wastes"
+    export RACE_LOCK="draconians"
+    export WORLD_TAGLINE="The Draconian test world — raid target practice. Only Draconian colonies may be founded here."
+    export DEBUG_WORLD="true"
+    ;;
+  watchers-beta)
+    export WORLD_ID="watchers-beta"
+    export WORLD_NAME="The Shattered Academies"
+    export RACE_LOCK="watchers"
+    export WORLD_TAGLINE="The Watchers debug world — the beta test bed. This world belongs to the Fallen Teachers, and only Watcher colonies may be founded here."
+    export DEBUG_WORLD="true"
+    ;;
+  *)
+    echo "Unknown world: $WORLD (expected draconians-world or watchers-beta)" >&2
+    exit 1
+    ;;
+esac
+echo "world: $WORLD_ID ($WORLD_NAME, raceLock=$RACE_LOCK)"
 # The workspace starts as sources only (deps live with the image's pre-built
 # placeholder copy); no-op once node_modules is current.
 bun install

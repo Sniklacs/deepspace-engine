@@ -522,6 +522,27 @@ function PlayPage() {
     return res.error || t("play.errors.foundColony", "Could not found the colony.");
   };
 
+  // Founding-flow entry point (owner P0 2026-10-05): the RaceSelect "Found The
+  // Cradle" button must NEVER silently do nothing. Previously the inline
+  // onStart wrapper discarded doCreate's error string (and silently returned
+  // when the token wasn't ready), so a server-side refusal — e.g. the race
+  // lock rejecting a race the client wrongly offered — left new players
+  // staring at a dead button with no feedback. Every failure now flashes.
+  const doFound = async (name: string, race: RaceId): Promise<void> => {
+    if (!token) {
+      flash(t("play.errors.noSession", "Session not ready — wait a moment and try again."));
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    try {
+      const err = await doCreate(name, race);
+      if (err) flash(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const doSwitch = async (gameId: string): Promise<string | null> => {
     sound.click();
     const res = await switchGameFn({ data: { token: token!, gameId } }).catch(() => null);
@@ -618,8 +639,9 @@ function PlayPage() {
     if (!games || games.length === 0) {
       return (
         <div className="min-h-screen bg-[#070910] text-gray-200">
-          <RaceSelect busy={busy} onStart={(name, race) => { if (!token) return; doCreate(name, race); }} />
+          <RaceSelect busy={busy} onStart={(name, race) => { void doFound(name, race); }} />
           {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
+          {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
         </div>
       );
     }
@@ -651,7 +673,7 @@ function PlayPage() {
       <div className="min-h-screen bg-[#070910] text-gray-200">
         {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
         <RaceSelect busy={busy} resetNote
-          onStart={(name, race) => { if (!token) return; doCreate(name, race); }} />
+          onStart={(name, race) => { void doFound(name, race); }} />
         {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
       </div>
     );
