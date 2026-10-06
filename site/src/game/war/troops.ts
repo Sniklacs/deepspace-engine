@@ -21,6 +21,12 @@
 export const TROOP_TYPES = ["bulwark", "reaver", "longeye", "thunder", "warden"] as const;
 export type TroopType = (typeof TROOP_TYPES)[number];
 
+/** Troop tiers T1–T4 (owner 2026-10-05): TYPES differ by role/weight; TIERS are
+ *  the power progression. T1 always musterable; T2+ gated by muster research
+ *  (muster_1/2/3 unlock T2/T3/T4). */
+export type TroopTier = 1 | 2 | 3 | 4;
+export const TROOP_TIERS: readonly TroopTier[] = [1, 2, 3, 4] as const;
+
 /** Battlefield job per type (muster-troops.md §1) — flavor for UI/log lines. */
 export const TROOP_JOBS: Record<TroopType, string> = {
   bulwark: "Frontline · holds ground, absorbs casualties",
@@ -55,6 +61,16 @@ export const TROOPS_CONFIG = {
   /** Mercenary hire price: × muster cost. Instant troops, no queue — time is
    *  the discount. (muster-troops.md §10 leaves the price to us.) */
   mercenaryHireCostMult: 1,
+  // ---- TROOP TIERS T1–T4 (owner 2026-10-05) --------------------------------
+  /** Muster cost multiplier per tier (× supply-weight cost). */
+  tierCostMult: { 1: 1, 2: 1.8, 3: 3, 4: 5 } as Record<TroopTier, number>,
+  /** Muster time multiplier per tier (× linear build time). */
+  tierTimeMult: { 1: 1, 2: 1.5, 3: 2.2, 4: 3 } as Record<TroopTier, number>,
+  /** Battle power multiplier per tier — mirrors the weapon tier curve
+   *  (war-types.ts ×1.5/×2.2/×3.2). Applied in tactical-combat's power calc. */
+  tierPowerMult: { 1: 1, 2: 1.5, 3: 2.2, 4: 3.2 } as Record<TroopTier, number>,
+  /** Research tech that unlocks each gated tier (T1 is always open). */
+  tierUnlockTech: { 2: "muster_1", 3: "muster_2", 4: "muster_3" } as Record<Exclude<TroopTier, 1>, string>,
 } as const;
 
 /** The single source of truth for supply weight. */
@@ -63,6 +79,24 @@ export function supplyWeight(type: TroopType): number {
 }
 export function isTroopType(t: string): t is TroopType {
   return (TROOP_TYPES as readonly string[]).includes(t);
+}
+export function isTroopTier(n: number | undefined): n is TroopTier {
+  return n === 1 || n === 2 || n === 3 || n === 4;
+}
+/** Battle power multiplier for a tier (1 for legacy/unknown). */
+export function tierPowerMult(tier: number): number {
+  return isTroopTier(tier) ? TROOPS_CONFIG.tierPowerMult[tier] : 1;
+}
+/** Is this tier unlocked by the given researched tech ids? T1 is always open. */
+export function tierUnlocked(techsResearched: string[], tier: number): boolean {
+  if (!isTroopTier(tier)) return false;
+  if (tier === 1) return true;
+  return techsResearched.includes(TROOPS_CONFIG.tierUnlockTech[tier]);
+}
+/** Human label for the research gate of a tier (null when always open). */
+export function tierGateLabel(tier: number): string | null {
+  if (!isTroopTier(tier) || tier === 1) return null;
+  return TROOPS_CONFIG.tierUnlockTech[tier];
 }
 
 // ============================================================================
@@ -74,6 +108,8 @@ export function isTroopType(t: string): t is TroopType {
 export interface TroopCohort {
   id: string; // `c-<type>-<seq>`
   type: TroopType;
+  /** Troop tier T1–T4 (owner 2026-10-05). Legacy cohorts migrate to 1. */
+  tier: TroopTier;
   count: number;
   veterans: number; // reserved for v2; always 0 in v1
   musteredAt: number; // epoch ms — newest-first death/desertion order
@@ -113,11 +149,58 @@ export function rosterByType(r: TroopRoster): Record<TroopType, number> {
   return out;
 }
 
-/** Add a cohort (muster completion, mercenary hire). Returns the cohort. */
-export function addCohort(r: TroopRoster, type: TroopType, count: number, now: number, veterans = 0): TroopCohort {
+/** Headcount by type AND tier — the tier-aware roster view. */
+export function rosterByTier(r: TroopRoster): Record<TroopType, Record<TroopTier, number>> {
+  const out = {
+    bulwark: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    reaver: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    longeye: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    thunder: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    warden: { 1: 0, 2: 0, 3: 0, 4: 0 },
+  };
+  for (const c of r.cohorts) {
+    const tier: TroopTier = isTroopTier(c.tier) ? c.tier : 1;
+    out[c.type][tier] += c.count;
+  }
+  return out;
+}
+
+/** Tier-weighted battle power of a roster: Σ count × supply weight × tier
+ *  power. The number the war layer should price forces at. */
+export function rosterPower(r: TroopRoster): number {
+  return r.cohorts.reduce(
+    // (touched by audio-fix crew 2026-10-05: ?? 1 satisfies the typecheck
+    // guard — matches backfillTiers' T1 default for pre-tier cohorts)
+    (p, c) => p + c.count * supplyWeight(c.type) * tierPowerMult(c.tier ?? 1),
+    0,
+  );
+}
+
+/** Backfill migration: cohorts (or muster orders) saved before tiers existed
+ *  read as T1. Idempotent — run on every ensure pass. */
+export function backfillTiers(r: TroopRoster, orders?: MusterOrder[]): void {
+  for (const c of r.cohorts) {
+    if (!isTroopTier((c as { tier?: number }).tier)) (c as { tier: TroopTier }).tier = 1;
+  }
+  for (const o of orders ?? []) {
+    if (!isTroopTier((o as { tier?: number }).tier)) (o as { tier: TroopTier }).tier = 1;
+  }
+}
+
+/** Add a cohort (muster completion, mercenary hire — mercs are tierless = T1).
+ *  Returns the cohort. */
+export function addCohort(
+  r: TroopRoster,
+  type: TroopType,
+  count: number,
+  now: number,
+  veterans = 0,
+  tier: TroopTier = 1,
+): TroopCohort {
   const cohort: TroopCohort = {
     id: `c-${type}-${r.seq++}`,
     type,
+    tier: isTroopTier(tier) ? tier : 1,
     count: Math.max(0, Math.trunc(count)),
     veterans: Math.max(0, Math.trunc(veterans)),
     musteredAt: now,
@@ -295,17 +378,21 @@ export function resolveBattleCasualties(
 export interface MusterOrder {
   id: string; // `m-<seq>`
   type: TroopType;
+  /** Tier being mustered (owner 2026-10-05). Legacy orders migrate to 1. */
+  tier: TroopTier;
   count: number;
   startedAt: number;
   completesAt: number;
 }
 
-export function musterCost(type: TroopType, count: number): number {
-  return Math.max(1, Math.trunc(count)) * supplyWeight(type) * TROOPS_CONFIG.musterCostPerWeight;
+export function musterCost(type: TroopType, count: number, tier: TroopTier = 1): number {
+  const mult = isTroopTier(tier) ? TROOPS_CONFIG.tierCostMult[tier] : 1;
+  return Math.max(1, Math.round(Math.max(1, Math.trunc(count)) * supplyWeight(type) * TROOPS_CONFIG.musterCostPerWeight * mult));
 }
 
-export function musterDurationMs(count: number): number {
-  return Math.max(1, Math.trunc(count)) * TROOPS_CONFIG.musterTimeMsPerTroop;
+export function musterDurationMs(count: number, tier: TroopTier = 1): number {
+  const mult = isTroopTier(tier) ? TROOPS_CONFIG.tierTimeMult[tier] : 1;
+  return Math.max(1, Math.round(Math.max(1, Math.trunc(count)) * TROOPS_CONFIG.musterTimeMsPerTroop * mult));
 }
 
 export interface MusterEnqueue {
@@ -328,9 +415,16 @@ export function enqueueMuster(
   now: number,
   seq: number,
   garrisonCap: number,
+  tier: TroopTier = 1,
+  techsResearched: string[] = [],
 ): MusterEnqueue {
   const n = Math.trunc(count);
   if (!isTroopType(type)) return { ok: false, error: "Unknown troop type." };
+  if (!isTroopTier(tier)) return { ok: false, error: "Unknown troop tier." };
+  if (!tierUnlocked(techsResearched, tier)) {
+    const tech = TROOPS_CONFIG.tierUnlockTech[tier as Exclude<TroopTier, 1>];
+    return { ok: false, error: `Tier ${tier} troops need the "${tech}" research — open the Lab.` };
+  }
   if (!(n > 0)) return { ok: false, error: "Muster at least one troop." };
   if (queue.some((o) => o.type === type))
     return { ok: false, error: `${label(type)} muster already running — one queue per type.` };
@@ -342,9 +436,10 @@ export function enqueueMuster(
     order: {
       id: `m-${seq}`,
       type,
+      tier,
       count: n,
       startedAt: now,
-      completesAt: now + musterDurationMs(n),
+      completesAt: now + musterDurationMs(n, tier),
     },
   };
 }
@@ -512,8 +607,9 @@ export function advanceTroopHome(
   const done = home.musterQueue.filter((o) => o.completesAt <= now);
   home.musterQueue = home.musterQueue.filter((o) => o.completesAt > now);
   for (const o of done) {
-    addCohort(home.roster, o.type, o.count, o.completesAt);
-    tick.log.push(`${o.count} ${label(o.type)}${o.count === 1 ? "" : "s"} mustered.`);
+    const tier: TroopTier = isTroopTier(o.tier) ? o.tier : 1;
+    addCohort(home.roster, o.type, o.count, o.completesAt, 0, tier);
+    tick.log.push(`${o.count} ${label(o.type)}${o.count === 1 ? "" : "s"} (T${tier}) mustered.`);
   }
 
   // 2. Upkeep — the host feeds its own garrison AND every stationed guest.
