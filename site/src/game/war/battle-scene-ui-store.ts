@@ -26,6 +26,18 @@ export type CameraMode = "tactical" | "ground";
  */
 export type BattleSpeed = "slow" | "realtime";
 
+/** Per-turret control (owner 2026-10-06: the turret gets its OWN toggle on
+ *  the battle HUD — open/close without ever opening the Controls glass):
+ *    "held"   — the turret holds fire (hands off).
+ *    "auto"   — the turret free-fires at the nearest enemy in range.
+ *    "gunner" — the commander IS this turret: gunner cam, click-to-target.
+ *  In AUTO command mode every turret free-fires regardless of this map;
+ *  the modes govern what a turret does while driving manually. */
+export type TurretMode = "held" | "auto" | "gunner";
+
+/** The held/auto half of a turret's mode (gunner derives from gunnerId). */
+export type TurretFireMode = "held" | "auto";
+
 export const BATTLE_SPEED_MUL: Record<BattleSpeed, number> = {
   slow: 0.5,
   realtime: 1,
@@ -79,6 +91,8 @@ export interface SceneUIState {
   labelsOn: boolean;
   gunnerId: string | null;
   gunTarget: string | null;
+  /** per-turret held/auto fire modes — gunner derives from gunnerId */
+  turretModes: Record<string, TurretFireMode>;
   /** battle-clock seconds — the scene loop writes this ~4x/sec */
   tS: number;
   kills: { attacker: number; defender: number };
@@ -109,6 +123,7 @@ const INITIAL: SceneUIState = {
   labelsOn: true,
   gunnerId: null,
   gunTarget: null,
+  turretModes: {},
   tS: 0,
   kills: { attacker: 0, defender: 0 },
   turrets: [],
@@ -234,6 +249,39 @@ export function setGunTarget(id: string | null): void {
   set({ gunTarget: id });
 }
 
+/** Effective mode of one turret (pure — the battle HUD and the firing loop
+ *  both read this, so what the toggle shows is what the gun does). A turret
+ *  the commander is sitting in is "gunner"; otherwise the held/auto map,
+ *  defaulting to "auto" (guns free unless told to hold). */
+export function turretModeOf(s: SceneUIState, turretId: string): TurretMode {
+  if (s.gunnerId === turretId) return "gunner";
+  return s.turretModes[turretId] === "held" ? "held" : "auto";
+}
+
+/** Does this turret shoot this tick? (pure) AUTO command: all guns free.
+ *  Manual: held turrets stay silent; auto + the gunner turret fire. */
+export function turretFires(s: SceneUIState, turretId: string): boolean {
+  if (!s.manual) return true;
+  return turretModeOf(s, turretId) !== "held";
+}
+
+/** One tap on the HUD turret toggle (owner 2026-10-06): open the turret
+ *  (take the gun — gunner cam, and hands on the weapon means manual mode),
+ *  or close it (back to auto fire, lock cleared). Never touches Controls. */
+export function setTurretMode(id: string, mode: TurretMode): void {
+  if (mode === "gunner") {
+    if (state.gunnerId === id && state.manual) return;
+    set({ gunnerId: id, manual: true, turretModes: { ...state.turretModes, [id]: "auto" } });
+    return;
+  }
+  const clearGunner = state.gunnerId === id;
+  if (state.turretModes[id] === mode && !clearGunner) return;
+  set({
+    turretModes: { ...state.turretModes, [id]: mode },
+    ...(clearGunner ? { gunnerId: null, gunTarget: null } : {}),
+  });
+}
+
 export function setClock(tS: number): void {
   if (state.tS === tS) return;
   set({ tS });
@@ -280,6 +328,7 @@ export function resetSceneUI(): void {
     kills: { attacker: 0, defender: 0 },
     gunnerId: null,
     gunTarget: null,
+    turretModes: {},
     turrets: [],
     roster: [],
     squads: [],

@@ -65,12 +65,14 @@ import {
   sceneUIServerSnapshot,
   setVectorOn,
   setTurretsOn,
+  setTurretMode,
+  turretFires,
+  turretModeOf,
   setLogisticsFx,
   setManual,
   setCameraMode,
   cycleDayNight,
   setLabelsOn,
-  setGunner,
   setGunTarget,
   setClock,
   bumpKill,
@@ -98,7 +100,6 @@ import {
 } from "../../game/war/scene-orders";
 import {
   commsFor,
-  commsView,
   dismissBubble,
   pushBubble,
   REPORT_ARROW_LEN,
@@ -125,6 +126,7 @@ import {
 import type { ManeuverVector } from "../../game/war/war-types";
 import { Fx } from "./effects";
 import { ToggleSwitch } from "./ToggleSwitch";
+import { BattleHud } from "./BattleHud";
 import { BattleClock } from "./BattleClock";
 import { BattleLegend } from "./BattleLegend";
 import { SceneHeader } from "../SceneHeader";
@@ -685,14 +687,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           e.hp01 -= (((0.015 + Math.random() * 0.03) * tierPowerMult(u.tier)) / tierPowerMult(e.tier)) * dmgTakenMul(e);
           if (e.hp01 <= 0) killUnit(e);
         }
-        // Turret fire (auto mode, or gunner-directed).
+        // Turret fire — per-turret modes (owner 2026-10-06). AUTO command:
+        // every gun free-fires. Manual: held turrets stay silent while auto
+        // turrets keep shooting and the gunner's own gun takes the lock.
         for (const tr of turretsRef.current) {
           if (tr.hp01 <= 0) continue;
-          if (ui.manual && ui.gunnerId !== tr.id) continue; // manual: only the gunner's turret fires
+          if (!turretFires(ui, tr.id)) continue;
           let target: SceneUnit | null = null;
           if (ui.gunnerId === tr.id && ui.gunTarget) {
             target = unitsRef.current.find((u) => u.id === ui.gunTarget && u.state !== "dead") ?? null;
-          } else if (!ui.manual) {
+          } else if (!ui.manual || turretModeOf(ui, tr.id) === "auto") {
             target = nearestEnemy(tr.x, tr.y, tr.side, 0.68);
           }
           if (target) {
@@ -2066,8 +2070,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       if (d < bd) { bd = d; best = tr; }
     }
     if (best) {
-      setGunner(best.id);
-      setManual(true); // hands on the weapon ⇒ manual mode
+      setTurretMode(best.id, "gunner"); // hands on the weapon ⇒ manual mode
       return;
     }
     // Click one of YOUR units → select its squad (the bus).
@@ -2187,10 +2190,11 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       </div>
       <button
         type="button"
-        onClick={() => setGunner(null)}
+        onClick={() => setTurretMode(gunner.id, "auto")}
+        data-testid="gunner-close-hud"
         className="absolute right-3 top-3 rounded-lg border border-cyan-300/40 bg-black/70 px-3 py-1.5 text-xs font-semibold text-cyan-200 hover:bg-black/90"
       >
-        Exit gunner ✕
+        Close turret ✕
       </button>
     </>
   );
@@ -2262,6 +2266,15 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
 
         {/* collapsible icon key — what am I looking at */}
         <BattleLegend />
+
+        {/* on-field command layer (owner 2026-10-06): turret toggle,
+            reserve/squad strips, pace, comms — tap-and-move on the field;
+            the Controls glass is setup-only and stays closed mid-fight. */}
+        <BattleHud
+          comms={comms}
+          onDismissComms={(id) => setComms((prev) => dismissBubble(prev, id))}
+          variant="fullscreen"
+        />
 
         {/* battle result sheet — the canvas draws the victor banner; this
             DOM sheet carries the commander's actions. "Save in war room"
@@ -2356,60 +2369,14 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           aria-label="Battle scene tactical map"
         />
         {gunnerOverlay}
-        {/* battle comms — persistent conversation bubbles (owner 2026-10-06):
-            source tag + message, phone-thumb-tappable, stacked top-edge down
-            so they never cover the fighting. A bubble stays up until tapped —
-            the tap is the confirmed read, and it dismisses into the log. */}
-        {(() => {
-          const v = commsView(comms);
-          if (v.unread === 0) return null;
-          return (
-            <div
-              className="pointer-events-none absolute inset-x-0 top-2 z-20 flex flex-col items-center gap-1.5 px-3"
-              aria-live="polite"
-              aria-label="Battle comms"
-            >
-              <div className="flex items-center gap-1.5 rounded-full border border-white/15 bg-black/70 px-2.5 py-1">
-                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">Comms</span>
-                <span
-                  className="rounded-full bg-amber-400 px-1.5 text-[10px] font-bold tabular-nums text-black"
-                  data-testid="comms-unread-badge"
-                >
-                  {v.unread}
-                </span>
-              </div>
-              {v.shown.map((b) => (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => setComms((prev) => dismissBubble(prev, b.id))}
-                  data-testid={`comms-bubble-${b.id}`}
-                  aria-label={`${b.source}: ${b.message}. Tap to confirm read.`}
-                  className={`pointer-events-auto w-full max-w-[420px] rounded-xl border px-3 py-2.5 text-left shadow-lg backdrop-blur transition active:scale-[0.98] ${
-                    b.critical
-                      ? "animate-pulse border-amber-400/70 bg-amber-950/85"
-                      : "border-white/15 bg-black/70"
-                  }`}
-                >
-                  <span
-                    className={`block text-[10px] font-bold uppercase tracking-[0.18em] ${
-                      b.critical ? "text-amber-300" : "text-cyan-300"
-                    }`}
-                  >
-                    {b.source}
-                  </span>
-                  <span className="block text-[13px] leading-snug text-zinc-100">{b.message}</span>
-                  <span className="mt-0.5 block text-[10px] text-zinc-500">tap to confirm ✓</span>
-                </button>
-              ))}
-              {v.overflow > 0 && (
-                <div className="rounded-full border border-white/15 bg-black/70 px-3 py-1 text-[11px] font-bold text-zinc-300">
-                  +{v.overflow} more
-                </div>
-              )}
-            </div>
-          );
-        })()}
+        {/* on-field command layer (owner 2026-10-06): comms bubbles +
+            turret toggle + reserve/squad strips + pace — tap-and-move on
+            the field; the deck below is setup, checked once at start. */}
+        <BattleHud
+          comms={comms}
+          onDismissComms={(id) => setComms((prev) => dismissBubble(prev, id))}
+          variant="embedded"
+        />
         <BattleLegend />
       </div>
 
@@ -2464,8 +2431,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           </div>
           <p className="mt-2 max-w-[220px] text-[10px] leading-relaxed text-zinc-500">
             {ui.manual
-              ? "Manual: turrets hold fire until you take the gunner cam. Click one of your turrets."
-              : "Auto: turrets engage on their own. Flip to manual to take a gun yourself."}
+              ? "Manual: held turrets stay silent; auto turrets and the gun you sit in fire. Take a gun from the turret toggle on the field."
+              : "Auto: every turret engages on its own. Flip to manual to drive."}
           </p>
         </div>
       </div>

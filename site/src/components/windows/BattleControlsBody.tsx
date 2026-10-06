@@ -26,7 +26,7 @@ import {
   setSelectedSquad,
   recenterMap,
   cycleDayNight,
-  setGunner,
+  setTurretMode,
   BATTLE_SPEEDS,
   type BattleSpeed,
 } from "../../game/war/battle-scene-ui-store";
@@ -133,8 +133,8 @@ export function BattleControlsBody() {
         </div>
         <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
           {ui.manual
-            ? "Manual: turrets hold fire until you take the gunner cam. Pick a turret below, or tap one on the map."
-            : "Auto: turrets engage on their own. Flip to manual to take a gun yourself."}
+            ? "Manual: held turrets stay silent; auto turrets and the gun you sit in fire. The turret toggle on the field drives this too."
+            : "Auto: every turret engages on its own. Flip to manual to drive."}
         </p>
       </section>
 
@@ -379,7 +379,7 @@ export function BattleControlsBody() {
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => { battleSfx.uiClick(); setGunner(t.id); setManual(true); }}
+                  onClick={() => { battleSfx.uiClick(); setTurretMode(t.id, "gunner"); }}
                   data-testid={`gunner-pick-${t.id}`}
                   className="rounded-lg border border-cyan-300/40 bg-cyan-950/40 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-900/50"
                 >
@@ -398,7 +398,7 @@ export function BattleControlsBody() {
             </p>
             <button
               type="button"
-              onClick={() => { battleSfx.uiClick(); setGunner(null); }}
+              onClick={() => { battleSfx.uiClick(); setTurretMode(gunner.id, "auto"); }}
               data-testid="gunner-exit"
               className="mt-2 rounded-lg border border-line px-2.5 py-1 text-[11px] font-semibold text-text-2 hover:text-text-1"
             >

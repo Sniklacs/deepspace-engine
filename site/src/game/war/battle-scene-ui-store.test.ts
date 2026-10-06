@@ -24,6 +24,9 @@ import {
   cycleBattleSpeed,
   setGunner,
   setGunTarget,
+  setTurretMode,
+  turretModeOf,
+  turretFires,
   setClock,
   bumpKill,
   registerTurrets,
@@ -202,6 +205,71 @@ describe("gunner lifecycle", () => {
   });
 });
 
+describe("turret modes — the HUD open/close toggle (owner 2026-10-06)", () => {
+  test("turrets default to auto fire", () => {
+    const s = sceneUISnapshot();
+    expect(turretModeOf(s, "t1")).toBe("auto");
+    expect(turretFires(s, "t1")).toBe(true);
+  });
+
+  test("open turret: takes the gunner cam AND hands-on manual mode", () => {
+    setTurretMode("t1", "gunner");
+    const s = sceneUISnapshot();
+    expect(s.gunnerId).toBe("t1");
+    expect(s.manual).toBe(true);
+    expect(turretModeOf(s, "t1")).toBe("gunner");
+    expect(turretFires(s, "t1")).toBe(true);
+  });
+
+  test("close turret: back to auto fire, gunner lock cleared", () => {
+    setTurretMode("t1", "gunner");
+    setGunTarget("u9");
+    setTurretMode("t1", "auto");
+    const s = sceneUISnapshot();
+    expect(s.gunnerId).toBeNull();
+    expect(s.gunTarget).toBeNull();
+    expect(turretModeOf(s, "t1")).toBe("auto");
+    expect(turretFires(s, "t1")).toBe(true);
+  });
+
+  test("held turret is silent only while driving manually", () => {
+    setTurretMode("t1", "held");
+    setManual(true);
+    expect(turretFires(sceneUISnapshot(), "t1")).toBe(false);
+    // AUTO command overrides: every gun free-fires, commander hands off.
+    setManual(false);
+    expect(turretFires(sceneUISnapshot(), "t1")).toBe(true);
+  });
+
+  test("manual driving: gunner + auto turrets fire, other turrets unaffected", () => {
+    setTurretMode("t1", "gunner");
+    setTurretMode("t2", "held");
+    const s = sceneUISnapshot();
+    expect(turretFires(s, "t1")).toBe(true); // the gun you sit in
+    expect(turretFires(s, "t2")).toBe(false); // held
+    expect(turretFires(s, "t3")).toBe(true); // untouched → auto
+    expect(turretModeOf(s, "t2")).toBe("held");
+  });
+
+  test("holding the gunner's own turret closes the cam and holds fire", () => {
+    setTurretMode("t1", "gunner");
+    setTurretMode("t1", "held");
+    const s = sceneUISnapshot();
+    expect(s.gunnerId).toBeNull();
+    expect(turretModeOf(s, "t1")).toBe("held");
+  });
+
+  test("resetSceneUI clears turret modes with the rest of the scene", () => {
+    setTurretMode("t1", "gunner");
+    setTurretMode("t2", "held");
+    resetSceneUI();
+    const s = sceneUISnapshot();
+    expect(s.turretModes).toEqual({});
+    expect(s.gunnerId).toBeNull();
+    expect(turretModeOf(s, "t2")).toBe("auto");
+  });
+});
+
 describe("clock and kills", () => {
   test("clock advances and kills tally per side", () => {
     setClock(42.5);
@@ -255,6 +323,30 @@ describe("resetSceneUI", () => {
     expect(s.squads).toEqual([]);
     expect(s.orderLog).toEqual([]);
     expect(s.battleSpeed).toBe("realtime");
+  });
+});
+
+describe("HUD strips — reserves and turrets on the field (owner 2026-10-06)", () => {
+  test("on-call reserve squads register for the reserve strip; tap selects, map tap commits", () => {
+    registerSquads([
+      { id: "A0", name: "Squad 1 — Main", alive: 14, total: 14 },
+      { id: "A4", name: "Squad 5 — Reserve", alive: 15, total: 15, onCallReserve: true },
+    ]);
+    const s = sceneUISnapshot();
+    // The HUD reserve strip is exactly the on-call squads — the chip the
+    // commander taps before tapping the map (the engine commits the drop).
+    expect(s.squads.filter((q) => q.onCallReserve).map((q) => q.id)).toEqual(["A4"]);
+    setSelectedSquad("A4");
+    expect(sceneUISnapshot().selectedSquadId).toBe("A4");
+  });
+
+  test("resetSceneUI drops the registered turrets and their modes", () => {
+    registerTurrets([{ id: "t1", idx: 0 }]);
+    setTurretMode("t1", "held");
+    resetSceneUI();
+    const s = sceneUISnapshot();
+    expect(s.turrets).toEqual([]);
+    expect(s.turretModes).toEqual({});
   });
 });
 
