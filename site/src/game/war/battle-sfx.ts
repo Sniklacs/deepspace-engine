@@ -42,6 +42,18 @@ export function stingerForPhase(phase: ScenePhase): "approach" | "touchdown" | "
   }
 }
 
+/** Bed voice shaping — highs rolled off hard, punch in the low-mids so it
+ *  reads on phone speakers (no bass). Broad wind, never narrow hiss:
+ *  narrow bandpassed noise is what read as "rainfall" on the owner's phone.
+ *  Exported so tests can assert the shaping stays sane. */
+export const BED = {
+  rumbleCutoff: 90,   // Hz — lowpass on the bombardment rumble
+  rumbleGain: 0.055,
+  windFreq: 240,      // Hz — broad low-mid wind band
+  windQ: 0.6,         // broad, never a whistle
+  windGain: 0.012,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Engine
 // ---------------------------------------------------------------------------
@@ -152,6 +164,19 @@ class BattleSfx {
     }
   }
 
+  /** Start/stop a source that is ALREADY wired through its own chain.
+   *  Unlike play(), this never touches the bus — the bed voices connect
+   *  through their filters, never raw. (Owner 2026-10-05: play() used to
+   *  double-connect the bed's raw white-noise sources straight to the bus,
+   *  which read as "rain" and ducked every one-shot under the compressor.) */
+  private startLoop(n: AudioBufferSourceNode | OscillatorNode, stopAfter: number): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + stopAfter + 0.1;
+    try { n.start(); } catch { /* already started */ }
+    try { n.stop(t); } catch { /* already stopped */ }
+    n.onended = () => { try { n.disconnect(); } catch { /* gone */ } };
+  }
+
   private dist(x: number, y: number): number {
     const c = this.cam();
     const r = Math.max(0.05, c.radius);
@@ -171,9 +196,9 @@ class BattleSfx {
     const rumble = this.noise(2);
     const rumbleF = ctx.createBiquadFilter();
     rumbleF.type = "lowpass";
-    rumbleF.frequency.value = 110;
+    rumbleF.frequency.value = BED.rumbleCutoff;
     const rumbleG = ctx.createGain();
-    rumbleG.gain.value = 0.05;
+    rumbleG.gain.value = BED.rumbleGain;
     const rumbleLfo = ctx.createOscillator();
     rumbleLfo.frequency.value = 0.05;
     const rumbleLfoG = ctx.createGain();
@@ -184,55 +209,75 @@ class BattleSfx {
       rumbleG.connect(this.bus);
       rumbleLfo.connect(rumbleLfoG);
       rumbleLfoG.connect(rumbleG.gain);
-      this.play(rumble, 3600);
-      this.play(rumbleLfo, 3600);
+      this.startLoop(rumble, 3600);
+      this.startLoop(rumbleLfo, 3600);
       this.bedNodes.push(rumble, rumbleF, rumbleG, rumbleLfo, rumbleLfoG);
     }
 
-    // Eerie howl — slow-breathing bandpassed noise.
-    const howl = this.noise(2);
-    const howlF = ctx.createBiquadFilter();
-    howlF.type = "bandpass";
-    howlF.frequency.value = 520;
-    howlF.Q.value = 3;
-    const howlG = ctx.createGain();
-    howlG.gain.value = 0.012;
-    const howlLfo = ctx.createOscillator();
-    howlLfo.frequency.value = 0.07;
-    const howlLfoG = ctx.createGain();
-    howlLfoG.gain.value = 0.012;
-    if (howl) {
-      howl.connect(howlF);
-      howlF.connect(howlG);
-      howlG.connect(this.bus);
-      howlLfo.connect(howlLfoG);
-      howlLfoG.connect(howlG.gain);
-      this.play(howl, 3600);
-      this.play(howlLfo, 3600);
-      this.bedNodes.push(howl, howlF, howlG, howlLfo, howlLfoG);
+    // Wind — broad low-mid band, wandering slowly. Breathes, never hisses.
+    // (Replaces the old narrow howl: bandpassed hiss read as rainfall.)
+    const wind = this.noise(2);
+    const windF = ctx.createBiquadFilter();
+    windF.type = "bandpass";
+    windF.frequency.value = BED.windFreq;
+    windF.Q.value = BED.windQ;
+    const windG = ctx.createGain();
+    windG.gain.value = BED.windGain;
+    const windLfo = ctx.createOscillator();
+    windLfo.frequency.value = 0.05;
+    const windLfoG = ctx.createGain();
+    windLfoG.gain.value = 0.009;
+    const windFLfo = ctx.createOscillator();
+    windFLfo.frequency.value = 0.037;
+    const windFLfoG = ctx.createGain();
+    windFLfoG.gain.value = 90;
+    if (wind) {
+      wind.connect(windF);
+      windF.connect(windG);
+      windG.connect(this.bus);
+      windLfo.connect(windLfoG);
+      windLfoG.connect(windG.gain);
+      windFLfo.connect(windFLfoG);
+      windFLfoG.connect(windF.frequency);
+      this.startLoop(wind, 3600);
+      this.startLoop(windLfo, 3600);
+      this.startLoop(windFLfo, 3600);
+      this.bedNodes.push(wind, windF, windG, windLfo, windLfoG, windFLfo, windFLfoG);
     }
 
-    // War-drums — a low skin hit every 1.3–2.1s, slightly irregular.
+    // War-drums — a low skin hit every 1.4–2.2s, slightly irregular.
+    // Phone-audible: body in the low-mids with a skin-slap transient that
+    // small speakers actually reproduce (pure sub-bass is lost on a phone).
     const drum = () => {
       if (!this.bedOn || !this.live()) {
-        if (this.bedOn) this.bedTimers.push(window.setTimeout(drum, 1500));
+        if (this.bedOn) this.bedTimers.push(window.setTimeout(drum, 1600));
         return;
       }
       const t = ctx.currentTime;
       const o = ctx.createOscillator();
       o.type = "sine";
-      o.frequency.setValueAtTime(58, t);
-      o.frequency.exponentialRampToValueAtTime(31, t + 0.35);
+      o.frequency.setValueAtTime(120, t);
+      o.frequency.exponentialRampToValueAtTime(55, t + 0.3);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.11, t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+      g.gain.exponentialRampToValueAtTime(0.14, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
       o.connect(g);
       g.connect(this.bus!);
       o.start(t);
       o.stop(t + 0.5);
       o.onended = () => { try { o.disconnect(); g.disconnect(); } catch { /* gone */ } };
-      this.bedTimers.push(window.setTimeout(drum, 1300 + Math.random() * 800));
+      // Skin slap — the transient small speakers reproduce.
+      const slap = this.noise(0.06);
+      if (slap) {
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass"; bp.frequency.value = 900; bp.Q.value = 1;
+        const ng = this.adsrGain(0.05, 0.004, 0.06)!;
+        slap.connect(bp); bp.connect(ng); ng.connect(this.bus!);
+        slap.start(t); slap.stop(t + 0.15);
+        slap.onended = () => { try { slap.disconnect(); bp.disconnect(); ng.disconnect(); } catch { /* gone */ } };
+      }
+      this.bedTimers.push(window.setTimeout(drum, 1400 + Math.random() * 800));
     };
     this.bedTimers.push(window.setTimeout(drum, 900));
 
@@ -317,6 +362,17 @@ class BattleSfx {
         n.connect(lp); lp.connect(ng);
         this.play(ng, 1.1);
         n.start(t); n.stop(t + 1.2);
+      }
+      // Midrange thud — the transient phone speakers reproduce (the sub
+      // sine above is felt on big speakers, lost on small ones).
+      const thud = this.noise(0.25);
+      if (thud) {
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass"; bp.frequency.value = 350; bp.Q.value = 0.8;
+        const tg = this.adsrGain(0.3, 0.005, 0.25)!;
+        thud.connect(bp); bp.connect(tg);
+        this.play(tg, 0.4);
+        thud.start(t); thud.stop(t + 0.4);
       }
     } else if (stinger === "contact") {
       // Warning swell — first radar visuals.

@@ -1,7 +1,7 @@
 // Unit tests for the battle-SFX pure mappings (no audio needed).
 
 import { describe, expect, test } from "bun:test";
-import { blastGain, blastCutoff, stingerForPhase } from "./battle-sfx";
+import { blastGain, blastCutoff, stingerForPhase, BED, battleSfx } from "./battle-sfx";
 
 describe("blastGain", () => {
   test("point-blank is near full", () => {
@@ -49,5 +49,34 @@ describe("stingerForPhase", () => {
   });
   test("resolved earns no stinger (victor() owns the ending)", () => {
     expect(stingerForPhase("resolved")).toBeNull();
+  });
+});
+
+describe("trigger surface", () => {
+  // Every scene event the battle wires must have a live trigger method.
+  // (Owner 2026-10-05: a silent battle traced to trigger wiring, so the
+  // surface itself is pinned here.)
+  test("exposes a trigger for every scene event", () => {
+    for (const m of [
+      "attach", "detach", "reset", "setCamera",
+      "phase", "explosion", "tracer", "dropship", "flankCrash",
+      "orderAccepted", "orderRejected", "uiClick", "victor",
+    ] as const) {
+      expect(typeof (battleSfx as any)[m]).toBe("function");
+    }
+  });
+});
+
+describe("BED shaping", () => {
+  // The bed must read as wind + distant war on a phone speaker — highs
+  // rolled off hard, punch in the low-mids, never narrow hiss ("rain").
+  test("filter params stay within sane bounds", () => {
+    expect(BED.rumbleCutoff).toBeLessThan(121);
+    expect(BED.rumbleCutoff).toBeGreaterThan(40);
+    expect(BED.rumbleGain).toBeLessThan(0.1001);
+    expect(BED.windFreq).toBeLessThan(401);
+    expect(BED.windFreq).toBeGreaterThan(149);
+    expect(BED.windQ).toBeLessThan(1.5); // broad band — narrow Q whistles/hisses
+    expect(BED.windGain).toBeLessThan(0.0301);
   });
 });
