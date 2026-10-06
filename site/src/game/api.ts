@@ -124,6 +124,7 @@ import { prologueState } from "./prologue/prologue-engine";
 // inside this file, and `chat-tests` can reach the rules without a 1000-line import.
 import { worldFeedFn, sendWorldFn, chatSyncFn } from "./chat/chat-api";
 import type { Battle, BattleHeroSnapshot, BattleSide, ManeuverVector } from "./war/war-types";
+import type { SavedFormation, SlotLoads } from "./war/playbook";
 import {
   enqueueMuster,
   hireBand,
@@ -2382,6 +2383,136 @@ const musterTroopsFn = createServerFn({ method: "POST" }).validator(
   return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
 });
 
+/** WAR ROOM (owner 2026-10-06) — save (create or update) a battle-playbook
+ *  formation: the play plus its slot loadouts, locked down under a name.
+ *  Validated: name sane, play known (or "custom"), slot loads well-formed,
+ *  total within the field cap. Never touches the roster — the loadout is a
+ *  plan, not troops. */
+const warRoomSaveFormationFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().min(8),
+    id: z.string().max(64).optional(),
+    name: z.string().min(1).max(40),
+    playId: z.string().max(64),
+    loads: z.record(z.string(), z.array(z.object({
+      type: z.string(),
+      tier: z.number().int().min(1).max(4),
+      count: z.number().int().min(1).max(100),
+    }))).default({}),
+    slotMeta: z.record(z.string(), z.object({
+      name: z.string().max(40).optional(),
+      vector: z.enum(["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR", "RESERVE"]).optional(),
+      entry: z.union([
+        z.object({ kind: z.literal("start") }),
+        z.object({ kind: z.literal("delayed"), atS: z.number().int().min(0).max(3600) }),
+        z.object({ kind: z.literal("oncall"), atS: z.number().int().min(0).max(3600) }),
+      ]).optional(),
+      dx: z.number().min(0).max(1).optional(),
+      dy: z.number().min(0).max(1).optional(),
+    }).passthrough()).optional(),
+    locked: z.boolean().default(false),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const { playById } = await import("./war/playbook");
+  if (data.playId !== "custom" && !playById(data.playId)) {
+    return { ok: false, error: "Unknown play." };
+  }
+  let total = 0;
+  for (const picks of Object.values(data.loads)) {
+    for (const p of picks) {
+      if (!isTroopType(p.type)) return { ok: false, error: "Unknown troop type in loadout." };
+      total += p.count;
+    }
+  }
+  if (total > 100) return { ok: false, error: "Formation exceeds the 100-unit field cap." };
+  const st = engine.advance(saves.games[saves.activeGameId], Date.now());
+  const wr = engine.ensureWarRoom(st);
+  const now = Date.now();
+  const cleanLoads: Record<string, { type: string; tier: number; count: number }[]> = {};
+  for (const [slotId, picks] of Object.entries(data.loads)) {
+    const sid = slotId.slice(0, 64);
+    cleanLoads[sid] = picks.map((p) => ({ type: p.type, tier: p.tier, count: p.count }));
+  }
+  if (data.id) {
+    const f = wr.formations.find((x) => x.id === data.id);
+    if (!f) return { ok: false, error: "Formation not found." };
+    f.name = data.name;
+    f.playId = data.playId;
+    f.loads = cleanLoads as SlotLoads;
+    if (data.slotMeta) f.slotMeta = data.slotMeta as SavedFormation["slotMeta"];
+    f.locked = data.locked;
+    f.updatedAt = now;
+  } else {
+    const id = `wrf-${wr.seq++}`;
+    wr.formations.push({
+      id,
+      name: data.name,
+      playId: data.playId,
+      locked: data.locked,
+      loads: cleanLoads as SlotLoads,
+      slotMeta: data.slotMeta as SavedFormation["slotMeta"],
+      createdAt: now,
+      updatedAt: now,
+    });
+    if (wr.formations.length > 25) wr.formations.splice(0, wr.formations.length - 25);
+  }
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
+/** WAR ROOM — delete a saved formation. */
+const warRoomDeleteFormationFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().min(8),
+    id: z.string().max(64),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const st = engine.advance(saves.games[saves.activeGameId], Date.now());
+  const wr = engine.ensureWarRoom(st);
+  const i = wr.formations.findIndex((x) => x.id === data.id);
+  if (i < 0) return { ok: false, error: "Formation not found." };
+  wr.formations.splice(i, 1);
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
+/** WAR ROOM — lock or unlock a formation. Only locked-down formations are
+ *  selectable on the deploy screen. */
+const warRoomSetLockFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().min(8),
+    id: z.string().max(64),
+    locked: z.boolean(),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  if (!saves || !saves.activeGameId || !saves.games[saves.activeGameId]) {
+    return { ok: false, error: "Start a colony first." };
+  }
+  const st = engine.advance(saves.games[saves.activeGameId], Date.now());
+  const wr = engine.ensureWarRoom(st);
+  const f = wr.formations.find((x) => x.id === data.id);
+  if (!f) return { ok: false, error: "Formation not found." };
+  f.locked = data.locked;
+  f.updatedAt = Date.now();
+  await saveAccountSaves(accountId, saves);
+  return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
 /** Hire a mercenary band: the deserters' market (muster-troops.md §10). The
  *  ONLY buyable troops — first supplies on the table takes them. Garrison cap
  *  still applies: the cap is your stomach. */
@@ -3154,6 +3285,9 @@ export {
   arenaDirectoryFn,
   musterTroopsFn,
   hireMercenariesFn,
+  warRoomSaveFormationFn,
+  warRoomDeleteFormationFn,
+  warRoomSetLockFn,
   plantForwardBaseFn,
   relocateColonyFn,
   musterForwardTroopsFn,

@@ -81,13 +81,16 @@ export function clampPicksToRoster(picks: DeploymentPick[], roster: TroopRoster)
     .filter((p) => p.count > 0);
 }
 
-interface PlacedUnit {
+export interface PlacedUnit {
   type: TroopType;
   tier: TroopTier;
   vector: ManeuverVector;
   enterAtS: number;
   /** Refused-flank layout: this unit stages deep, pulled back off the line. */
   deep?: boolean;
+  /** On-call reserve: waits for the raid leader's commit when driving
+   *  manually (hot drop); on auto it enters at enterAtS. */
+  onCall?: boolean;
 }
 
 /** Doctrine vector assignment for Hans's force. */
@@ -147,7 +150,7 @@ function assignVectors(picks: DeploymentPick[]): PlacedUnit[] {
 /** Stage placed units onto the tactical map — north-south conventions:
  *  the attacker musters on the SOUTH edge and pushes north; the defender
  *  holds the NORTH half in layered depth. Flanks spread east-west. */
-function stageUnits(
+export function stageUnits(
   placed: PlacedUnit[],
   side: BattleSide,
   seed: number,
@@ -171,6 +174,7 @@ function stageUnits(
       tier: p.tier,
       vector: p.vector,
       squadId: squadFor(p.vector),
+      onCall: p.onCall === true ? true : undefined,
       x: clampWorldX(laneJitter()),
       y: Math.max(0.04, Math.min(WORLD_H - 0.04, backY + (rnd() - 0.5) * 0.06)),
       tx: clampWorldX(laneJitter()),
@@ -440,21 +444,23 @@ export function previewGarrisonReverb(picks: DeploymentPick[], grade: ChorusGrad
 }
 
 /**
- * Build a bloodless practice battle from Hans's real picks. Pure — the
- * roster is never touched. Throws on an empty force.
+ * Build a bloodless practice battle from pre-placed attacker units. Pure —
+ * the roster is never touched. Throws on an empty force.
  */
-export function buildPlayerScene(rawPicks: DeploymentPick[], opts: DeployOptions): SceneBattle {
-  const picks = rawPicks
-    .map((p) => ({ ...p, count: Math.max(0, Math.trunc(p.count)) }))
-    .filter((p) => p.count > 0);
-  const total = picksCount(picks);
-  if (total === 0) throw new Error("buildPlayerScene: empty force — pick at least one troop");
-  if (total > DEPLOY_CAP) throw new Error(`buildPlayerScene: ${total} exceeds the ${DEPLOY_CAP}-unit field cap`);
+export function buildSceneFromPlaced(
+  playerPlaced: PlacedUnit[],
+  total: number,
+  seed: number,
+  grade: ChorusGrade,
+  opts: DeployOptions,
+): SceneBattle {
+  if (total === 0) throw new Error("buildSceneFromPlaced: empty force — pick at least one troop");
+  if (total > DEPLOY_CAP) throw new Error(`buildSceneFromPlaced: ${total} exceeds the ${DEPLOY_CAP}-unit field cap`);
 
-  const seed = opts.seed ?? deploySeedFor(picks);
-  const grade = opts.grade ?? DEFAULT_CHORUS_GRADE;
-  const playerPlaced = assignVectors(picks);
-  const playerPower = picksPower(picks);
+  const playerPower = playerPlaced.reduce(
+    (p, u) => p + supplyWeight(u.type) * tierPowerMult(u.tier),
+    0,
+  );
   const { placed: enemyPlaced } = buildChorusLineup(playerPower, seed, grade);
 
   const units = [
@@ -477,6 +483,22 @@ export function buildPlayerScene(rawPicks: DeploymentPick[], opts: DeployOptions
     troops: { attacker: total, defender: enemyPlaced.length },
     terrain: terrainFor(seed),
   };
+}
+
+/**
+ * Build a bloodless practice battle from Hans's real picks. Pure — the
+ * roster is never touched. Throws on an empty force.
+ */
+export function buildPlayerScene(rawPicks: DeploymentPick[], opts: DeployOptions): SceneBattle {
+  const picks = rawPicks
+    .map((p) => ({ ...p, count: Math.max(0, Math.trunc(p.count)) }))
+    .filter((p) => p.count > 0);
+  const total = picksCount(picks);
+
+  const seed = opts.seed ?? deploySeedFor(picks);
+  const grade = opts.grade ?? DEFAULT_CHORUS_GRADE;
+  const playerPlaced = assignVectors(picks);
+  return buildSceneFromPlaced(playerPlaced, total, seed, grade, opts);
 }
 
 /** Doctrine hint for the picker: siege without escort walks alone. */

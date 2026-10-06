@@ -12,13 +12,24 @@ import { useEffect } from "react";
 import { BattleScene } from "./BattleScene";
 import { closeWindowsOfKind } from "../../game/windows/window-store";
 import type { SceneBattle } from "../../game/war/battle-scene-model";
+import type { SlotLoads } from "../../game/war/playbook";
 
-export function BattleSceneFullscreen({ scene, onClose }: { scene: SceneBattle; onClose: () => void }) {
+export function BattleSceneFullscreen({
+  scene,
+  onClose,
+  formation = null,
+  onSaveFormation,
+}: {
+  scene: SceneBattle;
+  onClose: () => void;
+  formation?: { name: string; playId: string; loads: SlotLoads } | null;
+  onSaveFormation?: (draft: { name: string; playId: string; loads: SlotLoads }) => void;
+}) {
   useEffect(() => {
     return () => {
       closeWindowsOfKind("battle-controls");
     };
   }, []);
 
-  return <BattleScene scene={scene} variant="fullscreen" onClose={onClose} />;
+  return <BattleScene scene={scene} variant="fullscreen" onClose={onClose} formation={formation} onSaveFormation={onSaveFormation} />;
 }

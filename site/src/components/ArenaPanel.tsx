@@ -27,9 +27,11 @@ import { snapshotHero } from "../game/prologue/act1-battle";
 import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
 import { BattleSceneFullscreen } from "./BattleScene/BattleSceneFullscreen";
-import { DeployLoadoutPicker } from "./BattleScene/DeployLoadoutPicker";
+import { WarRoom, writeLastRun } from "./BattleScene/WarRoom";
 import { buildDemoScene, type SceneBattle } from "../game/war/battle-scene-model";
-import { buildPlayerScene, clampPicksToRoster, type DeploymentPick } from "../game/war/deploy-loadout";
+import { buildFormationScene, clampLoadsToRoster, emptyWarRoomState, formationCount, type SavedFormation, type SlotLoads } from "../game/war/playbook";
+import { warRoomDeleteFormationFn, warRoomSaveFormationFn, warRoomSetLockFn } from "../game/api";
+import { leaderLevel } from "../game/leader-xp";
 import { rosterCount } from "../game/war/troops";
 import { battleSfx } from "../game/war/battle-sfx";
 
@@ -453,13 +455,41 @@ export default function ArenaPanel({ state, token, onAction }: {
   const ladder = useArenaLadder(token, ladderTick);
   const [showForm, setShowForm] = useState(false);
   const [showScene, setShowScene] = useState(false);
-  // Deploy-my-loadout (owner 2026-10-05): Hans's real barracks force on the
-  // field instead of the canned demo. Bloodless — the picker only reads the
-  // roster; deploying never musters, moves, or loses troops.
-  const [showPicker, setShowPicker] = useState(false);
+  // WAR ROOM (owner 2026-10-06): the formation library + arena workbench.
+  // Deploy-my-loadout now launches from the war room's Deploy tab —
+  // quick-pick of locked-down formations (+ last run). Bloodless: deploying
+  // never musters, moves, or loses troops.
+  const [showWarRoom, setShowWarRoom] = useState(false);
   const [deployScene, setDeployScene] = useState<SceneBattle | null>(null);
+  const [deployFormation, setDeployFormation] = useState<{ name: string; playId: string; loads: SlotLoads } | null>(null);
   const roster = state.troops?.home.roster ?? null;
   const rosterSize = roster ? rosterCount(roster) : 0;
+  const warRoom = state.warRoom ?? emptyWarRoomState();
+  const myLeaderLevel = Math.max(
+    1,
+    ...state.leaders.filter((l) => l.status === "active").map((l) => leaderLevel(l)),
+  );
+
+  /** Launch a formation onto the field (bloodless practice). */
+  const launchFormation = (formation: SavedFormation, grade: Parameters<typeof buildFormationScene>[2]) => {
+    if (!roster) return;
+    const clamped: SavedFormation = { ...formation, loads: clampLoadsToRoster(formation.loads, roster) };
+    if (formationCount(clamped) === 0) return;
+    battleSfx.attach(); // user gesture — wake the war
+    setDeployFormation({ name: clamped.name, playId: clamped.playId, loads: clamped.loads });
+    setDeployScene(
+      buildFormationScene(clamped, { attackerName: me || "Warlord", nowMs: Date.now() }, grade),
+    );
+    writeLastRun(state.gameId ?? me, {
+      name: clamped.name,
+      playId: clamped.playId,
+      loads: clamped.loads,
+      slotMeta: clamped.slotMeta,
+      grade: grade ?? 3,
+      at: Date.now(),
+    });
+    setShowWarRoom(false);
+  };
   const challenges = useMemo(() => state.arenaChallenges ?? [], [state]);
   const bouts = useMemo(() => state.arenaBouts ?? [], [state]);
 
@@ -511,7 +541,7 @@ export default function ArenaPanel({ state, token, onAction }: {
             onClick={() => {
               battleSfx.attach(); // user gesture — wake the war so the approach stinger lands
               setDeployScene(null);
-              setShowPicker(false);
+              setDeployFormation(null);
               setShowScene((s) => !s);
             }}
             data-testid="arena-watch-scene"
@@ -526,40 +556,72 @@ export default function ArenaPanel({ state, token, onAction }: {
             onClick={() => {
               setShowScene(false);
               setDeployScene(null);
-              setShowPicker((s) => !s);
+              setDeployFormation(null);
+              setShowWarRoom((s) => !s);
             }}
             disabled={!roster || rosterSize === 0}
             title={!roster || rosterSize === 0 ? "Muster troops in the Barracks first" : undefined}
-            data-testid="arena-deploy-loadout"
-            className="shrink-0 rounded-lg border border-emerald-400/40 bg-black/60 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-200 hover:bg-black/80 disabled:opacity-40"
+            data-testid="arena-war-room"
+            className="shrink-0 rounded-lg border border-amber-400/40 bg-black/60 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-200 hover:bg-black/80 disabled:opacity-40"
           >
-            {t("arena.deployLoadout", "Deploy my loadout")}
+            🛡️ War Room
           </button>
           </div>
         </div>
-        {showPicker && roster && (
-          <div className="mt-3">
-            <DeployLoadoutPicker
-              roster={roster}
-              onCancel={() => setShowPicker(false)}
-              onDeploy={(picks: DeploymentPick[], grade) => {
-                const safe = clampPicksToRoster(picks, roster);
-                if (safe.length === 0) return;
-                battleSfx.attach(); // user gesture — wake the war
-                setDeployScene(
-                  buildPlayerScene(safe, {
-                    attackerName: me || "Warlord",
-                    nowMs: Date.now(),
-                    grade,
+        {showWarRoom && roster && (
+          <WarRoom
+            roster={roster}
+            warRoom={warRoom}
+            leaderLevel={myLeaderLevel}
+            gameId={state.gameId ?? me}
+            onClose={() => setShowWarRoom(false)}
+            onSaveFormation={(draft) =>
+              onAction(
+                () =>
+                  warRoomSaveFormationFn({
+                    data: {
+                      token: token!,
+                      id: draft.id,
+                      name: draft.name,
+                      playId: draft.playId,
+                      loads: draft.loads as Record<string, { type: string; tier: number; count: number }[]>,
+                      slotMeta: draft.slotMeta as Record<string, { name?: string }> | undefined,
+                      locked: draft.locked,
+                    },
                   }),
-                );
-                setShowPicker(false);
-              }}
-            />
-          </div>
+                "war room",
+              )
+            }
+            onDeleteFormation={(id) =>
+              onAction(() => warRoomDeleteFormationFn({ data: { token: token!, id } }), "war room")
+            }
+            onToggleLock={(id, locked) =>
+              onAction(() => warRoomSetLockFn({ data: { token: token!, id, locked } }), "war room")
+            }
+            onDeployFormation={(formation, grade) => launchFormation(formation, grade)}
+          />
         )}
         {deployScene && (
-          <BattleSceneFullscreen scene={deployScene} onClose={() => setDeployScene(null)} />
+          <BattleSceneFullscreen
+            scene={deployScene}
+            onClose={() => { setDeployScene(null); setDeployFormation(null); }}
+            formation={deployFormation}
+            onSaveFormation={(draft) =>
+              onAction(
+                () =>
+                  warRoomSaveFormationFn({
+                    data: {
+                      token: token!,
+                      name: draft.name,
+                      playId: draft.playId,
+                      loads: draft.loads as Record<string, { type: string; tier: number; count: number }[]>,
+                      locked: true,
+                    },
+                  }),
+                "war room",
+              )
+            }
+          />
         )}
         {showScene && (
           <BattleSceneFullscreen scene={buildDemoScene(Date.now())} onClose={() => setShowScene(false)} />

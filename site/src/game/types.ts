@@ -442,6 +442,11 @@ export interface GameState {
    *  troops loaded, supplies staged, hero leader assigned. Optional for
    *  migration: initialized by ensureFormations on first advance. */
   formations?: import("./formations").FormationsState;
+  /** WAR ROOM (owner 2026-10-06) — the commander's formation library:
+   *  locked-down battle-playbook formations (play + slot loadouts), the only
+   *  formations selectable on deploy. Optional for migration: initialized
+   *  by ensureWarRoom on first write. */
+  warRoom?: import("./war/playbook").WarRoomState;
   /** ALLIANCES + RALLIES (design/alliances.md) — the war band. Server-shaped   *  records (keyed by id, members by colonyId) so a future multiplayer
    *  server migration is mechanical. Soul-level: membership PERSISTS across
    *  seasons — no reset path touches this store (alliances.md §9).

@@ -201,6 +201,7 @@ import {
   type Formation,
   type FormationType,
 } from "./formations";
+import { emptyWarRoomState } from "./war/playbook";
 // The daily module's claim resolver + derived favor score re-exported so the
 // API surface speaks one engine namespace. favorScore stays SERVER-ONLY.
 export { claimDaily, favorScore } from "./daily";
@@ -3585,6 +3586,18 @@ export function ensureFormations(state: GameState): { formations: Formation[]; s
     s.formations = emptyFormationsState();
   }
   return s.formations;
+}
+
+// WAR ROOM (owner 2026-10-06) — the commander's battle-formation library.
+// Locked-down formations are the only ones selectable on deploy.
+
+/** Additive init — old saves get an empty war room, never a wipe. */
+export function ensureWarRoom(state: GameState): import("./war/playbook").WarRoomState {
+  const s = state as unknown as { warRoom?: import("./war/playbook").WarRoomState };
+  if (!s.warRoom || !Array.isArray(s.warRoom.formations)) {
+    s.warRoom = emptyWarRoomState();
+  }
+  return s.warRoom;
 }
 
 function findFormation(state: GameState, formationId: string): Formation | undefined {

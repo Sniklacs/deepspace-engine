@@ -231,6 +231,16 @@ export function BattleControlsBody() {
                         👁
                       </span>
                     )}
+                    {sq.onCallReserve && (
+                      <span
+                        role="img"
+                        aria-label="On-call reserve — tap the squad, then tap the map to hot-drop"
+                        title="On-call reserve — tap, then tap the map: hot drop"
+                        className="mr-1"
+                      >
+                        🪂
+                      </span>
+                    )}
                     {sq.name}
                   </span>
                   <span className="text-[11px] tabular-nums text-zinc-400">

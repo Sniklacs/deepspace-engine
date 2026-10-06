@@ -37,6 +37,7 @@ export const TROOP_KINDS: SceneUnitKind[] = ["bulwark", "reaver", "longeye", "th
 
 export type SceneUnitState =
   | "staging" // in dropship / at muster, not yet on the field
+  | "descending" // hot drop in progress — committed reserve falling on a picked spot
   | "advancing" // moving to assigned position
   | "holding" // in position, not yet engaged
   | "engaged" // in contact — exchanging fire
@@ -66,6 +67,11 @@ export interface SceneUnit {
   state: SceneUnitState;
   /** Seconds on the scene clock when this unit enters (delayed entries). */
   enterAtS: number;
+  /** On-call reserve (owner 2026-10-06): waits for the raid leader's commit
+   *  when driving manually (hot drop); on auto it enters at enterAtS. */
+  onCall?: boolean;
+  /** Sim-time the hot drop started (descent began). */
+  dropAtS?: number;
   /** Sim-time when a stamped move order steps off (command delay) — the
    *  squad holds its position ("plotting") until then. */
   moveAtS?: number;
@@ -133,6 +139,56 @@ export function scenePhaseAt(tS: number): ScenePhase {
  * Doctrine: battles break on casualty thresholds, not mutual annihilation.
  */
 export const DEMO_BREAK_FRAC = 0.65;
+
+/** Hot-drop scatter (owner 2026-10-06): 5% of committed drops scatter onto
+ *  occupied ground — friend or foe underneath takes casualties both ways. */
+export const HOTDROP_SCATTER_CHANCE = 0.05;
+/** Splash damage when a drop lands on troops (fraction of hp01). */
+export const HOTDROP_SPLASH_DMG = 0.35;
+/** How close (tactical units) the drop must be to troops to scatter onto them. */
+export const HOTDROP_SCATTER_RADIUS = 0.25;
+/** Splash radius around the bad landing. */
+export const HOTDROP_SPLASH_RADIUS = 0.07;
+/** Enemy proximity that makes a landing zone "hot" (descent fire). */
+export const HOTDROP_HOT_RADIUS = 0.35;
+
+export interface ScatterResult {
+  x: number;
+  y: number;
+  scattered: boolean;
+  /** unit ids caught in the bad landing (the lander is listed too) */
+  splash: string[];
+}
+
+/**
+ * Pure: resolve a hot-drop landing. 5% of drops scatter onto the nearest
+ * occupied ground within HOTDROP_SCATTER_RADIUS — whoever is underneath
+ * (friend or foe) and the landing unit both eat splash damage.
+ */
+export function scatterLanding(
+  units: { id: string; side: string; state: string; x: number; y: number }[],
+  selfId: string,
+  x: number,
+  y: number,
+  roll: number,
+): ScatterResult {
+  if (roll >= HOTDROP_SCATTER_CHANCE) return { x, y, scattered: false, splash: [] };
+  let best: { id: string; x: number; y: number; d: number } | null = null;
+  for (const u of units) {
+    if (u.id === selfId || u.state === "dead" || u.state === "staging" || u.state === "descending") continue;
+    const d = Math.hypot(u.x - x, u.y - y);
+    if (d <= HOTDROP_SCATTER_RADIUS && (!best || d < best.d)) best = { id: u.id, x: u.x, y: u.y, d };
+  }
+  if (!best) return { x, y, scattered: false, splash: [] };
+  const splash = units
+    .filter(
+      (u) =>
+        (u.id === selfId || (u.state !== "dead" && u.state !== "staging" && u.state !== "descending")) &&
+        Math.hypot(u.x - best!.x, u.y - best!.y) <= HOTDROP_SPLASH_RADIUS,
+    )
+    .map((u) => u.id);
+  return { x: best.x, y: best.y, scattered: true, splash };
+}
 
 /**
  * Pure: which side (if any) has broken at the casualty threshold.

@@ -50,6 +50,8 @@ export interface SquadSummary {
   total: number;
   /** living Longeyes in this squad — it watches its own sector */
   eyes?: boolean;
+  /** on-call reserve still in staging — tap the squad, tap the map: hot drop */
+  onCallReserve?: boolean;
 }
 
 /** One judged order for the ORDERS log — the command log seed. */

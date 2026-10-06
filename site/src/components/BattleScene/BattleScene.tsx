@@ -15,8 +15,11 @@ import {
   COVER_REDUCTION,
   coverAt,
   FLYBY_START_S,
+  HOTDROP_HOT_RADIUS,
+  HOTDROP_SPLASH_DMG,
   REVEAL_S,
   SCENE_PHASES,
+  scatterLanding,
   SHOOTDOWN_S,
   waveDueAt,
   weakestVector,
@@ -106,6 +109,8 @@ import {
   type WatchUnit,
 } from "../../game/war/battle-comms";
 import { battleSfx } from "../../game/war/battle-sfx";
+// Playbook formation type (the result sheet's "Save in war room" draft).
+import { suggestedFormationName } from "../../game/war/playbook";
 // Troop tiers are real (owner 2026-10-05): a T4 genuinely out-hits and
 // out-lasts a T1 — the same power curve the war engine prices forces at.
 import { tierPowerMult } from "../../game/war/troops";
@@ -214,6 +219,12 @@ interface Props {
   variant?: "embedded" | "fullscreen";
   /** fullscreen only: back out to wherever the scene was opened from */
   onClose?: () => void;
+  /** The formation just fought (deploy-my-loadout / war room): enables the
+   *  post-battle "Save in war room" action. Null for the canned demo. */
+  formation?: { name: string; playId: string; loads: import("../../game/war/playbook").SlotLoads } | null;
+  /** Called with the named formation draft when the commander taps
+   *  "Save in war room" on the result overlay. */
+  onSaveFormation?: (draft: { name: string; playId: string; loads: import("../../game/war/playbook").SlotLoads }) => void;
 }
 
 interface SpriteSet { [k: string]: HTMLImageElement | null; ground: HTMLImageElement | null }
@@ -234,7 +245,7 @@ const VEC_LABEL: Record<ManeuverVector, string> = {
   MAIN: "Main", FLANK_LEFT: "Flank L", FLANK_RIGHT: "Flank R", REAR: "Rear", RESERVE: "Reserve",
 };
 
-export function BattleScene({ scene, liveCasualties = null, variant = "embedded", onClose }: Props) {
+export function BattleScene({ scene, liveCasualties = null, variant = "embedded", onClose, formation = null, onSaveFormation }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const sprites = useMemo(loadSprites, []);
@@ -268,6 +279,11 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   // entry; the bubble persists until the commander taps it (confirmed read).
   const [comms, setComms] = useState<CommsBubble[]>([]);
   const commsIdRef = useRef(1);
+  // Resolution mirror for the DOM result overlay (the canvas draws the
+  // banner; the overlay carries the "Save in war room" action).
+  const [resolvedSide, setResolvedSide] = useState<"attacker" | "defender" | null>(null);
+  const [saveName, setSaveName] = useState("");
+  const [savedInWarRoom, setSavedInWarRoom] = useState(false);
   // Longeye movement-report state (canvas-local):
   //  - watches: enemy moves in flight, reported at ~50% of progress
   //    (see watchShouldReport in battle-comms).
@@ -340,6 +356,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       camRef.current = { ...CAM_HOME };
       simTRef.current = 0;
       victorRef.current = null;
+      setResolvedSide(null);
+      setSaveName("");
+      setSavedInWarRoom(false);
       phaseRef.current = null;
       counterRef.current = false;
       counterAccRef.current = 0;
@@ -396,6 +415,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           alive: s.unitIds.length,
           total: s.unitIds.length,
           eyes: squadEyeCount(unitsRef.current, s.id) > 0,
+          onCallReserve: unitsRef.current.some(
+            (u) => u.squadId === s.id && u.state === "staging" && u.onCall,
+          ),
         })),
     );
     // New battle, new intel: reset comms, reveal, and movement watches.
@@ -483,6 +505,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         const v = demoBreakVictor(unitsRef.current);
         if (v) {
           victorRef.current = v;
+          setResolvedSide(v);
           battleSfx.victor(v === "attacker");
         }
       }
@@ -562,6 +585,11 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       for (const u of unitsRef.current) {
         if (u.state === "dead") continue;
         if (u.state === "staging" && t >= u.enterAtS && (phase === "touchdown" || phase === "contact" || phase === "weapons-free")) {
+          // On-call reserves (owner 2026-10-06): when the raid leader is
+          // driving manually, the reserve waits for the commit — tap the
+          // squad, tap the map, hot drop. On auto it enters at its preset
+          // time like any other wave.
+          if (u.onCall && ui.manual) continue;
           u.state = "advancing";
           // Delayed waves arrive loud: dropship engines on late entries,
           // a crash swell when a flank hits the field weapons-free.
@@ -589,6 +617,43 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           } else {
             u.x += (dx / d) * Math.min(d, speed);
             u.y += (dy / d) * Math.min(d, speed);
+          }
+        }
+        if (u.state === "descending") {
+          // HOT DROP (owner 2026-10-06): the committed reserve falls fast on
+          // the picked spot. Hot zone = enemies near the landing point shoot
+          // the descent — "a chance of getting hit". Landing is LOUD.
+          const dx = u.tx - u.x;
+          const dy = u.ty - u.y;
+          const d = Math.hypot(dx, dy);
+          const fall = 0.16 * sdt * 10;
+          if (d < 0.02) {
+            const res = scatterLanding(unitsRef.current, u.id, u.tx, u.ty, Math.random());
+            u.x = res.x; u.y = res.y;
+            u.tx = res.x; u.ty = res.y;
+            u.state = "advancing";
+            u.dropAtS = undefined;
+            battleSfx.flankCrash(); // the loud landing — everybody hears it
+            fx.explode(X(u.x), Y(u.y), 1.2);
+            if (res.scattered) {
+              for (const id of res.splash) {
+                const v = unitsRef.current.find((w) => w.id === id);
+                if (v && v.state !== "dead") {
+                  v.hp01 -= HOTDROP_SPLASH_DMG;
+                  if (v.hp01 <= 0) killUnit(v);
+                }
+              }
+              postComms("reserve", "Bad drop — landed on occupied ground, casualties both ways");
+            }
+          } else {
+            u.x += (dx / d) * Math.min(d, fall);
+            u.y += (dy / d) * Math.min(d, fall);
+            const hot = nearestEnemy(u.x, u.y, u.side, HOTDROP_HOT_RADIUS);
+            if (hot) {
+              u.hp01 -= 0.05 * sdt;
+              if (Math.random() < 0.1) fx.fire(X(hot.x), Y(hot.y), X(u.x), Y(u.y), "#fda4af");
+              if (u.hp01 <= 0) killUnit(u);
+            }
           }
         }
         if ((u.state === "holding" || u.state === "advancing") && phase === "weapons-free") {
@@ -838,6 +903,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         if (remaining <= 0 && !clockFailRef.current) {
           clockFailRef.current = true;
           victorRef.current = "defender";
+          setResolvedSide("defender");
           postComms("clock-end", "");
           battleSfx.victor(false);
         }
@@ -959,7 +1025,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         // coverage — the key includes eye counts so a dead eye updates it).
         const squads = buildSquads(unitsRef.current).filter(isDrivable);
         const key = squads
-          .map((s) => `${s.id}:${s.unitIds.length}:${squadEyeCount(unitsRef.current, s.id)}`)
+          .map(
+            (s) =>
+              `${s.id}:${s.unitIds.length}:${squadEyeCount(unitsRef.current, s.id)}:${unitsRef.current.some((u) => u.squadId === s.id && u.state === "staging" && u.onCall) ? 1 : 0}`,
+          )
           .join(",");
         if (key !== squadAliveRef.current) {
           squadAliveRef.current = key;
@@ -970,6 +1039,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
               alive: s.unitIds.length,
               total: s.unitIds.length,
               eyes: squadEyeCount(unitsRef.current, s.id) > 0,
+              onCallReserve: unitsRef.current.some(
+                (u) => u.squadId === s.id && u.state === "staging" && u.onCall,
+              ),
             })),
           );
         }
@@ -1240,6 +1312,21 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           c.lineWidth = 1.5;
           c.setLineDash([4, 4]);
           c.beginPath(); c.arc(x, y, r * 0.8 + 2, 0, Math.PI * 2); c.stroke();
+          c.restore();
+          return;
+        }
+        // Descending: a committed hot drop — full-alpha ghost with a pulsing
+        // amber ring, falling on the picked spot. Everybody sees it coming.
+        if (u.state === "descending") {
+          const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 150);
+          c.save();
+          c.globalAlpha = 0.9;
+          c.fillStyle = SIDE_COLOR[u.side];
+          c.beginPath(); c.arc(x, y, r * 0.8, 0, Math.PI * 2); c.fill();
+          c.globalAlpha = pulse;
+          c.strokeStyle = "#fbbf24";
+          c.lineWidth = 2;
+          c.beginPath(); c.arc(x, y, r * 0.8 + 4, 0, Math.PI * 2); c.stroke();
           c.restore();
           return;
         }
@@ -1893,6 +1980,31 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     const squad = buildSquads(unitsRef.current).find((s) => s.id === squadId);
     const name = squad ? squad.name : squadId;
     const dest = { x: clampWorldX(dx), y: clampWorldY(dy) };
+    // HOT DROP COMMIT (owner 2026-10-06): an on-call reserve still in
+    // staging isn't ordered — it's COMMITTED. Tap the reserve squad, tap
+    // the map, and it falls on the picked spot, loud. Only while driving
+    // manually and only once the dropships are down (touchdown+).
+    const stagingOnCall = squadUnits.filter((u) => u.state === "staging" && u.onCall);
+    if (stagingOnCall.length > 0 && ui.manual) {
+      const phase = scenePhaseAt(simTRef.current);
+      if (phase === "approach") {
+        toastRef.current = { text: "Dropships aren't down yet — wait for touchdown.", born: performance.now() };
+        battleSfx.orderRejected();
+        return;
+      }
+      const t = simTRef.current;
+      for (const u of stagingOnCall) {
+        u.state = "descending";
+        u.tx = clampWorldX(dest.x + (Math.random() - 0.5) * 0.05);
+        u.ty = clampWorldY(dest.y + (Math.random() - 0.5) * 0.05);
+        u.dropAtS = t;
+      }
+      battleSfx.dropship(); // engines spool — the reserve is inbound
+      logOrder({ squadName: name, dest: `HOT DROP ${destLabel(dest.x, dest.y)}`, verdict: "accepted" });
+      postComms("reserve", "Reserve inbound — hot drop, brace for a loud landing");
+      orderPingRef.current = { x: dest.x, y: dest.y, fx: dest.x, fy: dest.y, born: t, atS: t };
+      return;
+    }
     const verdict = judgeMoveOrder(squadUnits, dest);
     logOrder({
       squadName: name,
@@ -2150,6 +2262,68 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
 
         {/* collapsible icon key — what am I looking at */}
         <BattleLegend />
+
+        {/* battle result sheet — the canvas draws the victor banner; this
+            DOM sheet carries the commander's actions. "Save in war room"
+            (owner 2026-10-06) saves the just-fought formation under a name —
+            the player decides after a good run; never auto-saved. */}
+        {resolvedSide && (
+          <div
+            className="absolute inset-x-0 bottom-0 z-30 flex justify-center px-4"
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4.5rem)" }}
+          >
+            <div
+              className="w-full max-w-[420px] rounded-2xl border border-white/15 bg-black/80 p-4 shadow-2xl backdrop-blur-md"
+              data-testid="battle-result-sheet"
+            >
+              <p
+                className="text-center text-sm font-extrabold tracking-wide"
+                style={{ color: resolvedSide === "attacker" ? "#34d399" : "#f87171" }}
+              >
+                {resolvedSide === "attacker"
+                  ? `${scene.attackerName.toUpperCase()} HOLDS THE FIELD`
+                  : "THE DEFENSE HELD — RAID FAILED"}
+              </p>
+              {formation && onSaveFormation && !savedInWarRoom && (
+                <div className="mt-3">
+                  <label
+                    htmlFor="warroom-save-name"
+                    className="mb-1 block text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400"
+                  >
+                    Formation name
+                  </label>
+                  <input
+                    id="warroom-save-name"
+                    type="text"
+                    value={saveName}
+                    onChange={(e) => setSaveName(e.target.value)}
+                    placeholder={suggestedFormationName(formation.playId, Date.now())}
+                    maxLength={40}
+                    data-testid="warroom-save-name"
+                    className="w-full rounded-lg border border-white/15 bg-black/60 px-3 py-2 text-sm text-white placeholder:text-zinc-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nm = saveName.trim() || suggestedFormationName(formation.playId, Date.now());
+                      onSaveFormation({ name: nm, playId: formation.playId, loads: formation.loads });
+                      setSavedInWarRoom(true);
+                    }}
+                    data-testid="warroom-save-confirm"
+                    className="mt-2 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-black"
+                  >
+                    📚 Save in war room
+                  </button>
+                </div>
+              )}
+              {savedInWarRoom && (
+                <p className="mt-3 text-center text-xs font-semibold text-emerald-300" data-testid="warroom-saved-flag">
+                  ✓ Saved in the war room — locked down and ready to deploy.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   }

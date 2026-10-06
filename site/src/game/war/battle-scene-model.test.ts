@@ -20,10 +20,13 @@ import {
   weakestVector,
   WORLD_H,
   WORLD_W,
+  HOTDROP_SCATTER_CHANCE,
+  HOTDROP_SCATTER_RADIUS,
   sceneClockS,
   sceneNightFactor,
   scenePhaseAt,
   scoutStatusAt,
+  scatterLanding,
   scoutSurvives,
   SCENE_PHASES,
   TROOP_KINDS,
@@ -308,5 +311,55 @@ describe("battle clock", () => {
     ] as Pick<SceneUnit, "side" | "vector" | "state">[];
     // REAR's only unit is dead — 0 living, the weakest line.
     expect(weakestVector(units, ["MAIN", "FLANK_LEFT", "REAR"])).toBe("REAR");
+  });
+});
+
+describe("hot-drop scatter", () => {
+  const ground = [
+    { id: "dropper", side: "attacker", state: "descending", x: 0.52, y: 0.5 },
+    { id: "friend", side: "attacker", state: "holding", x: 0.5, y: 0.5 },
+    { id: "foe", side: "defender", state: "holding", x: 0.9, y: 0.9 },
+    { id: "far", side: "defender", state: "holding", x: 0.0, y: 0.0 },
+  ];
+  test("scatter rate is ~5% over seeded rolls", () => {
+    const rnd = mulberry32(1234567);
+    const N = 20000;
+    let scatters = 0;
+    for (let i = 0; i < N; i++) {
+      // a drop right on top of a live unit, so every qualifying roll scatters
+      const r = scatterLanding(ground, "dropper", 0.5, 0.5, rnd());
+      if (r.scattered) scatters++;
+    }
+    const rate = scatters / N;
+    expect(rate > HOTDROP_SCATTER_CHANCE - 0.015).toBe(true);
+    expect(rate < HOTDROP_SCATTER_CHANCE + 0.015).toBe(true);
+  });
+  test("a hot roll scatters onto the nearest occupied ground, both ways", () => {
+    const r = scatterLanding(ground, "dropper", 0.52, 0.5, 0.03);
+    expect(r.scattered).toBe(true);
+    // landed on the friend at (0.5, 0.5) — the nearest live unit
+    expect(Math.abs(r.x - 0.5) < 0.001).toBe(true);
+    expect(Math.abs(r.y - 0.5) < 0.001).toBe(true);
+    expect(r.splash.includes("friend")).toBe(true);
+    expect(r.splash.includes("dropper")).toBe(true);
+  });
+  test("a cold roll lands clean even on top of troops", () => {
+    const r = scatterLanding(ground, "dropper", 0.5, 0.5, 0.07);
+    expect(r.scattered).toBe(false);
+    expect(r.splash.length).toBe(0);
+  });
+  test("a hot roll over empty ground lands clean", () => {
+    const r = scatterLanding([], "dropper", 0.5, 0.5, 0.0);
+    expect(r.scattered).toBe(false);
+  });
+  test("dead and descending units don't catch a scattered drop", () => {
+    const dead = [{ id: "corpse", side: "defender", state: "dead", x: 0.5, y: 0.5 }];
+    const r = scatterLanding(dead, "dropper", 0.5, 0.5, 0.01);
+    expect(r.scattered).toBe(false);
+  });
+  test("scatter respects the radius", () => {
+    const outside = [{ id: "far", side: "defender", state: "holding", x: 0.5 + HOTDROP_SCATTER_RADIUS + 0.01, y: 0.5 }];
+    const r = scatterLanding(outside, "dropper", 0.5, 0.5, 0.01);
+    expect(r.scattered).toBe(false);
   });
 });
