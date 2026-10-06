@@ -16,12 +16,19 @@ import {
   type TroopType,
 } from "../../game/war/troops";
 import {
+  CHORUS_GRADES,
+  DEFAULT_CHORUS_GRADE,
   DEPLOY_CAP,
   escortWarning,
   picksCount,
   picksPower,
+  picksReverb,
+  previewGarrisonReverb,
+  type ChorusGrade,
   type DeploymentPick,
 } from "../../game/war/deploy-loadout";
+
+const GRADES: ChorusGrade[] = [1, 2, 3, 4, 5];
 
 const TROOP_ART: Record<TroopType, string> = {
   bulwark: "/art/troops/bulwark.webp",
@@ -54,11 +61,12 @@ export function DeployLoadoutPicker({
   onCancel,
 }: {
   roster: TroopRoster;
-  onDeploy: (picks: DeploymentPick[]) => void;
+  onDeploy: (picks: DeploymentPick[], grade: ChorusGrade) => void;
   onCancel: () => void;
 }) {
   const owned = useMemo(() => rosterByTier(roster), [roster]);
   const [sel, setSel] = useState<PickState>(emptyPicks);
+  const [grade, setGrade] = useState<ChorusGrade>(DEFAULT_CHORUS_GRADE);
 
   const toPicks = (s: PickState): DeploymentPick[] => {
     const out: DeploymentPick[] = [];
@@ -73,6 +81,12 @@ export function DeployLoadoutPicker({
   const total = picksCount(picks);
   const power = picksPower(picks);
   const warning = escortWarning(picks);
+  // The grade dial: how hard a fight Hans wants. The enemy reverb is
+  // computed from the actual garrison the deploy will build — the number
+  // he sees is the number he fights.
+  const myReverb = picksReverb(picks);
+  const foeReverb = previewGarrisonReverb(picks, grade);
+  const spec = CHORUS_GRADES[grade];
 
   const bump = (type: TroopType, tier: TroopTier, d: number) => {
     setSel((s) => {
@@ -143,6 +157,50 @@ export function DeployLoadoutPicker({
         <span>
           Power <b className="text-amber-200">{Math.round(power).toLocaleString()}</b>
         </span>
+      </div>
+
+      {/* grade dial — how hard a fight do you want? */}
+      <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/50 p-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+            Chorus defense
+          </span>
+          <span className="text-[11px] text-zinc-500">
+            You <b className="text-amber-200">{myReverb.toLocaleString()}</b>
+            {" vs "}
+            <b className="text-rose-300">{foeReverb.toLocaleString()}</b> reverb
+          </span>
+        </div>
+        <div className="mt-1.5 grid grid-cols-5 gap-1.5" role="radiogroup" aria-label="Chorus defense grade">
+          {GRADES.map((g) => {
+            const s = CHORUS_GRADES[g];
+            const active = g === grade;
+            return (
+              <button
+                key={g}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => setGrade(g)}
+                data-testid={`deploy-grade-${g}`}
+                className={`rounded-md border px-1 py-1.5 text-center ${
+                  active
+                    ? g >= 4
+                      ? "border-rose-400/70 bg-rose-500/15"
+                      : "border-amber-400/70 bg-amber-500/15"
+                    : "border-zinc-800 bg-zinc-900/60"
+                }`}
+              >
+                <div className={`text-[11px] font-bold ${active ? "text-white" : "text-zinc-400"}`}>
+                  G{g}
+                </div>
+                <div className={`text-[10px] ${active ? "text-zinc-200" : "text-zinc-500"}`}>{s.name}</div>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-1.5 text-[11px] text-zinc-400">{spec.blurb}</p>
+        {spec.hint && <p className="mt-0.5 text-[11px] font-semibold text-rose-300">{spec.hint}</p>}
       </div>
 
       <div className="mt-3 space-y-2">
@@ -231,7 +289,7 @@ export function DeployLoadoutPicker({
         </button>
         <button
           type="button"
-          onClick={() => onDeploy(picks)}
+          onClick={() => onDeploy(picks, grade)}
           disabled={total === 0}
           data-testid="deploy-confirm"
           className="ml-auto rounded-lg bg-amber-500 px-5 py-2 text-xs font-bold uppercase tracking-wider text-black disabled:opacity-40"

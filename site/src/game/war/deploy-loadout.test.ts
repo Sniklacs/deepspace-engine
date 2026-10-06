@@ -1,12 +1,21 @@
 // deploy-loadout.test.ts — Hans's real barracks force on the battle scene.
 import { describe, expect, test } from "bun:test";
 import {
+  buildChorusLineup,
   buildPlayerScene,
+  CHORUS_GRADES,
   clampPicksToRoster,
+  DEFAULT_CHORUS_GRADE,
   DEPLOY_CAP,
+  deploySeedFor,
   escortWarning,
+  forceReverb,
+  garrisonReverb,
   picksCount,
   picksPower,
+  picksReverb,
+  previewGarrisonReverb,
+  type ChorusGrade,
   type DeploymentPick,
 } from "./deploy-loadout";
 import { addCohort, emptyRoster, supplyWeight, tierPowerMult } from "./troops";
@@ -64,7 +73,8 @@ describe("buildPlayerScene", () => {
     }
     expect(scene.troops.attacker).toBe(picksCount(p));
     expect(scene.attackerName).toBe("Hans");
-    expect(scene.defenderName).toBe("Chorus Garrison");
+    expect(scene.defenderName).toBe("Chorus Garrison — Bulwark"); // default G3
+    expect(scene.chorusGrade).toBe(3);
   });
   test("doctrine vector assignment", () => {
     const scene = buildPlayerScene(picks(), { attackerName: "x", nowMs: 1 });
@@ -102,6 +112,120 @@ describe("buildPlayerScene", () => {
     const a = buildPlayerScene(picks(), { attackerName: "x", nowMs: 1, seed: 42 });
     const b = buildPlayerScene(picks(), { attackerName: "x", nowMs: 1, seed: 42 });
     expect(a.units.map((u) => [u.x, u.y, u.kind, u.tier])).toEqual(b.units.map((u) => [u.x, u.y, u.kind, u.tier]));
+  });
+});
+
+describe("chorus defense grades", () => {
+  const grades: ChorusGrade[] = [1, 2, 3, 4, 5];
+  const foePowerOf = (seed: number, grade: ChorusGrade) => {
+    const p = picks();
+    const scene = buildPlayerScene(p, { attackerName: "x", nowMs: 1, seed, grade });
+    const foe = scene.units.filter((u) => u.side === "defender");
+    return {
+      foe,
+      ratio: foe.reduce((s, u) => s + supplyWeight(u.kind as "bulwark") * tierPowerMult(u.tier), 0) / picksPower(p),
+    };
+  };
+
+  test("five grades, named, easiest to hardest", () => {
+    expect(DEFAULT_CHORUS_GRADE).toBe(3);
+    expect(grades.map((g) => CHORUS_GRADES[g].name)).toEqual([
+      "Screen",
+      "Picket",
+      "Bulwark",
+      "Fortress",
+      "Bastion",
+    ]);
+    const ratios = grades.map((g) => CHORUS_GRADES[g].powerRatio);
+    expect(ratios).toEqual([0.6, 0.8, 1.0, 1.25, 1.5]);
+    for (let i = 1; i < ratios.length; i++) expect(ratios[i]).toBeGreaterThan(ratios[i - 1]);
+  });
+
+  test("power ratios land in their bands", () => {
+    for (const g of grades) {
+      const ratio = CHORUS_GRADES[g].powerRatio;
+      for (const seed of [11, 42, 777]) {
+        const { ratio: got } = foePowerOf(seed, g);
+        expect(got >= ratio * 0.9).toBe(true);
+        expect(got <= ratio * 1.35).toBe(true);
+      }
+    }
+  });
+
+  test("each grade is a valid doctrinal defense", () => {
+    for (const g of grades) {
+      const { placed } = buildChorusLineup(picksPower(picks()), deploySeedFor(picks()), g);
+      expect(placed.length).toBeGreaterThan(0);
+      for (const u of placed) {
+        if (u.type === "bulwark") expect(["MAIN", "RESERVE"].includes(u.vector)).toBe(true);
+        if (u.type === "reaver")
+          expect(["FLANK_LEFT", "FLANK_RIGHT", "RESERVE"].includes(u.vector)).toBe(true);
+        if (u.type === "longeye" || u.type === "warden") expect(u.vector).toBe("REAR");
+        if (u.type === "thunder") expect(["REAR", "RESERVE"].includes(u.vector)).toBe(true);
+      }
+    }
+  });
+
+  test("G1 Screen: no siege, no reserve — easiest to crack", () => {
+    const { placed } = buildChorusLineup(picksPower(picks()), 42, 1);
+    expect(placed.some((u) => u.type === "thunder")).toBe(false);
+    expect(placed.some((u) => u.vector === "RESERVE")).toBe(false);
+  });
+
+  test("G5 Bastion: strike package — siege held in the deep reserve", () => {
+    // Big force so the reserve actually fills.
+    const big = picksPower([{ type: "bulwark", tier: 3, count: 60 }]);
+    const { placed } = buildChorusLineup(big, 42, 5);
+    const siegeReserve = placed.filter((u) => u.type === "thunder" && u.vector === "RESERVE");
+    expect(siegeReserve.length).toBeGreaterThan(0);
+    expect(placed.some((u) => u.vector === "RESERVE" && u.type === "reaver")).toBe(true);
+    expect(CHORUS_GRADES[5].hunts).toBe(true);
+    expect(CHORUS_GRADES[5].counterThreshold).toBe(0.75);
+  });
+
+  test("G4/G5 refuse a flank — one wing stages deep", () => {
+    for (const g of [4, 5] as ChorusGrade[]) {
+      let found = false;
+      for (let seed = 1; seed < 40 && !found; seed++) {
+        const { placed } = buildChorusLineup(picksPower(picks()), seed, g);
+        found = placed.some((u) => u.deep === true);
+      }
+      expect(found).toBe(true);
+    }
+    // G1–G3 never refuse.
+    for (const g of [1, 2, 3] as ChorusGrade[]) {
+      const { placed } = buildChorusLineup(picksPower(picks()), 42, g);
+      expect(placed.some((u) => u.deep === true)).toBe(false);
+    }
+  });
+
+  test("reverb is computed from the built force and climbs with grade", () => {
+    const p = picks();
+    const revs = grades.map((g) =>
+      garrisonReverb(buildChorusLineup(picksPower(p), deploySeedFor(p), g).placed),
+    );
+    for (const r of revs) expect(r).toBeGreaterThan(0);
+    for (let i = 1; i < revs.length; i++) expect(revs[i]).toBeGreaterThan(revs[i - 1]);
+    // The preview matches the real build — the number Hans sees is the number he fights.
+    expect(previewGarrisonReverb(p, 3)).toBe(revs[2]);
+    expect(picksReverb(p)).toBe(forceReverb(p));
+    expect(picksReverb(p)).toBeGreaterThan(0);
+  });
+
+  test("grade flows into the scene; picker defaults to G3", () => {
+    const scene = buildPlayerScene(picks(), { attackerName: "x", nowMs: 1, grade: 5 });
+    expect(scene.chorusGrade).toBe(5);
+    expect(scene.defenderName).toBe("Chorus Garrison — Bastion");
+    const def = buildPlayerScene(picks(), { attackerName: "x", nowMs: 1 });
+    expect(def.chorusGrade).toBe(DEFAULT_CHORUS_GRADE);
+  });
+
+  test("deterministic per seed per grade", () => {
+    for (const g of grades) {
+      const a = buildChorusLineup(100, 99, g).placed;
+      const b = buildChorusLineup(100, 99, g).placed;
+      expect(a.map((u) => [u.type, u.tier, u.vector])).toEqual(b.map((u) => [u.type, u.tier, u.vector]));
+    }
   });
 });
 

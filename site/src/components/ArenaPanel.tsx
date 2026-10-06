@@ -542,7 +542,7 @@ export default function ArenaPanel({ state, token, onAction }: {
             <DeployLoadoutPicker
               roster={roster}
               onCancel={() => setShowPicker(false)}
-              onDeploy={(picks: DeploymentPick[]) => {
+              onDeploy={(picks: DeploymentPick[], grade) => {
                 const safe = clampPicksToRoster(picks, roster);
                 if (safe.length === 0) return;
                 battleSfx.attach(); // user gesture — wake the war
@@ -550,6 +550,7 @@ export default function ArenaPanel({ state, token, onAction }: {
                   buildPlayerScene(safe, {
                     attackerName: me || "Warlord",
                     nowMs: Date.now(),
+                    grade,
                   }),
                 );
                 setShowPicker(false);

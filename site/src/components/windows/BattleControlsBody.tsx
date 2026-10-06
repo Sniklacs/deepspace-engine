@@ -37,8 +37,9 @@ import { ToggleSwitch } from "../BattleScene/ToggleSwitch";
 
 const ART = "/art/battle/units";
 
-/** Three-way battle-speed selector in the skeuomorphic deck style —
- *  SLOW / NORMAL / FAST. SLOW is the default: the fight breathes. */
+/** Two-way battle-speed selector in the skeuomorphic deck style —
+ *  SLOW / REALTIME (owner 2026-10-06: capped at 1x, never faster than real
+ *  time). SLOW is the default: the fight breathes. */
 function SpeedSwitch({ value, onChange }: { value: BattleSpeed; onChange: (s: BattleSpeed) => void }) {
   return (
     <div
@@ -67,7 +68,7 @@ function SpeedSwitch({ value, onChange }: { value: BattleSpeed; onChange: (s: Ba
                 : { color: "#63636b" }
             }
           >
-            {sp}
+            {sp === "realtime" ? "real-time" : sp}
           </button>
         );
       })}
@@ -144,9 +145,7 @@ export function BattleControlsBody() {
         <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
           {ui.battleSpeed === "slow"
             ? "Slow: half pace — read the field, call your shots."
-            : ui.battleSpeed === "normal"
-              ? "Normal: full pace."
-              : "Fast: 1.75x — when you want the tape, not the tension."}
+            : "Real-time: full pace. Nothing runs faster than reality."}
         </p>
       </section>
 
@@ -222,6 +221,16 @@ export function BattleControlsBody() {
                   }`}
                 >
                   <span className={`text-[11px] font-semibold ${selected ? "text-white" : "text-zinc-200"}`}>
+                    {sq.eyes && (
+                      <span
+                        role="img"
+                        aria-label="Longeye coverage — this squad watches its sector"
+                        title="Living Longeyes — this squad reports enemy movement in its sector"
+                        className="mr-1"
+                      >
+                        👁
+                      </span>
+                    )}
                     {sq.name}
                   </span>
                   <span className="text-[11px] tabular-nums text-zinc-400">

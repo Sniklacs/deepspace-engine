@@ -34,6 +34,7 @@ import {
   resetSceneUI,
   resetSceneUIStore,
   BATTLE_SPEED_MUL,
+  BATTLE_SPEEDS,
 } from "./battle-scene-ui-store";
 
 beforeEach(() => {
@@ -103,17 +104,23 @@ describe("camera mode", () => {
 describe("battle speed", () => {
   test("defaults to slow, multipliers ascend", () => {
     expect(sceneUISnapshot().battleSpeed).toBe("slow");
-    expect(BATTLE_SPEED_MUL.slow).toBeLessThan(BATTLE_SPEED_MUL.normal);
-    expect(BATTLE_SPEED_MUL.normal).toBeLessThan(BATTLE_SPEED_MUL.fast);
+    expect(BATTLE_SPEED_MUL.slow).toBeLessThan(BATTLE_SPEED_MUL.realtime);
   });
 
-  test("flips and cycles slow → normal → fast → slow", () => {
-    setBattleSpeed("fast");
-    expect(sceneUISnapshot().battleSpeed).toBe("fast");
+  test("pace caps at real time — the sim never advances faster than 1x wall-clock", () => {
+    expect(BATTLE_SPEED_MUL.realtime).toBe(1);
+    for (const sp of BATTLE_SPEEDS) {
+      expect(BATTLE_SPEED_MUL[sp] <= 1).toBe(true);
+    }
+  });
+
+  test("flips and cycles slow → realtime → slow", () => {
+    setBattleSpeed("realtime");
+    expect(sceneUISnapshot().battleSpeed).toBe("realtime");
     cycleBattleSpeed();
     expect(sceneUISnapshot().battleSpeed).toBe("slow");
     cycleBattleSpeed();
-    expect(sceneUISnapshot().battleSpeed).toBe("normal");
+    expect(sceneUISnapshot().battleSpeed).toBe("realtime");
   });
 
   test("no-ops when unchanged", () => {
@@ -127,9 +134,9 @@ describe("battle speed", () => {
   });
 
   test("survives a scene reset like the other player preferences", () => {
-    setBattleSpeed("fast");
+    setBattleSpeed("realtime");
     resetSceneUI();
-    expect(sceneUISnapshot().battleSpeed).toBe("fast");
+    expect(sceneUISnapshot().battleSpeed).toBe("realtime");
   });
 });
 
@@ -241,13 +248,13 @@ describe("resetSceneUI", () => {
     setSelectedSquad("A0");
     registerSquads([{ id: "A0", name: "Squad 1 — Main", alive: 14, total: 14 }]);
     logOrder({ squadName: "Squad 1 — Main", dest: "FLANK LEFT", verdict: "accepted" });
-    setBattleSpeed("fast");
+    setBattleSpeed("realtime");
     resetSceneUI();
     const s = sceneUISnapshot();
     expect(s.selectedSquadId).toBeNull();
     expect(s.squads).toEqual([]);
     expect(s.orderLog).toEqual([]);
-    expect(s.battleSpeed).toBe("fast");
+    expect(s.battleSpeed).toBe("realtime");
   });
 });
 

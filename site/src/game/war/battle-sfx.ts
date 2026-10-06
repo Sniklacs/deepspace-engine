@@ -600,6 +600,38 @@ class BattleSfx {
     }
   }
 
+  /** Movement-report alert — Longeyes calling out an enemy maneuver.
+   *  Two-tone high ping, distinct from the order blips. */
+  ping(): void {
+    if (!this.live()) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    for (const [f, dt] of [[1180, 0], [880, 0.12]] as const) {
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.value = f;
+      const g = this.adsrGain(0.09, 0.005, 0.1)!;
+      o.connect(g); g.connect(this.bus!);
+      o.start(t + dt); o.stop(t + dt + 0.18);
+      o.onended = () => { try { o.disconnect(); g.disconnect(); } catch { /* gone */ } };
+    }
+  }
+
+  /** Routine comms blip — softer than the alert ping. Battle-comms bubbles
+   *  that don't need a pulse use this. Respects the same mute/live gate. */
+  blip(): void {
+    if (!this.live()) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.value = 740;
+    const g = this.adsrGain(0.05, 0.005, 0.07)!;
+    o.connect(g); g.connect(this.bus!);
+    o.start(t); o.stop(t + 0.12);
+    o.onended = () => { try { o.disconnect(); g.disconnect(); } catch { /* gone */ } };
+  }
+
   /** UI toggle throw. */
   uiClick(): void {
     sound.click();

@@ -16,20 +16,22 @@ export type DayNightMode = "auto" | "day" | "night";
 export type CameraMode = "tactical" | "ground";
 
 /**
- * Battle-sim speed. The demo was running at wall-clock 1x and Hans
- * couldn't react — "slow it down, give me time to make something happen."
- * SLOW (0.5x) is the default; the sim clock, movement, tracers, and
- * casualty ticks all scale with it.
+ * Battle-sim speed (owner 2026-10-06): SLOW ↔ REALTIME, capped at 1x.
+ * The battle can never run faster than real time — two players can't run
+ * different timers, and command happens in real time at most. SLOW (0.5x)
+ * is the default: the fight breathes, the commander gets time to think.
+ * The sim clock, movement, tracers, and casualty ticks all scale with it;
+ * at REALTIME sim-time equals wall-clock. (Future PvP: effective pace =
+ * the slowest player's setting.)
  */
-export type BattleSpeed = "slow" | "normal" | "fast";
+export type BattleSpeed = "slow" | "realtime";
 
 export const BATTLE_SPEED_MUL: Record<BattleSpeed, number> = {
   slow: 0.5,
-  normal: 1,
-  fast: 1.75,
+  realtime: 1,
 };
 
-export const BATTLE_SPEEDS: BattleSpeed[] = ["slow", "normal", "fast"];
+export const BATTLE_SPEEDS: BattleSpeed[] = ["slow", "realtime"];
 
 /** One row of the FIELD FORCE roster — what's actually on the field. */
 export interface RosterEntry {
@@ -46,6 +48,8 @@ export interface SquadSummary {
   name: string;
   alive: number;
   total: number;
+  /** living Longeyes in this squad — it watches its own sector */
+  eyes?: boolean;
 }
 
 /** One judged order for the ORDERS log — the command log seed. */
@@ -200,7 +204,7 @@ export function recenterMap(): void {
   set({ mapNonce: state.mapNonce + 1 });
 }
 
-/** Cycle slow → normal → fast → slow. */
+/** Cycle slow → realtime → slow. */
 export function cycleBattleSpeed(): void {
   const i = BATTLE_SPEEDS.indexOf(state.battleSpeed);
   setBattleSpeed(BATTLE_SPEEDS[(i + 1) % BATTLE_SPEEDS.length]);

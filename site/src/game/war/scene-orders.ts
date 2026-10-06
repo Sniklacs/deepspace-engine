@@ -5,8 +5,9 @@
 // through the doctrine BEFORE it executes:
 //
 //   • Siege (Thunder) can NEVER sweep or flank.
-//   • A deep strike behind enemy lines (x > DEEP_X) is a rear entry: it
-//     needs a Warden/logistics escort (≥20% Warden weight, the
+//   • A deep strike behind enemy lines (north of DEEP_Y — the attacker
+//     pushes north from the south edge) is a rear entry: it needs a
+//     Warden/logistics escort (≥20% Warden weight, the
 //     maneuverRearWardenFrac rule) and legal troop speed (Thunder is too
 //     slow — siege never sweeps).
 //   • ENGAGED units are locked — the one-way door: once casualties start,
@@ -45,6 +46,54 @@ const VEC_SHORT: Record<ManeuverVector, string> = {
   RESERVE: "Reserve",
 };
 
+/** Short sector label for movement reports. */
+export function vecShort(v: ManeuverVector): string {
+  return VEC_SHORT[v];
+}
+
+// ---------------------------------------------------------------------------
+// ORDER RESPONSE TIME (owner 2026-10-06): a move order doesn't execute
+// instantly. The squad acknowledges, plots for ORDER_DELAY_S sim-seconds,
+// then steps off. Symmetric — the AI's squads wait the same delay. The
+// delay is sim-time, so it scales with the SLOW/NORMAL/FAST pace setting.
+// ---------------------------------------------------------------------------
+
+/** Command delay in sim-seconds between order and step-off. */
+export const ORDER_DELAY_S = 3;
+
+/** Stamp a move order on a unit: destination now, step-off after the delay. */
+export function stampOrder(u: SceneUnit, tx: number, ty: number, tS: number): void {
+  u.tx = tx;
+  u.ty = ty;
+  u.moveAtS = tS + ORDER_DELAY_S;
+}
+
+/** Units whose command delay has elapsed — they step off now. Pure. */
+export function stepOffUnits(units: SceneUnit[], tS: number): SceneUnit[] {
+  return units.filter((u) => u.moveAtS !== undefined && tS >= u.moveAtS);
+}
+
+// ---------------------------------------------------------------------------
+// LONGEYE COVERAGE (owner 2026-10-06): positional. A Longeye only watches
+// its own sector — coverage follows vector assignment (Flank L eyes cover
+// Flank L, rear eyes cover the rear, …). Same-vector rule, no adjacency.
+// Enemy moves on vectors with no living Longeyes go unreported, even if
+// eyes exist elsewhere. (Logistics ships will add jammable aerial coverage
+// later — eyeballs can't be jammed, so Longeyes are the failsafe.)
+// ---------------------------------------------------------------------------
+
+/** Living Longeyes in an attacker squad — the eyes watching that sector. */
+export function squadEyeCount(units: SceneUnit[], squadId: string): number {
+  return units.filter(
+    (u) => u.squadId === squadId && u.side === "attacker" && u.kind === "longeye" && u.state !== "dead",
+  ).length;
+}
+
+/** Does the player's vector have living Longeye coverage? */
+export function hasLongeyeCover(units: SceneUnit[], vector: ManeuverVector): boolean {
+  return squadEyeCount(units, `A${VECTOR_PLAYER[vector]}`) > 0;
+}
+
 /** Group living units into their command squads. */
 export function buildSquads(units: SceneUnit[]): Squad[] {
   const byId = new Map<string, SceneUnit[]>();
@@ -81,26 +130,27 @@ export function isDrivable(squad: Squad): boolean {
   return squad.side === "attacker";
 }
 
-/** Destination lane from a tap's y: flank bands or the middle. */
+/** Destination lane from a tap's x: flank bands (east/west) or the middle. */
 export type DestLane = "FLANK_LEFT" | "FLANK_RIGHT" | "MIDDLE";
 
-export function destLaneOf(y: number): DestLane {
+export function destLaneOf(x: number): DestLane {
   const fl = VECTOR_LANES.FLANK_LEFT;
   const fr = VECTOR_LANES.FLANK_RIGHT;
-  if (y >= fl.y - fl.spread && y <= fl.y + fl.spread) return "FLANK_LEFT";
-  if (y >= fr.y - fr.spread && y <= fr.y + fr.spread) return "FLANK_RIGHT";
+  if (x >= fl.x - fl.spread && x <= fl.x + fl.spread) return "FLANK_LEFT";
+  if (x >= fr.x - fr.spread && x <= fr.x + fr.spread) return "FLANK_RIGHT";
   return "MIDDLE";
 }
 
-/** x past this is behind enemy lines — a rear entry, not a push. */
-export const DEEP_X = 0.7;
+/** y north of this is behind enemy lines — a rear entry, not a push.
+ *  (The attacker advances north from the south edge.) */
+export const DEEP_Y = 0.5;
 
 /** Human label for the ORDERS log: where the order was sending the squad. */
 export function destLabel(x: number, y: number): string {
-  const lane = destLaneOf(y);
+  const lane = destLaneOf(x);
   if (lane === "FLANK_LEFT") return "FLANK LEFT";
   if (lane === "FLANK_RIGHT") return "FLANK RIGHT";
-  return x > DEEP_X ? "REAR" : "MAIN";
+  return y < DEEP_Y ? "REAR" : "MAIN";
 }
 
 export type OrderVerdict = { ok: true } | { ok: false; reason: string };
@@ -139,8 +189,8 @@ export function judgeMoveOrder(
   if (live.some((u) => u.state === "engaged")) {
     return { ok: false, reason: "Unit engaged — casualties mean commitment." };
   }
-  const lane = destLaneOf(dest.y);
-  const deep = dest.x > DEEP_X;
+  const lane = destLaneOf(dest.x);
+  const deep = dest.y < DEEP_Y;
   const thunder = hasKind(live, "thunder");
   // SIEGE NEVER SWEEPS — Thunder is too heavy for flank work. Ever.
   if (thunder && lane !== "MIDDLE") {

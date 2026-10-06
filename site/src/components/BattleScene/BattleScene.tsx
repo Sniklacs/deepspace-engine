@@ -9,21 +9,53 @@
 // ticks come from the engine's battleMoment when provided; otherwise a
 // scripted demo curve.
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
+  CLOCK_END_S,
+  COVER_REDUCTION,
+  coverAt,
+  FLYBY_START_S,
+  REVEAL_S,
   SCENE_PHASES,
+  SHOOTDOWN_S,
+  waveDueAt,
+  weakestVector,
+  WORLD_CX,
+  WORLD_CY,
+  WORLD_FIT_ZOOM,
+  WORLD_H,
+  WORLD_W,
+  clampWorldX,
+  clampWorldY,
   demoBreakVictor,
   mulberry32,
   sceneNightFactor,
   scenePhaseAt,
+  scoutStatusAt,
   VECTOR_LANES,
+  VECTOR_LEAN,
   UNIT_KIND_LABEL,
   type SceneBattle,
   type ScenePhase,
   type SceneTurret,
   type SceneUnit,
   type SceneUnitKind,
+  type ScoutStatus,
 } from "../../game/war/battle-scene-model";
+import {
+  CHORUS_HOLD_REDUCTION,
+  counterattackOrders,
+  evaluateCounterattack,
+  evaluateEnvelopment,
+  evaluateSpoilingAttack,
+  holdingBonusApplies,
+  spoilingAttackOrders,
+  type CounterattackOrder,
+} from "../../game/war/chorus-doctrine";
+import {
+  CHORUS_GRADES,
+  DEFAULT_CHORUS_GRADE,
+} from "../../game/war/deploy-loadout";
 import {
   subscribeSceneUI,
   sceneUISnapshot,
@@ -51,10 +83,28 @@ import {
 } from "../../game/war/battle-scene-ui-store";
 import {
   buildSquads,
+  hasLongeyeCover,
   isDrivable,
   judgeMoveOrder,
   destLabel,
+  ORDER_DELAY_S,
+  squadEyeCount,
+  stampOrder,
+  stepOffUnits,
+  vecShort,
 } from "../../game/war/scene-orders";
+import {
+  commsFor,
+  commsView,
+  dismissBubble,
+  pushBubble,
+  REPORT_ARROW_LEN,
+  watchShouldReport,
+  type CommsBubble,
+  type CommsEventKind,
+  type MoveWatch,
+  type WatchUnit,
+} from "../../game/war/battle-comms";
 import { battleSfx } from "../../game/war/battle-sfx";
 // Troop tiers are real (owner 2026-10-05): a T4 genuinely out-hits and
 // out-lasts a T1 — the same power curve the war engine prices forces at.
@@ -128,21 +178,21 @@ interface CameraRig {
   reNonce: number;
 }
 
-const CAM_HOME: CameraRig = { zoom: 1, ax: 0.5, ay: 0.5, ysq: 1, fy: 0.5, gx: 0.5, gy: 0.5, wasGround: false, uax: 0.5, uay: 0.5, pox: 0, poy: 0, reNonce: 0 };
+const CAM_HOME: CameraRig = { zoom: 1, ax: WORLD_CX, ay: WORLD_CY, ysq: 1, fy: 0.5, gx: WORLD_CX, gy: WORLD_CY, wasGround: false, uax: WORLD_CX, uay: WORLD_CY, pox: 0, poy: 0, reNonce: 0 };
 
-// Zoom bounds. Tactical roams the full field; ground keeps it sensible so
-// the follow-cam still reads.
-const ZOOM_MIN = 0.6;
+// Zoom bounds. Tactical roams the full field (fit zoom frames all 1.5×1.5);
+// ground keeps it sensible so the follow-cam still reads.
+const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 4;
 const GROUND_ZOOM_MAX = 1.6;
 // The frame may roam a padded battlefield, never void.
-const FIELD_PAD = 0.08;
+const FIELD_PAD = 0.12;
 
 /** Clamp a pan anchor so the visible window stays on the battlefield. */
-function clampAnchor(ax: number, half: number): number {
+function clampAnchor(ax: number, half: number, size: number, center: number): number {
   const lo = -FIELD_PAD + half;
-  const hi = 1 + FIELD_PAD - half;
-  if (lo >= hi) return 0.5;
+  const hi = size + FIELD_PAD - half;
+  if (lo >= hi) return center;
   return Math.max(lo, Math.min(hi, ax));
 }
 
@@ -210,8 +260,28 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   // Click-to-command visuals (canvas-local, not store state):
   //  - orderPing: the accepted order's dashed path + pulsing destination.
   //  - toast: the judge's refusal, shown on-canvas — never silent.
-  const orderPingRef = useRef<{ x: number; y: number; fx: number; fy: number; born: number } | null>(null);
+  const orderPingRef = useRef<{ x: number; y: number; fx: number; fy: number; born: number; atS: number } | null>(null);
   const toastRef = useRef<{ text: string; born: number } | null>(null);
+  // Battle comms — field-report bubbles (owner 2026-10-06). Every report the
+  // engine posts (movement alerts, scout results, chorus warnings, clock
+  // milestones, phase changes, reserve status) lands as a bubble AND a log
+  // entry; the bubble persists until the commander taps it (confirmed read).
+  const [comms, setComms] = useState<CommsBubble[]>([]);
+  const commsIdRef = useRef(1);
+  // Longeye movement-report state (canvas-local):
+  //  - watches: enemy moves in flight, reported at ~50% of progress
+  //    (see watchShouldReport in battle-comms).
+  //  - arrowRef: the direction vector shown with the report (fixed length —
+  //    it shows the moving squad + direction, never a perfect destination).
+  //  - highlightRef: the reported squad's units, pulsed on the field.
+  const watchesRef = useRef<MoveWatch[]>([]);
+  const arrowRef = useRef<{ x: number; y: number; dx: number; dy: number; until: number } | null>(null);
+  const highlightRef = useRef<{ units: WatchUnit[]; until: number } | null>(null);
+  // Whether the scout revealed the Chorus disposition (gates defender
+  // rendering + the grade in the header until the flyby completes).
+  const [revealed, setRevealed] = useState(false);
+  // Reserve-arrival comms, announced once per vector per battle.
+  const reserveAnnouncedRef = useRef<Set<string>>(new Set());
   // Threshold victory (demo): when a side loses >= DEMO_BREAK_FRAC of its
   // force, the field breaks — the other side holds it. Doctrine: casualty
   // thresholds, not mutual annihilation.
@@ -221,6 +291,25 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   // Last squad alive-counts pushed to the store — the SQUADS panel refreshes
   // only when something actually died.
   const squadAliveRef = useRef<string>("");
+  // Chorus doctrine (owner 2026-10-06): the survivor defends first, then
+  // smells blood. Once the reserve commits, it stays committed. G5 hunts:
+  // spoiling attacks + envelopment, once each.
+  const counterRef = useRef(false);
+  const counterAccRef = useRef(0);
+  const spoilingRef = useRef(false);
+  const envelopRef = useRef<{ FLANK_LEFT: boolean; FLANK_RIGHT: boolean }>({
+    FLANK_LEFT: false,
+    FLANK_RIGHT: false,
+  });
+  // Scout flyby (owner 2026-10-06): the approach-phase intel gamble.
+  const scoutRef = useRef<ScoutStatus>("pending");
+  // Pushed roster fn — re-run with defenders once the scout reveals them.
+  const rosterPushRef = useRef<(includeDefenders: boolean) => void>(() => {});
+  // Battle clock (owner 2026-10-06): reinforcement waves + expiry.
+  const waveRef = useRef(0);
+  const warn3Ref = useRef(false);
+  const warn1Ref = useRef(false);
+  const clockFailRef = useRef(false);
   // Camera rig — the mode lives in the shared store; zoom/anchor ease here
   // so flipping the toggle glides instead of cutting.
   const camRef = useRef<CameraRig>({ ...CAM_HOME });
@@ -252,6 +341,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       simTRef.current = 0;
       victorRef.current = null;
       phaseRef.current = null;
+      counterRef.current = false;
+      counterAccRef.current = 0;
+      spoilingRef.current = false;
+      envelopRef.current = { FLANK_LEFT: false, FLANK_RIGHT: false };
+      scoutRef.current = "pending";
+      waveRef.current = 0;
+      warn3Ref.current = false;
+      warn1Ref.current = false;
+      clockFailRef.current = false;
+      reserveAnnouncedRef.current = new Set();
       battleSfx.reset();
       resetSceneUI();
     }
@@ -263,28 +362,49 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     );
     // Force roster for the FIELD FORCE panel — what's on the field by type,
     // with a tier breakdown per row (owner 2026-10-05: read force quality).
-    // (The practice scene is canned; real loadout-to-field mapping is P2.)
-    const counts = new Map<string, { count: number; tiers: [number, number, number, number] }>();
-    for (const u of unitsRef.current) {
-      const k = `${u.side}:${u.kind}`;
-      let e = counts.get(k);
-      if (!e) { e = { count: 0, tiers: [0, 0, 0, 0] }; counts.set(k, e); }
-      e.count += 1;
-      e.tiers[u.tier - 1] += 1;
-    }
-    registerRoster(
-      [...counts.entries()].map(([k, e]) => {
-        const [side, kind] = k.split(":");
-        return { side: side as "attacker" | "defender", kind: kind as SceneUnitKind, count: e.count, tiers: e.tiers };
-      }),
-    );
+    // The enemy stays hidden until the scout flyby reveals the disposition
+    // (owner 2026-10-06) — pushRoster(false) at setup, pushRoster(true) on reveal.
+    const pushRoster = (includeDefenders: boolean) => {
+      const counts = new Map<string, { count: number; tiers: [number, number, number, number] }>();
+      for (const u of unitsRef.current) {
+        if (u.side === "defender" && !includeDefenders) continue;
+        const k = `${u.side}:${u.kind}`;
+        let e = counts.get(k);
+        if (!e) { e = { count: 0, tiers: [0, 0, 0, 0] }; counts.set(k, e); }
+        e.count += 1;
+        e.tiers[u.tier - 1] += 1;
+      }
+      registerRoster(
+        [...counts.entries()].map(([k, e]) => {
+          const [side, kind] = k.split(":");
+          return { side: side as "attacker" | "defender", kind: kind as SceneUnitKind, count: e.count, tiers: e.tiers };
+        }),
+      );
+    };
+    pushRoster(false);
+    rosterPushRef.current = pushRoster;
     // Command squads for the SQUADS panel — the five buses, living strength.
     // (Drivable: attacker only. The defender is the Chorus AI.)
+    // The eye glyph marks squads with living Longeyes — they watch their
+    // own sector (owner 2026-10-06: positional coverage).
     registerSquads(
       buildSquads(unitsRef.current)
         .filter((s) => isDrivable(s))
-        .map((s) => ({ id: s.id, name: s.name, alive: s.unitIds.length, total: s.unitIds.length })),
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          alive: s.unitIds.length,
+          total: s.unitIds.length,
+          eyes: squadEyeCount(unitsRef.current, s.id) > 0,
+        })),
     );
+    // New battle, new intel: reset comms, reveal, and movement watches.
+    setComms([]);
+    commsIdRef.current = 1;
+    setRevealed(false);
+    watchesRef.current = [];
+    arrowRef.current = null;
+    highlightRef.current = null;
   }, [scene]);
 
   // ---- main loop ---------------------------------------------------------
@@ -332,6 +452,14 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     const S = () => Math.min(W(), H()); // scale unit
 
     const enemiesOf = (side: string) => unitsRef.current.filter((u) => u.side !== side && u.state !== "dead" && u.state !== "staging");
+    /** Damage-taken multiplier for a unit: the Chorus hold bonus while dug
+     *  in, and the terrain cover bonus — modest each, meaningful together. */
+    const dmgTakenMul = (v: SceneUnit): number => {
+      let m = 1;
+      if (holdingBonusApplies(v)) m *= 1 - CHORUS_HOLD_REDUCTION;
+      if (coverAt(v.x, v.y, scene.terrain)) m *= 1 - COVER_REDUCTION;
+      return m;
+    };
     const nearestEnemy = (x: number, y: number, side: string, maxD: number) => {
       let best: SceneUnit | null = null;
       let bd = maxD;
@@ -360,6 +488,44 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       }
     };
 
+    // Reinforcement wave (owner 2026-10-06): the longer the attacker sits,
+    // the thicker the defense gets. A bulwark-heavy wave lands on the
+    // weakest defensive vector (fewest alive, excluding the reserve — that's
+    // the counterattack's), entering from the defender's back edge. Capped
+    // at MAX_REINFORCE_WAVES. Seeded per battle, per wave — replays stable.
+    const landWave = (wave: number) => {
+      const rnd = mulberry32((scene.seed ^ (0xbeef + wave * 0x9e37)) >>> 0);
+      const weak = weakestVector(unitsRef.current, ["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR"]);
+      const lane = VECTOR_LANES[weak];
+      const count = 6 + Math.floor(rnd() * 4); // 6–9 troops
+      for (let i = 0; i < count; i++) {
+        const r = rnd();
+        const kind: SceneUnitKind = r < 0.55 ? "bulwark" : r < 0.8 ? "reaver" : "longeye";
+        const tr = rnd();
+        const tier = (tr < 0.2 ? 1 : tr < 0.55 ? 2 : tr < 0.9 ? 3 : 4) as 1 | 2 | 3 | 4;
+        unitsRef.current.push({
+          id: `r${wave}-${i}`,
+          side: "defender",
+          kind,
+          tier,
+          vector: weak,
+          squadId: "D",
+          x: clampWorldX(lane.x + (rnd() - 0.5) * 2 * lane.spread),
+          y: 0.08 + rnd() * 0.06,
+          tx: clampWorldX(lane.x + (rnd() - 0.5) * 2 * lane.spread),
+          ty: clampWorldY(WORLD_CY - VECTOR_LEAN[weak] + (rnd() - 0.5) * 0.1),
+          hp01: 1,
+          state: "advancing",
+          enterAtS: 0,
+        });
+      }
+      rosterPushRef.current(scoutRef.current === "revealed");
+      const dirName =
+        weak === "FLANK_LEFT" ? "western" : weak === "FLANK_RIGHT" ? "eastern" : weak === "MAIN" ? "center" : "rear";
+      postComms("wave", dirName);
+      battleSfx.dropship();
+    };
+
     const step = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
@@ -377,9 +543,22 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       if (phase !== phaseRef.current) {
         phaseRef.current = phase;
         battleSfx.phase(phase);
+        // Phase changes arrive as comms too — the timeline steers, and the
+        // commander reads it in the shared frame (owner 2026-10-06).
+        if (phase === "touchdown") postComms("phase", "Touchdown — unload and set positions. 45 seconds to get your shit straight.");
+        else if (phase === "contact") postComms("phase", scoutRef.current === "lost"
+          ? "First contact — there they are. No scout intel; you're reading them live."
+          : "First contact — the Chorus is holding its lines. It lets you come.");
+        else if (phase === "weapons-free") postComms("phase", "Weapons free — the timeline is running. Break them before it runs out.");
       }
 
       // --- unit state machine -------------------------------------------
+      // Command delay (owner 2026-10-06): stamped orders step off after
+      // ORDER_DELAY_S sim-seconds — "acknowledged/plotting" → "moving".
+      for (const u of stepOffUnits(unitsRef.current, t)) {
+        u.moveAtS = undefined;
+        if (u.state === "holding" || u.state === "advancing") u.state = "advancing";
+      }
       for (const u of unitsRef.current) {
         if (u.state === "dead") continue;
         if (u.state === "staging" && t >= u.enterAtS && (phase === "touchdown" || phase === "contact" || phase === "weapons-free")) {
@@ -390,8 +569,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           if (phase === "weapons-free" && (u.vector === "FLANK_LEFT" || u.vector === "FLANK_RIGHT")) {
             battleSfx.flankCrash();
           }
+          // Reserve status is a comms event — the commander knows what's on
+          // the field (announced once per vector per battle).
+          if ((u.vector === "REAR" || u.vector === "RESERVE") && !reserveAnnouncedRef.current.has(u.vector)) {
+            reserveAnnouncedRef.current.add(u.vector);
+            postComms("reserve", u.vector === "REAR" ? "Your rear wave is on the field" : "Your reserve is on the field — call it when you need it");
+          }
         }
         if (u.state === "advancing") {
+          // Plotting: the squad holds its ground until the order steps off.
+          if (u.moveAtS !== undefined) continue;
           const dx = u.tx - u.x;
           const dy = u.ty - u.y;
           const d = Math.hypot(dx, dy);
@@ -405,7 +592,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           }
         }
         if ((u.state === "holding" || u.state === "advancing") && phase === "weapons-free") {
-          const e = nearestEnemy(u.x, u.y, u.side, 0.3);
+          const e = nearestEnemy(u.x, u.y, u.side, 0.45);
           if (e) u.state = "engaged";
         }
       }
@@ -418,7 +605,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         // Cap simultaneous exchanges for perf + readability.
         for (const u of engaged.slice(0, 40)) {
           if (Math.random() < 0.55) continue;
-          const e = nearestEnemy(u.x, u.y, u.side, 0.3);
+          const e = nearestEnemy(u.x, u.y, u.side, 0.45);
           if (!e) { u.state = "holding"; continue; }
           fx.fire(X(u.x), Y(u.y), X(e.x), Y(e.y), u.side === "attacker" ? "#ffd27a" : "#fda4af");
           battleSfx.tracer(u.kind === "thunder" ? "snipe" : "crack"); // T4s sniping crack
@@ -426,7 +613,11 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           // sides in under a minute of weapons-free. Hits stay frequent so
           // the tracers keep flying — they just don't kill as fast.
           // Tiers are real: elites out-hit chaff and shrug off chaff fire.
-          e.hp01 -= ((0.015 + Math.random() * 0.03) * tierPowerMult(u.tier)) / tierPowerMult(e.tier);
+          // Chorus doctrine (owner 2026-10-06): a holding defender takes ~12%
+          // less — dug in, not yet engaged. Cover takes ~12% less. Flank it
+          // or overwhelm it; the bonuses reward maneuver, they don't make
+          // the line unbreakable.
+          e.hp01 -= (((0.015 + Math.random() * 0.03) * tierPowerMult(u.tier)) / tierPowerMult(e.tier)) * dmgTakenMul(e);
           if (e.hp01 <= 0) killUnit(e);
         }
         // Turret fire (auto mode, or gunner-directed).
@@ -437,14 +628,14 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           if (ui.gunnerId === tr.id && ui.gunTarget) {
             target = unitsRef.current.find((u) => u.id === ui.gunTarget && u.state !== "dead") ?? null;
           } else if (!ui.manual) {
-            target = nearestEnemy(tr.x, tr.y, tr.side, 0.45);
+            target = nearestEnemy(tr.x, tr.y, tr.side, 0.68);
           }
           if (target) {
             tr.aim = Math.atan2(Y(target.y) - Y(tr.y), X(target.x) - X(tr.x));
             fx.fire(X(tr.x), Y(tr.y), X(target.x), Y(target.y), "#a5f3fc");
             battleSfx.tracer("turret");
             // Tuned down with the rest (owner 2026-10-05).
-            target.hp01 -= 0.04 + Math.random() * 0.05;
+            target.hp01 -= (0.04 + Math.random() * 0.05) * dmgTakenMul(target);
             if (target.hp01 <= 0) killUnit(target);
           }
         }
@@ -474,7 +665,181 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         if (Math.random() < sdt * 0.3) {
           const cands = unitsRef.current.filter((u) => u.state === "engaged" || u.state === "holding");
           const v = cands[Math.floor(Math.random() * cands.length)];
-          if (v) { v.hp01 -= 0.25 / tierPowerMult(v.tier); if (v.hp01 <= 0) killUnit(v); }
+          if (v) {
+            v.hp01 -= (0.25 / tierPowerMult(v.tier)) * dmgTakenMul(v);
+            if (v.hp01 <= 0) killUnit(v);
+          }
+        }
+      }
+
+      // --- Chorus doctrine: the survivor defends, then smells blood -------
+      // G1–G4 hold and wait — the reserve commits when the player bleeds
+      // (grade threshold) or a player vector breaks. G5 hunts: a spoiling
+      // attack on a stalled/overextended advance, and envelopment when a
+      // Bastion flank engages a weakened player flank. Checked ~2x/sec.
+      const gradeSpec = CHORUS_GRADES[scene.chorusGrade ?? DEFAULT_CHORUS_GRADE];
+      counterAccRef.current += sdt;
+      if (phase === "weapons-free" && counterAccRef.current > 2) {
+        counterAccRef.current = 0;
+        // Orders stamp with the same command delay the player's squads wait
+        // (symmetric movement rules), and every AI move is watched — living
+        // Longeyes in the destination sector report it at ~50% of progress.
+        const applyOrders = (orders: CounterattackOrder[], destVector: ManeuverVector) => {
+          const byId = new Map(unitsRef.current.map((u) => [u.id, u]));
+          const moved: SceneUnit[] = [];
+          for (const o of orders) {
+            const u = byId.get(o.unitId);
+            if (!u || u.state === "dead") continue;
+            stampOrder(u, clampWorldX(o.tx), clampWorldY(o.ty), t);
+            if (o.enterNow) u.enterAtS = Math.min(u.enterAtS, t); // commit NOW, not on schedule
+            moved.push(u);
+          }
+          if (moved.length > 0) {
+            const live = moved.filter((u) => u.state !== "dead");
+            const cx = live.reduce((s, u) => s + u.x, 0) / live.length;
+            const cy = live.reduce((s, u) => s + u.y, 0) / live.length;
+            const tx = live.reduce((s, u) => s + u.tx, 0) / live.length;
+            const ty = live.reduce((s, u) => s + u.ty, 0) / live.length;
+            watchesRef.current.push({
+              units: live, fromX: cx, fromY: cy, toX: tx, toY: ty,
+              destVector, startsAt: t + ORDER_DELAY_S, reported: false,
+            });
+          }
+          return moved.length > 0;
+        };
+        // 1. The bleed trigger — the reserve commits at the grade's threshold.
+        if (!counterRef.current) {
+          const ev = evaluateCounterattack(unitsRef.current, gradeSpec.counterThreshold);
+          if (ev.trigger && ev.weakestVector) {
+            const orders = counterattackOrders(unitsRef.current, gradeSpec.counterThreshold);
+            if (orders.length > 0 && applyOrders(orders, ev.weakestVector)) {
+              counterRef.current = true;
+              postComms("counter", "");
+              battleSfx.flankCrash();
+            }
+          }
+        }
+        // 2. G5 hunts: spoiling attack on a stalled/overextended advance.
+        if (gradeSpec.hunts && !spoilingRef.current && !counterRef.current) {
+          const sp = evaluateSpoilingAttack(unitsRef.current, t, phase);
+          if (sp.trigger && sp.targetVector) {
+            const orders = spoilingAttackOrders(unitsRef.current, sp.targetVector);
+            if (orders.length > 0 && applyOrders(orders, sp.targetVector)) {
+              spoilingRef.current = true;
+              postComms("spoiling", "");
+              battleSfx.flankCrash();
+            }
+          }
+        }
+        // 3. G5 envelopment: engaged flanks swing AROUND weakened player flanks.
+        if (gradeSpec.hunts) {
+          for (const env of evaluateEnvelopment(unitsRef.current)) {
+            if (envelopRef.current[env.flank]) continue;
+            const flankUnits = unitsRef.current.filter(
+              (u) => u.side === "defender" && u.vector === env.flank && u.state === "engaged",
+            );
+            if (flankUnits.length === 0) continue;
+            envelopRef.current[env.flank] = true;
+            for (const u of flankUnits) {
+              stampOrder(u, clampWorldX(env.tx + (Math.random() - 0.5) * 0.06), clampWorldY(env.ty + (Math.random() - 0.5) * 0.06), t);
+            }
+            const cx = flankUnits.reduce((s, u) => s + u.x, 0) / flankUnits.length;
+            const cy = flankUnits.reduce((s, u) => s + u.y, 0) / flankUnits.length;
+            watchesRef.current.push({
+              units: flankUnits, fromX: cx, fromY: cy, toX: env.tx, toY: env.ty,
+              destVector: env.flank, startsAt: t + ORDER_DELAY_S, reported: false,
+            });
+            const side = env.flank === "FLANK_LEFT" ? "left" : "right";
+            postComms("envelop", side);
+          }
+        }
+      }
+
+      // --- Longeye movement reports (owner 2026-10-06): positional ---------
+      // An enemy move is watched from step-off; at ~50% of its progress the
+      // player's Longeyes report it — but ONLY if they hold the destination
+      // sector (same-vector rule). No eyes on that vector = silent: the
+      // player only sees the maneuver when it arrives.
+      for (const w of watchesRef.current) {
+        if (!watchShouldReport(w, t)) continue;
+        w.reported = true;
+        if (hasLongeyeCover(unitsRef.current, w.destVector as ManeuverVector)) {
+          // Highlight the moving squad + a direction vector (fixed length —
+          // it shows the squad and its direction, never a perfect
+          // destination readout). Arrow + ping + log = the heads-up.
+          const live = w.units.filter((u) => u.state !== "dead");
+          const cx = live.reduce((s, u) => s + u.x, 0) / live.length;
+          const cy = live.reduce((s, u) => s + u.y, 0) / live.length;
+          const dx = w.toX - w.fromX;
+          const dy = w.toY - w.fromY;
+          const d = Math.hypot(dx, dy) || 1;
+          arrowRef.current = {
+            x: cx, y: cy,
+            dx: (dx / d) * REPORT_ARROW_LEN,
+            dy: (dy / d) * REPORT_ARROW_LEN,
+            until: t + 6,
+          };
+          highlightRef.current = { units: live, until: t + 6 };
+          postComms("movement", vecShort(w.destVector as ManeuverVector).toUpperCase());
+        }
+        // else: no eyes on that vector — the maneuver completes silently.
+      }
+      if (watchesRef.current.length > 12) watchesRef.current = watchesRef.current.slice(-12);
+
+      // --- scout flyby: the approach-phase intel gamble -------------------
+      // 80% the sweep completes and the Chorus disposition is revealed;
+      // 20% the scout is shot down (seeded — deterministic for replays) and
+      // the player deploys blind. Terrain is mapped from the air either way.
+      const scoutNow = scoutStatusAt(scene.seed, t);
+      if (scoutNow !== scoutRef.current) {
+        scoutRef.current = scoutNow;
+        if (scoutNow === "revealed") {
+          rosterPushRef.current(true);
+          setRevealed(true);
+          postComms("scout-ok", "");
+        } else if (scoutNow === "lost") {
+          postComms("scout-lost", "");
+          // Flak kill at the shoot-down point — the sweep visual dies here.
+          const kp = (SHOOTDOWN_S - FLYBY_START_S) / (REVEAL_S - FLYBY_START_S);
+          battleSfx.explosion(0.75 + 0.35 * Math.sin(kp * Math.PI * 2), 1.35 - kp * 1.15, true);
+        }
+      }
+      // Scout lost: the player meets them at first contact. The disposition
+      // becomes visible when the lines meet (T+75) — but there's no intel
+      // bonus: the grade stayed hidden through the whole positioning window.
+      if (scoutRef.current === "lost" && t >= 75) {
+        scoutRef.current = "revealed";
+        rosterPushRef.current(true);
+        setRevealed(true);
+      }
+
+      // --- battle clock: the shared timeline (owner 2026-10-06) ------------
+      // From weapons-free the attacker has BATTLE_CLOCK_BUDGET_S sim-seconds
+      // (the clock is the timeline running out, not a punishment). Every
+      // ESCALATION_INTERVAL_S the defense holds, a reinforcement wave feeds
+      // the weakest defensive vector (capped). The ~65% casualty break still
+      // resolves bloody battles the old way — this is the backstop.
+      if (phase === "weapons-free" && !victorRef.current) {
+        const wfAtS = SCENE_PHASES.find((p) => p.phase === "weapons-free")?.atS ?? 90;
+        const due = waveDueAt(t - wfAtS, waveRef.current);
+        if (due > 0) {
+          waveRef.current = due;
+          landWave(due);
+        }
+        const remaining = CLOCK_END_S - t;
+        if (remaining <= 180 && !warn3Ref.current) {
+          warn3Ref.current = true;
+          postComms("clock-3", "");
+        }
+        if (remaining <= 60 && !warn1Ref.current) {
+          warn1Ref.current = true;
+          postComms("clock-1", "");
+        }
+        if (remaining <= 0 && !clockFailRef.current) {
+          clockFailRef.current = true;
+          victorRef.current = "defender";
+          postComms("clock-end", "");
+          battleSfx.victor(false);
         }
       }
 
@@ -486,7 +851,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           if (u.kind !== "warden" || u.state === "dead" || u.state === "staging") continue;
           fx.jam(X(u.x), Y(u.y));
           if (Math.random() < 0.6) {
-            const e = nearestEnemy(u.x, u.y, u.side, 0.4);
+            const e = nearestEnemy(u.x, u.y, u.side, 0.6);
             if (e) {
               e.painted = true;
               fx.paint(X(u.x), Y(u.y), X(e.x), Y(e.y));
@@ -518,21 +883,22 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       // Recenter token (double-tap / Recenter button): reset pan + zoom.
       if (ui.mapNonce !== cam.reNonce) {
         cam.reNonce = ui.mapNonce;
-        cam.uax = 0.5;
-        cam.uay = 0.5;
+        cam.uax = WORLD_CX;
+        cam.uay = WORLD_CY;
         cam.pox = 0;
         cam.poy = 0;
         if (ui.zoomLevel !== 1) setZoomLevel(1);
       }
       // User zoom multiplies the mode zoom; ground clamps tighter so the
-      // follow-cam still reads.
+      // follow-cam still reads. Tactical fit zoom frames the whole 1.5×1.5 field.
       const uz = ground ? Math.min(ui.zoomLevel, GROUND_ZOOM_MAX) : ui.zoomLevel;
-      const modeZoom = ground ? (W() > H() ? 3.2 : 2.6) : 1;
+      const modeZoom = ground ? WORLD_FIT_ZOOM * (W() > H() ? 3.2 : 2.6) : WORLD_FIT_ZOOM;
       const targetZoom = modeZoom * uz;
       const targetYsq = ground ? 0.78 : 1; // low grazing angle, not a magnifier
       const targetFy = ground ? (W() > H() ? 0.62 : 0.55) : 0.5;
-      let anx = 0.32;
-      let any = 0.5;
+      // Ground follows the southern advance: the attacker's centroid.
+      let anx = WORLD_CX;
+      let any = 1.0;
       let nn = 0;
       for (const u of unitsRef.current) {
         if (u.side !== "attacker" || u.state === "dead" || u.state === "staging") continue;
@@ -540,18 +906,18 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         anx += u.x; any += u.y; nn++;
       }
       if (nn > 0) { anx /= nn; any /= nn; }
-      const halfW = 0.5 / targetZoom;
-      const halfH = 0.5 / (targetZoom * targetYsq);
+      const halfW = WORLD_W / 2 / targetZoom;
+      const halfH = WORLD_H / 2 / (targetZoom * targetYsq);
       let tax: number;
       let tay: number;
       if (ground) {
         // Follow the advance, plus the player's pan offset — clamped tight
         // so a pan never leaves the fighting.
-        tax = clampAnchor(anx + cam.pox, halfW);
-        tay = clampAnchor(any + cam.poy, halfH);
+        tax = clampAnchor(anx + cam.pox, halfW, WORLD_W, WORLD_CX);
+        tay = clampAnchor(any + cam.poy, halfH, WORLD_H, WORLD_CY);
       } else {
-        tax = clampAnchor(cam.uax, halfW);
-        tay = clampAnchor(cam.uay, halfH);
+        tax = clampAnchor(cam.uax, halfW, WORLD_W, WORLD_CX);
+        tay = clampAnchor(cam.uay, halfH, WORLD_H, WORLD_CY);
       }
       const k = 1 - Math.exp(-dt * 3.4);
       cam.zoom += (targetZoom - cam.zoom) * k;
@@ -589,18 +955,28 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         clockAcc = 0;
         setClock(t);
         // SQUADS panel: refresh living strength only when it changed.
+        // The eye glyph follows living Longeyes per squad (positional
+        // coverage — the key includes eye counts so a dead eye updates it).
         const squads = buildSquads(unitsRef.current).filter(isDrivable);
-        const key = squads.map((s) => `${s.id}:${s.unitIds.length}`).join(",");
+        const key = squads
+          .map((s) => `${s.id}:${s.unitIds.length}:${squadEyeCount(unitsRef.current, s.id)}`)
+          .join(",");
         if (key !== squadAliveRef.current) {
           squadAliveRef.current = key;
           registerSquads(
-            squads.map((s) => ({ id: s.id, name: s.name, alive: s.unitIds.length, total: s.unitIds.length })),
+            squads.map((s) => ({
+              id: s.id,
+              name: s.name,
+              alive: s.unitIds.length,
+              total: s.unitIds.length,
+              eyes: squadEyeCount(unitsRef.current, s.id) > 0,
+            })),
           );
         }
         // Rejection toast + order ping expire on their own.
         const nowMs = performance.now();
         if (toastRef.current && nowMs - toastRef.current.born > 2600) toastRef.current = null;
-        if (orderPingRef.current && t - orderPingRef.current.born > 3) orderPingRef.current = null;
+        if (orderPingRef.current && t - orderPingRef.current.atS > 4) orderPingRef.current = null;
       }
 
       render(ctx, phase);
@@ -690,25 +1066,26 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       for (const v of Object.keys(VECTOR_LANES) as ManeuverVector[]) {
         if (!ui.vectorsOn[v]) continue;
         const lane = VECTOR_LANES[v];
-        const y0 = Y(lane.y - lane.spread);
-        const y1 = Y(lane.y + lane.spread);
+        // North-south battles: lanes are vertical bands (flanks spread
+        // east-west), spanning the padded roam area so panning past the
+        // field never shows cutoff markings.
+        const x0 = X(lane.x - lane.spread);
+        const x1 = X(lane.x + lane.spread);
         const lc = LANE_COLOR[v];
-        // Lanes span the padded roam area so panning past the 0..1 field
-        // never shows cutoff markings.
-        const lx0 = X(-0.15);
-        const lx1 = X(1.15);
+        const ly0 = Y(-0.15);
+        const ly1 = Y(WORLD_H + 0.15);
         c.save();
         c.globalAlpha = 0.05;
         c.fillStyle = lc;
-        c.fillRect(lx0, y0, lx1 - lx0, y1 - y0);
+        c.fillRect(x0, ly0, x1 - x0, ly1 - ly0);
         c.restore();
         c.save();
         c.globalAlpha = 0.5;
         c.strokeStyle = lc;
         c.lineWidth = 1.5;
         c.setLineDash([10, 8]);
-        c.beginPath(); c.moveTo(lx0, y0); c.lineTo(lx1, y0); c.stroke();
-        c.beginPath(); c.moveTo(lx0, y1); c.lineTo(lx1, y1); c.stroke();
+        c.beginPath(); c.moveTo(x0, ly0); c.lineTo(x0, ly1); c.stroke();
+        c.beginPath(); c.moveTo(x1, ly0); c.lineTo(x1, ly1); c.stroke();
         c.restore();
       }
 
@@ -716,17 +1093,78 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       c.save();
       c.strokeStyle = "rgba(255,255,255,0.05)";
       c.lineWidth = 1;
-      for (let i = -1; i <= 11; i++) {
-        c.beginPath(); c.moveTo(X(i / 10), Y(-0.15)); c.lineTo(X(i / 10), Y(1.15)); c.stroke();
+      for (let gx = -0.15; gx <= WORLD_W + 0.15; gx += 0.15) {
+        c.beginPath(); c.moveTo(X(gx), Y(-0.15)); c.lineTo(X(gx), Y(WORLD_H + 0.15)); c.stroke();
       }
-      for (let i = -1; i <= 7; i++) {
-        c.beginPath(); c.moveTo(X(-0.15), Y(i / 6)); c.lineTo(X(1.15), Y(i / 6)); c.stroke();
+      for (let gy = -0.15; gy <= WORLD_H + 0.15; gy += 0.15) {
+        c.beginPath(); c.moveTo(X(-0.15), Y(gy)); c.lineTo(X(WORLD_W + 0.15), Y(gy)); c.stroke();
       }
       c.restore();
 
+      // --- terrain: cover vs open ground (owner 2026-10-06) ------------------
+      // Seeded per battle, visible from the approach — the player picks
+      // positions with cover in mind. Units in/near cover take ~12% less
+      // damage. Terrain is mapped from the air, so it renders whether or
+      // not the scout survived.
+      for (let fi = 0; fi < scene.terrain.length; fi++) {
+        const f = scene.terrain[fi];
+        const fx0 = X(f.x);
+        const fy0 = Y(f.y);
+        const rx = f.r * cam.zoom * w;
+        const ry = f.r * cam.zoom * cam.ysq * h;
+        c.save();
+        if (f.kind === "ridge") {
+          c.strokeStyle = "rgba(217,180,120,0.55)";
+          c.lineWidth = 2;
+          c.setLineDash([7, 5]);
+          c.beginPath(); c.ellipse(fx0, fy0, rx, ry, 0, 0, Math.PI * 2); c.stroke();
+          c.setLineDash([]);
+          c.strokeStyle = "rgba(217,180,120,0.3)";
+          c.lineWidth = 1;
+          c.beginPath(); c.ellipse(fx0, fy0, rx * 0.62, ry * 0.62, 0, 0, Math.PI * 2); c.stroke();
+        } else if (f.kind === "rocks") {
+          c.fillStyle = "rgba(148,163,184,0.5)";
+          // Deterministic scatter — the same battle always draws the same rocks.
+          const srnd = mulberry32((scene.seed ^ (0x51ab + fi * 0x1f3d)) >>> 0);
+          for (let d = 0; d < 7; d++) {
+            const a = srnd() * Math.PI * 2;
+            const rr = srnd() * 0.8;
+            const dx = Math.cos(a) * rx * rr;
+            const dy = Math.sin(a) * ry * rr;
+            const dr = Math.max(2, rx * (0.06 + srnd() * 0.1));
+            c.beginPath(); c.arc(fx0 + dx, fy0 + dy, dr, 0, Math.PI * 2); c.fill();
+          }
+        } else {
+          // ruins: debris field — short broken strokes in a circle.
+          c.strokeStyle = "rgba(113,113,122,0.6)";
+          c.lineWidth = 2;
+          const srnd = mulberry32((scene.seed ^ (0x77cd + fi * 0x2b51)) >>> 0);
+          for (let d = 0; d < 9; d++) {
+            const a = srnd() * Math.PI * 2;
+            const rr = 0.25 + srnd() * 0.7;
+            const sx0 = fx0 + Math.cos(a) * rx * rr;
+            const sy0 = fy0 + Math.sin(a) * ry * rr;
+            const la = srnd() * Math.PI;
+            const ll = 4 + srnd() * 10;
+            c.beginPath();
+            c.moveTo(sx0, sy0);
+            c.lineTo(sx0 + Math.cos(la) * ll, sy0 + Math.sin(la) * ll);
+            c.stroke();
+          }
+        }
+        // Cover glyph — reads at a glance even on a phone.
+        c.globalAlpha = 0.85;
+        c.fillStyle = "#d9b478";
+        c.font = `700 ${Math.max(10, rx * 0.28)}px system-ui, sans-serif`;
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.fillText("⌖", fx0, fy0);
+        c.restore();
+      }
+
       // --- radar sweep during contact ---------------------------------------
       // Tactical only — zoomed in it would sit off-frame and read as noise.
-      if (fx.sweepOn && cam.zoom < 1.5) {
+      if (fx.sweepOn && cam.zoom < WORLD_FIT_ZOOM * 2.25) {
         c.save();
         c.translate(w / 2, h / 2);
         c.rotate(fx.sweep);
@@ -781,9 +1219,13 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
 
       const drawUnit = (u: SceneUnit) => {
         if (!ui.vectorsOn[u.vector]) return;
+        // Scout gamble: the enemy disposition stays HIDDEN until the flyby
+        // completes — on a shoot-down the player deploys blind and meets
+        // them at first contact. Terrain still renders (mapped from the air).
+        if (u.side === "defender" && scoutRef.current !== "revealed") return;
         const x = X(u.x);
         const y = Y(u.y);
-        const r = Math.max(7, s * 0.022) * (u.kind === "thunder" ? 1.7 : u.kind === "dropship" ? 2.2 : 1);
+        const r = Math.max(10, s * 0.022) * (u.kind === "thunder" ? 1.7 : u.kind === "dropship" ? 2.2 : 1);
         // Staging: ghost at muster, with a side-colored dashed ring so you
         // know whose muster it is at a glance.
         if (u.state === "staging") {
@@ -881,6 +1323,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       c.save();
       for (const u of unitsRef.current) {
         if (u.state !== "dead" || !ui.vectorsOn[u.vector]) continue;
+        if (u.side === "defender" && scoutRef.current !== "revealed") continue;
         const wx = X(u.x);
         const wy = Y(u.y);
         c.fillStyle = "rgba(0,0,0,0.45)";
@@ -902,6 +1345,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       if (ui.turretsOn) {
         for (const tr of turretsRef.current) {
           if (tr.hp01 <= 0) continue;
+          if (tr.side === "defender" && scoutRef.current !== "revealed") continue;
           const x = X(tr.x);
           const y = Y(tr.y);
           const r = Math.max(10, s * 0.03);
@@ -1020,16 +1464,75 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       }
       c.restore();
 
+      // --- scout flyby: the approach-phase intel sweep -----------------------
+      // A fast streak over the enemy (north) half during the approach. On a
+      // shoot-down the visual ends in a flak burst + falling streak at the
+      // kill point — then nothing: the disposition stays hidden.
+      {
+        const sc = scoutRef.current;
+        const t = simTRef.current;
+        if (sc === "flying") {
+          const p = Math.min(1, Math.max(0, (t - FLYBY_START_S) / (REVEAL_S - FLYBY_START_S)));
+          const sx = 0.75 + 0.35 * Math.sin(p * Math.PI * 2);
+          const sy = 1.35 - p * 1.15;
+          const px = X(sx);
+          const py = Y(sy);
+          c.save();
+          c.strokeStyle = "rgba(165,243,252,0.85)";
+          c.lineWidth = 2.5;
+          c.beginPath();
+          c.moveTo(px - 46, py + 30);
+          c.lineTo(px, py);
+          c.stroke();
+          c.fillStyle = "#ecfeff";
+          c.beginPath(); c.arc(px, py, 4, 0, Math.PI * 2); c.fill();
+          c.fillStyle = "rgba(165,243,252,0.9)";
+          c.font = "700 10px system-ui, sans-serif";
+          c.textAlign = "left";
+          c.textBaseline = "middle";
+          c.fillText("SCOUT", px + 8, py - 8);
+          c.restore();
+        } else if (sc === "lost" && t < SHOOTDOWN_S + 4) {
+          // Falling debris after the flak kill.
+          const kp = (SHOOTDOWN_S - FLYBY_START_S) / (REVEAL_S - FLYBY_START_S);
+          const kx = 0.75 + 0.35 * Math.sin(kp * Math.PI * 2);
+          const ky = 1.35 - kp * 1.15;
+          const fp = Math.min(1, (t - SHOOTDOWN_S) / 4);
+          const dx0 = X(kx + fp * 0.12);
+          const dy0 = Y(ky + fp * 0.35);
+          c.save();
+          c.strokeStyle = `rgba(248,113,113,${1 - fp})`;
+          c.lineWidth = 3;
+          c.beginPath();
+          c.moveTo(X(kx), Y(ky));
+          c.lineTo(dx0, dy0);
+          c.stroke();
+          c.fillStyle = `rgba(254,205,211,${1 - fp})`;
+          c.beginPath(); c.arc(dx0, dy0, 4, 0, Math.PI * 2); c.fill();
+          c.fillStyle = `rgba(248,113,113,${1 - fp * 0.7})`;
+          c.font = "700 10px system-ui, sans-serif";
+          c.textAlign = "left";
+          c.textBaseline = "middle";
+          c.fillText("SCOUT LOST", dx0 + 8, dy0 - 8);
+          c.restore();
+        }
+      }
+
       // --- order ping: the accepted order, drawn then fading ----------------
       // Dashed path from the squad's old centroid to the destination plus a
       // pulsing gold ring on the objective. The order READS on the map.
       const ping = orderPingRef.current;
       if (ping) {
-        const age = simTRef.current - ping.born; // sim seconds — slows with battle speed
-        const plife = Math.max(0, 1 - age / 3);
+        const t = simTRef.current;
+        // "acknowledged/plotting" → "moving": while the command delay runs,
+        // the ping is dim amber and dashed; once the squad steps off it goes
+        // bright. The ping lives until a few seconds after step-off.
+        const plotting = t < ping.atS;
+        const age = Math.max(0, t - ping.atS);
+        const plife = Math.max(0, 1 - age / 4);
         if (plife > 0) {
           c.save();
-          c.globalAlpha = plife;
+          c.globalAlpha = plotting ? 0.35 : plife;
           c.strokeStyle = "rgba(255,255,255,0.85)";
           c.lineWidth = 1.5;
           c.setLineDash([8, 6]);
@@ -1039,9 +1542,51 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           c.stroke();
           c.setLineDash([]);
           const pr = s * 0.032 * (1 + 0.25 * Math.sin(Date.now() / 150));
-          c.strokeStyle = "#fbbf24";
+          c.strokeStyle = plotting ? "#f59e0b" : "#fbbf24";
+          if (plotting) c.setLineDash([4, 3]);
           c.lineWidth = 2.5;
           c.beginPath(); c.arc(X(ping.x), Y(ping.y), pr, 0, Math.PI * 2); c.stroke();
+          c.restore();
+        }
+      }
+
+      // --- Longeye movement report: highlight + direction arrow -------------
+      // The reported squad pulses amber; the arrow is a fixed-length
+      // direction vector — the moving squad + its direction, never a perfect
+      // destination readout.
+      {
+        const t = simTRef.current;
+        const hl = highlightRef.current;
+        if (hl && t < hl.until) {
+          const pulse = 1 + 0.2 * Math.sin(Date.now() / 180);
+          c.save();
+          c.strokeStyle = "rgba(251,191,36,0.95)";
+          c.lineWidth = 2.5;
+          for (const u of hl.units) {
+            if (u.state === "dead") continue;
+            const hr = Math.max(12, s * 0.026) * pulse;
+            c.beginPath(); c.arc(X(u.x), Y(u.y), hr, 0, Math.PI * 2); c.stroke();
+          }
+          c.restore();
+        }
+        const ar = arrowRef.current;
+        if (ar && t < ar.until) {
+          const ax = X(ar.x);
+          const ay = Y(ar.y);
+          const bx = X(ar.x + ar.dx);
+          const by = Y(ar.y + ar.dy);
+          c.save();
+          c.strokeStyle = "rgba(251,191,36,0.95)";
+          c.fillStyle = "rgba(251,191,36,0.95)";
+          c.lineWidth = 3;
+          c.beginPath(); c.moveTo(ax, ay); c.lineTo(bx, by); c.stroke();
+          const ang = Math.atan2(by - ay, bx - ax);
+          const hl2 = 12;
+          c.beginPath();
+          c.moveTo(bx, by);
+          c.lineTo(bx - hl2 * Math.cos(ang - 0.4), by - hl2 * Math.sin(ang - 0.4));
+          c.lineTo(bx - hl2 * Math.cos(ang + 0.4), by - hl2 * Math.sin(ang + 0.4));
+          c.closePath(); c.fill();
           c.restore();
         }
       }
@@ -1080,8 +1625,19 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         c.font = "700 9px system-ui, sans-serif";
         c.textAlign = "center";
         c.textBaseline = "middle";
+        // Zoom-aware label density (owner 2026-10-06): declutter when zoomed
+        // out (every 6th unit), thin the middle (every 3rd), full labels when
+        // zoomed in — a big battle stays readable on a narrow phone. Engaged
+        // units and the selected squad always label: the fight is the point.
+        const fitZ = WORLD_FIT_ZOOM * (ground ? 3.2 : 1);
+        const stride = cam.zoom < fitZ * 1.15 ? 6 : cam.zoom < fitZ * 1.9 ? 3 : 1;
+        let li = 0;
         for (const u of unitsRef.current) {
           if (!ui.vectorsOn[u.vector]) continue;
+          if (u.side === "defender" && scoutRef.current !== "revealed") continue;
+          const idx = li++;
+          const selSquad = ui.selectedSquadId === u.squadId;
+          if (stride > 1 && idx % stride !== 0 && u.state !== "engaged" && !selSquad) continue;
           const sx = (u.x - cam.ax) * cam.zoom * w + w / 2;
           const sy = (u.y - cam.ay) * cam.zoom * cam.ysq * h + h * cam.fy;
           if (sx < -70 || sx > w + 70 || sy < -40 || sy > h + 40) continue;
@@ -1154,7 +1710,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         c.save();
         c.textAlign = "center";
         c.textBaseline = "middle";
-        const vtext = `${vname.toUpperCase()} HOLDS THE FIELD`;
+        const vtext = clockFailRef.current
+          ? "⏱ THE DEFENSE HELD — RAID FAILED"
+          : `${vname.toUpperCase()} HOLDS THE FIELD`;
         c.font = "800 24px system-ui, sans-serif";
         const vw = c.measureText(vtext).width + 64;
         c.fillStyle = "rgba(0,0,0,0.62)";
@@ -1281,10 +1839,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       cam.pox = Math.max(-0.18, Math.min(0.18, cam.pox - dxCss / (ez * w)));
       cam.poy = Math.max(-0.18, Math.min(0.18, cam.poy - dyCss / (ez * cam.ysq * h)));
     } else {
-      const halfW = 0.5 / ez;
-      const halfH = 0.5 / (ez * cam.ysq);
-      cam.uax = clampAnchor(cam.uax - dxCss / (ez * w), halfW);
-      cam.uay = clampAnchor(cam.uay - dyCss / (ez * cam.ysq * h), halfH);
+      const halfW = WORLD_W / 2 / ez;
+      const halfH = WORLD_H / 2 / (ez * cam.ysq);
+      cam.uax = clampAnchor(cam.uax - dxCss / (ez * w), halfW, WORLD_W, WORLD_CX);
+      cam.uay = clampAnchor(cam.uay - dyCss / (ez * cam.ysq * h), halfH, WORLD_H, WORLD_CY);
       cam.ax = cam.uax;
       cam.ay = cam.uay;
     }
@@ -1305,14 +1863,27 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     setZoomLevel(newUz);
     if (!ground) {
       // Keep the focal world point under the cursor — no drift while zooming.
-      const newEz = newUz; // tactical modeZoom = 1
-      const halfW = 0.5 / newEz;
-      const halfH = 0.5 / (newEz * cam.ysq);
-      cam.uax = clampAnchor(wxx - (fxCss - w / 2) / (newEz * w), halfW);
-      cam.uay = clampAnchor(wyy - (fyCss - h * cam.fy) / (newEz * cam.ysq * h), halfH);
+      const newEz = newUz; // tactical modeZoom = WORLD_FIT_ZOOM
+      const halfW = WORLD_W / 2 / newEz;
+      const halfH = WORLD_H / 2 / (newEz * cam.ysq);
+      cam.uax = clampAnchor(wxx - (fxCss - w / 2) / (newEz * w), halfW, WORLD_W, WORLD_CX);
+      cam.uay = clampAnchor(wyy - (fyCss - h * cam.fy) / (newEz * cam.ysq * h), halfH, WORLD_H, WORLD_CY);
       cam.ax = cam.uax;
       cam.ay = cam.uay;
     }
+  };
+
+  /** Post a field report: a comms bubble AND a log entry — no alert is ever
+   *  lost. The bubble persists until the commander taps it (confirmed read).
+   *  Critical alerts pulse and carry the alert ping; routine comms get a
+   *  softer blip. Both respect mute (the sfx live-gate). */
+  const postComms = (kind: CommsEventKind, detail: string) => {
+    const spec = commsFor(kind, detail);
+    const id = commsIdRef.current++;
+    setComms((prev) => pushBubble(prev, { id, source: spec.source, message: spec.message, critical: spec.critical, atS: simTRef.current }));
+    logOrder({ squadName: spec.source, dest: "—", verdict: "accepted", reason: spec.message });
+    if (spec.critical) battleSfx.ping();
+    else battleSfx.blip();
   };
 
   /** Issue a click-to-command move order: judge it against the doctrine,
@@ -1321,7 +1892,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     const squadUnits = unitsRef.current.filter((u) => u.squadId === squadId && u.state !== "dead");
     const squad = buildSquads(unitsRef.current).find((s) => s.id === squadId);
     const name = squad ? squad.name : squadId;
-    const dest = { x: Math.max(0.05, Math.min(0.95, dx)), y: Math.max(0.05, Math.min(0.95, dy)) };
+    const dest = { x: clampWorldX(dx), y: clampWorldY(dy) };
     const verdict = judgeMoveOrder(squadUnits, dest);
     logOrder({
       squadName: name,
@@ -1336,18 +1907,18 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       return;
     }
     battleSfx.orderAccepted();
-    // Accepted: the squad moves, holding formation around its centroid.
+    // Accepted: the squad acknowledges, plots for ORDER_DELAY_S sim-seconds,
+    // then steps off — the order READS as "acknowledged/plotting" → "moving".
+    // Symmetric with AI moves (the engine waits the same delay).
     let cx = 0;
     let cy = 0;
     for (const u of squadUnits) { cx += u.x; cy += u.y; }
     cx /= squadUnits.length;
     cy /= squadUnits.length;
     for (const u of squadUnits) {
-      u.tx = Math.max(0.06, Math.min(0.94, dest.x + (u.x - cx)));
-      u.ty = Math.max(0.06, Math.min(0.94, dest.y + (u.y - cy)));
-      if (u.state === "holding" || u.state === "advancing") u.state = "advancing";
+      stampOrder(u, clampWorldX(dest.x + (u.x - cx)), clampWorldY(dest.y + (u.y - cy)), simTRef.current);
     }
-    orderPingRef.current = { x: dest.x, y: dest.y, fx: cx, fy: cy, born: simTRef.current };
+    orderPingRef.current = { x: dest.x, y: dest.y, fx: cx, fy: cy, born: simTRef.current, atS: simTRef.current + ORDER_DELAY_S };
   };
 
   /** Tap: gunner view → click an enemy to target; your turret → take the
@@ -1485,7 +2056,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     <>
       <span className="text-amber-400">{scene.attackerName}</span>
       <span className="mx-1.5 text-zinc-600">vs</span>
-      <span className="text-rose-400">{scene.defenderName}</span>
+      {/* Grade intel is scout-gated: until the flyby reveals the disposition
+          the enemy reads only as "Chorus Garrison". */}
+      <span className="text-rose-400">{revealed ? scene.defenderName : "Chorus Garrison"}</span>
     </>
   );
 
@@ -1609,6 +2182,60 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           aria-label="Battle scene tactical map"
         />
         {gunnerOverlay}
+        {/* battle comms — persistent conversation bubbles (owner 2026-10-06):
+            source tag + message, phone-thumb-tappable, stacked top-edge down
+            so they never cover the fighting. A bubble stays up until tapped —
+            the tap is the confirmed read, and it dismisses into the log. */}
+        {(() => {
+          const v = commsView(comms);
+          if (v.unread === 0) return null;
+          return (
+            <div
+              className="pointer-events-none absolute inset-x-0 top-2 z-20 flex flex-col items-center gap-1.5 px-3"
+              aria-live="polite"
+              aria-label="Battle comms"
+            >
+              <div className="flex items-center gap-1.5 rounded-full border border-white/15 bg-black/70 px-2.5 py-1">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">Comms</span>
+                <span
+                  className="rounded-full bg-amber-400 px-1.5 text-[10px] font-bold tabular-nums text-black"
+                  data-testid="comms-unread-badge"
+                >
+                  {v.unread}
+                </span>
+              </div>
+              {v.shown.map((b) => (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => setComms((prev) => dismissBubble(prev, b.id))}
+                  data-testid={`comms-bubble-${b.id}`}
+                  aria-label={`${b.source}: ${b.message}. Tap to confirm read.`}
+                  className={`pointer-events-auto w-full max-w-[420px] rounded-xl border px-3 py-2.5 text-left shadow-lg backdrop-blur transition active:scale-[0.98] ${
+                    b.critical
+                      ? "animate-pulse border-amber-400/70 bg-amber-950/85"
+                      : "border-white/15 bg-black/70"
+                  }`}
+                >
+                  <span
+                    className={`block text-[10px] font-bold uppercase tracking-[0.18em] ${
+                      b.critical ? "text-amber-300" : "text-cyan-300"
+                    }`}
+                  >
+                    {b.source}
+                  </span>
+                  <span className="block text-[13px] leading-snug text-zinc-100">{b.message}</span>
+                  <span className="mt-0.5 block text-[10px] text-zinc-500">tap to confirm ✓</span>
+                </button>
+              ))}
+              {v.overflow > 0 && (
+                <div className="rounded-full border border-white/15 bg-black/70 px-3 py-1 text-[11px] font-bold text-zinc-300">
+                  +{v.overflow} more
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <BattleLegend />
       </div>
 

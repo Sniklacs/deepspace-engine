@@ -31,7 +31,7 @@ export const TROOP_TIERS: readonly TroopTier[] = [1, 2, 3, 4] as const;
 export const TROOP_JOBS: Record<TroopType, string> = {
   bulwark: "Frontline · holds ground, absorbs casualties",
   reaver: "Assault · shock attacks, breaks lines",
-  longeye: "Precision · ranged denial, picks targets",
+  longeye: "Eyes of the army · reports enemy squad movements mid-motion — but only in its own sector: put Longeyes on the flanks and in the rear, or those vectors stay blind",
   thunder: "Siege · breaks walls (counts double)",
   warden: "Engine · escorts, shields, logistics",
 };
