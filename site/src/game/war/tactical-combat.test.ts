@@ -273,3 +273,85 @@ describe("morale and routing", () => {
     expect(b.status).toBe("defender_won");
   });
 });
+
+// ============================================================================
+// TROOP TIERS (owner 2026-10-05): tier-weighted battle power.
+// ============================================================================
+import {
+  moveTierMix,
+  scaleTierMix,
+  tieredTypePower,
+  vectorPower,
+  type TacticalVectorState,
+} from "./tactical-combat";
+
+describe("tier-weighted battle power", () => {
+  test("vectorPower reads T1 without a tierMix (legacy/Chorus ghosts)", () => {
+    const v: TacticalVectorState = {
+      troops: { bulwark: 100 },
+      morale: 100, routed: false, fortified: false, fortLevel: 0,
+    };
+    expect(vectorPower(v)).toBe(100); // 100 × weight 1 × power 1
+  });
+  test("tierMix weights power by tier — T4s hit 3.2x", () => {
+    const v: TacticalVectorState = {
+      troops: { reaver: 100 },
+      tierMix: { reaver: { 2: 50, 4: 50 } },
+      morale: 100, routed: false, fortified: false, fortLevel: 0,
+    };
+    // 50 × 1.5 + 50 × 3.2 = 75 + 160 = 235
+    expect(vectorPower(v)).toBeCloseTo(235, 6);
+  });
+  test("tieredTypePower covers headcount missing from the mix as T1", () => {
+    expect(tieredTypePower("bulwark", 100, { 4: 60 })).toBeCloseTo(60 * 3.2 + 40 * 1, 6);
+  });
+  test("thunder's double weight stacks with its tier", () => {
+    expect(tieredTypePower("thunder", 10, { 3: 10 })).toBeCloseTo(10 * 2 * 2.2, 6);
+  });
+  test("scaleTierMix pro-rates the mix when troops die", () => {
+    const v: TacticalVectorState = {
+      troops: { bulwark: 100 },
+      tierMix: { bulwark: { 1: 60, 4: 40 } },
+      morale: 100, routed: false, fortified: false, fortLevel: 0,
+    };
+    scaleTierMix(v, "bulwark", 100, 50);
+    const mix = v.tierMix?.bulwark ?? {};
+    expect((mix[1] ?? 0) + (mix[4] ?? 0)).toBe(50);
+    expect(mix[1] ?? 0).toBeGreaterThan(28); // ~30 of 50
+    expect(mix[4] ?? 0).toBeLessThan(22);    // ~20 of 50
+  });
+  test("moveTierMix shifts a proportional slice between vectors", () => {
+    const from: TacticalVectorState = {
+      troops: { reaver: 100 },
+      tierMix: { reaver: { 2: 60, 3: 40 } },
+      morale: 100, routed: false, fortified: false, fortLevel: 0,
+    };
+    const to: TacticalVectorState = {
+      troops: {},
+      morale: 100, routed: false, fortified: false, fortLevel: 0,
+    };
+    moveTierMix(from, to, "reaver", 50);
+    const f = from.tierMix?.reaver ?? {};
+    const d = to.tierMix?.reaver ?? {};
+    expect((f[2] ?? 0) + (f[3] ?? 0)).toBe(50);
+    expect((d[2] ?? 0) + (d[3] ?? 0)).toBe(50);
+  });
+  test("startTacticalBattle accepts deploymentTiers and weights attacker power", () => {
+    const b = makeBattle({
+      battleId: "tiers-1",
+      deployment: { MAIN: { bulwark: 100 } as Partial<Record<TroopType, number>> },
+      deploymentTiers: { MAIN: { bulwark: { 4: 100 } } },
+      defenderTroops: 100,
+    });
+    const v = b.attacker.vectors.MAIN;
+    expect(v.tierMix?.bulwark?.[4]).toBe(100);
+    expect(vectorPower(v)).toBeCloseTo(320, 6); // 100 × 1 × 3.2
+    // Same battle without tiers fights at T1 power.
+    const plain = makeBattle({
+      battleId: "tiers-2",
+      deployment: { MAIN: { bulwark: 100 } as Partial<Record<TroopType, number>> },
+      defenderTroops: 100,
+    });
+    expect(vectorPower(plain.attacker.vectors.MAIN)).toBe(100);
+  });
+});

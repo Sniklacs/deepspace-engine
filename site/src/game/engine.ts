@@ -12,6 +12,9 @@ import {
   getRevelation,
   ARMORY_TREE,
   getArmoryTech,
+  MUSTER_TIER_TREE,
+  getMusterTech,
+  isMusterTech,
 } from "./research";
 import {
   DAILY_XP_CAP,
@@ -96,6 +99,7 @@ import { ensureArena, expireArenaChallenges, resolveArenaBattles } from "./war/a
 import { ensureDuels, expireDuels, resolveDuelBattles } from "./war/duels";
 import {
   advanceTroopHome,
+  backfillTiers,
   emptyTroopHome,
   addCohort,
   removeTroopsNewestFirst,
@@ -931,6 +935,10 @@ export function ensureTroops(state: GameState, now: number): void {
   if (!state.troops.home) state.troops.home = emptyTroopHome(now);
   if (!Array.isArray(state.troops.bands)) state.troops.bands = [];
   if (!Array.isArray(state.troops.history)) state.troops.history = [];
+  if (!Array.isArray(state.troops.home.musterQueue)) state.troops.home.musterQueue = [];
+  // Tier migration (owner 2026-10-05): cohorts and muster orders saved before
+  // troop tiers existed read as T1. Idempotent.
+  backfillTiers(state.troops.home.roster, state.troops.home.musterQueue);
 }
 
 export function ensureForwardBases(state: GameState, now: number): void {
@@ -2150,6 +2158,10 @@ function resolveResearch(state: GameState, j: ResearchJob, now: number) {
     resolveArmoryTech(state, j, now);
     return;
   }
+  if (isMusterTech(j.techId)) {
+    resolveMusterTech(state, j, now);
+    return;
+  }
   if (isSatelliteTech(j.techId)) {
     resolveSatelliteTech(state, j, now);
     return;
@@ -2819,6 +2831,7 @@ export function beginResearch(state: GameState, techId: string, leaderId: string
   // domain, no deployedDomains key), gated by silent thresholds only.
   if (isRevelationId(techId)) return beginRevelation(state, techId, leaderId, now);
   if (isArmoryTech(techId)) return beginArmoryResearch(state, techId, leaderId, now);
+  if (isMusterTech(techId)) return beginMusterResearch(state, techId, leaderId, now);
   if (isSatelliteTech(techId)) return beginSatelliteResearch(state, techId, leaderId, now);
   if (isScoutProbeTech(techId)) return beginScoutProbeResearch(state, techId, leaderId, now);
   const tech = getTech(techId);
@@ -2879,6 +2892,7 @@ export function beginRevelation(state: GameState, revId: string, leaderId: strin
 function getTechSafe(techId: string): string {
   if (isRevelationId(techId)) return getRevelation(techId).name;
   if (isArmoryTech(techId)) return getArmoryTech(techId).name;
+  if (isMusterTech(techId)) return getMusterTech(techId).name;
   if (isSatelliteTech(techId)) {
     const p = parseSatelliteTech(techId)!;
     return `🛰️ ${p.nodeId} satellite — stage ${p.stage}`;
@@ -2923,6 +2937,80 @@ export function armoryBuildsInFlight(state: GameState): number {
 /** Free forge slots on the colony (0 = both committed; a new build is refused). */
 export function armorySlotsFree(state: GameState): number {
   return Math.max(0, ARMORY_BUILD_SLOTS - armoryBuildsInFlight(state));
+}
+
+/** True for the Muster tier-line ids (muster_1/2/3 — unlock T2/T3/T4 troops). */
+export function isMusterTechId(techId: string): boolean {
+  return isMusterTech(techId);
+}
+
+/** Is a Muster tier tech currently being researched by any Leader? */
+export function musterTechInProgress(state: GameState, techId: string): boolean {
+  return state.researchJobs.some((j) => j.techId === techId && j.status === "researching");
+}
+
+/** A Muster tier tech is researchable when its predecessor is done:
+ *  muster_1 is always open; muster_2 needs muster_1; muster_3 needs muster_2. */
+export function musterTechAvailable(state: GameState, techId: string): boolean {
+  if (!isMusterTech(techId)) return false;
+  if (state.techsResearched.includes(techId)) return false;
+  const idx = MUSTER_TIER_TREE.findIndex((t) => t.id === techId);
+  if (idx <= 0) return true;
+  const prev = MUSTER_TIER_TREE[idx - 1];
+  return state.techsResearched.includes(prev.id) && !musterTechInProgress(state, prev.id);
+}
+
+/** Research duration for a Muster tier tech given the appointed Leader (same
+ *  shape as the Armory line: only the research attribute shortens it). */
+export function musterResearchDurationMs(state: GameState, techId: string, leader: Leader): number {
+  const base = getMusterTech(techId).durationMs;
+  const skill = 1 - leader.attributes.research * 0.04;
+  return timerFloor(base, base * skill * studySpeedMult(state));
+}
+
+/** Appoint a Leader to research a Muster tier node. Costs Codices; flows
+ *  through the same job shape as the tree, resolving into techsResearched
+ *  via resolveMusterTech. */
+export function beginMusterResearch(state: GameState, techId: string, leaderId: string, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
+  const node = getMusterTech(techId);
+  if (!node) return fail("Unknown research project.");
+  if (state.techsResearched.includes(techId)) return fail(`${node.name} is already researched.`);
+  if (musterTechInProgress(state, techId)) return fail(`${node.name} is already being researched.`);
+  if (!musterTechAvailable(state, techId)) {
+    const idx = MUSTER_TIER_TREE.findIndex((t) => t.id === techId);
+    const prev = idx > 0 ? getMusterTech(MUSTER_TIER_TREE[idx - 1].id).name : null;
+    return fail(prev ? `Research ${prev} first — the tiers unlock in order.` : `${node.name} is not available yet.`);
+  }
+  if (state.codices < node.codicesCost) return fail(`${node.name} needs ${node.codicesCost} 📜 Codices. You have ${state.codices} — earn more through clean recoveries and deeds.`);
+  const leader = state.leaders.find((l) => l.id === leaderId);
+  if (!leader) return fail("That Leader isn't in your Council.");
+  if (leader.status !== "active") return fail(leader.status === "lost" ? `${leader.name} is lost.` : `${leader.name} is recovering and cannot oversee drills.`);
+  if (leader.assignment) return fail(`${leader.name} is already overseeing ${getTechSafe(leader.assignment)}.`);
+  const durationMs = musterResearchDurationMs(state, techId, leader);
+  state.codices -= node.codicesCost;
+  const id = "rs-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+  state.researchJobs.push({ id, techId, leaderId, startedAt: now, durationMs, status: "researching" });
+  leader.assignment = techId;
+  leader.history.push(`Appointed to research ${node.name}`);
+  log(state, `📜 ${leader.name} appointed to research ${node.icon} ${node.name} (${node.codicesCost} 📜).`);
+  pruneCompleted(state);
+  return { ok: true, state };
+}
+
+/** Resolve a completed Muster tier research job: unlock the tech, free the
+ *  Leader, award the standard research XP. No breakthrough roll — the muster
+ *  line has no specialty to align (same carve-out as the forge line). */
+function resolveMusterTech(state: GameState, j: ResearchJob, now: number) {
+  const node = getMusterTech(j.techId);
+  const leader = state.leaders.find((l) => l.id === j.leaderId)!;
+  if (leader) {
+    leader.assignment = null;
+    leader.history.push(`Researched ${node.name} (muster tiers)`);
+  }
+  if (!state.techsResearched.includes(j.techId)) state.techsResearched.push(j.techId);
+  log(state, `📜 ${leader ? leader.name : "A leader"} researched ${node.icon} ${node.name}. ${node.effect}.`);
+  if (leader) researchXp(state, leader, false, now);
+  noteDailyEvent(state, "research_complete", now);
 }
 
 /** True for the Armory research-line ids (hub / 5 families / plasma refinement). */

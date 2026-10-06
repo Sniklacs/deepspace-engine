@@ -774,7 +774,7 @@ function PlayPage() {
         />
       )}
       {/* BARRACKS (owner 2026-10-04): the dedicated troop-building page — one module, one page. */}
-      {tab === "troops" && <TroopsTab state={state} now={now} onMuster={(type, count) => act(() => musterTroopsFn({ data: { token: token!, type, count } }), "muster")} />}
+      {tab === "troops" && <TroopsTab state={state} now={now} onMuster={(type, count, tier) => act(() => musterTroopsFn({ data: { token: token!, type, count, tier: tier ?? 1 } }), "muster")} />}
       {/* The arena is a permanent fixture — its own tab, not war-gated (owner 2026-10-01). */}
       {tab === "arena" && (
         <ArenaPanel

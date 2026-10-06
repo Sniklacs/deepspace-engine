@@ -143,6 +143,35 @@ export function getArmoryTech(id: string): ArmoryTech {
   return ARMORY_TREE.find((t) => t.id === id)!;
 }
 
+// ---- the Muster tier line (troop tiers T1–T4, owner 2026-10-05) ----
+// Standalone nodes on the ArmoryTech shape: sequential chain, each unlocks
+// mustering that troop tier. T1 needs no research — it's the muster floor.
+// The seed grants these to QA accounts; everyone else researches them in
+// the Lab like the Armory line.
+export interface MusterTech {
+  id: string;
+  icon: string;
+  name: string;
+  description: string;
+  effect: string;
+  codicesCost: number;
+  durationMs: number;
+  /** The troop tier this node unlocks. */
+  unlocksTier: 2 | 3 | 4;
+}
+export const MUSTER_TIER_TREE: MusterTech[] = [
+  { id: "muster_1", icon: "🎖️", name: "Advanced Drills", description: "Drill sergeants who forge recruits into professionals.", effect: "Unlocks Tier 2 troops", codicesCost: 8, durationMs: 90_000, unlocksTier: 2 },
+  { id: "muster_2", icon: "🏅", name: "Veteran Cadres", description: "Cadres of blooded soldiers who teach the hard lessons.", effect: "Unlocks Tier 3 troops", codicesCost: 15, durationMs: 180_000, unlocksTier: 3 },
+  { id: "muster_3", icon: "👑", name: "Elite Phalanx", description: "The finest soldiers your colony can produce. Legends start here.", effect: "Unlocks Tier 4 troops", codicesCost: 25, durationMs: 300_000, unlocksTier: 4 },
+];
+
+export function getMusterTech(id: string): MusterTech {
+  return MUSTER_TIER_TREE.find((t) => t.id === id)!;
+}
+export function isMusterTech(techId: string): boolean {
+  return MUSTER_TIER_TREE.some((t) => t.id === techId);
+}
+
 // ---- leaders (named colonists — earned, not gacha, never purchasable) ----
 // Starter roster covers 3 of the 5 specialty lines (limited slots → a tradeoff
 // about who to develop). More leaders join through deeds/rescue, not purchase.

@@ -118,6 +118,63 @@ export function ResearchTreeView({ state, now, onBeginResearch, onBuildProbe, on
             </div>
           </div>
         )}
+        {/* MUSTER TIERS (owner 2026-10-05) — the troop-tier line. T2/T3/T4 troops
+            muster only after their node is researched, in order. Routes through
+            onBeginResearch with the muster tech id; the engine's
+            beginMusterResearch handles it. */}
+        {engineHelpers.musterTree.length > 0 && (
+          <div className="mt-4 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold text-emerald-200">🎖️ Troop Tiers <span className="text-xs font-normal text-gray-400">— stronger soldiers, mustered in the Barracks</span></h4>
+              <span className="text-[11px] text-text-3">T1 is always available · unlock T2, T3, T4 in order</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {engineHelpers.musterTree.map((node) => {
+                const done = engineHelpers.hasTech(state, node.id);
+                const inProg = engineHelpers.musterInProgress(state, node.id);
+                const available = engineHelpers.musterAvailable(state, node.id);
+                const job = inProg ? state.researchJobs.find((j) => j.techId === node.id && j.status === "researching") ?? null : null;
+                const leaderOnIt = job ? state.leaders.find((l) => l.id === job.leaderId) ?? null : null;
+                return (
+                  <div key={node.id} className={`w-56 rounded-lg border p-2.5 ${done ? "border-emerald-400/50 bg-emerald-400/10" : inProg ? "border-purple-400/40 bg-purple-400/10" : available ? "border-emerald-400/40 bg-emerald-400/5" : "border-white/10 bg-black/30 opacity-80"}`}>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className={`text-sm font-semibold ${done ? "text-emerald-300" : "text-white"}`}>{node.icon} {node.name}</span>
+                      {done ? <span className="text-xs text-emerald-300">✓</span> : <span className="text-xs text-purple-300">{node.codicesCost} 📜</span>}
+                    </div>
+                    <p className="mt-1 text-[11px] text-gray-400">{node.description}</p>
+                    <p className="mt-1 text-[11px] font-medium text-emerald-200">Effect: {node.effect}</p>
+                    {!done && !inProg && !available && (
+                      <p className="mt-1 text-[11px] text-text-3">🔒 Research the previous tier's drills first.</p>
+                    )}
+                    {inProg && leaderOnIt && job && (
+                      <>
+                        <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
+                          <span>🫂 {leaderName(t, leaderOnIt)}</span>
+                          <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
+                        </div>
+                        <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-purple-400" style={{ width: `${Math.min(100, ((now - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
+                      </>
+                    )}
+                    {done && <p className="mt-1 text-xs text-emerald-400/80">{t("rviews.researched", "Researched")}</p>}
+                    {!done && !inProg && available && (
+                      <div className="mt-2">
+                        {state.codices < node.codicesCost ? (
+                          <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: node.codicesCost })}</div>
+                        ) : freeLeaders.length === 0 ? (
+                          <div className="text-[11px] text-text-3">{t("rviews.noFreeLeader", "No free Leader")}</div>
+                        ) : (
+                          <button onClick={() => { sound.click(); onBeginResearch(node.id, freeLeaders[0].id); }} className="w-full rounded bg-white/10 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:bg-white/20">
+                            {t("rviews.appointLeader", "Appoint {name}", { name: freeLeaders[0].name })}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {/* ORBITAL WATCH (design/satellites.md) — the restoration line. Satellites
             wake ONE BY ONE through the same research-job shape as the tree, but
             the climbs are NEVER accelerable and never count toward research

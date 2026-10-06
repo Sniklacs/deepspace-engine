@@ -91,7 +91,12 @@ export function tierPowerMult(tier: number): number {
 export function tierUnlocked(techsResearched: string[], tier: number): boolean {
   if (!isTroopTier(tier)) return false;
   if (tier === 1) return true;
-  return techsResearched.includes(TROOPS_CONFIG.tierUnlockTech[tier]);
+  // The muster line is a chain: tier N needs every earlier tier's research.
+  for (const t of TROOP_TIERS) {
+    if (t === 1 || t > tier) continue;
+    if (!techsResearched.includes(TROOPS_CONFIG.tierUnlockTech[t])) return false;
+  }
+  return true;
 }
 /** Human label for the research gate of a tier (null when always open). */
 export function tierGateLabel(tier: number): string | null {

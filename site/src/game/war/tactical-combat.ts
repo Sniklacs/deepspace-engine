@@ -93,8 +93,8 @@
 // raid.tacticalBattle) and persist it — rounds resolve via resolveRound().
 
 import type { ManeuverVector } from "./war-types";
-import type { TroopType } from "./troops";
-import { supplyWeight } from "./troops";
+import type { TroopType, TroopTier } from "./troops";
+import { supplyWeight, tierPowerMult } from "./troops";
 import type { Specialty } from "../types";
 import { leaderVectorMult, leaderHoldReduction } from "../leader-roles";
 
@@ -176,12 +176,70 @@ export type OrdersMap = Partial<Record<ManeuverVector, VectorOrder>>;
 
 export interface TacticalVectorState {
   troops: Partial<Record<TroopType, number>>;
+  /** Tier breakdown per type (owner 2026-10-05): when present, power is
+   *  tier-weighted via TROOP_TIER_POWER_MULT; when absent, troops read as
+   *  T1 (legacy / Chorus ghost numbers). */
+  tierMix?: Partial<Record<TroopType, Partial<Record<TroopTier, number>>>>;
   morale: number; // 0–100
   routed: boolean;
   fortified: boolean; // defender only, meaningful
   /** Damage reduction from fortifications (0–1). Set at setup from
    *  TACTICAL_CONFIG.fortification; thunder ignores half of it. */
   fortLevel: number;
+}
+
+/** Tier-weighted supply power of one troop type's headcount. */
+export function tieredTypePower(
+  type: TroopType,
+  count: number,
+  tierMix?: Partial<Record<TroopTier, number>>,
+): number {
+  const w = supplyWeight(type);
+  if (!tierMix) return count * w;
+  let p = 0;
+  let accounted = 0;
+  for (const [tierStr, n] of Object.entries(tierMix)) {
+    const tier = Number(tierStr) as TroopTier;
+    const c = n ?? 0;
+    accounted += c;
+    p += c * w * tierPowerMult(tier);
+  }
+  // Any headcount not covered by the mix reads as T1.
+  if (accounted < count) p += (count - accounted) * w;
+  return p;
+}
+
+/** Move a proportional slice of a type's tier mix from one vector to another
+ *  (reinforce orders). Keeps both sides' tier-weighted power honest. */
+export function moveTierMix(
+  from: TacticalVectorState,
+  to: TacticalVectorState,
+  type: TroopType,
+  count: number,
+): void {
+  const mix = from.tierMix?.[type];
+  if (!mix || count <= 0) return;
+  const total = Object.values(mix).reduce((s, n) => s + (n ?? 0), 0);
+  if (total <= 0) return;
+  if (!to.tierMix) to.tierMix = {};
+  const dest = (to.tierMix[type] ??= {});
+  let moved = 0;
+  const tiers = Object.keys(mix) as unknown as TroopTier[];
+  for (const tier of tiers) {
+    const slice = Math.min(mix[tier] ?? 0, Math.floor(((mix[tier] ?? 0) / total) * count));
+    if (slice > 0) {
+      mix[tier]! -= slice;
+      dest[tier] = (dest[tier] ?? 0) + slice;
+      moved += slice;
+    }
+  }
+  if (moved <= 0) {
+    // Fallback: move from the lowest tier present.
+    const low = Math.min(...tiers.map(Number)) as TroopTier;
+    const slice = Math.min(mix[low] ?? 0, count);
+    mix[low]! -= slice;
+    dest[low] = (dest[low] ?? 0) + slice;
+  }
 }
 
 export interface TacticalSideState {
@@ -227,6 +285,9 @@ export interface StartBattleInput {
   raidId: string;
   /** The raid's deployment — the exact shape from the deploying phase. */
   deployment: Partial<Record<ManeuverVector, Partial<Record<TroopType, number>>>>;
+  /** Tier breakdown per vector/type (owner 2026-10-05): when present, vector
+   *  power is tier-weighted; when absent, troops read as T1. */
+  deploymentTiers?: Partial<Record<ManeuverVector, Partial<Record<TroopType, Partial<Record<TroopTier, number>>>>>>;
   /** Defender headcount (AI colony defense). Split across zones by policy. */
   defenderTroops: number;
   /** Defender composition hint: fraction of wardens/bulwarks in the garrison. */
@@ -303,7 +364,7 @@ export function vectorHeadcount(v: TacticalVectorState): number {
 
 export function vectorPower(v: TacticalVectorState): number {
   return (Object.entries(v.troops) as [TroopType, number][])
-    .reduce((p, [t, c]) => p + (c ?? 0) * supplyWeight(t), 0);
+    .reduce((p, [t, c]) => p + tieredTypePower(t, c ?? 0, v.tierMix?.[t]), 0);
 }
 
 /** Split defender headcount across zones: core holds MAIN, perimeter on
@@ -340,7 +401,10 @@ export function startTacticalBattle(input: StartBattleInput): TacticalBattle {
   const attackerVectors = {} as Record<ManeuverVector, TacticalVectorState>;
   for (const v of TACTICAL_VECTORS) {
     const troops = { ...(input.deployment[v] ?? {}) };
-    attackerVectors[v] = { troops, morale: 100, routed: false, fortified: false, fortLevel: 0 };
+    const tierMix = input.deploymentTiers?.[v]
+      ? JSON.parse(JSON.stringify(input.deploymentTiers[v]))
+      : undefined;
+    attackerVectors[v] = { troops, tierMix, morale: 100, routed: false, fortified: false, fortLevel: 0 };
   }
   return {
     id: input.battleId,
@@ -540,7 +604,7 @@ function effectivePower(
   let power = 0;
   for (const [t, c] of Object.entries(vec.troops) as [TroopType, number][]) {
     const aff = affinity(t, kind, targetFortified);
-    power += (c ?? 0) * supplyWeight(t) * aff.dealt;
+    power += tieredTypePower(t, c ?? 0, vec.tierMix?.[t]) * aff.dealt;
   }
   const mod = ORDER_MODS[kind];
   return power * mod.dealt * (1 + landedShipBonus);
@@ -562,6 +626,33 @@ function damageReduction(vec: TacticalVectorState, order: VectorOrder | undefine
     reduction += vec.fortLevel * (1 - reduction);
   }
   return Math.min(reduction, 0.85);
+}
+
+/** Pro-rate a vector's tier mix when headcount of a type drops (casualties /
+ *  routs). Keeps tier-weighted power honest as troops die. */
+export function scaleTierMix(
+  vec: TacticalVectorState,
+  type: TroopType,
+  before: number,
+  after: number,
+): void {
+  const mix = vec.tierMix?.[type];
+  if (!mix || before <= 0) return;
+  const frac = Math.max(0, after / before);
+  let assigned = 0;
+  const tiers = Object.keys(mix) as unknown as TroopTier[];
+  for (const tier of tiers) {
+    const v = Math.floor((mix[tier] ?? 0) * frac);
+    mix[tier] = v;
+    assigned += v;
+  }
+  // Flooring can strand a head or two — put the remainder on the lowest tier.
+  const remainder = Math.max(0, Math.round(after) - assigned);
+  if (remainder > 0 && tiers.length > 0) {
+    const low = Math.min(...tiers.map(Number)) as TroopTier;
+    mix[low] = (mix[low] ?? 0) + remainder;
+  }
+  if (after <= 0) delete vec.tierMix![type];
 }
 
 /** Split casualties across troop types proportional to their headcount,
@@ -593,6 +684,7 @@ function dealCasualties(
     if (killed > 0) {
       out[t] = killed;
       vec.troops[t] = (c ?? 0) - killed;
+      scaleTierMix(vec, t, c ?? 0, (c ?? 0) - killed);
       remaining -= killed;
     }
   }
@@ -637,7 +729,7 @@ function checkRout(
     const lost: Partial<Record<TroopType, number>> = {};
     for (const [t, c] of Object.entries(vec.troops) as [TroopType, number][]) {
       const flee = Math.floor((c ?? 0) * (1 - TACTICAL_CONFIG.routSurvivalFrac));
-      if (flee > 0) { lost[t] = flee; vec.troops[t] = (c ?? 0) - flee; }
+      if (flee > 0) { lost[t] = flee; vec.troops[t] = (c ?? 0) - flee; scaleTierMix(vec, t, c ?? 0, (c ?? 0) - flee); }
     }
     const target = side === "attacker" ? battle.totalAttackerLosses : battle.totalDefenderLosses;
     addLosses(target, lost);
@@ -749,6 +841,7 @@ export function resolveRound(
         if (n > 0) {
           reserve.troops[t] = (c ?? 0) - n;
           dest.troops[t] = (dest.troops[t] ?? 0) + n;
+          moveTierMix(reserve, dest, t, n);
         }
       }
       events.push(`↗️ ${side === "attacker" ? "Attacker" : "Defender"} commits reserves → ${destKey} (${move} troops).`);

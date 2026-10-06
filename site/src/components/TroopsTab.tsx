@@ -10,17 +10,24 @@ import type { GameState } from "../game/types";
 import {
   TROOP_TYPES,
   TROOP_JOBS,
+  TROOP_TIERS,
   TROOPS_CONFIG,
   homeGarrisonCap,
   label,
   musterCost,
   musterDurationMs,
+  rosterByTier,
   rosterByType,
   rosterCount,
   supplyWeight,
+  tierGateLabel,
+  tierPowerMult,
+  tierUnlocked,
+  type TroopTier,
   type TroopType,
 } from "../game/war/troops";
 import { cradleTier } from "../game/engine";
+import { getMusterTech } from "../game/research";
 import PageBanner from "./PageBanner";
 import { useT } from "./i18n/I18n";
 
@@ -31,6 +38,14 @@ function fmtLeft(ms: number): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ${m % 60}m`;
   return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
+/** Hint shown when a locked tier is tapped (Hans's "nothing without a button"
+ *  rule): names the exact research that unlocks it. */
+function tierLockHint(tier: TroopTier): string {
+  const techId = tierGateLabel(tier);
+  const name = techId ? getMusterTech(techId).name : techId;
+  return `🔒 Tier ${tier} troops — research «${name}» in the Lab to unlock them.`;
 }
 
 /** What each troop does on the battlefield — plain words, not stat soup. */
@@ -88,8 +103,12 @@ const TROOP_FOCAL: Record<TroopType, string> = {
 interface TroopsTabProps {
   state: GameState;
   now: number;
-  onMuster: (type: TroopType, count: number) => void;
+  onMuster: (type: TroopType, count: number, tier?: TroopTier) => void;
 }
+
+const INITIAL_TIERS: Record<TroopType, TroopTier> = {
+  bulwark: 1, reaver: 1, longeye: 1, thunder: 1, warden: 1,
+};
 
 export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
   const t = useT();
@@ -97,9 +116,11 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
   const roster = home?.roster ?? null;
   const queue = home?.musterQueue ?? [];
   const byType = roster ? rosterByType(roster) : null;
+  const byTier = roster ? rosterByTier(roster) : null;
   const total = roster ? rosterCount(roster) : 0;
   const cap = homeGarrisonCap(cradleTier(state));
   const supplies = Math.floor(state.resources?.supplies ?? 0);
+  const techs = state.techsResearched ?? [];
   const upkeepPerHour = (total * TROOPS_CONFIG.upkeepSuppliesPerTroopPerHour).toFixed(1);
 
   const [counts, setCounts] = useState<Record<TroopType, string>>({
@@ -109,6 +130,7 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
     thunder: "25",
     warden: "25",
   });
+  const [tiers, setTiers] = useState<Record<TroopType, TroopTier>>(INITIAL_TIERS);
   const [hint, setHint] = useState<Record<TroopType, string | null>>({
     bulwark: null,
     reaver: null,
@@ -119,8 +141,13 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
 
   function tryMuster(type: TroopType) {
     const n = Math.trunc(Number(counts[type]));
+    const tier = tiers[type];
     if (!(n > 0)) {
       setHint((h) => ({ ...h, [type]: t("troops.hintCount", "Enter how many to muster first.") }));
+      return;
+    }
+    if (!tierUnlocked(techs, tier)) {
+      setHint((h) => ({ ...h, [type]: tierLockHint(tier) }));
       return;
     }
     if (queue.some((o) => o.type === type)) {
@@ -132,13 +159,13 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
       setHint((h) => ({ ...h, [type]: t("troops.hintCap", "Garrison cap is {cap} — no room for {n} more. Raise your Cradle tier or spend troops.", { cap, n }) }));
       return;
     }
-    const cost = musterCost(type, n);
+    const cost = musterCost(type, n, tier);
     if (supplies < cost) {
       setHint((h) => ({ ...h, [type]: t("troops.hintSupplies", "Need {cost} supplies — you have {have}. Run explorations or claim devotion.", { cost, have: supplies }) }));
       return;
     }
     setHint((h) => ({ ...h, [type]: null }));
-    onMuster(type, n);
+    onMuster(type, n, tier);
   }
 
   return (
@@ -199,7 +226,7 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
                 <li key={o.id} className="rounded-lg bg-zinc-800/60 p-3">
                   <div className="flex items-baseline justify-between">
                     <p className="text-sm font-bold text-white">
-                      {o.count} × {label(o.type)}
+                      {o.count} × {label(o.type)} <span className="text-xs font-semibold text-emerald-300">T{o.tier ?? 1}</span>
                     </p>
                     <p className="text-xs text-zinc-400">
                       {t("troops.readyIn", "ready in {time}", { time: fmtLeft(o.completesAt - now) })}
@@ -221,9 +248,11 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
         {TROOP_TYPES.map((type) => {
           const lore = TROOP_LORE[type];
           const weight = supplyWeight(type);
-          const perTroop = musterCost(type, 1);
-          const perTime = fmtLeft(musterDurationMs(1));
+          const tier = tiers[type];
+          const perTroop = musterCost(type, 1, tier);
+          const perTime = fmtLeft(musterDurationMs(1, tier));
           const queuedForType = queue.some((o) => o.type === type);
+          const tierBreak = byTier ? byTier[type] : null;
           return (
             <article key={type} className="overflow-hidden rounded-xl border border-zinc-700/60 bg-zinc-900/60" data-testid={`troop-card-${type}`}>
               <div className="flex flex-col sm:flex-row">
@@ -241,7 +270,18 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
                       <span className="text-xs font-normal text-amber-300/90">· {lore.tagline}</span>
                     </h3>
                     <p className="shrink-0 text-xs text-zinc-400">
-                      {t("troops.have", "have {n}", { n: byType ? byType[type] : 0 })}
+                      {tierBreak ? (
+                        <span>
+                          {t("troops.have", "have {n}", { n: byType ? byType[type] : 0 })}
+                          <span className="ml-1 text-zinc-500">
+                            {TROOP_TIERS.filter((tr) => tierBreak[tr] > 0)
+                              .map((tr) => `T${tr} ×${tierBreak[tr]}`)
+                              .join(" · ")}
+                          </span>
+                        </span>
+                      ) : (
+                        t("troops.have", "have {n}", { n: byType ? byType[type] : 0 })
+                      )}
                     </p>
                   </div>
                   <p className="mt-1 text-xs font-semibold text-sky-300">{TROOP_JOBS[type]}</p>
@@ -261,6 +301,46 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
                       <dd className="text-sm font-bold text-white">{perTime}</dd>
                     </div>
                   </dl>
+                  {/* Tier selector — T1 always open; T2+ gated on muster research.
+                      Locked tiers stay tappable: they say what to research, per
+                      Hans's "nothing without a button" rule. */}
+                  <div className="mt-3" role="group" aria-label={`Muster tier for ${label(type)}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase tracking-wide text-zinc-500">{t("troops.tier", "Tier")}</span>
+                      <span className="text-[10px] text-emerald-300/90">⚔ ×{tierPowerMult(tier)} battle power</span>
+                    </div>
+                    <div className="mt-1 flex gap-1.5">
+                      {TROOP_TIERS.map((tr) => {
+                        const unlocked = tierUnlocked(techs, tr);
+                        const selected = tier === tr;
+                        return (
+                          <button
+                            key={tr}
+                            type="button"
+                            onClick={() => {
+                              if (unlocked) {
+                                setTiers((s) => ({ ...s, [type]: tr }));
+                                setHint((h) => ({ ...h, [type]: null }));
+                              } else {
+                                setHint((h) => ({ ...h, [type]: tierLockHint(tr) }));
+                              }
+                            }}
+                            aria-pressed={selected}
+                            data-testid={`tier-${type}-${tr}`}
+                            className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-bold ${
+                              selected
+                                ? "border-amber-400 bg-amber-500/20 text-amber-200"
+                                : unlocked
+                                  ? "border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:border-zinc-500"
+                                  : "border-zinc-800 bg-zinc-900/60 text-zinc-600"
+                            }`}
+                          >
+                            {unlocked ? `T${tr}` : `🔒 T${tr}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <div className="mt-3 flex items-center gap-2">
                     <label className="sr-only" htmlFor={`muster-count-${type}`}>
                       {t("troops.countLabel", "How many {label} to muster", { label: label(type) })}
@@ -286,7 +366,7 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
                     >
                       {queuedForType
                         ? t("troops.mustering", "Training…")
-                        : t("troops.muster", "Muster {label}", { label: label(type) })}
+                        : t("troops.musterTier", "Muster T{tier} {label}", { tier, label: label(type) })}
                     </button>
                   </div>
                   {hint[type] && (
@@ -296,9 +376,10 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
                   )}
                   {!hint[type] && (
                     <p className="mt-2 text-xs text-zinc-500">
-                      {t("troops.costLine", "{cost} supplies · {time} — paid up front, linear builds, no discounts.", {
-                        cost: musterCost(type, Math.max(1, Math.trunc(Number(counts[type])) || 0)).toLocaleString(),
-                        time: fmtLeft(musterDurationMs(Math.max(1, Math.trunc(Number(counts[type])) || 0))),
+                      {t("troops.costLineTier", "T{tier}: {cost} supplies · {time} — paid up front, linear builds, no discounts.", {
+                        tier,
+                        cost: musterCost(type, Math.max(1, Math.trunc(Number(counts[type])) || 0), tier).toLocaleString(),
+                        time: fmtLeft(musterDurationMs(Math.max(1, Math.trunc(Number(counts[type])) || 0), tier)),
                       })}
                     </p>
                   )}

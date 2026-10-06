@@ -46,9 +46,11 @@ describe("supply weight — the single source of truth", () => {
     expect(supplyWeight("thunder")).toBe(2);
     for (const t of TROOP_TYPES) if (t !== "thunder") expect(supplyWeight(t)).toBe(1);
   });
-  test("v1: weight is the ONLY stat lever — config carries no power numbers", () => {
+  test("v1: weight is the ONLY type stat lever — types carry no power numbers; power lives on TIERS (owner 2026-10-05)", () => {
     const keys = Object.keys(TROOPS_CONFIG);
-    expect(keys.some((k) => /power|damage|attack/i.test(k))).toBe(false);
+    expect(keys.some((k) => /damage|attack/i.test(k))).toBe(false);
+    // Tier power is the sanctioned exception: tiers are the power progression.
+    expect(TROOPS_CONFIG.tierPowerMult).toEqual({ 1: 1, 2: 1.5, 3: 2.2, 4: 3.2 });
   });
   test("isTroopType guards unknown types", () => {
     expect(isTroopType("bulwark")).toBe(true);
@@ -332,5 +334,125 @@ describe("guest upkeep — thunder eats double", () => {
     expect(thunderCost).toBeCloseTo(0.2, 10); // 2 weight × 0.1 supplies/weight/hour × 1h
     expect(twoBulwarkCost).toBeCloseTo(0.2, 10);
     expect(oneBulwarkCost).toBeCloseTo(0.1, 10);
+  });
+});
+
+// ============================================================================
+// TROOP TIERS T1–T4 (owner 2026-10-05): the power progression.
+// ============================================================================
+import {
+  TROOP_TIERS,
+  backfillTiers,
+  isTroopTier,
+  rosterByTier,
+  rosterPower,
+  tierPowerMult,
+  tierUnlocked,
+  type TroopTier,
+} from "./troops";
+
+describe("troop tiers — gating", () => {
+  test("T1 always open; T2+ need the muster chain in order", () => {
+    expect(tierUnlocked([], 1)).toBe(true);
+    expect(tierUnlocked([], 2)).toBe(false);
+    expect(tierUnlocked(["muster_1"], 2)).toBe(true);
+    expect(tierUnlocked(["muster_1"], 3)).toBe(false);
+    expect(tierUnlocked(["muster_1", "muster_2"], 3)).toBe(true);
+    expect(tierUnlocked(["muster_1", "muster_2", "muster_3"], 4)).toBe(true);
+    // Skipping the chain doesn't unlock: muster_3 alone opens nothing.
+    expect(tierUnlocked(["muster_3"], 4)).toBe(false);
+  });
+  test("isTroopTier rejects garbage", () => {
+    for (const n of TROOP_TIERS) expect(isTroopTier(n)).toBe(true);
+    expect(isTroopTier(0)).toBe(false);
+    expect(isTroopTier(5)).toBe(false);
+    expect(isTroopTier(undefined)).toBe(false);
+  });
+  test("enqueueMuster refuses locked tiers and bad tier values", () => {
+    const now = Date.now();
+    const home = emptyTroopHome(now);
+    const locked = enqueueMuster(home.roster, home.musterQueue, "reaver", 10, now, 1, 5000, 3, []);
+    expect(locked.ok).toBe(false);
+    const open = enqueueMuster(home.roster, home.musterQueue, "reaver", 10, now, 1, 5000, 3, ["muster_1", "muster_2"]);
+    expect(open.ok).toBe(true);
+    expect(open.order!.tier).toBe(3);
+    const bad = enqueueMuster(home.roster, home.musterQueue, "reaver", 10, now, 2, 5000, 9 as TroopTier, []);
+    expect(bad.ok).toBe(false);
+  });
+  test("tiered muster defaults to T1 (old callers unaffected)", () => {
+    const now = Date.now();
+    const home = emptyTroopHome(now);
+    const enq = enqueueMuster(home.roster, home.musterQueue, "bulwark", 5, now, 1, 5000);
+    expect(enq.ok).toBe(true);
+    expect(enq.order!.tier).toBe(1);
+  });
+});
+
+describe("troop tiers — cost and time scaling", () => {
+  test("supply cost scales ×1 / ×1.8 / ×3 / ×5 per tier", () => {
+    const base = musterCost("bulwark", 100, 1);
+    expect(musterCost("bulwark", 100, 2)).toBe(Math.ceil(base * 1.8));
+    expect(musterCost("bulwark", 100, 3)).toBe(Math.ceil(base * 3));
+    expect(musterCost("bulwark", 100, 4)).toBe(Math.ceil(base * 5));
+  });
+  test("muster time scales ×1 / ×1.5 / ×2.2 / ×3 per tier", () => {
+    const t1 = musterDurationMs(100, 1);
+    expect(musterDurationMs(100, 2) / t1).toBeCloseTo(1.5, 2);
+    expect(musterDurationMs(100, 3) / t1).toBeCloseTo(2.2, 2);
+    expect(musterDurationMs(100, 4) / t1).toBeCloseTo(3, 2);
+    expect(t1).toBeGreaterThan(0);
+  });
+});
+
+describe("troop tiers — migration", () => {
+  test("tierless cohorts and orders backfill to T1, idempotent", () => {
+    const r = emptyRoster();
+    const legacy = { id: "c1", type: "bulwark", count: 100, veterans: 0, musteredAt: 0 } as never;
+    r.cohorts.push(legacy);
+    backfillTiers(r);
+    expect((legacy as { tier: number }).tier).toBe(1);
+    backfillTiers(r); // idempotent
+    expect((legacy as { tier: number }).tier).toBe(1);
+    // Orders backfill too.
+    const orders = [{ id: "m-1", type: "reaver", count: 10, startedAt: 0, completesAt: 1 } as never];
+    backfillTiers(r, orders as never);
+    expect((orders[0] as { tier: number }).tier).toBe(1);
+  });
+  test("addCohort defaults to T1; muster completion carries the order's tier", () => {
+    const now = Date.now();
+    const home = emptyTroopHome(now);
+    addCohort(home.roster, "longeye", 50, now);
+    expect(home.roster.cohorts[0].tier).toBe(1);
+    const enq = enqueueMuster(home.roster, home.musterQueue, "reaver", 20, now, 1, 5000, 4, ["muster_1", "muster_2", "muster_3"]);
+    expect(enq.ok).toBe(true);
+    home.musterQueue.push(enq.order!);
+    advanceTroopHome(home, enq.order!.completesAt, { supplies: 99_999 }, { sourceColony: "Home", serverId: "0", guests: [] });
+    const reaver = home.roster.cohorts.find((c) => c.type === "reaver");
+    expect(reaver?.tier).toBe(4);
+  });
+});
+
+describe("troop tiers — power", () => {
+  test("power curve mirrors the weapon tier curve: ×1 / ×1.5 / ×2.2 / ×3.2", () => {
+    expect(tierPowerMult(1)).toBe(1);
+    expect(tierPowerMult(2)).toBe(1.5);
+    expect(tierPowerMult(3)).toBe(2.2);
+    expect(tierPowerMult(4)).toBe(3.2);
+    expect(tierPowerMult(9 as TroopTier)).toBe(1); // unknown reads as T1
+  });
+  test("rosterPower = Σ count × supplyWeight × tierPower", () => {
+    const r = emptyRoster();
+    addCohort(r, "bulwark", 100, 0, 0, 1);   // 100 × 1 × 1 = 100
+    addCohort(r, "bulwark", 100, 0, 0, 4);   // 100 × 1 × 3.2 = 320
+    addCohort(r, "thunder", 10, 0, 0, 2);    // 10 × 2 × 1.5 = 30
+    expect(rosterPower(r)).toBeCloseTo(450, 6);
+  });
+  test("rosterByTier breaks counts down per tier", () => {
+    const r = emptyRoster();
+    addCohort(r, "reaver", 600, 0, 0, 1);
+    addCohort(r, "reaver", 300, 0, 0, 2);
+    addCohort(r, "reaver", 100, 0, 0, 3);
+    const byTier = rosterByTier(r);
+    expect(byTier.reaver).toEqual({ 1: 600, 2: 300, 3: 100, 4: 0 });
   });
 });

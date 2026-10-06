@@ -129,8 +129,10 @@ import {
   hireBand,
   hireCost,
   homeGarrisonCap,
+  isTroopTier,
   isTroopType,
   musterCost,
+  tierUnlocked,
 } from "./war/troops";
 import {
   hireBandAtBase,
@@ -2348,6 +2350,7 @@ const musterTroopsFn = createServerFn({ method: "POST" }).validator(
     token: z.string(),
     type: z.string(),
     count: z.number().int().positive().max(2000),
+    tier: z.number().int().min(1).max(4).default(1),
   })
 ).handler(async ({ data }): Promise<GameResult> => {
   const accountId = await accountForToken(data.token);
@@ -2361,10 +2364,14 @@ const musterTroopsFn = createServerFn({ method: "POST" }).validator(
   engine.ensureTroops(st, Date.now());
   const t = st.troops!;
   if (!isTroopType(data.type)) return { ok: false, error: "Unknown troop type." };
+  const tier = isTroopTier(data.tier) ? data.tier : 1;
+  if (!tierUnlocked(st.techsResearched, tier)) {
+    return { ok: false, error: `Tier ${tier} troops need muster research first — open the Lab.` };
+  }
   const cap = homeGarrisonCap(engine.cradleTier(st));
-  const enq = enqueueMuster(t.home.roster, t.home.musterQueue, data.type, data.count, Date.now(), t.home.seq, cap);
+  const enq = enqueueMuster(t.home.roster, t.home.musterQueue, data.type, data.count, Date.now(), t.home.seq, cap, tier, st.techsResearched);
   if (!enq.ok || !enq.order) return { ok: false, error: enq.error ?? "Muster refused." };
-  const cost = musterCost(data.type, data.count);
+  const cost = musterCost(data.type, data.count, tier);
   if (st.resources.supplies < cost) {
     return { ok: false, error: `Need ${cost} supplies to muster ${data.count}.` };
   }

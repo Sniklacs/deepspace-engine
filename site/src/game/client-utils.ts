@@ -55,6 +55,7 @@ import type { T } from "./i18n/types";
 import { keyifySegment } from "./i18n/keyify";
 import { REVELATION_TREE, getRevelation } from "./research";
 import { ARMORY_TREE, getArmoryTech } from "./research";
+import { MUSTER_TIER_TREE, getMusterTech, isMusterTech } from "./research";
 import { isSatelliteTech, parseSatelliteTech } from "./satellites";
 import {
   isRevelationId,
@@ -68,6 +69,8 @@ import {
   armoryTechInProgress,
   armoryResearchDurationMs as armoryDur,
   armoryFamilyState,
+  musterTechAvailable,
+  musterTechInProgress,
   satelliteTechAvailable,
   satelliteTechInProgress,
 } from "./engine";
@@ -153,6 +156,7 @@ export const engineHelpers = {
   techName(techId: string) {
     if (isRevelationId(techId)) return getRevelation(techId).name;
     if (isArmoryTech(techId)) return getArmoryTech(techId).name;
+    if (isMusterTech(techId)) return getMusterTech(techId).name;
     if (isSatelliteTech(techId)) {
       const p = parseSatelliteTech(techId)!;
       return `🛰️ ${p.nodeId} satellite — stage ${p.stage}`;
@@ -184,6 +188,12 @@ export const engineHelpers = {
   armoryName(techId: string) { return getArmoryTech(techId).name; },
   armoryAvailable(state: GameState, techId: string) { return armoryTechAvailable(state, techId); },
   armoryInProgress(state: GameState, techId: string) { return armoryTechInProgress(state, techId); },
+  // ---- Muster tier line (Lab tree surface; owner 2026-10-05) ----
+  musterTree: MUSTER_TIER_TREE,
+  isMuster(techId: string) { return isMusterTech(techId); },
+  musterName(techId: string) { return getMusterTech(techId).name; },
+  musterAvailable(state: GameState, techId: string) { return musterTechAvailable(state, techId); },
+  musterInProgress(state: GameState, techId: string) { return musterTechInProgress(state, techId); },
   // ORBITAL WATCH: single-source satellite availability / in-progress checks
   // for the Lab's Orbital Watch section.
   satelliteAvailable(state: GameState, techId: string) { return satelliteTechAvailable(state, techId); },
