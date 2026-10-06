@@ -1097,6 +1097,12 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       if (g && g.complete && g.naturalWidth > 0) {
         const gw = s * 1.4;
         const tilePx = Math.max(1, Math.round(gw));
+        // Integer pattern origin: the fractional `gw` offset leaves tile
+        // edges on sub-pixel boundaries, and the rasterizer opens a 1px
+        // hairline down every tile boundary on wide screens (seen in QA as
+        // the canvas "tiling into three repeated columns"). An integer
+        // offset can never open a seam — same grid, same look, no lines.
+        const off = Math.round(gw);
         let tileCanvas = groundTile.canvas;
         if (!tileCanvas || groundTile.size !== tilePx) {
           tileCanvas = document.createElement("canvas");
@@ -1113,10 +1119,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         if (pat) {
           c.save();
           c.globalAlpha = 0.9;
-          // Keep the tile grid aligned as before (origin at -gw).
-          c.translate(-gw, -gw);
+          // Keep the tile grid aligned as before (origin at -gw, now integral).
+          c.translate(-off, -off);
           c.fillStyle = pat;
-          c.fillRect(0, 0, w + gw * 2, h + gw * 2);
+          c.fillRect(0, 0, w + off * 2, h + off * 2);
           c.restore();
         }
       } else {
@@ -1972,7 +1978,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     const spec = commsFor(kind, detail);
     const id = commsIdRef.current++;
     setComms((prev) => pushBubble(prev, { id, source: spec.source, message: spec.message, critical: spec.critical, atS: simTRef.current }));
-    logOrder({ squadName: spec.source, dest: "—", verdict: "accepted", reason: spec.message });
+    logOrder({ squadName: spec.source, dest: "—", verdict: "accepted", reason: spec.message, kind: "comms" });
     if (spec.critical) battleSfx.ping();
     else battleSfx.blip();
   };
@@ -2004,7 +2010,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         u.dropAtS = t;
       }
       battleSfx.dropship(); // engines spool — the reserve is inbound
-      logOrder({ squadName: name, dest: `HOT DROP ${destLabel(dest.x, dest.y)}`, verdict: "accepted" });
+      logOrder({ squadName: name, dest: destLabel(dest.x, dest.y), verdict: "accepted", kind: "hotdrop" });
       postComms("reserve", "Reserve inbound — hot drop, brace for a loud landing");
       orderPingRef.current = { x: dest.x, y: dest.y, fx: dest.x, fy: dest.y, born: t, atS: t };
       return;

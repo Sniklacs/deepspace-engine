@@ -26,6 +26,8 @@ import {
   setTurretMode,
   turretModeOf,
   cycleBattleSpeed,
+  orderReceipt,
+  selectionBannerText,
   BATTLE_SPEED_MUL,
   type TurretMode,
 } from "../../game/war/battle-scene-ui-store";
@@ -118,22 +120,29 @@ export function BattleHud({
         type="button"
         onClick={() => { battleSfx.uiClick(); setSelectedSquad(selected ? null : sq.id); }}
         data-testid={`hud-squad-${sq.id}`}
+        data-oncall={sq.onCallReserve ? "true" : undefined}
         aria-pressed={selected}
         aria-label={
           sq.onCallReserve
             ? `${sq.name}, on-call reserve, ${sq.alive} of ${sq.total}. Tap the map to hot-drop it.`
             : `${sq.name}, ${sq.alive} of ${sq.total}.`
         }
-        className={`${CHIP} ${
+        // pointer-events-auto: the strip container is pointer-events-none so
+        // the map stays tappable around the chips; each chip must opt back
+        // in or taps fall through to the canvas and select the nearest unit
+        // instead of the chip that was tapped (QA 2026-10-06: taps aimed at
+        // the reserve chip kept selecting Squad 4). min-h keeps ≥40px thumb
+        // targets at phone widths.
+        className={`${CHIP} pointer-events-auto min-h-[44px] touch-manipulation items-center ${
           selected
             ? "border-white/70 bg-white/15 text-white"
             : sq.onCallReserve
-              ? "border-sky-400/60 bg-sky-950/60 text-sky-100"
+              ? "border-sky-400/60 bg-sky-950/60 font-bold text-sky-100"
               : "border-white/15 bg-black/55 text-zinc-200"
         }`}
       >
-        {sq.eyes && <span aria-hidden="true" className="mr-1">👁</span>}
         {sq.onCallReserve && <span aria-hidden="true" className="mr-1">🪂</span>}
+        {sq.eyes && <span aria-hidden="true" className="mr-1">👁</span>}
         {sq.name}{" "}
         <span className="tabular-nums text-zinc-400">
           <span style={{ color: "#34d399" }}>{sq.alive}</span>/{sq.total}
@@ -152,9 +161,12 @@ export function BattleHud({
         style={commsStyle}
       />
 
-      {/* squads + reserves — bottom-left, above the Legend chip */}
+      {/* squads + reserves — bottom-left, above the Legend chip. z-30 keeps
+          the strip above the canvas at every viewport; the container stays
+          pointer-events-none so bare map between chips remains tappable —
+          chips opt back in (pointer-events-auto) individually. */}
       <div
-        className="pointer-events-none absolute left-2 z-20 flex max-w-[72vw] flex-col items-start gap-1.5"
+        className="pointer-events-none absolute left-2 z-30 flex max-w-[72vw] flex-col items-start gap-1.5"
         style={{ bottom: stripBottom }}
         data-testid="battle-hud-squads"
       >
@@ -162,25 +174,31 @@ export function BattleHud({
           <p
             className="pointer-events-none rounded-lg border border-white/15 bg-black/70 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-100 backdrop-blur-md"
             data-testid="hud-selection-banner"
+            data-kind={selectedSquad.onCallReserve ? "hotdrop" : "order"}
             aria-live="polite"
           >
-            {selectedSquad.onCallReserve
-              ? `${selectedSquad.name} selected — tap the map to hot-drop it 🪂`
-              : `${selectedSquad.name} selected — tap the map to order it`}
+            {selectionBannerText(selectedSquad)}
           </p>
         )}
-        {lastOrder && (
-          <p
-            className="pointer-events-none max-w-full truncate rounded-lg border border-white/10 bg-black/55 px-2.5 py-1 text-[10px] text-zinc-400 backdrop-blur-md"
-            data-testid="hud-last-order"
-          >
-            {lastOrder.squadName} → {lastOrder.dest} —{" "}
-            <span className={lastOrder.verdict === "accepted" ? "text-emerald-300" : "text-red-300"}>
-              {lastOrder.verdict}
-            </span>
-            {lastOrder.reason ? ` · ${lastOrder.reason}` : ""}
-          </p>
-        )}
+        {lastOrder &&
+          (() => {
+            const r = orderReceipt(lastOrder);
+            return (
+              <p
+                className={`pointer-events-none max-w-full truncate rounded-lg border px-2.5 py-1 text-[10px] backdrop-blur-md ${
+                  r.tone === "bad"
+                    ? "border-red-400/30 bg-red-950/50 text-red-200"
+                    : r.tone === "ok"
+                      ? "border-emerald-400/25 bg-emerald-950/45 text-emerald-200"
+                      : "border-white/10 bg-black/55 text-zinc-400"
+                }`}
+                data-testid="hud-last-order"
+                data-kind={lastOrder.kind ?? "move"}
+              >
+                {r.text}
+              </p>
+            );
+          })()}
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400 backdrop-blur-md">
             Squads
@@ -213,7 +231,7 @@ export function BattleHud({
 
       {/* turret + pace — bottom-right, above the Controls button */}
       <div
-        className="pointer-events-none absolute right-2 z-20 flex flex-col items-end gap-1.5"
+        className="pointer-events-none absolute right-2 z-30 flex flex-col items-end gap-1.5"
         style={{ bottom: stripBottom }}
         data-testid="battle-hud-command"
       >

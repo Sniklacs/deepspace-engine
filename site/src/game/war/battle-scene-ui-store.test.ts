@@ -34,6 +34,9 @@ import {
   registerSquads,
   setSelectedSquad,
   logOrder,
+  orderReceipt,
+  squadChipLabel,
+  selectionBannerText,
   resetSceneUI,
   resetSceneUIStore,
   BATTLE_SPEED_MUL,
@@ -380,5 +383,62 @@ describe("click-to-command", () => {
     expect(log[0].verdict).toBe("rejected");
     expect(log[0].reason).toBe("nope");
     expect(log[7].squadName).toBe("Squad 2");
+  });
+});
+
+describe("reserve chip copy + order receipts (QA 2026-10-06)", () => {
+  const reserve = { id: "A4", name: "Squad 5 — Reserve", alive: 15, total: 15, onCallReserve: true };
+
+  test("on-call reserve chip leads with the parachute — state unmistakable", () => {
+    expect(squadChipLabel(reserve).startsWith("🪂 ")).toBe(true);
+    expect(squadChipLabel(reserve).includes("Squad 5 — Reserve 15/15")).toBe(true);
+  });
+
+  test("eye glyph follows the parachute, never replaces it", () => {
+    const eyesReserve = { ...reserve, eyes: true };
+    expect(squadChipLabel(eyesReserve).startsWith("🪂 👁 ")).toBe(true);
+    const eyesOnly = { id: "A1", name: "Squad 2 — Flank L", alive: 7, total: 7, eyes: true };
+    expect(squadChipLabel(eyesOnly).startsWith("👁 ")).toBe(true);
+  });
+
+  test("selection banner says hot-drop for on-call reserves, order otherwise", () => {
+    expect(selectionBannerText(reserve)).toBe("Squad 5 — Reserve selected — tap the map to hot-drop it 🪂");
+    const main = { id: "A0", name: "Squad 1 — Main", alive: 14, total: 14 };
+    expect(selectionBannerText(main)).toBe("Squad 1 — Main selected — tap the map to order it");
+  });
+
+  test("hot-drop receipt confirms the drop, not a generic move", () => {
+    const r = orderReceipt({
+      id: 1,
+      squadName: "Squad 5 — Reserve",
+      dest: "MAIN",
+      verdict: "accepted",
+      kind: "hotdrop",
+    });
+    expect(r.text).toBe("Squad 5 — Reserve hot-dropped → MAIN");
+    expect(r.tone).toBe("ok");
+    expect(r.text.includes("accepted")).toBe(false);
+  });
+
+  test("move receipts keep the arrow form; comms keep the report form", () => {
+    expect(orderReceipt({ id: 1, squadName: "Squad 1 — Main", dest: "FLANK LEFT", verdict: "accepted" })).toEqual({
+      text: "Squad 1 — Main → FLANK LEFT — accepted",
+      tone: "ok",
+    });
+    expect(
+      orderReceipt({ id: 2, squadName: "Squad 3 — Rear", dest: "REAR", verdict: "rejected", reason: "siege can't flank" }),
+    ).toEqual({ text: "Squad 3 — Rear → REAR — rejected · siege can't flank", tone: "bad" });
+    expect(
+      orderReceipt({ id: 3, squadName: "Longeyes", dest: "—", verdict: "accepted", reason: "enemy on the move: Flank L", kind: "comms" }),
+    ).toEqual({ text: "Longeyes — enemy on the move: Flank L", tone: "note" });
+  });
+
+  test("logOrder normalizes kind on write; hotdrop survives the store round-trip", () => {
+    logOrder({ squadName: "Squad 1 — Main", dest: "MAIN", verdict: "accepted" });
+    expect(sceneUISnapshot().orderLog[0].kind).toBe("move");
+    logOrder({ squadName: "Squad 5 — Reserve", dest: "MAIN", verdict: "accepted", kind: "hotdrop" });
+    const latest = sceneUISnapshot().orderLog[0];
+    expect(latest.kind).toBe("hotdrop");
+    expect(orderReceipt(latest).text).toBe("Squad 5 — Reserve hot-dropped → MAIN");
   });
 });

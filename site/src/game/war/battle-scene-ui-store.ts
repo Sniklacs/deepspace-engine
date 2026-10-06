@@ -66,6 +66,13 @@ export interface SquadSummary {
   onCallReserve?: boolean;
 }
 
+/** What one log entry IS (QA 2026-10-06: a hot-drop must not read like a
+ *  plain move — the receipt drives its own wording per kind):
+ *    "move"    — a judged move order (accepted/rejected by the doctrine).
+ *    "hotdrop" — an on-call reserve was COMMITTED: it fell on the tap.
+ *    "comms"   — a field report (the ORDERS log's other half: the report feed). */
+export type OrderKind = "move" | "hotdrop" | "comms";
+
 /** One judged order for the ORDERS log — the command log seed. */
 export interface OrderLogEntry {
   id: number;
@@ -73,6 +80,43 @@ export interface OrderLogEntry {
   dest: string;
   verdict: "accepted" | "rejected";
   reason?: string;
+  /** Receipt kind; missing = a plain move (older writers). */
+  kind?: OrderKind;
+}
+
+/**
+ * Render-ready receipt for one log entry (pure, unit-tested): the banner and
+ * both HUD variants read from here so a hot-drop can never fall back to the
+ * generic "→ MAIN — accepted" wording, and comms entries keep the em-dash
+ * report form. Returns the display text plus a tone the HUD maps to color.
+ */
+export function orderReceipt(entry: OrderLogEntry): { text: string; tone: "ok" | "bad" | "note" } {
+  if (entry.kind === "hotdrop") {
+    return { text: `${entry.squadName} hot-dropped → ${entry.dest}`, tone: "ok" };
+  }
+  if (entry.kind === "comms") {
+    return { text: entry.reason ? `${entry.squadName} — ${entry.reason}` : entry.squadName, tone: "note" };
+  }
+  const ok = entry.verdict === "accepted";
+  return {
+    text: `${entry.squadName} → ${entry.dest} — ${ok ? "accepted" : "rejected"}${entry.reason ? ` · ${entry.reason}` : ""}`,
+    tone: ok ? "ok" : "bad",
+  };
+}
+
+/** The chip label (pure, unit-tested): the on-call state leads the chip —
+ *  the 🪂 must be the first thing the commander sees, ahead of the name and
+ *  strength. The eye glyph (positional Longeye coverage) follows it. */
+export function squadChipLabel(sq: SquadSummary): string {
+  return `${sq.onCallReserve ? "🪂 " : ""}${sq.eyes ? "👁 " : ""}${sq.name} ${sq.alive}/${sq.total}`;
+}
+
+/** The selection-banner copy (pure, unit-tested): an on-call reserve is not
+ *  "ordered" — the map tap commits a hot drop and the banner says so. */
+export function selectionBannerText(sq: SquadSummary): string {
+  return sq.onCallReserve
+    ? `${sq.name} selected — tap the map to hot-drop it 🪂`
+    : `${sq.name} selected — tap the map to order it`;
 }
 
 const MAX_ORDER_LOG = 8;
@@ -313,10 +357,14 @@ export function setSelectedSquad(id: string | null): void {
 
 let orderSeq = 0;
 
-/** Log a judged order — newest first, capped. The command log seed. */
+/** Log a judged order — newest first, capped. The command log seed. Entries
+ *  without a kind are plain moves; the kind is normalized on write so the
+ *  receipt renderer never has to guess. */
 export function logOrder(entry: Omit<OrderLogEntry, "id">): void {
   orderSeq += 1;
-  set({ orderLog: [{ ...entry, id: orderSeq }, ...state.orderLog].slice(0, MAX_ORDER_LOG) });
+  set({
+    orderLog: [{ ...entry, kind: entry.kind ?? "move", id: orderSeq }, ...state.orderLog].slice(0, MAX_ORDER_LOG),
+  });
 }
 
 /** Fresh scene identity: drop per-scene UI (clock, kills, gunner, turrets,
