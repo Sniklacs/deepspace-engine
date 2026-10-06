@@ -56,6 +56,9 @@ import {
   destLabel,
 } from "../../game/war/scene-orders";
 import { battleSfx } from "../../game/war/battle-sfx";
+// Troop tiers are real (owner 2026-10-05): a T4 genuinely out-hits and
+// out-lasts a T1 — the same power curve the war engine prices forces at.
+import { tierPowerMult } from "../../game/war/troops";
 import {
   subscribeWindows,
   windowSnapshot,
@@ -422,7 +425,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           // Tuned down (owner 2026-10-05): the demo used to annihilate both
           // sides in under a minute of weapons-free. Hits stay frequent so
           // the tracers keep flying — they just don't kill as fast.
-          e.hp01 -= 0.015 + Math.random() * 0.03;
+          // Tiers are real: elites out-hit chaff and shrug off chaff fire.
+          e.hp01 -= ((0.015 + Math.random() * 0.03) * tierPowerMult(u.tier)) / tierPowerMult(e.tier);
           if (e.hp01 <= 0) killUnit(e);
         }
         // Turret fire (auto mode, or gunner-directed).
@@ -470,7 +474,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         if (Math.random() < sdt * 0.3) {
           const cands = unitsRef.current.filter((u) => u.state === "engaged" || u.state === "holding");
           const v = cands[Math.floor(Math.random() * cands.length)];
-          if (v) { v.hp01 -= 0.25; if (v.hp01 <= 0) killUnit(v); }
+          if (v) { v.hp01 -= 0.25 / tierPowerMult(v.tier); if (v.hp01 <= 0) killUnit(v); }
         }
       }
 

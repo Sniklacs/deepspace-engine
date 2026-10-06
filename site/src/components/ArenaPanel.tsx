@@ -27,7 +27,10 @@ import { snapshotHero } from "../game/prologue/act1-battle";
 import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
 import { BattleSceneFullscreen } from "./BattleScene/BattleSceneFullscreen";
-import { buildDemoScene } from "../game/war/battle-scene-model";
+import { DeployLoadoutPicker } from "./BattleScene/DeployLoadoutPicker";
+import { buildDemoScene, type SceneBattle } from "../game/war/battle-scene-model";
+import { buildPlayerScene, clampPicksToRoster, type DeploymentPick } from "../game/war/deploy-loadout";
+import { rosterCount } from "../game/war/troops";
 import { battleSfx } from "../game/war/battle-sfx";
 
 type Act = (fn: () => Promise<unknown>, label: string) => void;
@@ -450,6 +453,13 @@ export default function ArenaPanel({ state, token, onAction }: {
   const ladder = useArenaLadder(token, ladderTick);
   const [showForm, setShowForm] = useState(false);
   const [showScene, setShowScene] = useState(false);
+  // Deploy-my-loadout (owner 2026-10-05): Hans's real barracks force on the
+  // field instead of the canned demo. Bloodless — the picker only reads the
+  // roster; deploying never musters, moves, or loses troops.
+  const [showPicker, setShowPicker] = useState(false);
+  const [deployScene, setDeployScene] = useState<SceneBattle | null>(null);
+  const roster = state.troops?.home.roster ?? null;
+  const rosterSize = roster ? rosterCount(roster) : 0;
   const challenges = useMemo(() => state.arenaChallenges ?? [], [state]);
   const bouts = useMemo(() => state.arenaBouts ?? [], [state]);
 
@@ -495,10 +505,13 @@ export default function ArenaPanel({ state, token, onAction }: {
               )}
             </p>
           </div>
+          <div className="flex shrink-0 flex-col gap-2">
           <button
             type="button"
             onClick={() => {
               battleSfx.attach(); // user gesture — wake the war so the approach stinger lands
+              setDeployScene(null);
+              setShowPicker(false);
               setShowScene((s) => !s);
             }}
             data-testid="arena-watch-scene"
@@ -508,7 +521,45 @@ export default function ArenaPanel({ state, token, onAction }: {
               ? t("arena.hideScene", "Hide scene")
               : t("arena.watchScene", "Watch practice battle")}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowScene(false);
+              setDeployScene(null);
+              setShowPicker((s) => !s);
+            }}
+            disabled={!roster || rosterSize === 0}
+            title={!roster || rosterSize === 0 ? "Muster troops in the Barracks first" : undefined}
+            data-testid="arena-deploy-loadout"
+            className="shrink-0 rounded-lg border border-emerald-400/40 bg-black/60 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-200 hover:bg-black/80 disabled:opacity-40"
+          >
+            {t("arena.deployLoadout", "Deploy my loadout")}
+          </button>
+          </div>
         </div>
+        {showPicker && roster && (
+          <div className="mt-3">
+            <DeployLoadoutPicker
+              roster={roster}
+              onCancel={() => setShowPicker(false)}
+              onDeploy={(picks: DeploymentPick[]) => {
+                const safe = clampPicksToRoster(picks, roster);
+                if (safe.length === 0) return;
+                battleSfx.attach(); // user gesture — wake the war
+                setDeployScene(
+                  buildPlayerScene(safe, {
+                    attackerName: me || "Warlord",
+                    nowMs: Date.now(),
+                  }),
+                );
+                setShowPicker(false);
+              }}
+            />
+          </div>
+        )}
+        {deployScene && (
+          <BattleSceneFullscreen scene={deployScene} onClose={() => setDeployScene(null)} />
+        )}
         {showScene && (
           <BattleSceneFullscreen scene={buildDemoScene(Date.now())} onClose={() => setShowScene(false)} />
         )}
