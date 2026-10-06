@@ -19,12 +19,18 @@
 import { useMemo, useState } from "react";
 import {
   PLAYBOOK,
+  autoloadSuggested,
   clampLoadsToRoster,
+  deficitHeadline,
   entryLabel,
   formationCount,
   formationPicks,
   formationSlots,
   playById,
+  playsForLevel,
+  suggestedComposition,
+  type AutoloadResult,
+  type Play,
   type PlayCategory,
   type SavedFormation,
   type SlotLoads,
@@ -39,7 +45,7 @@ import {
   previewGarrisonReverb,
   type ChorusGrade,
 } from "../../game/war/deploy-loadout";
-import type { TroopRoster } from "../../game/war/troops";
+import { TROOP_TYPES, label as troopLabel, type TroopRoster } from "../../game/war/troops";
 import { FormationDiagram } from "./FormationDiagram";
 import { FormationBuilder, type BuilderSeed } from "./FormationBuilder";
 
@@ -133,6 +139,7 @@ function GradeDial({ grade, setGrade, myReverb, foeReverb }: { grade: ChorusGrad
 export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation, onDeleteFormation, onToggleLock, onDeployFormation, onClose }: WarRoomProps) {
   const [tab, setTab] = useState<Tab>("Deploy");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [suggestedPickId, setSuggestedPickId] = useState<string | null>(null);
   const [lastRunPick, setLastRunPick] = useState(false);
   const [grade, setGrade] = useState<ChorusGrade>(DEFAULT_CHORUS_GRADE);
   const [lastRun, setLastRun] = useState<LastRun | null>(() => readLastRun(gameId));
@@ -143,9 +150,26 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
   const locked = useMemo(() => warRoom.formations.filter((f) => f.locked), [warRoom]);
   const selected = locked.find((f) => f.id === selectedId) ?? null;
 
+  // Suggested loads, auto-filled from the live roster (recomputed when the
+  // roster changes). Unlocked plays only — a locked play's suggestion stays
+  // locked with it.
+  const suggestedAutos = useMemo(() => {
+    const m = new Map<string, AutoloadResult>();
+    for (const p of PLAYBOOK) m.set(p.id, autoloadSuggested(p, roster));
+    return m;
+  }, [roster]);
+  const suggestedPlays = useMemo(() => playsForLevel(leaderLevel).filter((a) => !a.locked), [leaderLevel]);
+  const suggestedSelPlay: Play | null =
+    suggestedPickId && suggestedPlays.some((a) => a.play.id === suggestedPickId)
+      ? playById(suggestedPickId) ?? null
+      : null;
+  const suggestedAuto: AutoloadResult | null = suggestedSelPlay ? suggestedAutos.get(suggestedSelPlay.id) ?? null : null;
+
   const deployFormation: SavedFormation | null = lastRunPick && lastRun
     ? { id: "lastrun", name: lastRun.name, playId: lastRun.playId, locked: false, loads: lastRun.loads, slotMeta: lastRun.slotMeta, createdAt: lastRun.at, updatedAt: lastRun.at }
-    : selected;
+    : suggestedSelPlay
+      ? { id: `suggested-${suggestedSelPlay.id}`, name: `${suggestedSelPlay.name} — Suggested`, playId: suggestedSelPlay.id, locked: false, loads: suggestedAuto?.loads ?? {}, createdAt: 0, updatedAt: 0 }
+      : selected;
 
   const deployPicks = deployFormation ? formationPicks(deployFormation) : [];
   const myReverb = picksReverb(deployPicks);
@@ -216,12 +240,12 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
         {tab === "Deploy" && (
           <div className="space-y-3" data-testid="warroom-deploy">
             <p className="text-[11px] text-zinc-500">
-              Only locked-down war room formations deploy. <b className="text-zinc-300">Last run</b> is always one tap away.
+              Run a <b className="text-zinc-300">suggested load</b> in one tap, or a formation you've <b className="text-zinc-300">locked down</b>. <b className="text-zinc-300">Last run</b> is always one tap away.
             </p>
             {lastRun && (
               <button
                 type="button"
-                onClick={() => { setLastRunPick(true); setSelectedId(null); }}
+                onClick={() => { setLastRunPick(true); setSelectedId(null); setSuggestedPickId(null); }}
                 data-testid="warroom-lastrun"
                 className={`w-full rounded-xl border p-3 text-left ${lastRunPick ? "border-cyan-400/70 bg-cyan-500/10" : "border-zinc-800 bg-zinc-900/50"}`}
               >
@@ -234,39 +258,100 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
                 </p>
               </button>
             )}
-            {locked.length === 0 && (
-              <div className="rounded-xl border border-dashed border-zinc-700 p-4 text-center">
-                <p className="text-xs text-zinc-400">No locked-down formations yet.</p>
-                <button
-                  type="button"
-                  onClick={() => openBuilder({ playId: "mixed-wedge" })}
-                  className="mt-2 rounded-lg bg-amber-500 px-4 py-2 text-xs font-bold uppercase tracking-wider text-black"
-                >
-                  Build your first
-                </button>
+            {/* Suggested — the playbook's ready-made loads, one tap. */}
+            <div data-testid="warroom-suggested-group">
+              <h3 className="mb-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-zinc-400">📋 Suggested — from the playbook</h3>
+              <p className="mb-2 text-[11px] text-zinc-500">Ready-made loads filled from your roster. Run them as-is — build your own in the Builder when you're ready.</p>
+              <div className="space-y-2">
+                {suggestedPlays.map(({ play: p }) => {
+                  const auto = suggestedAutos.get(p.id);
+                  const active = suggestedSelPlay?.id === p.id && !lastRunPick;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => { setSuggestedPickId(p.id); setSelectedId(null); setLastRunPick(false); }}
+                      data-testid={`warroom-suggested-${p.id}`}
+                      aria-pressed={active}
+                      className={`w-full rounded-xl border p-3 text-left ${active ? "border-emerald-400/70 bg-emerald-500/10" : "border-zinc-800 bg-zinc-900/50"}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white">▶ {p.name} — Suggested</span>
+                        <span className="text-[11px] text-zinc-500">
+                          {auto ? `${auto.loadedTotal}${auto.scaled ? `/${auto.suggestedTotal}` : ""} troops` : ""}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-zinc-500">
+                        {p.category} · {playById(p.id)?.slots.length ?? 0} slots
+                        {auto?.scaled ? " · scaled to your roster" : ""}
+                      </p>
+                    </button>
+                  );
+                })}
               </div>
-            )}
-            <div className="space-y-2">
-              {locked.map((f) => {
-                const active = selectedId === f.id && !lastRunPick;
-                const n = formationCount(f);
-                return (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => { setSelectedId(f.id); setLastRunPick(false); }}
-                    data-testid={`warroom-deploy-${f.id}`}
-                    aria-pressed={active}
-                    className={`w-full rounded-xl border p-3 text-left ${active ? "border-amber-400/70 bg-amber-500/10" : "border-zinc-800 bg-zinc-900/50"}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-white">🔒 {f.name}</span>
-                      <span className="text-[11px] text-zinc-500">{n} troops · ⚡{Math.round(powerOf(f)).toLocaleString()}</span>
+              {suggestedSelPlay && suggestedAuto && (
+                <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-900/50 p-2.5">
+                  <p className="text-[11px] text-zinc-400">
+                    <b className="text-zinc-200">{suggestedSelPlay.name} — Suggested</b> fields{" "}
+                    <b className="text-zinc-200">{suggestedAuto.loadedTotal}</b> of {suggestedAuto.suggestedTotal} suggested troops from your roster.
+                  </p>
+                  {suggestedAuto.scaled ? (
+                    <div className="mt-1 space-y-0.5">
+                      <p className="text-[11px] font-semibold text-amber-200">
+                        Scaled to your roster — {deficitHeadline(suggestedAuto.deficits)} for the full play.
+                      </p>
+                      {suggestedAuto.deficits.slice(0, 4).map((d) => (
+                        <p key={`${d.slotId}-${d.type}`} className="text-[11px] text-zinc-500">
+                          {d.slotName}: need +{d.missing} {troopLabel(d.type)}{d.missing === 1 ? "" : "s"}
+                        </p>
+                      ))}
+                      {suggestedAuto.deficits.length > 4 && (
+                        <p className="text-[11px] text-zinc-600">+{suggestedAuto.deficits.length - 4} more shortfalls — muster to fill the play.</p>
+                      )}
                     </div>
-                    <p className="mt-0.5 text-[11px] text-zinc-500">{playById(f.playId)?.name ?? "Custom formation"}</p>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-emerald-200">Your roster fields the full play. ⚔️</p>
+                  )}
+                </div>
+              )}
+            </div>
+            {/* Your locked formations — the locked-only quick-pick rule. */}
+            <div>
+              <h3 className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.2em] text-zinc-400">🔒 Your locked formations</h3>
+              {locked.length === 0 && (
+                <div className="rounded-xl border border-dashed border-zinc-700 p-4 text-center">
+                  <p className="text-xs text-zinc-400">No locked-down formations yet — suggested loads deploy right now. Save your own from a run, or build one.</p>
+                  <button
+                    type="button"
+                    onClick={() => openBuilder({ playId: "mixed-wedge" })}
+                    className="mt-2 rounded-lg bg-amber-500 px-4 py-2 text-xs font-bold uppercase tracking-wider text-black"
+                  >
+                    Build your first
                   </button>
-                );
-              })}
+                </div>
+              )}
+              <div className="space-y-2">
+                {locked.map((f) => {
+                  const active = selectedId === f.id && !lastRunPick && !suggestedSelPlay;
+                  const n = formationCount(f);
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => { setSelectedId(f.id); setLastRunPick(false); setSuggestedPickId(null); }}
+                      data-testid={`warroom-deploy-${f.id}`}
+                      aria-pressed={active}
+                      className={`w-full rounded-xl border p-3 text-left ${active ? "border-amber-400/70 bg-amber-500/10" : "border-zinc-800 bg-zinc-900/50"}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white">🔒 {f.name}</span>
+                        <span className="text-[11px] text-zinc-500">{n} troops · ⚡{Math.round(powerOf(f)).toLocaleString()}</span>
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-zinc-500">{playById(f.playId)?.name ?? "Custom formation"}</p>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             {deployFormation && (
               <GradeDial grade={grade} setGrade={setGrade} myReverb={myReverb} foeReverb={foeReverb} />
@@ -295,6 +380,7 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
                 <div className="space-y-2">
                   {PLAYBOOK.filter((p) => p.category === cat).map((p) => {
                     const lockedPlay = leaderLevel < p.minLeaderLevel;
+                    const comp = suggestedComposition(p);
                     return (
                       <div key={p.id} className={`rounded-xl border p-3 ${lockedPlay ? "border-zinc-800 bg-zinc-900/40 opacity-80" : "border-zinc-800 bg-zinc-900/60"}`} data-testid={`playbook-play-${p.id}`}>
                         <div className="flex items-start justify-between gap-2">
@@ -306,6 +392,12 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
                             <p className="mt-0.5 text-[11px] text-zinc-400">{p.blurb}</p>
                             <p className="mt-1 text-[10px] text-zinc-500">
                               {p.slots.length} slots · {p.slots.filter((s) => s.entry.kind === "oncall").length} on-call
+                            </p>
+                            <p className="mt-1 text-[10px] text-zinc-500" data-testid={`playbook-suggested-comp-${p.id}`}>
+                              Suggested load: <b className="text-zinc-300">{comp.total} troops</b> —{" "}
+                              {TROOP_TYPES.filter((t) => comp.byType[t] > 0)
+                                .map((t) => `${comp.byType[t]} ${troopLabel(t)}`)
+                                .join(" · ")}
                             </p>
                           </div>
                           <button
@@ -322,6 +414,16 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
                         <div className="mt-2">
                           <FormationDiagram play={p} loads={{}} compact />
                         </div>
+                        <button
+                          type="button"
+                          disabled={lockedPlay}
+                          title={lockedPlay ? `Requires leader level ${p.minLeaderLevel}` : `Deploy ${p.name} with the suggested load`}
+                          onClick={() => { setSuggestedPickId(p.id); setSelectedId(null); setLastRunPick(false); setTab("Deploy"); }}
+                          data-testid={`playbook-suggested-${p.id}`}
+                          className="mt-2 w-full rounded-lg bg-emerald-500 px-3 py-2.5 text-xs font-bold uppercase tracking-wider text-black disabled:opacity-40"
+                        >
+                          {lockedPlay ? `🔒 Suggested load — L${p.minLeaderLevel}` : "▶ Use suggested load"}
+                        </button>
                       </div>
                     );
                   })}
@@ -354,7 +456,7 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
                     <button type="button" onClick={() => setViewId(viewId === f.id ? null : f.id)} aria-label={`View ${f.name}`} title="View" className="rounded-md border border-zinc-700 px-2 py-1.5 text-xs text-zinc-300">👁</button>
                     <button
                       type="button"
-                      onClick={() => { setSelectedId(f.locked ? f.id : null); setLastRunPick(false); if (f.locked) setTab("Deploy"); else openBuilder({ playId: f.playId, loads: f.loads, slotMeta: f.slotMeta, name: f.name, editingId: f.id }); }}
+                      onClick={() => { setSelectedId(f.locked ? f.id : null); setLastRunPick(false); setSuggestedPickId(null); if (f.locked) setTab("Deploy"); else openBuilder({ playId: f.playId, loads: f.loads, slotMeta: f.slotMeta, name: f.name, editingId: f.id }); }}
                       aria-label={f.locked ? `Load ${f.name} for deploy` : `Edit ${f.name}`}
                       title={f.locked ? "One-tap load for deploy" : "Edit in builder"}
                       className="rounded-md border border-zinc-700 px-2 py-1.5 text-xs text-zinc-300"

@@ -8,13 +8,16 @@
 
 import { useMemo, useState } from "react";
 import {
+  autoloadSuggested,
   blankSlots,
+  deficitHeadline,
   entryLabel,
   formationSlots,
   playById,
   playsForLevel,
   suggestedFormationName,
   validateLoads,
+  type AutoloadResult,
   type PlaySlot,
   type SavedFormation,
   type SlotEntry,
@@ -86,6 +89,7 @@ export function FormationBuilder({
   const [editingId] = useState(seed.editingId);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
   const [grade, setGrade] = useState<ChorusGrade>(DEFAULT_CHORUS_GRADE);
+  const [autofillInfo, setAutofillInfo] = useState<AutoloadResult | null>(null);
 
   const owned = useMemo(() => rosterByTier(roster), [roster]);
 
@@ -114,6 +118,7 @@ export function FormationBuilder({
     (loads[slotId] ?? []).reduce((n, p) => n + Math.max(0, Math.trunc(p.count)), 0);
 
   const bump = (slotId: string, type: TroopType, tier: TroopTier, d: number) => {
+    setAutofillInfo(null);
     setLoads((prev) => {
       const cur = (prev[slotId] ?? []).find((p) => p.type === type && p.tier === tier)?.count ?? 0;
       const key = `${type}:${tier}`;
@@ -164,6 +169,15 @@ export function FormationBuilder({
     setSlotMeta(undefined);
     setCustomSlots(pid === "custom" ? blankSlots() : null);
     setSelectedSlotId(null);
+    setAutofillInfo(null);
+  };
+
+  const playLocked = play ? (access.find((a) => a.play.id === play.id)?.locked ?? false) : false;
+  const autofill = () => {
+    if (!play || playLocked) return;
+    const res = autoloadSuggested(play, roster);
+    setLoads(res.loads);
+    setAutofillInfo(res);
   };
 
   const errors = validateLoads(loads, roster);
@@ -214,6 +228,46 @@ export function FormationBuilder({
         </div>
         {play && <p className="mt-1.5 text-[11px] text-zinc-500">{play.blurb}</p>}
       </div>
+
+      {/* suggested load — the commander's recommendation, one tap */}
+      {play && !playLocked && (
+        <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/5 p-2.5" data-testid="builder-suggested">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-zinc-400">
+              <b className="text-cyan-200">Suggested load</b> — the commander's recommendation for {play.name}, filled from your roster. Tweak anything after.
+            </p>
+            <button
+              type="button"
+              onClick={autofill}
+              data-testid="builder-autofill"
+              className="shrink-0 rounded-lg bg-cyan-500 px-3 py-2 text-xs font-bold text-black"
+            >
+              ✨ Autofill suggested
+            </button>
+          </div>
+          {autofillInfo && (
+            <div className="mt-1.5 space-y-0.5" data-testid="builder-autofill-info">
+              {autofillInfo.scaled ? (
+                <>
+                  <p className="text-[11px] font-semibold text-amber-200">
+                    Scaled to your roster — {autofillInfo.loadedTotal} of {autofillInfo.suggestedTotal} troops. {deficitHeadline(autofillInfo.deficits)} for the full play.
+                  </p>
+                  {autofillInfo.deficits.slice(0, 4).map((d) => (
+                    <p key={`${d.slotId}-${d.type}`} className="text-[11px] text-zinc-500">
+                      {d.slotName}: need +{d.missing} {TYPE_NAME[d.type]}{d.missing === 1 ? "" : "s"}
+                    </p>
+                  ))}
+                  {autofillInfo.deficits.length > 4 && (
+                    <p className="text-[11px] text-zinc-600">+{autofillInfo.deficits.length - 4} more shortfalls</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-[11px] text-emerald-200">Fielded in full — {autofillInfo.loadedTotal} troops, as suggested. ⚔️</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* diagram — tap a slot to load it */}
       <FormationDiagram

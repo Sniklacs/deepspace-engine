@@ -10,11 +10,15 @@
 
 import {
   TROOP_TYPES,
+  label as troopLabel,
   type TroopRoster,
+  type TroopTier,
+  type TroopType,
 } from "./troops";
 import {
   buildSceneFromPlaced,
   deploySeedFor,
+  DEPLOY_CAP,
   type DeploymentPick,
   type DeployOptions,
   type PlacedUnit,
@@ -54,6 +58,36 @@ export interface Play {
   blurb: string;
   shape: PlayShape;
   slots: PlaySlot[];
+  /** The commander's recommended troop assignment for this play — what
+   *  auto-loads for players who haven't learned to build yet (owner
+   *  2026-10-06: most players run these until customs start working). */
+  suggested: SuggestedSlotLoad[];
+}
+
+// ============================================================================
+// SUGGESTED LOADS (owner 2026-10-06) — every play ships with a recommended
+// troop assignment sized for a ~80–100-unit mid-game force. `autoloadSuggested`
+// fills it from the player's REAL roster: never over-owned, never over the
+// 100-unit field cap, scales down proportionally for small rosters
+// (frontline/wedge slots first) and reports exactly what's missing — never
+// silently. Compositions obey doctrine: siege sits rear with Warden escort
+// weight (the escort warning stays quiet), Longeyes cover the middle,
+// reserves stay on-call.
+// ============================================================================
+
+export interface SuggestedItem {
+  type: TroopType;
+  count: number;
+}
+
+export interface SuggestedSlotLoad {
+  slotId: string;
+  /** Fill priority when troops run short — lower fills first. */
+  rank: number;
+  /** Prime slots (wedge / frontline / the siege point) draw the highest
+   *  tiers first; support slots take lowest tiers first. */
+  prime?: boolean;
+  items: SuggestedItem[];
 }
 
 const S = (
@@ -86,6 +120,16 @@ const mixedWedge: Play = {
     S("rear", "Rear", "REAR", { kind: "delayed", atS: 300 }, 0.5, 0.8),
     S("reserve", "Reserve", "RESERVE", { kind: "oncall", atS: 240 }, 0.5, 0.94),
   ],
+  // Teeth first: Reavers + Bulwarks punch, Bulwarks refuse the flanks,
+  // Longeyes work the middle, escorted Thunder drops late, fist on call.
+  suggested: [
+    { slotId: "wedge", rank: 0, prime: true, items: [{ type: "reaver", count: 16 }, { type: "bulwark", count: 12 }] },
+    { slotId: "flank-l", rank: 1, prime: true, items: [{ type: "bulwark", count: 10 }, { type: "warden", count: 2 }] },
+    { slotId: "flank-r", rank: 1, prime: true, items: [{ type: "bulwark", count: 10 }, { type: "warden", count: 2 }] },
+    { slotId: "middle", rank: 2, items: [{ type: "longeye", count: 12 }, { type: "warden", count: 4 }] },
+    { slotId: "rear", rank: 3, prime: true, items: [{ type: "thunder", count: 6 }, { type: "warden", count: 4 }] },
+    { slotId: "reserve", rank: 4, items: [{ type: "reaver", count: 8 }, { type: "bulwark", count: 6 }] },
+  ],
 };
 
 /** Line Advance (Offensive, L1 generic): the plain honest attack — Bulwarks
@@ -105,6 +149,16 @@ const lineAdvance: Play = {
     S("flank-r", "Right Flank", "FLANK_RIGHT", { kind: "start" }, 0.82, 0.52),
     S("rear", "Rear", "REAR", { kind: "delayed", atS: 300 }, 0.5, 0.8),
     S("reserve", "Reserve", "RESERVE", { kind: "oncall", atS: 240 }, 0.5, 0.94),
+  ],
+  // A wall of Bulwarks walks forward, Reavers + Longeyes work behind it,
+  // escorted Thunder walks up, small fist on call.
+  suggested: [
+    { slotId: "front", rank: 0, prime: true, items: [{ type: "bulwark", count: 24 }] },
+    { slotId: "flank-l", rank: 1, prime: true, items: [{ type: "bulwark", count: 8 }, { type: "reaver", count: 4 }] },
+    { slotId: "flank-r", rank: 1, prime: true, items: [{ type: "bulwark", count: 8 }, { type: "reaver", count: 4 }] },
+    { slotId: "second", rank: 2, items: [{ type: "reaver", count: 12 }, { type: "longeye", count: 10 }, { type: "warden", count: 2 }] },
+    { slotId: "rear", rank: 3, prime: true, items: [{ type: "thunder", count: 5 }, { type: "warden", count: 4 }] },
+    { slotId: "reserve", rank: 4, items: [{ type: "reaver", count: 6 }, { type: "bulwark", count: 4 }] },
   ],
 };
 
@@ -126,6 +180,16 @@ const shieldWall: Play = {
     S("support", "Support", "REAR", { kind: "start" }, 0.5, 0.74),
     S("reserve", "Reserve", "RESERVE", { kind: "oncall", atS: 240 }, 0.5, 0.94),
   ],
+  // Deep Bulwark walls, Longeyes shooting over the shields, Warden screens
+  // on the wings, a counter-battery tucked behind, relief held back.
+  suggested: [
+    { slotId: "wall-1", rank: 0, prime: true, items: [{ type: "bulwark", count: 22 }, { type: "warden", count: 4 }] },
+    { slotId: "wall-2", rank: 1, items: [{ type: "bulwark", count: 14 }, { type: "longeye", count: 10 }] },
+    { slotId: "screen-l", rank: 2, items: [{ type: "warden", count: 6 }, { type: "bulwark", count: 4 }] },
+    { slotId: "screen-r", rank: 2, items: [{ type: "warden", count: 6 }, { type: "bulwark", count: 4 }] },
+    { slotId: "support", rank: 3, items: [{ type: "longeye", count: 6 }, { type: "warden", count: 4 }, { type: "thunder", count: 2 }] },
+    { slotId: "reserve", rank: 4, items: [{ type: "bulwark", count: 6 }, { type: "reaver", count: 6 }] },
+  ],
 };
 
 /** Hammer & Anvil (Offensive, L3): the main line pins, the heavy flank
@@ -145,9 +209,73 @@ const hammerAnvil: Play = {
     S("rear", "Rear", "REAR", { kind: "delayed", atS: 300 }, 0.5, 0.8),
     S("reserve", "Reserve", "RESERVE", { kind: "oncall", atS: 240 }, 0.5, 0.94),
   ],
+  // The anvil pins and takes the hit; the hammer — Reavers with a Bulwark
+  // spine — swings in late off the right; Thunder cracks what's pinned.
+  suggested: [
+    { slotId: "hammer", rank: 0, prime: true, items: [{ type: "reaver", count: 18 }, { type: "bulwark", count: 6 }] },
+    { slotId: "anvil", rank: 1, prime: true, items: [{ type: "bulwark", count: 20 }, { type: "longeye", count: 6 }] },
+    { slotId: "screen-l", rank: 2, items: [{ type: "bulwark", count: 8 }, { type: "warden", count: 2 }] },
+    { slotId: "second", rank: 3, items: [{ type: "longeye", count: 10 }, { type: "reaver", count: 6 }, { type: "warden", count: 2 }] },
+    { slotId: "rear", rank: 4, prime: true, items: [{ type: "thunder", count: 6 }, { type: "warden", count: 5 }] },
+    { slotId: "reserve", rank: 5, items: [{ type: "reaver", count: 6 }, { type: "bulwark", count: 4 }] },
+  ],
 };
 
-export const PLAYBOOK: readonly Play[] = [mixedWedge, lineAdvance, shieldWall, hammerAnvil];
+/** Pincer (Offensive, L2): a light anvil pins the center while both horns
+ *  drop late and close from the wings — the enemy has to face three ways. */
+const pincer: Play = {
+  id: "pincer",
+  name: "Pincer",
+  category: "Offensive",
+  minLeaderLevel: 2,
+  blurb: "Pin the center light, drop both horns late and close the jaws. Needs timing — and Reavers to burn.",
+  shape: "custom",
+  slots: [
+    S("horn-l", "Left Horn", "FLANK_LEFT", { kind: "delayed", atS: 120 }, 0.14, 0.34),
+    S("horn-r", "Right Horn", "FLANK_RIGHT", { kind: "delayed", atS: 120 }, 0.86, 0.34),
+    S("anvil", "Anvil", "MAIN", { kind: "start" }, 0.5, 0.52),
+    S("rear", "Rear", "REAR", { kind: "delayed", atS: 300 }, 0.5, 0.78),
+    S("reserve", "Reserve", "RESERVE", { kind: "oncall", atS: 240 }, 0.5, 0.94),
+  ],
+  // The horns ARE the play — they fill first and take the best tiers.
+  // Escorted Thunder works the pinned center from the rear.
+  suggested: [
+    { slotId: "horn-l", rank: 0, prime: true, items: [{ type: "reaver", count: 14 }, { type: "bulwark", count: 6 }] },
+    { slotId: "horn-r", rank: 0, prime: true, items: [{ type: "reaver", count: 14 }, { type: "bulwark", count: 6 }] },
+    { slotId: "anvil", rank: 1, prime: true, items: [{ type: "bulwark", count: 16 }, { type: "longeye", count: 6 }] },
+    { slotId: "rear", rank: 2, prime: true, items: [{ type: "thunder", count: 5 }, { type: "longeye", count: 4 }, { type: "warden", count: 6 }] },
+    { slotId: "reserve", rank: 3, items: [{ type: "reaver", count: 6 }, { type: "bulwark", count: 6 }] },
+  ],
+};
+
+/** Redoubt (Defensive, L2): the Shield Wall grown teeth — deeper walls,
+ *  Warden screens, and a real counter-battery behind the shields. */
+const redoubt: Play = {
+  id: "redoubt",
+  name: "Redoubt",
+  category: "Defensive",
+  minLeaderLevel: 2,
+  blurb: "Dig in deeper — twin Bulwark walls, Warden screens, and a counter-battery that answers their siege.",
+  shape: "wall",
+  slots: [
+    S("wall-1", "Outer Wall", "MAIN", { kind: "start" }, 0.5, 0.36),
+    S("wall-2", "Inner Wall", "MAIN", { kind: "start" }, 0.5, 0.54),
+    S("screen-l", "Left Screen", "FLANK_LEFT", { kind: "start" }, 0.16, 0.48),
+    S("screen-r", "Right Screen", "FLANK_RIGHT", { kind: "start" }, 0.84, 0.48),
+    S("battery", "Rear Battery", "REAR", { kind: "start" }, 0.5, 0.74),
+    S("reserve", "Reserve", "RESERVE", { kind: "oncall", atS: 240 }, 0.5, 0.94),
+  ],
+  suggested: [
+    { slotId: "wall-1", rank: 0, prime: true, items: [{ type: "bulwark", count: 24 }, { type: "warden", count: 4 }] },
+    { slotId: "wall-2", rank: 1, items: [{ type: "bulwark", count: 12 }, { type: "longeye", count: 12 }] },
+    { slotId: "screen-l", rank: 2, items: [{ type: "warden", count: 6 }, { type: "bulwark", count: 4 }] },
+    { slotId: "screen-r", rank: 2, items: [{ type: "warden", count: 6 }, { type: "bulwark", count: 4 }] },
+    { slotId: "battery", rank: 3, prime: true, items: [{ type: "thunder", count: 4 }, { type: "longeye", count: 6 }, { type: "warden", count: 4 }] },
+    { slotId: "reserve", rank: 4, items: [{ type: "bulwark", count: 8 }, { type: "reaver", count: 4 }] },
+  ],
+};
+
+export const PLAYBOOK: readonly Play[] = [mixedWedge, lineAdvance, pincer, shieldWall, redoubt, hammerAnvil];
 
 export function playById(id: string): Play | undefined {
   return PLAYBOOK.find((p) => p.id === id);
@@ -167,6 +295,169 @@ export function playsForLevel(level: number): PlayAccess[] {
     locked: level < play.minLeaderLevel,
     requiredLevel: play.minLeaderLevel,
   }));
+}
+
+/** Total headcount of a play's suggested load. */
+export function suggestedTotal(play: Play): number {
+  return play.suggested.reduce((n, s) => n + s.items.reduce((m, i) => m + i.count, 0), 0);
+}
+
+/** Suggested load composition by type (card summaries, deficit math). */
+export function suggestedComposition(play: Play): { total: number; byType: Record<TroopType, number> } {
+  const byType: Record<TroopType, number> = { bulwark: 0, reaver: 0, longeye: 0, thunder: 0, warden: 0 };
+  let total = 0;
+  for (const s of play.suggested)
+    for (const i of s.items) {
+      byType[i.type] += i.count;
+      total += i.count;
+    }
+  return { total, byType };
+}
+
+/** One unmet piece of a suggested load: this slot wants `missing` more of a
+ *  type than the roster could give it. */
+export interface SlotDeficit {
+  slotId: string;
+  slotName: string;
+  type: TroopType;
+  missing: number;
+}
+
+export interface AutoloadResult {
+  loads: SlotLoads;
+  suggestedTotal: number;
+  loadedTotal: number;
+  /** True when the roster couldn't field the suggestion as written. */
+  scaled: boolean;
+  deficits: SlotDeficit[];
+}
+
+const TIER_HIGH_FIRST: readonly TroopTier[] = [4, 3, 2, 1];
+const TIER_LOW_FIRST: readonly TroopTier[] = [1, 2, 3, 4];
+
+/**
+ * Fill a play's suggested load from the real roster. Pure and deterministic.
+ *
+ *   • Never exceeds owned type×tier counts; never exceeds DEPLOY_CAP total.
+ *   • Small rosters scale proportionally (each item shrinks by the roster's
+ *     coverage of the suggestion), slots filled in rank order — the
+ *     frontline/wedge gets first claim, then a top-up pass walks the same
+ *     order spending what's left toward the full suggestion.
+ *   • Prime slots draw the highest tiers first; support slots the lowest.
+ *   • Deficits name every shortfall per slot ("Wedge: need +12 Bulwarks") —
+ *     an under-filled suggestion is always surfaced, never silent.
+ */
+export function autoloadSuggested(play: Play, roster: TroopRoster): AutoloadResult {
+  const slotById = new Map(play.slots.map((s) => [s.id, s]));
+  const ownedLeft = new Map<string, number>();
+  let ownedTotal = 0;
+  for (const c of roster.cohorts) {
+    const k = `${c.type}:${c.tier}`;
+    ownedLeft.set(k, (ownedLeft.get(k) ?? 0) + Math.max(0, Math.trunc(c.count)));
+    ownedTotal += Math.max(0, Math.trunc(c.count));
+  }
+  const sugTotal = suggestedTotal(play);
+  const scale = sugTotal > 0 ? Math.min(1, ownedTotal / sugTotal) : 1;
+  const ordered = [...play.suggested].sort((a, b) => a.rank - b.rank);
+  const loads: SlotLoads = {};
+  const got = new Map<string, number>(); // `${slotId}:${type}` -> allocated
+  let capLeft = DEPLOY_CAP;
+
+  const draw = (s: SuggestedSlotLoad, type: TroopType, wantN: number): number => {
+    let need = Math.max(0, Math.trunc(wantN));
+    let taken = 0;
+    if (need <= 0 || capLeft <= 0) return 0;
+    const picks: DeploymentPick[] = [...(loads[s.slotId] ?? [])];
+    for (const tier of s.prime ? TIER_HIGH_FIRST : TIER_LOW_FIRST) {
+      if (need <= 0 || capLeft <= 0) break;
+      const k = `${type}:${tier}`;
+      const n = Math.min(ownedLeft.get(k) ?? 0, capLeft, need);
+      if (n <= 0) continue;
+      ownedLeft.set(k, (ownedLeft.get(k) ?? 0) - n);
+      capLeft -= n;
+      need -= n;
+      taken += n;
+      const existing = picks.find((p) => p.type === type && p.tier === tier);
+      if (existing) existing.count += n;
+      else picks.push({ type, tier, count: n });
+    }
+    if (taken > 0) loads[s.slotId] = picks;
+    return taken;
+  };
+
+  // Phase A — proportional fill, frontline first.
+  for (const s of ordered) {
+    for (const it of s.items) {
+      const key = `${s.slotId}:${it.type}`;
+      const wantN = Math.floor(it.count * scale);
+      got.set(key, (got.get(key) ?? 0) + draw(s, it.type, wantN));
+    }
+  }
+  // Phase B — top-up toward the full suggestion, same rank order, spending
+  // whatever the roster still holds (a roster rich in one type fields the
+  // front at full strength even when the support types run short).
+  for (const s of ordered) {
+    for (const it of s.items) {
+      const key = `${s.slotId}:${it.type}`;
+      const have = got.get(key) ?? 0;
+      if (have >= it.count) continue;
+      got.set(key, have + draw(s, it.type, it.count - have));
+    }
+  }
+
+  const deficits: SlotDeficit[] = [];
+  for (const s of play.suggested) {
+    for (const it of s.items) {
+      const missing = it.count - (got.get(`${s.slotId}:${it.type}`) ?? 0);
+      if (missing > 0) {
+        deficits.push({
+          slotId: s.slotId,
+          slotName: slotById.get(s.slotId)?.name ?? s.slotId,
+          type: it.type,
+          missing,
+        });
+      }
+    }
+  }
+  const loadedTotal = Object.values(loads).reduce(
+    (n, picks) => n + picks.reduce((m, p) => m + p.count, 0),
+    0,
+  );
+  return {
+    loads,
+    suggestedTotal: sugTotal,
+    loadedTotal,
+    scaled: loadedTotal < sugTotal,
+    deficits,
+  };
+}
+
+/** "need +12 Bulwarks, +6 Thunders" — deficits aggregated by type, biggest
+ *  first. Empty string when the suggestion fielded in full. */
+export function deficitHeadline(deficits: SlotDeficit[], maxTypes = 3): string {
+  const byType = new Map<TroopType, number>();
+  for (const d of deficits) byType.set(d.type, (byType.get(d.type) ?? 0) + d.missing);
+  const parts = [...byType.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, maxTypes)
+    .map(([t, n]) => `+${n} ${troopLabel(t)}${n === 1 ? "" : "s"}`);
+  return parts.length > 0 ? `need ${parts.join(", ")}` : "";
+}
+
+/** The one-tap deployable formation for a play's suggested load, filled from
+ *  the player's current roster. `locked: false` — it is NOT a war-room
+ *  formation; it only becomes one through "Save in war room". */
+export function suggestedFormation(play: Play, roster: TroopRoster, now: number): SavedFormation {
+  const { loads } = autoloadSuggested(play, roster);
+  return {
+    id: `suggested-${play.id}`,
+    name: `${play.name} — Suggested`,
+    playId: play.id,
+    locked: false,
+    loads,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 /** Troops loaded into slots: slotId -> picks. */
