@@ -16,6 +16,11 @@ class SoundManager {
   muted = false;
   // Raid-alarm siren nodes (started/stopped as a unit).
   private siren: { osc: OscillatorNode; lfo: OscillatorNode; gain: GainNode } | null = null;
+  // Battle SFX sub-mix (owner 2026-10-05): the battle soundscape runs through
+  // this bus — a gain + gentle compressor under master, so the global mute
+  // and master level govern it. One AudioContext for the whole game.
+  private battleBus: GainNode | null = null;
+  private muteListeners = new Set<(muted: boolean) => void>();
 
   // Resume/create the AudioContext on a user gesture. Safe to call repeatedly.
   start(): void {
@@ -161,9 +166,42 @@ class SoundManager {
     }
     // Muting kills the klaxon immediately — the alarm stays visible, silent.
     if (this.muted) this.sirenStop();
+    for (const fn of this.muteListeners) {
+      try { fn(this.muted); } catch { /* listener error must not break the toggle */ }
+    }
     // A soft click lets the user confirm the toggle state.
     this.click();
     return this.muted;
+  }
+
+  /** Subscribe to mute changes (e.g. a battle-scene speaker button). Returns
+   *  an unsubscribe function. */
+  onMuteChange(fn: (muted: boolean) => void): () => void {
+    this.muteListeners.add(fn);
+    return () => { this.muteListeners.delete(fn); };
+  }
+
+  /** The battle soundscape's sub-mix: { ctx, bus }. Creates the context on a
+   *  user gesture via start() — call only from a gesture handler. The bus
+   *  runs through a gentle compressor so layered battle noise glues instead
+   *  of clipping, and sits under master so global mute governs it. */
+  getBattleBus(): { ctx: Ctx; bus: GainNode } | null {
+    this.start();
+    if (!this.ctx || !this.master) return null;
+    if (!this.battleBus) {
+      const comp = this.ctx.createDynamicsCompressor();
+      comp.threshold.value = -18;
+      comp.knee.value = 12;
+      comp.ratio.value = 6;
+      comp.attack.value = 0.004;
+      comp.release.value = 0.24;
+      comp.connect(this.master);
+      const bus = this.ctx.createGain();
+      bus.gain.value = 0.9;
+      bus.connect(comp);
+      this.battleBus = bus;
+    }
+    return { ctx: this.ctx, bus: this.battleBus };
   }
 }
 

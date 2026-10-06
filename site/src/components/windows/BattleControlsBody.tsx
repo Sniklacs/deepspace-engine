@@ -8,7 +8,9 @@
 // window is open or not. The scene itself defaults to a clean full-screen
 // view; the player summons this glass only when they want their hands on it.
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore, useEffect, useState } from "react";
+import { sound } from "../../game/sound";
+import { battleSfx } from "../../game/war/battle-sfx";
 import {
   subscribeSceneUI,
   sceneUISnapshot,
@@ -88,11 +90,28 @@ function dayNightLabel(m: "auto" | "day" | "night"): string {
 export function BattleControlsBody() {
   const ui = useSyncExternalStore(subscribeSceneUI, sceneUISnapshot, sceneUIServerSnapshot);
   const gunner = ui.gunnerId ? ui.turrets.find((t) => t.id === ui.gunnerId) ?? null : null;
+  // Speaker button synced with the game's global mute (mutes SFX + voice).
+  const [muted, setMuted] = useState(sound.muted);
+  useEffect(() => sound.onMuteChange(setMuted), []);
+  /** Wrap a control handler so the toggle throw clicks. */
+  const tapped = <T,>(fn: (v: T) => void) => (v: T) => { battleSfx.uiClick(); fn(v); };
 
   return (
     <div className="flex flex-col gap-3 overflow-y-auto p-3" data-testid="battle-controls-body">
       {/* doctrine clock — the shared battle timer */}
-      <BattleClock tS={ui.tS} compact />
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1"><BattleClock tS={ui.tS} compact /></div>
+        <button
+          type="button"
+          aria-label={muted ? "Unmute battle sound" : "Mute battle sound"}
+          aria-pressed={muted}
+          onClick={() => { setMuted(sound.toggleMute()); }}
+          className="shrink-0 rounded-lg border border-black/60 px-2.5 py-2 text-base leading-none"
+          style={{ background: "linear-gradient(180deg,#1b1d24 0%,#101218 60%,#1b1d24 100%)" }}
+        >
+          {muted ? "🔇" : "🔊"}
+        </button>
+      </div>
 
       {/* command */}
       <section aria-label="Command">
@@ -101,13 +120,13 @@ export function BattleControlsBody() {
           <ToggleSwitch
             label={ui.manual ? "Manual" : "Auto"}
             on={ui.manual}
-            onChange={setManual}
+            onChange={tapped(setManual)}
             accent={ui.manual ? "#f87171" : "#a3e635"}
           />
           <ToggleSwitch
             label={dayNightLabel(ui.dayNight)}
             on={ui.dayNight !== "day"}
-            onChange={cycleDayNight}
+            onChange={tapped(cycleDayNight)}
             accent="#38bdf8"
           />
         </div>
@@ -121,7 +140,7 @@ export function BattleControlsBody() {
       {/* battle speed — slow it down, give the commander time to think */}
       <section aria-label="Battle speed">
         <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Battle speed</p>
-        <SpeedSwitch value={ui.battleSpeed} onChange={setBattleSpeed} />
+        <SpeedSwitch value={ui.battleSpeed} onChange={tapped(setBattleSpeed)} />
         <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
           {ui.battleSpeed === "slow"
             ? "Slow: half pace — read the field, call your shots."
@@ -193,7 +212,7 @@ export function BattleControlsBody() {
                 <button
                   key={sq.id}
                   type="button"
-                  onClick={() => setSelectedSquad(selected ? null : sq.id)}
+                  onClick={() => { battleSfx.uiClick(); setSelectedSquad(selected ? null : sq.id); }}
                   data-testid={`squad-pick-${sq.id}`}
                   aria-pressed={selected}
                   className={`flex items-center justify-between rounded-lg border px-2.5 py-2 text-left transition-colors ${
@@ -258,7 +277,7 @@ export function BattleControlsBody() {
         <ToggleSwitch
           label={ui.cameraMode === "ground" ? "Ground" : "Tactical"}
           on={ui.cameraMode === "ground"}
-          onChange={(on) => setCameraMode(on ? "ground" : "tactical")}
+          onChange={(on) => { battleSfx.uiClick(); setCameraMode(on ? "ground" : "tactical"); }}
           accent="#f0abfc"
         />
         <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
@@ -277,7 +296,7 @@ export function BattleControlsBody() {
             <button
               type="button"
               aria-label="Zoom out"
-              onClick={() => setZoomLevel(ui.zoomLevel / 1.3)}
+              onClick={() => { battleSfx.uiClick(); setZoomLevel(ui.zoomLevel / 1.3); }}
               className="flex-1 py-2 text-sm font-bold text-zinc-300 hover:text-white"
             >
               −
@@ -288,7 +307,7 @@ export function BattleControlsBody() {
             <button
               type="button"
               aria-label="Zoom in"
-              onClick={() => setZoomLevel(ui.zoomLevel * 1.3)}
+              onClick={() => { battleSfx.uiClick(); setZoomLevel(ui.zoomLevel * 1.3); }}
               className="flex-1 py-2 text-sm font-bold text-zinc-300 hover:text-white"
             >
               +
@@ -296,7 +315,7 @@ export function BattleControlsBody() {
           </div>
           <button
             type="button"
-            onClick={recenterMap}
+            onClick={() => { battleSfx.uiClick(); recenterMap(); }}
             title="Back to the full field"
             className="shrink-0 rounded-lg border border-white/15 bg-black/50 px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-300 hover:bg-black/80"
           >
@@ -317,15 +336,15 @@ export function BattleControlsBody() {
               key={v}
               label={VEC_LABEL[v]}
               on={ui.vectorsOn[v]}
-              onChange={(on) => setVectorOn(v, on)}
+              onChange={(on) => { battleSfx.uiClick(); setVectorOn(v, on); }}
               accent="#a78bfa"
             />
           ))}
         </div>
         <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-2.5">
-          <ToggleSwitch label="Turrets" on={ui.turretsOn} onChange={setTurretsOn} accent="#67e8f9" />
-          <ToggleSwitch label="Logistics FX" on={ui.logisticsFx} onChange={setLogisticsFx} accent="#5eead4" />
-          <ToggleSwitch label="Labels" on={ui.labelsOn} onChange={setLabelsOn} accent="#fbbf24" />
+          <ToggleSwitch label="Turrets" on={ui.turretsOn} onChange={tapped(setTurretsOn)} accent="#67e8f9" />
+          <ToggleSwitch label="Logistics FX" on={ui.logisticsFx} onChange={tapped(setLogisticsFx)} accent="#5eead4" />
+          <ToggleSwitch label="Labels" on={ui.labelsOn} onChange={tapped(setLabelsOn)} accent="#fbbf24" />
         </div>
       </section>
 
@@ -341,7 +360,7 @@ export function BattleControlsBody() {
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => { setGunner(t.id); setManual(true); }}
+                  onClick={() => { battleSfx.uiClick(); setGunner(t.id); setManual(true); }}
                   data-testid={`gunner-pick-${t.id}`}
                   className="rounded-lg border border-cyan-300/40 bg-cyan-950/40 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-900/50"
                 >
@@ -360,7 +379,7 @@ export function BattleControlsBody() {
             </p>
             <button
               type="button"
-              onClick={() => setGunner(null)}
+              onClick={() => { battleSfx.uiClick(); setGunner(null); }}
               data-testid="gunner-exit"
               className="mt-2 rounded-lg border border-line px-2.5 py-1 text-[11px] font-semibold text-text-2 hover:text-text-1"
             >

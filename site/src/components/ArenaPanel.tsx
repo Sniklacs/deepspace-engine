@@ -28,6 +28,7 @@ import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
 import { BattleSceneFullscreen } from "./BattleScene/BattleSceneFullscreen";
 import { buildDemoScene } from "../game/war/battle-scene-model";
+import { battleSfx } from "../game/war/battle-sfx";
 
 type Act = (fn: () => Promise<unknown>, label: string) => void;
 
@@ -496,7 +497,10 @@ export default function ArenaPanel({ state, token, onAction }: {
           </div>
           <button
             type="button"
-            onClick={() => setShowScene((s) => !s)}
+            onClick={() => {
+              battleSfx.attach(); // user gesture — wake the war so the approach stinger lands
+              setShowScene((s) => !s);
+            }}
             data-testid="arena-watch-scene"
             className="shrink-0 rounded-lg border border-amber-400/40 bg-black/60 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-200 hover:bg-black/80"
           >

@@ -55,6 +55,7 @@ import {
   judgeMoveOrder,
   destLabel,
 } from "../../game/war/scene-orders";
+import { battleSfx } from "../../game/war/battle-sfx";
 import {
   subscribeWindows,
   windowSnapshot,
@@ -212,6 +213,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   // force, the field breaks — the other side holds it. Doctrine: casualty
   // thresholds, not mutual annihilation.
   const victorRef = useRef<"attacker" | "defender" | null>(null);
+  // Last doctrine phase seen — phase transitions earn SFX stingers.
+  const phaseRef = useRef<string | null>(null);
   // Last squad alive-counts pushed to the store — the SQUADS panel refreshes
   // only when something actually died.
   const squadAliveRef = useRef<string>("");
@@ -223,6 +226,18 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     turretsRef.current = scene.turrets.map((t) => ({ ...t }));
   }
 
+  // The SFX engine needs the live camera for distance-muffled blasts.
+  // Idempotent — re-assigning the getter each render is harmless.
+  battleSfx.setCamera(() => {
+    const cam = camRef.current;
+    return {
+      x: cam.ax,
+      y: cam.ay,
+      radius: 0.55 / Math.max(0.2, cam.zoom),
+      ground: sceneUISnapshot().cameraMode === "ground",
+    };
+  });
+
   // Reset working copy + shared UI when the scene identity changes.
   const sceneIdRef = useRef(scene.id);
   useEffect(() => {
@@ -233,6 +248,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       camRef.current = { ...CAM_HOME };
       simTRef.current = 0;
       victorRef.current = null;
+      phaseRef.current = null;
+      battleSfx.reset();
       resetSceneUI();
     }
     registerTurrets(
@@ -327,11 +344,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       u.state = "dead";
       u.hp01 = 0;
       fx.explode(X(u.x), Y(u.y), u.kind === "thunder" ? 1.5 : 1);
+      battleSfx.explosion(u.x, u.y, u.kind === "thunder");
       bumpKill(u.side as "attacker" | "defender");
       // Demo only: the field breaks at the casualty threshold — the other
       // side holds it. Live battles resolve on the engine's own ticks.
       if (!liveCasualties && !victorRef.current) {
-        victorRef.current = demoBreakVictor(unitsRef.current);
+        const v = demoBreakVictor(unitsRef.current);
+        if (v) {
+          victorRef.current = v;
+          battleSfx.victor(v === "attacker");
+        }
       }
     };
 
@@ -347,12 +369,24 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       simTRef.current += sdt;
       const t = simTRef.current;
       const phase = scenePhaseAt(t);
+      // Doctrine phase transitions earn SFX stingers — ears know where you
+      // are before your eyes catch up.
+      if (phase !== phaseRef.current) {
+        phaseRef.current = phase;
+        battleSfx.phase(phase);
+      }
 
       // --- unit state machine -------------------------------------------
       for (const u of unitsRef.current) {
         if (u.state === "dead") continue;
         if (u.state === "staging" && t >= u.enterAtS && (phase === "touchdown" || phase === "contact" || phase === "weapons-free")) {
           u.state = "advancing";
+          // Delayed waves arrive loud: dropship engines on late entries,
+          // a crash swell when a flank hits the field weapons-free.
+          if (u.enterAtS > 60) battleSfx.dropship();
+          if (phase === "weapons-free" && (u.vector === "FLANK_LEFT" || u.vector === "FLANK_RIGHT")) {
+            battleSfx.flankCrash();
+          }
         }
         if (u.state === "advancing") {
           const dx = u.tx - u.x;
@@ -384,6 +418,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           const e = nearestEnemy(u.x, u.y, u.side, 0.3);
           if (!e) { u.state = "holding"; continue; }
           fx.fire(X(u.x), Y(u.y), X(e.x), Y(e.y), u.side === "attacker" ? "#ffd27a" : "#fda4af");
+          battleSfx.tracer(u.kind === "thunder" ? "snipe" : "crack"); // T4s sniping crack
           // Tuned down (owner 2026-10-05): the demo used to annihilate both
           // sides in under a minute of weapons-free. Hits stay frequent so
           // the tracers keep flying — they just don't kill as fast.
@@ -403,6 +438,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           if (target) {
             tr.aim = Math.atan2(Y(target.y) - Y(tr.y), X(target.x) - X(tr.x));
             fx.fire(X(tr.x), Y(tr.y), X(target.x), Y(target.y), "#a5f3fc");
+            battleSfx.tracer("turret");
             // Tuned down with the rest (owner 2026-10-05).
             target.hp01 -= 0.04 + Math.random() * 0.05;
             if (target.hp01 <= 0) killUnit(target);
@@ -1209,6 +1245,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       cancelAnimationFrame(raf);
       ro.disconnect();
       canvas.removeEventListener("wheel", onWheelNative);
+      battleSfx.detach(); // silence the war when the scene closes
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.id]);
@@ -1291,8 +1328,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     if (!verdict.ok) {
       // The judge refused — say why, on the canvas, where the tap happened.
       toastRef.current = { text: verdict.reason, born: performance.now() };
+      battleSfx.orderRejected(); // the judge's gavel — illegal orders SOUND refused
       return;
     }
+    battleSfx.orderAccepted();
     // Accepted: the squad moves, holding formation around its centroid.
     let cx = 0;
     let cy = 0;
@@ -1311,6 +1350,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
    *  gun; your unit → select its squad; with a squad selected → the tap is
    *  a move order, judged by the doctrine. (Fractions 0..1 of the canvas.) */
   const handleTap = (px: number, py: number) => {
+    battleSfx.attach(); // user gesture — wake the war (autoplay-safe)
     // Invert the camera transform: screen fractions → tactical 0..1 coords,
     // so turret picks and gunner targeting land in ground mode too.
     const cam = camRef.current;
@@ -1365,6 +1405,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    battleSfx.attach(); // user gesture — wake the war (autoplay-safe)
     e.currentTarget.setPointerCapture?.(e.pointerId);
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointersRef.current.size === 1) {
