@@ -70,6 +70,21 @@ const TROOP_ART: Record<TroopType, string> = {
   warden: "/art/troops/warden.webp",
 };
 
+/**
+ * Per-troop object-position focal points for the phone crop.
+ * On narrow screens the card art renders in a wide landscape slot with
+ * object-cover; without a focal point the crop anchors at the top and a
+ * portrait soldier reads as just a helmet (owner 2026-10-05). Values were
+ * picked by reading each portrait: face/torso band of the subject.
+ */
+const TROOP_FOCAL: Record<TroopType, string> = {
+  bulwark: "center 32%",
+  reaver: "center 30%",
+  longeye: "center 28%",
+  thunder: "center 48%",
+  warden: "center 25%",
+};
+
 interface TroopsTabProps {
   state: GameState;
   now: number;
@@ -216,7 +231,8 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
                   src={TROOP_ART[type]}
                   alt={t("troops.artAlt", "{label} troop artwork", { label: label(type) })}
                   loading="lazy"
-                  className="h-44 w-full object-cover object-top sm:h-auto sm:w-44 sm:shrink-0"
+                  style={{ objectPosition: TROOP_FOCAL[type] }}
+                  className="h-64 w-full object-cover sm:h-auto sm:w-44 sm:shrink-0"
                 />
                 <div className="flex-1 p-4">
                   <div className="flex items-baseline justify-between gap-2">
