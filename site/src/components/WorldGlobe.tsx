@@ -53,6 +53,29 @@ import {
   nightFactor,
   sunViewVector,
 } from "../game/solar";
+// SOLAR SYSTEM LAYER (Hans, Oct 6 2026): zooming out past the globe backs
+// the World page into the solar system — sun, home planet, the other
+// worlds as planets — and probes launch from there. Pure kernel (zoom
+// band, deterministic orbits, palettes, probe gate) lives in
+// ../game/system-view; this file only draws and hit-tests it.
+import { WORLD_CONFIG_PUBLIC } from "../game/world-config";
+import {
+  buildPlanets,
+  clampScale,
+  isSystemDominant,
+  planetScreenPositions,
+  SYSTEM_GLOBE_SCALE,
+  systemTFromScale,
+  type PlanetPalette,
+} from "../game/system-view";
+
+/** #rrggbb + alpha → rgba() string for canvas gradients/strokes. */
+function hexA(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const a = Math.max(0, Math.min(1, alpha));
+  return `rgba(${r},${g},${b},${a})`;
+}
 
 const LAYER_STORE_KEY = "worldglobe.layers.v1";
 const FILTER_STORE_KEY = "worldglobe.filters.v1";
@@ -607,11 +630,58 @@ function ensureTerrainSprites(): HTMLCanvasElement[] {
   return terrainSprites;
 }
 
+/** One foreign planet of the solar system, drawn 2D Plus: atmosphere
+ *  glow, a sphere lit from the sun's actual direction, sunlit rim. */
+function drawSystemPlanet(
+  g: CanvasRenderingContext2D,
+  x: number, y: number, r: number,
+  pal: PlanetPalette,
+  sunX: number, sunY: number,
+  alpha: number,
+) {
+  const glow = g.createRadialGradient(x, y, r * 0.6, x, y, r * 2.1);
+  glow.addColorStop(0, hexA(pal.rim, 0.20 * alpha));
+  glow.addColorStop(1, hexA(pal.rim, 0));
+  g.fillStyle = glow;
+  g.beginPath();
+  g.arc(x, y, r * 2.1, 0, Math.PI * 2);
+  g.fill();
+  const dx = sunX - x, dy = sunY - y;
+  const dl = Math.hypot(dx, dy) || 1;
+  const ux = dx / dl, uy = dy / dl;
+  const body = g.createRadialGradient(
+    x + ux * r * 0.5, y + uy * r * 0.5, r * 0.15,
+    x, y, r * 1.12,
+  );
+  body.addColorStop(0, pal.core);
+  body.addColorStop(0.52, pal.mid);
+  body.addColorStop(1, pal.dark);
+  g.globalAlpha = alpha;
+  g.fillStyle = body;
+  g.beginPath();
+  g.arc(x, y, r, 0, Math.PI * 2);
+  g.fill();
+  g.globalAlpha = 1;
+  g.save();
+  g.strokeStyle = hexA(pal.rim, 0.85 * alpha);
+  g.lineWidth = Math.max(1, r * 0.07);
+  g.shadowBlur = 8;
+  g.shadowColor = pal.rim;
+  const a0 = Math.atan2(uy, ux);
+  g.beginPath();
+  g.arc(x, y, r - 0.5, a0 - 1.05, a0 + 1.05);
+  g.stroke();
+  g.restore();
+}
+
 export default function WorldGlobe({
   state,
   now,
   focusTarget,
   onRelocateColony,
+  selectedPlanetId,
+  onSelectPlanet,
+  enterHomeNonce,
 }: {
   state: GameState;
   now: number;
@@ -621,6 +691,13 @@ export default function WorldGlobe({
    *  success (Hans's UI rule — the button stays tappable and explains).
    *  Unwired = the sheet says the linking pass lands next. */
   onRelocateColony?: (lat: number, lon: number) => Promise<string | null>;
+  /** SOLAR SYSTEM: the selected planet (controlled by the parent, which
+   *  renders PlanetSheet). Omit both for an uncontrolled globe. */
+  selectedPlanetId?: string | null;
+  onSelectPlanet?: (serverId: string | null) => void;
+  /** SOLAR SYSTEM: bump the nonce to ease the zoom back into the home
+   *  globe (the home planet sheet's "Enter" button). */
+  enterHomeNonce?: number;
 }) {
   const t = useT();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -765,6 +842,35 @@ export default function WorldGlobe({
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
 
+  // ---- SOLAR SYSTEM state (Hans, Oct 6 2026) ----
+  // The frame loop reads the freshest GameState (probe flights draw as
+  // arcs in the system view) and the selected planet; DOM overlays key
+  // off `inSystem`, flipped only when the blend crosses dominance.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const [selPlanetInternal, setSelPlanetInternal] = useState<string | null>(null);
+  const selectedPlanet = onSelectPlanet ? (selectedPlanetId ?? null) : selPlanetInternal;
+  const selectedPlanetRef = useRef<string | null>(null);
+  selectedPlanetRef.current = selectedPlanet;
+  const selectPlanetRef = useRef<(id: string | null) => void>(() => {});
+  selectPlanetRef.current = (id: string | null) => {
+    if (onSelectPlanet) onSelectPlanet(id);
+    else setSelPlanetInternal(id);
+  };
+  const planetPosRef = useRef(new Map<string, { x: number; y: number; r: number }>());
+  const orbitPhaseRef = useRef(0);
+  const sysOpenRef = useRef(false);
+  const [inSystem, setInSystem] = useState(false);
+
+  // "Enter <home world>" from the planet sheet: ease the zoom back into
+  // the globe. Same render-time nonce pattern as focusTarget.
+  const enterAnim = useRef(0);
+  if (enterHomeNonce !== undefined && enterHomeNonce !== enterAnim.current) {
+    enterAnim.current = enterHomeNonce;
+    view.current.targetScale = 1.05;
+    lastInteract.current = performance.now();
+  }
+
   // ---- render loop ----
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -792,7 +898,7 @@ export default function WorldGlobe({
       e.preventDefault();
       lastInteract.current = performance.now();
       const v = view.current;
-      v.targetScale = Math.min(3, Math.max(0.7, v.targetScale * (e.deltaY < 0 ? 1.12 : 0.89)));
+      v.targetScale = clampScale(v.targetScale * (e.deltaY < 0 ? 1.12 : 0.89));
     };
     canvas.addEventListener("wheel", wheelHandler, { passive: false });
 
@@ -841,9 +947,46 @@ export default function WorldGlobe({
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      const cx = w / 2, cy = h / 2;
-      const R = Math.min(w, h) * 0.40 * v.scale;
+      let cx = w / 2, cy = h / 2;
+      let R = Math.min(w, h) * 0.40 * v.scale;
       const time = ms / 1000;
+
+      // SOLAR SYSTEM LAYER (Hans, Oct 6 2026): one continuous zoom — as
+      // scale crosses the back-out band, sysT blends 0→1 and the home
+      // planet (this very globe) flies to its orbit slot and shrinks
+      // while the sun, orbits and the other worlds fade in around it.
+      // planetScreenPositions is deterministic per instant (system-view.ts).
+      const sysT = systemTFromScale(v.scale);
+      const sysPositions = sysT > 0
+        ? planetScreenPositions({
+            homeWorldId: WORLD_CONFIG_PUBLIC.worldId,
+            cx, cy,
+            maxOrbit: Math.min(w, h) * 0.47,
+            minDim: Math.min(w, h),
+            nowMs: Date.now(),
+            phaseOffset: orbitPhaseRef.current,
+          })
+        : [];
+      if (sysT > 0) {
+        const homePt = sysPositions.find((p) => p.isHome);
+        if (homePt) {
+          cx += (homePt.x - cx) * sysT;
+          cy += (homePt.y - cy) * sysT;
+          R += (homePt.r - R) * sysT;
+        }
+        planetPosRef.current.clear();
+        for (const p of sysPositions) {
+          planetPosRef.current.set(p.serverId, { x: p.x, y: p.y, r: p.r });
+        }
+      }
+      // DOM overlays key off system dominance; flip only on the crossing.
+      // A globe marker sheet has no meaning out here — close it.
+      const sysOpen = sysT > 0.55;
+      if (sysOpen !== sysOpenRef.current) {
+        sysOpenRef.current = sysOpen;
+        setInSystem(sysOpen);
+        if (sysOpen && selectedIdRef.current) setSelectedId(null);
+      }
       // WS5 — real day/night: the sun in view space from the cached
       // player-anchored subsolar point. Per-frame so the terminator tracks
       // spin/zoom/tilt exactly; the subsolar point itself ticks every 60s.
@@ -999,8 +1142,8 @@ export default function WorldGlobe({
       ctx.stroke();
       ctx.restore();
 
-      // 10 — satellite orbit ring
-      if (layersOnRef.current.satellites) {
+      // 10 — satellite orbit ring (globe furniture — parks once the sky opens)
+      if (layersOnRef.current.satellites && sysT < 0.5) {
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(-0.32);
@@ -1045,12 +1188,16 @@ export default function WorldGlobe({
       }
       const shown = declutterMarkers(projected, MIN_DIST_PX);
       screenPos.current.clear();
+      // SOLAR SYSTEM: globe markers fade as the sky opens and are gone
+      // (and untappable — screenPos stays empty) once the system rules.
+      const markerVis = sysT <= 0.25 ? 1 : sysT >= 0.8 ? 0 : 1 - (sysT - 0.25) / 0.55;
       for (const s of shown) {
+        if (markerVis <= 0) break;
         const m = s.marker;
         const isSel = m.id === selectedIdRef.current;
         const base = isSel ? 15 : 10;
         // WS5: night-side dim (subtle — readability wins).
-        ctx.globalAlpha = 1 - 0.3 * (nightByMarker.get(m) ?? 0);
+        ctx.globalAlpha = (1 - 0.3 * (nightByMarker.get(m) ?? 0)) * markerVis;
         const isSatellite = m.ref.kind === "satellite";
         // Satellite dishes carry their own dark underlay in the baked
         // sprite — the soft glow halo swamped the dish into a plain dot,
@@ -1071,7 +1218,7 @@ export default function WorldGlobe({
             ? (isSel ? 30 : 24)
             : (isSel ? 26 : 20);
         ctx.drawImage(icon, s.sx - iconSize / 2, s.sy - iconSize / 2, iconSize, iconSize);
-        ctx.globalAlpha = 1; // WS5: pulse ring + label stay full-bright (UI)
+        ctx.globalAlpha = markerVis; // pulse ring + label fade with the markers
         // pulse ring for raids (and selected)
         if (m.pulse || isSel) {
           const pr = base + 5 + 4 * Math.sin(time * 4);
@@ -1099,6 +1246,135 @@ export default function WorldGlobe({
           ctx.textBaseline = "middle";
           ctx.fillText(m.label, px, py - 1);
         }
+      }
+
+      // 12 — SOLAR SYSTEM layer (Hans, Oct 6 2026): sun, orbit rings,
+      // foreign planets, probe flights. Alpha = sysT throughout, so the
+      // sky cross-fades in as you back out. Labels declutter like the
+      // globe's: names ride only when the system is mostly present; the
+      // selected planet always speaks. The home globe itself was drawn
+      // above (steps 2–11) at its interpolated orbit position.
+      if (sysT > 0.001) {
+        const sunX = w / 2, sunY = h / 2;
+        const maxOrbitPx = Math.min(w, h) * 0.47;
+        const defById = new Map(
+          buildPlanets(WORLD_CONFIG_PUBLIC.worldId).map((d) => [d.id, d]),
+        );
+        const selId = selectedPlanetRef.current;
+
+        // Orbit rings (home's ring runs warm).
+        ctx.save();
+        for (const p of sysPositions) {
+          ctx.strokeStyle = p.isHome
+            ? `rgba(251,191,36,${0.32 * sysT})`
+            : `rgba(148,163,184,${0.15 * sysT})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.ellipse(
+            sunX, sunY,
+            p.orbitFactor * maxOrbitPx, p.orbitFactor * maxOrbitPx * 0.86,
+            0, 0, Math.PI * 2,
+          );
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        // The sun — layered light, gentle pulse. Core, corona, halo:
+        // never a flat yellow circle.
+        const sunR = Math.min(w, h) * 0.045 * (1 + 0.03 * Math.sin(time * 0.8));
+        const halo = ctx.createRadialGradient(sunX, sunY, sunR * 0.4, sunX, sunY, sunR * 5.2);
+        halo.addColorStop(0, `rgba(255,214,120,${0.50 * sysT})`);
+        halo.addColorStop(0.35, `rgba(255,160,60,${0.15 * sysT})`);
+        halo.addColorStop(1, "rgba(255,140,40,0)");
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunR * 5.2, 0, Math.PI * 2);
+        ctx.fill();
+        const corona = ctx.createRadialGradient(
+          sunX - sunR * 0.2, sunY - sunR * 0.2, sunR * 0.1, sunX, sunY, sunR * 1.7,
+        );
+        corona.addColorStop(0, `rgba(255,246,214,${0.95 * sysT})`);
+        corona.addColorStop(0.55, `rgba(255,196,86,${0.72 * sysT})`);
+        corona.addColorStop(1, `rgba(255,140,40,${0.22 * sysT})`);
+        ctx.fillStyle = corona;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunR * 1.7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = `rgba(255,252,240,${sysT})`;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunR * 0.72, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Probe flights — dashed arcs from home to their target, a lit
+        // dot riding the curve; at the target it pulses until collected.
+        const homePos = sysPositions.find((p) => p.isHome);
+        const flights = stateRef.current.worldMap?.inflight ?? [];
+        if (homePos) {
+          for (const pr of flights) {
+            if (pr.status !== "inflight") continue;
+            const tp = sysPositions.find((p) => p.serverId === pr.targetServerId);
+            if (!tp) continue;
+            const span = Math.max(1, pr.returnsAt - pr.launchedAt);
+            const prog = Math.min(1, Math.max(0, (Date.now() - pr.launchedAt) / span));
+            const mx = (homePos.x + tp.x) / 2, my = (homePos.y + tp.y) / 2;
+            const ox = mx - sunX, oy = my - sunY;
+            const ol = Math.hypot(ox, oy) || 1;
+            const bow = Math.hypot(tp.x - homePos.x, tp.y - homePos.y) * 0.22;
+            const qx = mx + (ox / ol) * bow, qy = my + (oy / ol) * bow;
+            ctx.save();
+            ctx.strokeStyle = `rgba(103,232,249,${0.6 * sysT})`;
+            ctx.lineWidth = 1.2;
+            ctx.setLineDash([4, 5]);
+            ctx.beginPath();
+            ctx.moveTo(homePos.x, homePos.y);
+            ctx.quadraticCurveTo(qx, qy, tp.x, tp.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            const u = 1 - prog;
+            const ix = u * u * homePos.x + 2 * u * prog * qx + prog * prog * tp.x;
+            const iy = u * u * homePos.y + 2 * u * prog * qy + prog * prog * tp.y;
+            const pulse = prog >= 1 ? 1 + 0.35 * Math.sin(time * 5) : 1;
+            ctx.fillStyle = `rgba(165,243,252,${sysT})`;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = "#22d3ee";
+            ctx.beginPath();
+            ctx.arc(ix, iy, 2.6 * pulse, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+        }
+
+        // Foreign planets + selection rings + labels.
+        ctx.textAlign = "center";
+        for (const p of sysPositions) {
+          const def = defById.get(p.serverId);
+          if (!def) continue;
+          const selected = p.serverId === selId;
+          if (!p.isHome) {
+            drawSystemPlanet(ctx, p.x, p.y, p.r, def.palette, sunX, sunY, sysT);
+          }
+          if (selected) {
+            ctx.strokeStyle = hexA(def.palette.rim, 0.9 * sysT);
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r + 6 + 2 * Math.sin(time * 4), 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          if (sysT > 0.55 || selected) {
+            const fs = Math.max(10, Math.min(13, p.r * 0.62));
+            ctx.font = `600 ${fs}px system-ui, sans-serif`;
+            ctx.textBaseline = "top";
+            ctx.fillStyle = `rgba(255,255,255,${(selected ? 1 : 0.85) * sysT})`;
+            ctx.fillText(def.name, p.x, p.y + p.r + 5);
+            if (p.isHome) {
+              ctx.font = `700 ${Math.max(8, fs - 2.5)}px system-ui, sans-serif`;
+              ctx.textBaseline = "bottom";
+              ctx.fillStyle = `rgba(251,191,36,${0.95 * sysT})`;
+              ctx.fillText("⌂ HOME", p.x, p.y - p.r - 4);
+            }
+          }
+        }
+        ctx.textBaseline = "alphabetic";
       }
     };
     raf = requestAnimationFrame(frame);
@@ -1202,6 +1478,25 @@ export default function WorldGlobe({
     return null;
   }, []);
 
+  /** SOLAR SYSTEM tap target: nearest planet within its disc (+ thumb
+   *  slack). Positions refresh every frame from the render loop. */
+  const hitTestPlanet = useCallback((x: number, y: number): string | null => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const lx = x - rect.left, ly = y - rect.top;
+    let best: string | null = null;
+    let bestD = Infinity;
+    for (const [id, p] of planetPosRef.current) {
+      const rr = Math.max(22, p.r + 6);
+      const d = (lx - p.x) * (lx - p.x) + (ly - p.y) * (ly - p.y);
+      if (d <= rr * rr && d < bestD) {
+        best = id;
+        bestD = d;
+      }
+    }
+    return best;
+  }, []);
+
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     lastInteract.current = performance.now();
@@ -1222,6 +1517,14 @@ export default function WorldGlobe({
     const v = view.current;
     const now = performance.now();
     const dt = Math.max(1, now - d.lastT);
+    // SOLAR SYSTEM: dragging out here swings the orbits themselves.
+    if (isSystemDominant(v.scale)) {
+      orbitPhaseRef.current += dx * 0.0021;
+      d.x = e.clientX;
+      d.y = e.clientY;
+      d.lastT = now;
+      return;
+    }
     const dSpin = dx * 0.22;
     const dTilt = dy * 0.15;
     v.spin += dSpin;
@@ -1250,6 +1553,18 @@ export default function WorldGlobe({
         }
         return;
       }
+      // SOLAR SYSTEM: out here, taps choose planets — never globe markers.
+      if (isSystemDominant(view.current.scale)) {
+        const pid = hitTestPlanet(e.clientX, e.clientY);
+        if (pid && pid !== selectedPlanetRef.current) {
+          playSelect();
+          selectPlanetRef.current(pid);
+        } else {
+          playDeselect();
+          selectPlanetRef.current(null);
+        }
+        return;
+      }
       const id = hitTest(e.clientX, e.clientY);
       if (id) {
         if (id === selectedIdRef.current) {
@@ -1267,7 +1582,8 @@ export default function WorldGlobe({
       }
       return;
     }
-    // fling → inertia
+    // fling → inertia (the globe only — the system view keeps its sky)
+    if (isSystemDominant(view.current.scale)) return;
     if (Math.abs(d.velSpin) > 30 || Math.abs(d.velTilt) > 30) playWhoosh();
     let vs = d.velSpin, vt = d.velTilt;
     const tick = () => {
@@ -1281,7 +1597,7 @@ export default function WorldGlobe({
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-  }, [hitTest, tapToGlobe]);
+  }, [hitTest, hitTestPlanet, tapToGlobe]);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (e.touches.length === 2) {
@@ -1290,7 +1606,7 @@ export default function WorldGlobe({
       const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
       if (pinch.current) {
         const v = view.current;
-        v.targetScale = Math.min(3, Math.max(0.7, v.targetScale * (d / pinch.current.d)));
+        v.targetScale = clampScale(v.targetScale * (d / pinch.current.d));
       }
       pinch.current = { d };
     }
@@ -1300,7 +1616,12 @@ export default function WorldGlobe({
   const zoomBy = useCallback((f: number) => {
     lastInteract.current = performance.now();
     const v = view.current;
-    v.targetScale = Math.min(3, Math.max(0.7, v.targetScale * f));
+    // Deeper steps inside the back-out band, so a few minus taps cross
+    // from globe to solar system (and a few plus taps dive back).
+    const eff = f < 1 && v.targetScale <= SYSTEM_GLOBE_SCALE ? 0.66
+      : f > 1 && v.targetScale < SYSTEM_GLOBE_SCALE ? 1.5
+      : f;
+    v.targetScale = clampScale(v.targetScale * eff);
     playClick();
   }, []);
 
@@ -1337,7 +1658,7 @@ export default function WorldGlobe({
         <canvas
           ref={canvasRef}
           role="img"
-          aria-label={t("worldglobe.canvasLabel", "Interactive globe of the world. Drag to spin, pinch or scroll to zoom, tap a marker for details.")}
+          aria-label={t("worldglobe.canvasLabel", "Interactive globe of the world. Drag to spin, pinch or scroll to zoom, tap a marker for details. Zoom all the way out to reach the solar system and its planets.")}
           className="absolute inset-0 h-full w-full"
           style={{ touchAction: "pan-y" }}
           onPointerDown={onPointerDown}
@@ -1348,7 +1669,8 @@ export default function WorldGlobe({
           onTouchEnd={onTouchEnd}
         />
 
-        {/* Legend — every layer toggleable */}
+        {/* Legend — every layer toggleable (globe furniture; parks in the system view) */}
+        {!inSystem && (
         <div className="absolute left-2 top-2 z-10 max-h-[70%] overflow-y-auto rounded-xl border border-white/10 bg-black/55 p-1.5 backdrop-blur-sm">
           <button
             type="button"
@@ -1417,6 +1739,19 @@ export default function WorldGlobe({
             </ul>
           )}
         </div>
+        )}
+
+        {/* SOLAR SYSTEM chip (Hans, Oct 6 2026) */}
+        {inSystem && (
+          <div className="absolute left-1/2 top-2 z-10 w-max max-w-[92%] -translate-x-1/2">
+            <div className="rounded-2xl border border-sky-300/40 bg-black/70 px-3 py-1.5 text-center backdrop-blur-sm">
+              <p className="text-[12px] font-bold text-sky-100">✦ {t("worldglobe.systemTitle", "Solar system")}</p>
+              <p className="text-[10px] text-gray-300">
+                {t("worldglobe.systemHint", "Tap a planet — send a probe, or zoom + to dive back in")}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* HIVE PICK-MODE banner (Hans, Oct 4 2026, WS-E) */}
         {hivePick && (
@@ -1507,7 +1842,9 @@ export default function WorldGlobe({
         )}
       </div>
       <p className="mt-1.5 text-center text-[11px] text-gray-500">
-        {t("worldglobe.hint", "Drag to spin the world — tap a glowing marker for its story.")}
+        {inSystem
+          ? t("worldglobe.hintSystem", "Drag to swing the orbits — tap a planet for its sheet. Zoom back in to return to your world.")
+          : t("worldglobe.hint", "Drag to spin the world — tap a glowing marker for its story.")}
       </p>
     </section>
   );

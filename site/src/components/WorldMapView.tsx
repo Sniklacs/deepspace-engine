@@ -45,6 +45,9 @@ import { Bdi } from "./ui/Bdi";
 import MemorialsView from "./MemorialsView";
 import WorldGlobe, { type GlobeFocusTarget } from "./WorldGlobe";
 import WorldIntelPanel from "./WorldIntelPanel";
+import ProbeStation from "./ProbeStation";
+import PlanetSheet from "./PlanetSheet";
+import { planetDefById } from "../game/system-view";
 import { currentHomeGlobePosition } from "../game/globe-layers";
 import { memorialNodeIds } from "../game/memorials";
 import { allianceOf } from "../game/war/alliances";
@@ -1352,9 +1355,18 @@ export default function WorldMapView({
   onRespondToRaid,
   onOpenWarBand,
   onRelocateColony,
+  onBuildProbe,
+  onLaunchProbe,
+  onCollectProbe,
 }: {
   state: GameState;
   now: number;
+  /** Scout probes (Hans, Oct 6 2026): the World page is the probe home —
+   *  build/collect here via ProbeStation, launch from the solar-system
+   *  planet sheets. Same server fns as the Lab card (one probe economy). */
+  onBuildProbe?: () => void;
+  onLaunchProbe?: (serverId: string) => void;
+  onCollectProbe?: (probeId: string) => void;
   /** Hive relocation (owner 2026-10-04, WS-E): confirm a picked hive point.
    *  Resolves with an inline error message, or null on success (Hans's UI
    *  rule). Unwired = the globe says the linking pass lands next. */
@@ -1396,6 +1408,13 @@ export default function WorldMapView({
   // location eases the globe to the raided site.
   const [globeFocus, setGlobeFocus] = useState<GlobeFocusTarget | null>(null);
   const raidEntryRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // SOLAR SYSTEM (Hans, Oct 6 2026): the selected planet's sheet + the
+  // "Enter home world" zoom-back signal for the globe.
+  const [selectedPlanetId, setSelectedPlanetId] = useState<string | null>(null);
+  const [enterHomeNonce, setEnterHomeNonce] = useState(0);
+  const selectedPlanet = selectedPlanetId
+    ? planetDefById(selectedPlanetId, WORLD_CONFIG_PUBLIC.worldId)
+    : undefined;
   // Pending raid target: when the user taps "Raid" with no party yet, we form
   // the party and remember the colony — once the party appears (server round-trip),
   // we auto-set it as the target so the user doesn't have to tap twice.
@@ -1519,6 +1538,19 @@ export default function WorldMapView({
         now={now}
         focusTarget={globeFocus ?? undefined}
         onRelocateColony={onRelocateColony}
+        selectedPlanetId={selectedPlanetId}
+        onSelectPlanet={setSelectedPlanetId}
+        enterHomeNonce={enterHomeNonce}
+      />
+
+      {/* SCOUT PROBE HOME (Hans, Oct 6 2026): probes live on the World
+          page now — counts, build, in-flight status. Launching happens
+          from the solar-system planet sheets (zoom − all the way out). */}
+      <ProbeStation
+        state={state}
+        now={now}
+        onBuildProbe={onBuildProbe}
+        onCollectProbe={onCollectProbe}
       />
 
       {/* WORLD INTEL (owner 2026-10-04, WS D): planet flavor (labeled as
@@ -1830,6 +1862,24 @@ export default function WorldMapView({
       <div className="mt-2">
         <MemorialsView state={state} onEpitaph={onEpitaph} />
       </div>
+
+      {/* SOLAR SYSTEM planet sheet (Hans, Oct 6 2026): probe-gated intel,
+          send-a-probe, and Enter for the home world only. */}
+      {selectedPlanet && (
+        <PlanetSheet
+          planet={selectedPlanet}
+          homeWorldId={WORLD_CONFIG_PUBLIC.worldId}
+          state={state}
+          now={now}
+          onClose={() => setSelectedPlanetId(null)}
+          onLaunchProbe={onLaunchProbe}
+          onCollectProbe={onCollectProbe}
+          onEnterHome={() => {
+            setEnterHomeNonce((n) => n + 1);
+            setSelectedPlanetId(null);
+          }}
+        />
+      )}
     </div>
   );
 }

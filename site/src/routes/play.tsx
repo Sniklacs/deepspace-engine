@@ -823,6 +823,9 @@ function PlayPage() {
           onRespondToRaid={(r) => respondToIncomingRaid(r)}
           onOpenWarBand={() => switchTab("battles")}
           onRelocateColony={relocateColony}
+          onBuildProbe={() => act(() => buildProbeFn({ data: { token: token! } }), "buildProbe")}
+          onLaunchProbe={(sid) => act(() => launchProbeFn({ data: { token: token!, serverId: sid } }), "launchProbe")}
+          onCollectProbe={(pid) => act(() => collectProbeFn({ data: { token: token!, probeId: pid } }), "collectProbe")}
         />
         </>
       )}
