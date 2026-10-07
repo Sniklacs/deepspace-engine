@@ -47,7 +47,7 @@ export default function PlanetSheet({
     <div
       role="dialog"
       aria-label={planet.name}
-      className="fixed inset-x-0 bottom-0 z-40 mx-auto max-h-[72dvh] w-full max-w-md overflow-y-auto rounded-t-2xl border-t bg-[#0a0d18]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md"
+      className="fixed inset-x-0 bottom-0 z-40 mx-auto max-h-[72dvh] w-full max-w-md overflow-y-auto rounded-t-2xl border-t bg-[#0a0d18]/95 backdrop-blur-md"
       style={{ borderTopColor: `${pal.rim}66`, boxShadow: `0 -12px 48px ${pal.rim}30` }}
     >
       <div className="flex justify-center pt-2">
@@ -92,7 +92,14 @@ export default function PlanetSheet({
         </div>
       </div>
 
-      <div className="px-4 pb-5">
+      {/* The last block's bottom edge must clear the fixed bottom nav (+ the
+          chat dock when it stands, + the home-indicator inset) or the primary
+          action button ("Send scout probe" / "Enter") slides under the nav
+          and can't be tapped. Same clearance formula as .shell-body /
+          win-frame (app.css): nav + dock + safe inset + the 1.25rem (old
+          pb-5) breathing room. Padding on this inner wrapper — not the
+          scroll container — so every browser counts it in the scroll height. */}
+      <div className="px-4 pb-[calc(var(--spacing-nav)+var(--dock-h,0px)+env(safe-area-inset-bottom)+1.25rem)]">
         {planet.isHome ? (
           <div>
             <p className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[12px] leading-relaxed text-gray-300">
