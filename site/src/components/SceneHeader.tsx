@@ -6,6 +6,7 @@
 // for cross-server play. Nobody should ever be confused about where they are.
 
 import { useEffect, useState } from "react";
+import { ZOOM_BAND_LABEL, type ZoomBand } from "../game/world/zoom-bands";
 
 function utcClock(): string {
   const d = new Date();
@@ -18,6 +19,7 @@ export function SceneHeader({
   tier,
   sub,
   clock = true,
+  band,
 }: {
   /** Where the player is standing — battle name, colony name, hall name… */
   name: string;
@@ -27,6 +29,9 @@ export function SceneHeader({
   sub?: React.ReactNode;
   /** Show the live UTC server clock. Default on. */
   clock?: boolean;
+  /** Altitude readout on the ORBIT → GROUND zoom continuum (spec §3).
+   *  Display only — never a band menu. Omit when the scene has no band. */
+  band?: ZoomBand;
 }) {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -48,12 +53,22 @@ export function SceneHeader({
         </p>
         {sub && <div className="mt-0.5 text-[11px] text-zinc-400">{sub}</div>}
       </div>
-      {clock && (
+      {(clock || band) && (
         <div className="flex shrink-0 items-baseline gap-2" aria-label="Server clock (UTC)">
+          {band && (
+            <span
+              className="rounded border border-white/15 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-300"
+              title="Altitude on the zoom continuum"
+            >
+              {`ALT · ${ZOOM_BAND_LABEL[band]}`}
+            </span>
+          )}
+          {clock && (<>
           <span className="font-mono text-lg font-bold tabular-nums text-zinc-50" style={{ textShadow: "0 0 14px rgba(56,189,248,0.4)" }}>
             {utcClock()}
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400">UTC</span>
+          </>)}
         </div>
       )}
     </div>

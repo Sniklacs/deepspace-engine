@@ -110,6 +110,9 @@ import {
   type WatchUnit,
 } from "../../game/war/battle-comms";
 import { battleSfx } from "../../game/war/battle-sfx";
+// FRAME-TIME TELEMETRY (Phase 2, slice 14, spec §9): the battle frame loop
+// feeds the rolling-window sampler AUTO's rung decisions are driven from.
+import { recordFrameTime } from "../../game/graphics-quality-telemetry";
 // Seamless-world camera-origin model (Phase 2, slice 7): the renderer gains
 // a camera origin + tile offset; world units are the engine's, unchanged.
 import {
@@ -612,6 +615,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     };
 
     const step = (now: number) => {
+      // FRAME-TIME TELEMETRY (slice 14, spec §9): feed the rolling-window
+      // sampler — one cheap write; `last` still holds the previous frame.
+      recordFrameTime(now - last);
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const ui = sceneUISnapshot();
@@ -2315,7 +2321,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         >
           <div className="flex items-start justify-between gap-3 px-3 pb-2">
             <div className="min-w-0 flex-1">
-              <SceneHeader name={scene.name} tier={scene.tier} sub={sceneSub} clock={false} />
+              <SceneHeader name={scene.name} tier={scene.tier} sub={sceneSub} clock={false} band="Z4" />
               <div className="mt-1.5 max-w-[430px]" data-testid="battle-scene-header-clock">
                 <BattleClock tS={ui.tS} compact />
               </div>
@@ -2434,6 +2440,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           name={scene.name}
           tier={scene.tier}
           sub={sceneSub}
+          band="Z4"
         />
         <div className="mt-2">
           <BattleClock tS={ui.tS} compact />

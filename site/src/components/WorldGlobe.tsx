@@ -79,7 +79,11 @@ import {
   clampZoomScale,
   morphTFromScale,
   ZOOM_BAND_LABEL,
+  type ZoomBand,
 } from "../game/world/zoom-bands";
+// FRAME-TIME TELEMETRY (Phase 2, slice 14, spec §9): the world frame loop
+// feeds the rolling-window sampler AUTO's rung decisions are driven from.
+import { recordFrameTime } from "../game/graphics-quality-telemetry";
 // CRADLE ENTRY (Phase 2, slice 10): the tap→focus→hover→descend→inside→
 // ascend state machine (spec §10) — pure kernel; this file wires gestures
 // and the camera to it. Slice 11's module ids double as the ?module= URL
@@ -890,16 +894,11 @@ export default function WorldGlobe({
   // markersRef — the tap handler reads the latest.
   const battleFeedsRef = useRef<OrbitBattleFeed[]>([]);
   const dustHitsRef = useRef<OrbitMarkerHit[]>([]);
-  // ZOOM-AXIS (Phase 2, slice 1): temporary dev readout of the zoom
-  // continuum (band + scale + morph factor). Updated via textContent in the
-  // frame loop — no React re-renders. Tap it to dismiss for the session
-  // (persists via worldglobe.zoomdebug="0" in localStorage).
-  const zoomDebugRef = useRef<HTMLDivElement>(null);
-  const zoomDebugHidden = useRef(false);  if (typeof localStorage !== "undefined" && !zoomDebugHidden.current) {
-    try {
-      zoomDebugHidden.current = localStorage.getItem("worldglobe.zoomdebug") === "0";
-    } catch { /* private mode */ }
-  }
+  // BAND INDICATOR (Phase 2, slice 14, spec §3): the live zoom band on the
+  // ORBIT → GROUND continuum. React state flips only on band change, so the
+  // frame loop never re-renders per frame. Display only — never a band menu.
+  const [zoomBand, setZoomBand] = useState<ZoomBand>("Z1");
+  const zoomBandRef = useRef<ZoomBand>("Z1");
   // WS5 — real day/night cycle (GLOBE WAVE 3): the player-anchored subsolar
   // point, refreshed on a 60s tick + visibility regain (see render loop).
   // homePosRef tracks hive relocation so the phase re-anchors when home moves.
@@ -1163,6 +1162,9 @@ export default function WorldGlobe({
     let last = performance.now();
     const frame = (ms: number) => {
       raf = requestAnimationFrame(frame);
+      // FRAME-TIME TELEMETRY (slice 14, spec §9): feed the rolling-window
+      // sampler AUTO's rung decisions are driven from — one cheap write.
+      recordFrameTime(ms - last);
       const dt = Math.min(0.05, (ms - last) / 1000);
       last = ms;
       const v = view.current;
@@ -1212,13 +1214,12 @@ export default function WorldGlobe({
       let R = Math.min(w, h) * 0.40 * v.scale;
       const time = ms / 1000;
 
-      // ZOOM-AXIS dev readout (slice 1): band + scale + morph factor.
-      // textContent-only — the frame loop never triggers a React render.
-      const zd = zoomDebugRef.current;
-      if (zd && !zoomDebugHidden.current) {
-        const band = bandForScale(v.scale);
-        const txt = `ZOOM ${ZOOM_BAND_LABEL[band]} · z ${v.scale.toFixed(2)} · morph ${morphTFromScale(v.scale).toFixed(2)} · ⚔ ${battleFeedsRef.current.length}`;
-        if (zd.textContent !== txt) zd.textContent = txt;
+      // BAND INDICATOR (slice 14, spec §3): flip React state only when the
+      // band actually changes — the frame loop never re-renders per frame.
+      const band = bandForScale(v.scale);
+      if (band !== zoomBandRef.current) {
+        zoomBandRef.current = band;
+        setZoomBand(band);
       }
 
       // SOLAR SYSTEM LAYER (Hans, Oct 6 2026): one continuous zoom — as
@@ -2118,6 +2119,19 @@ export default function WorldGlobe({
     playClick();
   }, []);
 
+  /** "Center on home" (slice 14, spec §3 gesture≡button audit): the
+   *  button-equivalent of tapping the home marker — a pure camera focus
+   *  ease. It never touches the cradle-entry machine (a no-op while the
+   *  machine is running — the Enter/Leave buttons own the camera there). */
+  const centerOnHome = useCallback(() => {
+    if (cradleRef.current.entry !== "FREE") return;
+    const home = markersRef.current.find((m) => m.id === "home");
+    if (!home) return;
+    const target = focusViewTarget(home.lat, home.lon);
+    focusAnim.current = { ...target, nonce: (focusAnim.current?.nonce ?? 0) + 1 };
+    playSelect();
+  }, []);
+
   const closeSheet = useCallback(() => {
     setSelectedId(null);
     setLinkHint(null);
@@ -2463,20 +2477,18 @@ export default function WorldGlobe({
           </div>
         )}
 
-        {/* ZOOM-AXIS dev readout (Phase 2, slice 1 — temporary): the live
-            zoom band + scale + sphere→plane morph factor. Tap to dismiss. */}
-        {!zoomDebugHidden.current && (
-          <div
-            ref={zoomDebugRef}
-            onClick={() => {
-              zoomDebugHidden.current = true;
-              try { localStorage.setItem("worldglobe.zoomdebug", "0"); } catch { /* private mode */ }
-              if (zoomDebugRef.current) zoomDebugRef.current.style.display = "none";
-            }}
-            className="absolute left-2 top-2 z-10 cursor-pointer rounded bg-black/55 px-2 py-1 font-mono text-[10px] tracking-wide text-amber-200/90 backdrop-blur-sm"
-            title="Zoom continuum debug — tap to dismiss"
-          />
-        )}
+        {/* BAND INDICATOR (Phase 2, slice 14, spec §3): the live altitude
+            readout on the ORBIT → GROUND continuum — minimal, unobtrusive,
+            display only (never a band menu). Replaces slice 1's temporary
+            dev readout. Top-right stays clear of the legend (left), the
+            system/spread hints (top-center), and the zoom controls (bottom). */}
+        <div
+          className="pointer-events-none absolute right-2 top-2 z-10 rounded-full border border-white/15 bg-black/55 px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-300 backdrop-blur-sm"
+          title="Altitude on the zoom continuum"
+          aria-label={`Altitude: ${ZOOM_BAND_LABEL[zoomBand]}`}
+        >
+          {`ALT · ${ZOOM_BAND_LABEL[zoomBand]}`}
+        </div>
 
         {/* Zoom controls */}
         <div className="absolute bottom-2 right-2 z-10 flex flex-col gap-1.5">
@@ -2504,6 +2516,20 @@ export default function WorldGlobe({
           >
             ⌂
           </button>
+          {/* "Center on home" (slice 14, spec §3 gesture≡button audit):
+              the button-equivalent of tapping the home marker. Hidden in
+              the solar-system view, where the home world is a planet tile. */}
+          {!inSystem && (
+            <button
+              type="button"
+              onClick={centerOnHome}
+              aria-label={t("worldglobe.centerHome", "Center on home")}
+              title={t("worldglobe.centerHome", "Center on home")}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/55 text-base text-white backdrop-blur-sm"
+            >
+              ⌖
+            </button>
+          )}
         </div>
 
         {/* CRADLE ENTRY (slice 10): gesture≡button (spec §10). "Enter
@@ -3095,6 +3121,7 @@ function CradleInteriorPanel({
         <SceneHeader
           name={colonyLabel}
           sub={t("worldglobe.cradleInteriorSub", "Cradle interior — preview")}
+          band="Z4"
         />
         <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">
           {t(

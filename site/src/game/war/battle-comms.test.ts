@@ -4,6 +4,7 @@ import {
   COMMS_SHOWN,
   commsFor,
   commsView,
+  criticalPingFor,
   dismissBubble,
   MAX_COMMS,
   pushBubble,
@@ -161,5 +162,51 @@ describe("movement watches", () => {
   test("the arrow is a fixed-length direction vector, not a destination readout", () => {
     expect(REPORT_ARROW_LEN).toBe(0.18);
     expect(REPORT_PROGRESS).toBe(0.5);
+  });
+});
+
+describe("criticalPingFor — the world-level critical ping (pure)", () => {
+  test("null for an empty queue — no ping, no noise", () => {
+    expect(criticalPingFor("b1", [])).toBe(null);
+  });
+
+  test("null when nothing in the queue is critical", () => {
+    const q = [mk(1), mk(2), mk(3)];
+    expect(criticalPingFor("b1", q)).toBe(null);
+  });
+
+  test("returns the latest UNREAD critical bubble, carrying its identity", () => {
+    const q = [mk(1, true), mk(2, false), mk(3, true), mk(4, false)];
+    const ping = criticalPingFor("b7", q);
+    expect(ping).toBeDefined();
+    expect(ping).toEqual({
+      battleId: "b7",
+      bubbleId: 3, // the originating bubble — the globe's dedupe key
+      source: "TEST",
+      message: "message 3",
+      atS: 30,
+    });
+  });
+
+  test("does not mutate the queue — the bubbles stay unread until tapped", () => {
+    const q = [mk(1, true), mk(2)];
+    const before = q.map((b) => b.id);
+    criticalPingFor("b1", q);
+    expect(q.map((b) => b.id)).toEqual(before);
+    expect(q).toHaveLength(2);
+  });
+
+  test("tapping the bubble (the confirmed read) clears the ping", () => {
+    let q = [mk(1, false), mk(2, true)];
+    expect(criticalPingFor("b1", q)).toBeDefined();
+    q = dismissBubble(q, 2);
+    expect(criticalPingFor("b1", q)).toBe(null);
+  });
+
+  test("with several criticals unread, the next-latest surfaces after the tap", () => {
+    let q = [mk(1, true), mk(2, true)];
+    expect(criticalPingFor("b1", q)?.bubbleId).toBe(2);
+    q = dismissBubble(q, 2);
+    expect(criticalPingFor("b1", q)?.bubbleId).toBe(1);
   });
 });
