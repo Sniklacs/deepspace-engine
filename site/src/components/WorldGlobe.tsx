@@ -1271,6 +1271,9 @@ export default function WorldGlobe({
   };
   const planetPosRef = useRef(new Map<string, { x: number; y: number; r: number }>());
   const orbitPhaseRef = useRef(0);
+  // System fling velocity (Hans Oct 11 2026): a nudge keeps the orbits
+  // gliding briefly after the finger lifts.
+  const orbitVelRef = useRef(0);
   const sysOpenRef = useRef(false);
   const [inSystem, setInSystem] = useState(false);
 
@@ -1439,6 +1442,11 @@ export default function WorldGlobe({
       // scale crosses the back-out band, sysT blends 0→1 and the home
       // planet (this very globe) flies to its orbit slot and shrinks
       // while the sun, orbits and the other worlds fade in around it.
+      // System fling: when the finger's off, let the last nudge glide out.
+      if (!drag.current && Math.abs(orbitVelRef.current) > 0.00001 && isSystemDominant(v.scale)) {
+        orbitPhaseRef.current += orbitVelRef.current;
+        orbitVelRef.current *= 0.94;
+      }
       // planetScreenPositions is deterministic per instant (system-view.ts).
       const sysT = systemTFromScale(v.scale);
       const sysPositions = sysT > 0
@@ -2283,8 +2291,10 @@ export default function WorldGlobe({
     const now = performance.now();
     const dt = Math.max(1, now - d.lastT);
     // SOLAR SYSTEM: dragging out here swings the orbits themselves.
+    // Sensitive — a light nudge spins it (Hans Oct 11 2026).
     if (isSystemDominant(v.scale)) {
-      orbitPhaseRef.current += dx * 0.0021;
+      orbitPhaseRef.current += dx * 0.006;
+      orbitVelRef.current = dx * 0.006 / Math.max(1, dt / 16.7);
       d.x = e.clientX;
       d.y = e.clientY;
       d.lastT = now;
