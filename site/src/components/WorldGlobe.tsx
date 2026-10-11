@@ -230,9 +230,11 @@ interface Star { x: number; y: number; r: number; tw: number; ph: number }
 const WORLD_TEX_W = 1024;
 const WORLD_TEX_H = 512;
 /** Patch grid over the texture — one map, drawn as projected patches.
- *  Small enough that the flat-rectangle projection stays honest. */
-const WORLD_PATCH_COLS = 24;
-const WORLD_PATCH_ROWS = 12;
+ *  Small enough that the flat-rectangle projection stays honest, drawn at
+ *  exactly 1.0x their projected size: oversizing stretches each patch's
+ *  content and shifts it, telegraphing every boundary as a hard edge. */
+const WORLD_PATCH_COLS = 32;
+const WORLD_PATCH_ROWS = 16;
 // Offscreen disc for the patch composite (Hans Oct 11 2026): per-patch
 // alpha telegraphed the patch grid as block seams. Patches now draw at
 // alpha 1 into this disc — same-texture overdraw is invisible — and a
@@ -1430,13 +1432,12 @@ export default function WorldGlobe({
               const lon = -180 + (c + 0.5) * (360 / cols);
               const p = projectGlobe(lat, lon, v.spin, v.tilt);
               if (!p.visible) continue;
-              // Uniform texel density: a degree of longitude shrinks with
-              // cos(lat), so high-latitude patches draw narrower. (Drawing
-              // every row the same width stretched the texture unevenly and
-              // telegraphed the grid as bands.) 1.45x overlap stays seamless.
-              const cosLat = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
-              const sPxW = patchAng * R * 1.45 * cosLat;
-              const sPxH = patchAng * R * 1.45;
+              // Exactly 1.0x the projected size, width corrected by cos(lat)
+              // for uniform texel density. Oversizing stretches content and
+              // shifts it, drawing a hard edge at every patch boundary.
+              const cosLat = Math.max(0.15, Math.cos((lat * Math.PI) / 180));
+              const sPxW = patchAng * R * cosLat;
+              const sPxH = patchAng * R;
               dg.drawImage(
                 tex, c * pw, r * ph, pw, ph,
                 dc + p.x * R - sPxW / 2,
