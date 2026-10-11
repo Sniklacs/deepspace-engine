@@ -58,12 +58,25 @@ describe("trigger surface", () => {
   // surface itself is pinned here.)
   test("exposes a trigger for every scene event", () => {
     for (const m of [
-      "attach", "detach", "reset", "setCamera",
-      "phase", "explosion", "tracer", "dropship", "flankCrash",
-      "orderAccepted", "orderRejected", "uiClick", "victor",
+      "attach", "detach", "reset", "setCamera", "setZoomAudioLevel",
+      "phase", "explosion", "impact", "tracer", "dropship", "flankCrash",
+      "orderAccepted", "orderRejected", "ping", "blip", "uiClick", "victor",
+      "setIntensity",
     ] as const) {
       expect(typeof (battleSfx as any)[m]).toBe("function");
     }
+  });
+  test("setIntensity/clamped triggers no-op safely when detached", () => {
+    // Detached (no AudioContext in test env) — completing without throwing
+    // is the assertion.
+    battleSfx.setIntensity(-2);
+    battleSfx.setIntensity(0.5);
+    battleSfx.setIntensity(99);
+    battleSfx.impact(0.5, 0.5);
+    battleSfx.impact(0.5, 0.5, false);
+    battleSfx.tracer("snipe", 0.2, 0.8);
+    battleSfx.tracer("crack");
+    expect(true).toBe(true);
   });
 });
 

@@ -93,6 +93,12 @@ class BattleSfx {
   private lastDropshipMs = 0;
   private lastFlankMs = 0;
   private boomVoices = 0;
+  // Shared saturation for explosions — tanh grit so layered blasts bite
+  // instead of just getting louder. Built on attach, feeds the bus.
+  private boomShaper: WaveShaperNode | null = null;
+  // Battle intensity 0..1 — the bed breathes with the fighting.
+  private intensity = 0;
+  private bedRumbleGain: GainNode | null = null;
 
   /** Camera supplier — the scene sets this so blasts get distance. */
   setCamera(getter: () => BattleCamView): void {
@@ -131,10 +137,25 @@ class BattleSfx {
     this.bus = a.bus;
     if (fresh) {
       this.ensureNoise();
+      this.ensureBoomShaper();
       this.busBaseGain = this.bus.gain.value;
     }
     if (!this.bedOn) this.startBed();
     this.applyZoomGain(); // a zoom level set pre-attach takes effect now
+  }
+
+  /** Gentle tanh saturation shared by all explosion layers — grit, not volume. */
+  private ensureBoomShaper(): void {
+    if (!this.ctx || !this.bus || this.boomShaper) return;
+    const ws = this.ctx.createWaveShaper();
+    const curve = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+      const x = i / 128 - 1;
+      curve[i] = Math.tanh(2.1 * x);
+    }
+    ws.curve = curve;
+    ws.connect(this.bus);
+    this.boomShaper = ws;
   }
 
   /** Stop the bed. The context stays warm for the next battle. */
@@ -238,7 +259,8 @@ class BattleSfx {
     rumbleF.type = "lowpass";
     rumbleF.frequency.value = BED.rumbleCutoff;
     const rumbleG = ctx.createGain();
-    rumbleG.gain.value = BED.rumbleGain;
+    rumbleG.gain.value = BED.rumbleGain * (1 + this.intensity * 1.2);
+    this.bedRumbleGain = rumbleG;
     const rumbleLfo = ctx.createOscillator();
     rumbleLfo.frequency.value = 0.05;
     const rumbleLfoG = ctx.createGain();
@@ -317,7 +339,10 @@ class BattleSfx {
         slap.start(t); slap.stop(t + 0.15);
         slap.onended = () => { try { slap.disconnect(); bp.disconnect(); ng.disconnect(); } catch { /* gone */ } };
       }
-      this.bedTimers.push(window.setTimeout(drum, 1400 + Math.random() * 800));
+      // Drums quicken as the battle intensifies — 2.2s apart at rest,
+      // ~1.1s apart at full intensity.
+      const gap = (1400 + Math.random() * 800) / (1 + this.intensity * 0.9);
+      this.bedTimers.push(window.setTimeout(drum, gap));
     };
     this.bedTimers.push(window.setTimeout(drum, 900));
 
@@ -331,8 +356,24 @@ class BattleSfx {
     this.bedTimers.push(window.setTimeout(crackle, 4000));
   }
 
+  /** Battle intensity 0..1 — the bed breathes with the fighting: the
+   *  bombardment rumble swells and the war-drums quicken. Clamped; safe to
+   *  call every frame from the scene (no-ops when unchanged or detached). */
+  setIntensity(v: number): void {
+    const nv = Math.min(1, Math.max(0, v));
+    if (nv === this.intensity) return;
+    this.intensity = nv;
+    if (!this.ctx || !this.bedOn) return;
+    const t = this.ctx.currentTime;
+    if (this.bedRumbleGain) {
+      this.bedRumbleGain.gain.setTargetAtTime(
+        BED.rumbleGain * (1 + nv * 1.2), t, 0.8);
+    }
+  }
+
   private stopBed(): void {
     this.bedOn = false;
+    this.bedRumbleGain = null;
     for (const t of this.bedTimers) window.clearTimeout(t);
     this.bedTimers = [];
     if (this.ctx) {
@@ -455,7 +496,12 @@ class BattleSfx {
     }
   }
 
-  /** Explosion at world coords — distance-muffled, ground-cam hits harder. */
+  /** Explosion at world coords — distance-muffled, ground-cam hits harder.
+   *  Four layers from one shared noise source (the blast breathes as one):
+   *  the supersonic crack, the midrange body, the long rumble tail, plus a
+   *  sub-bass pressure wave and its phone-audible harmonic. Big blasts shed
+   *  sparse debris crackles afterwards. Everything bites through the shared
+   *  saturation shaper. */
   explosion(x: number, y: number, big = false): void {
     if (!this.live()) return;
     if (this.boomVoices >= MAX_BOOM_VOICES) return;
@@ -468,33 +514,98 @@ class BattleSfx {
     const ground = this.cam().ground;
     const g = blastGain(d, ground) * (big ? 1.35 : 1);
     const cutoff = blastCutoff(d);
+    const out = this.boomShaper ?? this.bus!;
     this.boomVoices++;
 
-    const n = this.noise(big ? 0.9 : 0.55);
+    // One noise source, split four ways — layers, not separate pops.
+    const tailDur = big ? 1.8 : 1.2;
+    const n = this.noise(tailDur);
     if (n) {
+      // Layer 1: the crack — supersonic snap, highpassed, gone in 30ms.
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = Math.min(6500, Math.max(1200, cutoff * 1.6));
+      const cg = this.adsrGain(Math.min(1, g * 1.05), 0.002, 0.035)!;
+      n.connect(hp); hp.connect(cg); cg.connect(out);
+
+      // Layer 2: the body — midrange whoomph with a punchy attack.
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = Math.min(750, Math.max(180, cutoff * 0.35));
+      bp.Q.value = 0.7;
+      const bg = this.adsrGain(Math.min(1, g * 0.9), 0.007, big ? 0.5 : 0.35)!;
+      n.connect(bp); bp.connect(bg); bg.connect(out);
+
+      // Layer 3: the rumble tail — low, slow, long. This is what lingers.
       const lp = ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.value = cutoff;
-      const ng = this.adsrGain(Math.min(1, g), 0.006, big ? 0.9 : 0.55)!;
-      n.connect(lp); lp.connect(ng);
-      ng.connect(this.bus!);
-      n.start(t); n.stop(t + 1.1);
+      lp.frequency.value = Math.min(170, Math.max(60, cutoff * 0.12));
+      const lg = ctx.createGain();
+      lg.gain.setValueAtTime(0.0001, t);
+      lg.gain.exponentialRampToValueAtTime(Math.min(1, g * 0.7), t + 0.05);
+      lg.gain.exponentialRampToValueAtTime(0.0001, t + tailDur);
+      n.connect(lp); lp.connect(lg); lg.connect(out);
+
+      n.start(t);
+      n.stop(t + tailDur + 0.1);
+      const cleanup = [hp, cg, bp, bg, lp, lg];
       n.onended = () => {
         this.boomVoices = Math.max(0, this.boomVoices - 1);
-        try { n.disconnect(); lp.disconnect(); ng.disconnect(); } catch { /* gone */ }
+        try {
+          n.disconnect();
+          for (const nn of cleanup) nn.disconnect();
+        } catch { /* gone */ }
       };
     } else {
       this.boomVoices = Math.max(0, this.boomVoices - 1);
     }
+
+    // Layer 4: sub-bass pressure wave — the thump you feel in your chest.
+    // Long decay; real blasts push air for a full second, not a quarter.
     const o = ctx.createOscillator();
     o.type = "sine";
-    o.frequency.setValueAtTime(95, t);
-    o.frequency.exponentialRampToValueAtTime(30, t + 0.35);
-    const og = this.adsrGain(Math.min(1, g * 0.8), 0.006, 0.4)!;
-    o.connect(og);
-    og.connect(this.bus!);
-    o.start(t); o.stop(t + 0.6);
+    o.frequency.setValueAtTime(big ? 92 : 82, t);
+    o.frequency.exponentialRampToValueAtTime(23, t + (big ? 0.95 : 0.65));
+    const og = this.adsrGain(Math.min(1, g * 0.85), 0.005, big ? 1.15 : 0.75)!;
+    o.connect(og); og.connect(out);
+    o.start(t);
+    o.stop(t + (big ? 1.35 : 0.95));
     o.onended = () => { try { o.disconnect(); og.disconnect(); } catch { /* gone */ } };
+
+    // Phone-audible punch — the 2nd harmonic carries the thump on small
+    // speakers where the sub sine above is lost entirely.
+    const oh = ctx.createOscillator();
+    oh.type = "triangle";
+    oh.frequency.setValueAtTime(164, t);
+    oh.frequency.exponentialRampToValueAtTime(46, t + 0.4);
+    const ohg = this.adsrGain(Math.min(1, g * 0.32), 0.005, 0.38)!;
+    oh.connect(ohg); ohg.connect(out);
+    oh.start(t);
+    oh.stop(t + 0.55);
+    oh.onended = () => { try { oh.disconnect(); ohg.disconnect(); } catch { /* gone */ } };
+
+    // Debris crackle on big blasts — sparse secondary pops as wreckage lands.
+    if (big && g > 0.12) {
+      const pops = 3 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < pops; i++) {
+        const delayMs = (0.28 + Math.random() * 0.95) * 1000;
+        window.setTimeout(() => {
+          if (!this.live()) return;
+          const tt = this.ctx!.currentTime;
+          const pn = this.noise(0.09);
+          if (!pn) return;
+          const pbp = this.ctx!.createBiquadFilter();
+          pbp.type = "bandpass";
+          pbp.frequency.value = 1100 + Math.random() * 2200;
+          pbp.Q.value = 2.2;
+          const pg = this.adsrGain(g * 0.22 * (0.4 + Math.random() * 0.6), 0.003, 0.09)!;
+          pn.connect(pbp); pbp.connect(pg); pg.connect(out);
+          pn.start(tt);
+          pn.stop(tt + 0.18);
+          pn.onended = () => { try { pn.disconnect(); pbp.disconnect(); pg.disconnect(); } catch { /* gone */ } };
+        }, delayMs);
+      }
+    }
   }
 
   private boomAtDist(d: number, big: boolean): void {
@@ -518,51 +629,151 @@ class BattleSfx {
     };
   }
 
-  /** Weapons fire cracks — throttled so 40 tracers don't become 40 voices. */
-  tracer(kind: "crack" | "snipe" | "turret" = "crack"): void {
+  /** Weapons fire — throttled so 40 tracers don't become 40 voices.
+   *  Each kind has a real voice: lasers sweep down (the pew has a throat),
+   *  railguns crack violent, turrets thump heavy. Optional world coords let
+   *  distant fire read distant — sound is animation. */
+  tracer(kind: "crack" | "snipe" | "turret" = "crack", x?: number, y?: number): void {
     if (!this.live()) return;
     const now = performance.now();
     if (now - this.lastTracerMs < TRACER_MIN_MS) return;
     this.lastTracerMs = now;
     const ctx = this.ctx!;
     const t = ctx.currentTime;
+    const bus = this.bus!;
+    // Distance voice: far fire is quieter and duller. Defaults to mid-field
+    // when the scene doesn't pass a position (backward compatible).
+    const dg = x !== undefined && y !== undefined
+      ? blastGain(this.dist(x, y), this.cam().ground)
+      : 0.55;
+    if (dg < 0.04) return;
+
     if (kind === "crack") {
-      const n = this.noise(0.09);
-      if (!n) return;
-      const bp = ctx.createBiquadFilter();
-      bp.type = "bandpass"; bp.frequency.value = 2400; bp.Q.value = 1.2;
-      const g = this.adsrGain(0.05, 0.004, 0.09)!;
-      n.connect(bp); bp.connect(g); g.connect(this.bus!);
-      n.start(t); n.stop(t + 0.2);
-      n.onended = () => { try { n.disconnect(); bp.disconnect(); g.disconnect(); } catch { /* gone */ } };
-    } else if (kind === "snipe") {
-      // T4 thunder — sharper, meaner crack.
-      const n = this.noise(0.14);
-      if (!n) return;
-      const hp = ctx.createBiquadFilter();
-      hp.type = "highpass"; hp.frequency.value = 2800;
-      const g = this.adsrGain(0.075, 0.003, 0.14)!;
-      n.connect(hp); hp.connect(g); g.connect(this.bus!);
-      n.start(t); n.stop(t + 0.25);
-      n.onended = () => { try { n.disconnect(); hp.disconnect(); g.disconnect(); } catch { /* gone */ } };
+      // Laser — a sawtooth throat sweeping down, with a plasma snap on top.
       const o = ctx.createOscillator();
-      o.type = "sine";
-      o.frequency.setValueAtTime(1800, t);
-      o.frequency.exponentialRampToValueAtTime(900, t + 0.08);
-      const og = this.adsrGain(0.03, 0.003, 0.09)!;
-      o.connect(og); og.connect(this.bus!);
-      o.start(t); o.stop(t + 0.15);
-      o.onended = () => { try { o.disconnect(); og.disconnect(); } catch { /* gone */ } };
-    } else {
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(1450, t);
+      o.frequency.exponentialRampToValueAtTime(310, t + 0.11);
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 4200;
+      const g = this.adsrGain(0.13 * dg, 0.004, 0.14)!;
+      o.connect(lp); lp.connect(g); g.connect(bus);
+      o.start(t); o.stop(t + 0.22);
+      o.onended = () => { try { o.disconnect(); lp.disconnect(); g.disconnect(); } catch { /* gone */ } };
+      const n = this.noise(0.05);
+      if (n) {
+        const hp = ctx.createBiquadFilter();
+        hp.type = "highpass"; hp.frequency.value = 3200;
+        const ng = this.adsrGain(0.05 * dg, 0.002, 0.05)!;
+        n.connect(hp); hp.connect(ng); ng.connect(bus);
+        n.start(t); n.stop(t + 0.1);
+        n.onended = () => { try { n.disconnect(); hp.disconnect(); ng.disconnect(); } catch { /* gone */ } };
+      }
+    } else if (kind === "snipe") {
+      // T4 railgun — violent crack, deep punch underneath. The mean one.
+      const n = this.noise(0.16);
+      if (n) {
+        const hp = ctx.createBiquadFilter();
+        hp.type = "highpass"; hp.frequency.value = 2400;
+        const g = this.adsrGain(0.12 * dg, 0.002, 0.16)!;
+        n.connect(hp); hp.connect(g); g.connect(bus);
+        n.start(t); n.stop(t + 0.26);
+        n.onended = () => { try { n.disconnect(); hp.disconnect(); g.disconnect(); } catch { /* gone */ } };
+      }
       const o = ctx.createOscillator();
       o.type = "square";
-      o.frequency.setValueAtTime(170, t);
-      o.frequency.exponentialRampToValueAtTime(90, t + 0.07);
-      const g = this.adsrGain(0.035, 0.004, 0.08)!;
-      o.connect(g); g.connect(this.bus!);
-      o.start(t); o.stop(t + 0.15);
-      o.onended = () => { try { o.disconnect(); g.disconnect(); } catch { /* gone */ } };
+      o.frequency.setValueAtTime(2300, t);
+      o.frequency.exponentialRampToValueAtTime(420, t + 0.1);
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = 5000;
+      const og = this.adsrGain(0.06 * dg, 0.002, 0.12)!;
+      o.connect(lp); lp.connect(og); og.connect(bus);
+      o.start(t); o.stop(t + 0.2);
+      o.onended = () => { try { o.disconnect(); lp.disconnect(); og.disconnect(); } catch { /* gone */ } };
+      const th = ctx.createOscillator();
+      th.type = "sine";
+      th.frequency.setValueAtTime(140, t);
+      th.frequency.exponentialRampToValueAtTime(55, t + 0.12);
+      const thg = this.adsrGain(0.09 * dg, 0.004, 0.16)!;
+      th.connect(thg); thg.connect(bus);
+      th.start(t); th.stop(t + 0.24);
+      th.onended = () => { try { th.disconnect(); thg.disconnect(); } catch { /* gone */ } };
+    } else {
+      // Turret — heavy rotary thump, low and blunt.
+      const o = ctx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(290, t);
+      o.frequency.exponentialRampToValueAtTime(85, t + 0.1);
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = 900;
+      const g = this.adsrGain(0.1 * dg, 0.005, 0.14)!;
+      o.connect(lp); lp.connect(g); g.connect(bus);
+      o.start(t); o.stop(t + 0.22);
+      o.onended = () => { try { o.disconnect(); lp.disconnect(); g.disconnect(); } catch { /* gone */ } };
+      const n = this.noise(0.1);
+      if (n) {
+        const nbp = ctx.createBiquadFilter();
+        nbp.type = "bandpass"; nbp.frequency.value = 500; nbp.Q.value = 0.8;
+        const ng = this.adsrGain(0.07 * dg, 0.004, 0.1)!;
+        n.connect(nbp); nbp.connect(ng); ng.connect(bus);
+        n.start(t); n.stop(t + 0.18);
+        n.onended = () => { try { n.disconnect(); nbp.disconnect(); ng.disconnect(); } catch { /* gone */ } };
+      }
     }
+  }
+
+  /** Hull impact — rams, collisions, debris strikes. Struck-metal partials
+   *  (inharmonic, like a real plate) over a strike transient, with the hull
+   *  itself groaning underneath as the structure resonates. Distance-gated
+   *  like everything else. */
+  impact(x: number, y: number, metal = true): void {
+    if (!this.live()) return;
+    const d = this.dist(x, y);
+    const g = blastGain(d, this.cam().ground);
+    if (g < 0.05) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const out = this.boomShaper ?? this.bus!;
+
+    if (metal) {
+      // Struck plate — inharmonic partials, slightly detuned per hit so
+      // repeated impacts don't machine-gun.
+      const partials: Array<[number, number]> = [
+        [211, 0.5], [347, 0.34], [522, 0.24], [833, 0.14],
+      ];
+      for (const [f, a] of partials) {
+        const o = ctx.createOscillator();
+        o.type = "triangle";
+        o.frequency.value = f * (0.97 + Math.random() * 0.06);
+        const og = this.adsrGain(g * 0.26 * a, 0.003, 0.42)!;
+        o.connect(og); og.connect(out);
+        o.start(t);
+        o.stop(t + 0.55);
+        o.onended = () => { try { o.disconnect(); og.disconnect(); } catch { /* gone */ } };
+      }
+      // The strike itself — bright transient.
+      const n = this.noise(0.07);
+      if (n) {
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass"; bp.frequency.value = 2600; bp.Q.value = 1.4;
+        const ng = this.adsrGain(g * 0.38, 0.002, 0.07)!;
+        n.connect(bp); bp.connect(ng); ng.connect(out);
+        n.start(t);
+        n.stop(t + 0.14);
+        n.onended = () => { try { n.disconnect(); bp.disconnect(); ng.disconnect(); } catch { /* gone */ } };
+      }
+    }
+    // Hull groan — low structure resonance, the ship complaining.
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(96, t);
+    o.frequency.exponentialRampToValueAtTime(41, t + 0.7);
+    const og = this.adsrGain(g * 0.5, 0.012, 0.85)!;
+    o.connect(og); og.connect(out);
+    o.start(t);
+    o.stop(t + 1.05);
+    o.onended = () => { try { o.disconnect(); og.disconnect(); } catch { /* gone */ } };
   }
 
   /** Delayed-entry dropship engines rolling in. */
