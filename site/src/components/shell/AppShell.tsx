@@ -104,6 +104,21 @@ export default function AppShell({
           compete with the narrator (game-ui-shell-spec §1.6). */}
       <ChatDock suppressed={state.prologue?.stage === "height"} />
       <BottomNav tab={tab} onSwitch={onSwitch} badges={badges} />
+      {/* ATLAS (Hans Oct 11 2026): a floating globe button on every scene —
+          one tap jumps to the world map from anywhere. Hidden on the world
+          tab itself, where you're already there. */}
+      {tab !== "world" && (
+        <button
+          type="button"
+          onClick={() => onSwitch("world")}
+          aria-label={t("app.atlas", "Atlas — open the world map")}
+          title={t("app.atlas", "Atlas — open the world map")}
+          data-testid="atlas-fab"
+          className="fixed bottom-24 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-amber-300/40 bg-[#141007]/90 text-2xl shadow-lg backdrop-blur-sm active:scale-95"
+        >
+          <span aria-hidden>🌍</span>
+        </button>
+      )}
       {/* The window layer — above nav/dock, below toasts. Mounted in the frame
           so windows outlive tab switches and route changes. */}
       <WindowHost ctx={windowCtx ?? null} />
