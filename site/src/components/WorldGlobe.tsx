@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GameState } from "../game/types";
 import {
   buildGlobeMarkers,
-  buildElevationGrid,
+  chorusHeartGlobePosition,
   countByLayer,
   currentHomeGlobePosition,
   declutterMarkers,
@@ -25,10 +25,8 @@ import {
   GLOBE_LAYER_META,
   GLOBE_SITE_TIER_COLOR,
   projectGlobe,
-  shadeTerrainGrid,
   siteMarkerIcon,
   SITE_TIER_LIST,
-  terrainSpriteSize,
   unprojectGlobe,
   type GlobeFilters,
   type GlobeIconId,
@@ -36,6 +34,7 @@ import {
   type GlobeMarker,
   type ScreenMarker,
 } from "../game/globe-layers";
+import { bakeTerrainRegion, bakeWorldTexture } from "../game/world/terrain-field";
 import {
   alliedKnownColonies,
   clampHiveCandidate,
@@ -220,32 +219,42 @@ function mulberry32(seed: number) {
   };
 }
 
-interface Blob { lat: number; lon: number; r: number; shade: number; seed: number }
 interface Light { lat: number; lon: number }
 interface Star { x: number; y: number; r: number; tw: number; ph: number }
 
-// Procedural geography — one alien world, same every visit. Each landmass
-// carries a deterministic elevation seed; WorldGlobe bakes one topographic
-// sprite per landmass from it ONCE at init (see ensureTerrainSprites) and
-// the render loop only blits the sprites.
-const BLOBS: Blob[] = (() => {
-  // MORE LAND (Hans Oct 11 2026): the world read as "water with splashes of
-  // land". Same seed and draw order, so the original 46 landmasses keep
-  // their positions — the new blobs are added after, and every blob is a
-  // little bigger.
-  const rng = mulberry32(20261004);
-  const out: Blob[] = [];
-  for (let i = 0; i < 84; i++) {
-    out.push({
-      lat: (rng() * 2 - 1) * 62,
-      lon: rng() * 360 - 180,
-      r: 6 + rng() * 13,
-      shade: rng(),
-      seed: i,
-    });
+// ONE WORLD TEXTURE (Hans Oct 11 2026): no ocean, no stacked blob cutouts —
+// the planet is a single continuous landmass baked once from the seeded
+// terrain field (game/world/terrain-field.ts). The globe draws patches of
+// this one map; the zoom tiles bake their own layers from the same field.
+// Same field everywhere → the morph never pops.
+const WORLD_TEX_W = 1024;
+const WORLD_TEX_H = 512;
+/** Patch grid over the texture — one map, drawn as projected patches. */
+const WORLD_PATCH_COLS = 16;
+const WORLD_PATCH_ROWS = 8;
+let worldTexture: HTMLCanvasElement | null = null;
+let worldTextureBaking = false;
+/** The world texture, baked off the frame loop on first need. Null until
+ *  the bake lands — the render loop holds a land-colored disc meanwhile. */
+function ensureWorldTexture(): HTMLCanvasElement | null {
+  if (worldTexture) return worldTexture;
+  if (!worldTextureBaking) {
+    worldTextureBaking = true;
+    setTimeout(() => {
+      try {
+        const baked = bakeWorldTexture(WORLD_TEX_W, WORLD_TEX_H, chorusHeartGlobePosition());
+        const c = document.createElement("canvas");
+        c.width = WORLD_TEX_W;
+        c.height = WORLD_TEX_H;
+        c.getContext("2d")!.putImageData(new ImageData(baked.data, baked.width, baked.height), 0, 0);
+        worldTexture = c;
+      } catch {
+        worldTextureBaking = false; // retry next call
+      }
+    }, 0);
   }
-  return out;
-})();
+  return worldTexture;
+}
 
 const CITY_LIGHTS: Light[] = (() => {
   const rng = mulberry32(777);
@@ -656,48 +665,9 @@ function roundRectPath(g: CanvasRenderingContext2D, x: number, y: number, w: num
   g.closePath();
 }
 
-// Terrain sprites — baked ONCE from the elevation field (globe-layers.ts),
-// then blitted per frame. Per-frame cost ≈ one drawImage per visible
-// landmass, i.e. no worse than the old flat ellipse fills. Each sprite spans
-// 1.25× the landmass radius for a soft transparent margin; the inner disc
-// is the hillshaded terrain, whose shoreline is feathered via shoreFeather
-// in shadeTerrainGrid (no artificial halo ring).
-let terrainSprites: HTMLCanvasElement[] | null = null;
-
-function bakeLandmassSprite(b: Blob, pxScale = 1): HTMLCanvasElement {
-  const S = Math.round(terrainSpriteSize(b.r) * pxScale);
-  const c = document.createElement("canvas");
-  c.width = c.height = S;
-  const g = c.getContext("2d")!;
-  // (The old "coastal shelf" radial ring was removed — it rendered as a
-  //  perfect translucent circle around each island, i.e. a halo
-  //  disconnected from the irregular coastline. The terrain disc already
-  //  feathers its shoreline via shoreFeather in shadeTerrainGrid.)
-  // Terrain disc — elevation grid → hillshaded pixels.
-  const T = Math.round(S * 0.8);
-  const grid = buildElevationGrid(b.seed, T);
-  const px = shadeTerrainGrid(grid, T, (b.shade - 0.5) * 2);
-  const tc = document.createElement("canvas");
-  tc.width = tc.height = T;
-  tc.getContext("2d")!.putImageData(new ImageData(px, T, T), 0, 0);
-  g.drawImage(tc, (S - T) / 2, (S - T) / 2);
-  return c;
-}
-
-function ensureTerrainSprites(): HTMLCanvasElement[] {
-  if (!terrainSprites) terrainSprites = BLOBS.map((b) => bakeLandmassSprite(b));
-  return terrainSprites;
-}
-
-let terrainSpritesHi: HTMLCanvasElement[] | null = null;
-/** 2× sprites for the deep-zoom tile level — the elevation grid rebakes at 2×
- *  density too (buildElevationGrid is pure per seed), so deep zoom resolves
- *  genuinely more terrain detail instead of upscaling. Baked lazily on the
- *  first deep dive, once. */
-function ensureTerrainSpritesHi(): HTMLCanvasElement[] {
-  if (!terrainSpritesHi) terrainSpritesHi = BLOBS.map((b) => bakeLandmassSprite(b, 2));
-  return terrainSpritesHi;
-}
+// (Sprite-per-landmass rendering is gone — Hans Oct 11 2026: one continuous
+// land map. The globe draws patches of the single world texture above; the
+// tiles below bake their own layers from the same terrain field.)
 
 // ---------------------------------------------------------------------------
 // ZOOM-MORPH region tiles (Phase 2, slice 2): the sphere→plane crossfade.
@@ -719,15 +689,14 @@ interface TileLevel {
   /** Focus quantization — panning rebakes only at cell crossings. */
   cellDeg: number;
   cacheMax: number;
-  hiRes: boolean;
 }
-// LOD LEVELS (Hans Oct 11 2026): the old single 512px/±60° tile was 4.3 px/deg —
-// deep zoom only stretched it, so the ground stayed blurry forever. Level 1
-// takes over at LOW ALT and deeper: 768px over ±15° with 2× terrain sprites,
-// ~25 px/deg of real terrain detail.
+// LOD LEVELS (Hans Oct 11 2026): every level bakes its OWN layer fresh from
+// the terrain field at its own px/deg — the JPEG-within-a-JPEG. Level 0
+// carries the morph; level 1 takes over at LOW ALT and deeper with ~25
+// px/deg of real terrain detail.
 const TILE_LEVELS: TileLevel[] = [
-  { tilePx: 512, halfDeg: 60, cellDeg: 20, cacheMax: 6, hiRes: false },
-  { tilePx: 768, halfDeg: 15, cellDeg: 5, cacheMax: 8, hiRes: true },
+  { tilePx: 512, halfDeg: 60, cellDeg: 20, cacheMax: 6 },
+  { tilePx: 768, halfDeg: 15, cellDeg: 5, cacheMax: 8 },
 ];
 /** Deep-zoom detail tiles take over at LOW ALT and deeper. */
 export const TILE_DETAIL_SCALE = 6;
@@ -768,38 +737,22 @@ function regionTileKey(lat: number, lon: number, level: number): { key: string; 
 function bakeRegionTile(qLat: number, qLon: number, level: number): HTMLCanvasElement {
   const L = TILE_LEVELS[level];
   const ppd = L.tilePx / (L.halfDeg * 2);
+  // One continuous landmass: bake this layer fresh from the terrain field
+  // at the level's own px/deg — the JPEG-within-a-JPEG. No ocean, no
+  // sprites; the corruption field colors the land around the Chorus heart.
+  const baked = bakeTerrainRegion(L.tilePx, L.tilePx, qLat, qLon, ppd, chorusHeartGlobePosition());
   const c = document.createElement("canvas");
   c.width = c.height = L.tilePx;
-  const g = c.getContext("2d")!;
-  // Ocean base — the globe's deep-water read, flat (the tile is overhead).
-  const ocean = g.createRadialGradient(
-    L.tilePx / 2, L.tilePx / 2, L.tilePx * 0.08,
-    L.tilePx / 2, L.tilePx / 2, L.tilePx * 0.63,
-  );
-  ocean.addColorStop(0, "#14456e");
-  ocean.addColorStop(1, "#0a2440");
-  g.fillStyle = ocean;
-  g.fillRect(0, 0, L.tilePx, L.tilePx);
-  // Landmasses: the same baked sprites the globe blits, laid equirectangular.
-  // Sprite width on the globe = 2·r·1.25 degrees → px via the level's ppd.
-  const sprites = L.hiRes ? ensureTerrainSpritesHi() : ensureTerrainSprites();
-  const cosLat = Math.cos((qLat * Math.PI) / 180);
-  for (let i = 0; i < BLOBS.length; i++) {
-    const b = BLOBS[i];
-    const dLon = wrapLon180(b.lon - qLon);
-    const dLat = b.lat - qLat;
-    const reach = L.halfDeg + b.r * 1.25;
-    if (Math.abs(dLat) > reach || Math.abs(dLon * cosLat) > reach) continue;
-    const x = L.tilePx / 2 + dLon * cosLat * ppd;
-    const y = L.tilePx / 2 - dLat * ppd;
-    const wpx = 2 * b.r * 1.25 * ppd;
-    g.drawImage(sprites[i], x - wpx / 2, y - wpx / 2, wpx, wpx);
-  }
+  c.getContext("2d")!.putImageData(new ImageData(baked.data, baked.width, baked.height), 0, 0);
   return c;
 }
 
-/** The region tile for the focus point, or null if the bake failed
- *  (caller falls back to the globe sprite). Small per-level LRU. */
+const tileBakeQueued = new Set<string>();
+/** The region tile for the focus point — or the best coarser layer while the
+ *  requested one bakes. Bakes run off the frame loop (a detail tile is real
+ *  field math, ~1s); the globe reads the SAME field, so the screen never
+ *  blacks out or pops — the ground just resolves, layer by layer, as you
+ *  descend. Small per-level LRU. */
 function ensureRegionTile(lat: number, lon: number, level: number): RegionTile | null {
   const L = TILE_LEVELS[level];
   const { key, qLat, qLon } = regionTileKey(lat, lon, level);
@@ -808,18 +761,26 @@ function ensureRegionTile(lat: number, lon: number, level: number): RegionTile |
     regionTileCache = [hit, ...regionTileCache.filter((t) => t !== hit)];
     return hit;
   }
-  let canvas: HTMLCanvasElement;
-  try {
-    canvas = bakeRegionTile(qLat, qLon, level);
-  } catch {
-    return null;
+  if (!tileBakeQueued.has(key)) {
+    tileBakeQueued.add(key);
+    setTimeout(() => {
+      try {
+        const canvas = bakeRegionTile(qLat, qLon, level);
+        const tile: RegionTile = {
+          key, canvas, qLat, qLon,
+          ppd: L.tilePx / (L.halfDeg * 2), tilePx: L.tilePx,
+        };
+        regionTileCache = [tile, ...regionTileCache.filter((t) => t.key !== key)].slice(0, L.cacheMax + 6);
+      } catch {
+        // Keep serving the coarser layer; retry on the next visit.
+      }
+      tileBakeQueued.delete(key);
+    }, 0);
   }
-  const tile: RegionTile = {
-    key, canvas, qLat, qLon,
-    ppd: L.tilePx / (L.halfDeg * 2), tilePx: L.tilePx,
-  };
-  regionTileCache = [tile, ...regionTileCache].slice(0, L.cacheMax + 6);
-  return tile;
+  // Progressive: serve the coarser layer stretched while this one bakes.
+  // Level 0 → null: the globe (same field) keeps drawing. Never a black frame.
+  if (level > 0) return ensureRegionTile(lat, lon, level - 1);
+  return null;
 }
 
 // Offscreen canvas for the morph composite: while 0 < morphT < 1 the globe
@@ -1174,8 +1135,9 @@ export default function WorldGlobe({
     };
     canvas.addEventListener("wheel", wheelHandler, { passive: false });
 
-    // Bake the topographic landmass sprites once — the frame loop only blits.
-    const landSprites = ensureTerrainSprites();
+    // Start baking the single world texture — the frame loop draws patches
+    // of it (one land map); it lands a beat after mount, off the frame loop.
+    ensureWorldTexture();
 
     // WS5 — the server's first real clock: refresh the player-anchored
     // subsolar point every 60s and whenever the tab regains visibility
@@ -1368,36 +1330,43 @@ export default function WorldGlobe({
       g.arc(cx, cy, R * 1.32, 0, Math.PI * 2);
       g.fill();
 
-      // 3 — ocean sphere
+      // 3 — the world disc: ONE continuous landmass (Hans Oct 11 2026 — no
+      // ocean, no stacked cutouts). The single world texture, drawn as
+      // projected patches with true 3D rotation. Overdrawn patches sample
+      // the same texture, so seams are invisible by construction.
       g.save();
       g.beginPath();
       g.arc(cx, cy, R, 0, Math.PI * 2);
       g.clip();
-      const ocean = g.createRadialGradient(cx - R * 0.35, cy - R * 0.38, R * 0.1, cx, cy, R * 1.35);
-      ocean.addColorStop(0, "#1d5a8a");
-      ocean.addColorStop(0.55, "#0d2f52");
-      ocean.addColorStop(1, "#071a30");
-      g.fillStyle = ocean;
+      // Land-colored base — covers any sub-pixel patch gaps at the limb.
+      g.fillStyle = "#3d5a3f";
       g.fillRect(cx - R, cy - R, R * 2, R * 2);
-
-      // 4 — landmasses with baked topography (true 3D rotation; one blit each)
-      const squash = 0.72; // screen-space foreshortening, as before
-      for (let i = 0; i < BLOBS.length; i++) {
-        const b = BLOBS[i];
-        const p = projectGlobe(b.lat, b.lon, v.spin, v.tilt);
-        if (!p.visible) continue;
-        const rPx = (b.r * Math.PI) / 180 * R * 1.25; // sprite spans 1.25× r
-        const a = 0.45 + 0.55 * p.z;
-        g.globalAlpha = a * 0.95;
-        g.drawImage(
-          landSprites[i],
-          cx + p.x * R - rPx,
-          cy + p.y * R - rPx * squash,
-          rPx * 2,
-          rPx * 2 * squash,
-        );
+      const tex = ensureWorldTexture();
+      if (tex) {
+        const cols = WORLD_PATCH_COLS, rows = WORLD_PATCH_ROWS;
+        const pw = tex.width / cols, ph = tex.height / rows;
+        const squash = 0.72; // screen-space foreshortening, as before
+        const patchAng = (360 / cols) * (Math.PI / 180); // patch angular size
+        for (let r = 0; r < rows; r++) {
+          const lat = 90 - (r + 0.5) * (180 / rows);
+          for (let c = 0; c < cols; c++) {
+            const lon = -180 + (c + 0.5) * (360 / cols);
+            const p = projectGlobe(lat, lon, v.spin, v.tilt);
+            if (!p.visible) continue;
+            const sPx = patchAng * R * 1.45; // overlap: same-texture overdraw
+            const a = 0.45 + 0.55 * p.z;
+            g.globalAlpha = a;
+            g.drawImage(
+              tex, c * pw, r * ph, pw, ph,
+              cx + p.x * R - sPx / 2,
+              cy + p.y * R - (sPx * squash) / 2,
+              sPx,
+              sPx * squash,
+            );
+          }
+        }
+        g.globalAlpha = 1;
       }
-      g.globalAlpha = 1;
 
       // 5 — ice caps
       for (const capLat of [78, -78]) {
