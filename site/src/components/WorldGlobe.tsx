@@ -885,6 +885,15 @@ function ensureRegionTile(lat: number, lon: number, level: number): RegionTile |
     return hit;
   }
   if (!tileBakeQueued.has(key)) {
+    // Bound the bake queue — scrolling fast across many tiles must not stack
+    // up seconds of main-thread work and freeze the UI. If we're already
+    // baking, the coarser layer holds until the queue drains.
+    if (tileBakeQueued.size >= 2) {
+      tileDebugStatus.served = `L${level}-wait`;
+      tileDebugStatus.servedKey = key;
+      if (level > 0) return ensureRegionTile(lat, lon, level - 1);
+      return null;
+    }
     tileBakeQueued.add(key);
     tileDebugStatus.queued = tileBakeQueued.size;
     setTimeout(() => {
@@ -1057,6 +1066,8 @@ export default function WorldGlobe({
   // Fullscreen map (Hans Oct 11 2026): just the world, no surrounding UI.
   // Toggle back to return to the windowed view with legend and panels.
   const [mapFullscreen, setMapFullscreen] = useState(false);
+  // Altitude dropdown (Hans Oct 11 2026): tap the ALT badge to jump bands.
+  const [altMenuOpen, setAltMenuOpen] = useState(false);
 
   // ---- WS7 layer filters (Hans, Oct 4 2026): tier filtering for sites,
   // persisted like the layer toggles. Pure filter logic in globe-layers.ts.
@@ -2370,6 +2381,22 @@ export default function WorldGlobe({
     playClick();
   }, []);
 
+  // Jump directly to an altitude band (Hans Oct 11 2026): the ALT badge is a
+  // dropdown — tap it and pick ORBIT / HIGH ALT / LOW ALT / GROUND.
+  const zoomToBand = useCallback((band: ZoomBand) => {
+    lastInteract.current = performance.now();
+    const v = view.current;
+    const target: Record<ZoomBand, number> = {
+      Z0: 0.4,  // SYSTEM
+      Z1: 1,    // ORBIT
+      Z2: 4,    // HIGH ALT
+      Z3: 10,   // LOW ALT
+      Z4: 20,   // GROUND
+    };
+    v.targetScale = clampZoomScale(target[band] ?? 1);
+    playClick();
+  }, []);
+
   const recenter = useCallback(() => {
     lastInteract.current = performance.now();
     const v = view.current;
@@ -2757,12 +2784,42 @@ export default function WorldGlobe({
             display only (never a band menu). Replaces slice 1's temporary
             dev readout. Top-right stays clear of the legend (left), the
             system/spread hints (top-center), and the zoom controls (bottom). */}
-        <div
-          className="pointer-events-none absolute right-2 top-2 z-10 rounded-full border border-white/15 bg-black/55 px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-300 backdrop-blur-sm"
-          title="Altitude on the zoom continuum"
-          aria-label={`Altitude: ${ZOOM_BAND_LABEL[zoomBand]}`}
-        >
-          {`ALT · ${ZOOM_BAND_LABEL[zoomBand]}`}
+        <div className="absolute right-2 top-2 z-20">
+          <button
+            type="button"
+            onClick={() => setAltMenuOpen((o) => !o)}
+            className="rounded-full border border-white/15 bg-black/55 px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-300 backdrop-blur-sm"
+            title="Altitude — tap to jump"
+            aria-label={`Altitude: ${ZOOM_BAND_LABEL[zoomBand]} — tap to change`}
+            aria-expanded={altMenuOpen}
+          >
+            {`ALT · ${ZOOM_BAND_LABEL[zoomBand]} ▾`}
+          </button>
+          {altMenuOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 top-full mt-1 min-w-[140px] overflow-hidden rounded-xl border border-white/15 bg-black/85 backdrop-blur-md"
+            >
+              {(["Z1", "Z2", "Z3", "Z4"] as ZoomBand[]).map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAltMenuOpen(false);
+                    zoomToBand(b);
+                  }}
+                  className={`block w-full px-4 py-2.5 text-left text-[12px] font-semibold uppercase tracking-wider ${
+                    b === zoomBand
+                      ? "bg-amber-500/20 text-amber-200"
+                      : "text-zinc-300 hover:bg-white/10"
+                  }`}
+                >
+                  {ZOOM_BAND_LABEL[b]}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Zoom controls */}
