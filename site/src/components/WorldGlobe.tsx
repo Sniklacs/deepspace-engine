@@ -667,6 +667,72 @@ function arenaSprite(color: string): HTMLCanvasElement {
   }
   return c;
 }
+// CHORUS HEART fortress (Hans Oct 11 2026): like the arena, the Heart is
+// globally used — everyone fights it — so it gets a real skin, not a dot.
+// A dark spire-fortress with a bleeding red core, seated on the globe.
+const chorusHeartSpriteCache = new Map<string, HTMLCanvasElement>();
+function chorusHeartSprite(): HTMLCanvasElement {
+  const key = "chorus-heart";
+  let c = chorusHeartSpriteCache.get(key);
+  if (c) return c;
+  const S = 128;
+  c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d")!;
+  g.translate(S / 2, S / 2);
+  const u = S / 128;
+  g.lineJoin = "round";
+  g.lineCap = "round";
+  // Ground plate — scorched earth.
+  g.fillStyle = "rgba(20,8,8,0.6)";
+  g.beginPath();
+  g.ellipse(0, 18 * u, 54 * u, 28 * u, 0, 0, Math.PI * 2);
+  g.fill();
+  // Outer wall ring — jagged dark stone.
+  g.strokeStyle = "rgba(40,20,24,0.95)";
+  g.lineWidth = 8 * u;
+  g.beginPath();
+  g.ellipse(0, 10 * u, 44 * u, 24 * u, 0, 0, Math.PI * 2);
+  g.stroke();
+  // Wall spikes.
+  g.strokeStyle = "rgba(60,28,32,0.95)";
+  g.lineWidth = 4 * u;
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI * 2) / 8;
+    const x1 = Math.cos(a) * 44 * u, y1 = 10 * u + Math.sin(a) * 24 * u;
+    const x2 = Math.cos(a) * 52 * u, y2 = 10 * u + Math.sin(a) * 30 * u - 8 * u;
+    g.beginPath();
+    g.moveTo(x1, y1);
+    g.lineTo(x2, y2);
+    g.stroke();
+  }
+  // Central spire — the Heart's tower.
+  const grad = g.createLinearGradient(0, 20 * u, 0, -50 * u);
+  grad.addColorStop(0, "#2a1216");
+  grad.addColorStop(1, "#0d0608");
+  g.fillStyle = grad;
+  g.beginPath();
+  g.moveTo(-14 * u, 12 * u);
+  g.lineTo(-8 * u, -44 * u);
+  g.lineTo(8 * u, -44 * u);
+  g.lineTo(14 * u, 12 * u);
+  g.closePath();
+  g.fill();
+  // The bleeding core — pulsing red eye at the spire's peak.
+  const core = g.createRadialGradient(0, -36 * u, 0, 0, -36 * u, 14 * u);
+  core.addColorStop(0, "rgba(255,60,60,0.95)");
+  core.addColorStop(0.5, "rgba(200,30,30,0.7)");
+  core.addColorStop(1, "rgba(120,10,10,0)");
+  g.fillStyle = core;
+  g.beginPath();
+  g.arc(0, -36 * u, 14 * u, 0, Math.PI * 2);
+  g.fill();
+  // Red glow rising.
+  g.fillStyle = "rgba(255,40,40,0.12)";
+  g.fillRect(-20 * u, -64 * u, 40 * u, 30 * u);
+  chorusHeartSpriteCache.set(key, c);
+  return c;
+}
 // Glow sprite cache — one radial-gradient canvas per color, reused for every
 // marker so the POP stays cheap.
 const glowCache = new Map<string, HTMLCanvasElement>();
@@ -1071,6 +1137,9 @@ export default function WorldGlobe({
   const [mapFullscreen, setMapFullscreen] = useState(false);
   // Altitude dropdown (Hans Oct 11 2026): tap the ALT badge to jump bands.
   const [altMenuOpen, setAltMenuOpen] = useState(false);
+  // Jump gate sheet (Hans Oct 11 2026): the next saga's door.
+  const [gateOpen, setGateOpen] = useState(false);
+  const [gateInspected, setGateInspected] = useState(false);
 
   // ---- WS7 layer filters (Hans, Oct 4 2026): tier filtering for sites,
   // persisted like the layer toggles. Pure filter logic in globe-layers.ts.
@@ -1393,6 +1462,20 @@ export default function WorldGlobe({
         for (const p of sysPositions) {
           planetPosRef.current.set(p.serverId, { x: p.x, y: p.y, r: p.r });
         }
+        // JUMP GATE (Hans Oct 11 2026): a dead ring at the system's edge —
+        // not functional, but tappable. Its sheet is the next saga's door.
+        // Fixed angle so it doesn't drift with the planets.
+        {
+          const w = wrapRef.current?.clientWidth ?? 800;
+          const h = wrapRef.current?.clientHeight ?? 600;
+          const sunX = w / 2, sunY = h / 2;
+          const maxOrbitPx = Math.min(w, h) * 0.47;
+          const gateAngle = 2.4; // radians — out past the far planets
+          const gateR = maxOrbitPx * 1.18;
+          const gx = sunX + Math.cos(gateAngle) * gateR;
+          const gy = sunY + Math.sin(gateAngle) * gateR * 0.86;
+          planetPosRef.current.set("jump-gate", { x: gx, y: gy, r: 18 });
+        }
       }
       // DOM overlays key off system dominance; flip only on the crossing.
       // A globe marker sheet has no meaning out here — close it.
@@ -1703,10 +1786,17 @@ export default function WorldGlobe({
         // WS2: the marker ICON — shape carries the meaning, not the color.
         // One pre-baked sprite blit; 20px+ hit targets preserved below.
         // WS-A: the arena renders as the full stadium sprite, not a dot-icon.
+        // CHORUS HEART (Hans Oct 11 2026): same treatment — a fortress skin,
+        // not a dot. Globally used, globally visible.
         const isArena = m.ref.kind === "arena";
-        const icon = isArena ? arenaSprite(m.color) : iconSprite(m.icon, m.color);
+        const isHeart = m.ref.kind === "chorus";
+        const icon = isArena ? arenaSprite(m.color)
+          : isHeart ? chorusHeartSprite()
+          : iconSprite(m.icon, m.color);
         const iconSize = isArena
           ? (isSel ? ARENA_MARKER_SIZE.selected : ARENA_MARKER_SIZE.normal)
+          : isHeart
+            ? (isSel ? 68 : 52)
           : isSatellite
             ? (isSel ? 30 : 24)
             : (isSel ? 26 : 20);
@@ -1984,6 +2074,52 @@ export default function WorldGlobe({
           }
         }
         ctx.textBaseline = "alphabetic";
+
+        // JUMP GATE (Hans Oct 11 2026): a dead ring at the system's edge.
+        // Dark, wrong-looking, humming with nothing. Tappable — its sheet
+        // is the next saga's door.
+        const gate = planetPosRef.current.get("jump-gate");
+        if (gate) {
+          const gr = 16;
+          const pulse = 1 + 0.08 * Math.sin(time * 1.3);
+          ctx.save();
+          // Faint wrongness — a sickly violet halo that breathes.
+          const gh = ctx.createRadialGradient(gate.x, gate.y, gr * 0.3, gate.x, gate.y, gr * 3);
+          gh.addColorStop(0, `rgba(139,92,246,${0.18 * sysT})`);
+          gh.addColorStop(1, "rgba(139,92,246,0)");
+          ctx.fillStyle = gh;
+          ctx.beginPath();
+          ctx.arc(gate.x, gate.y, gr * 3, 0, Math.PI * 2);
+          ctx.fill();
+          // The ring itself — dark metal, violet seams.
+          ctx.strokeStyle = `rgba(30,27,45,${sysT})`;
+          ctx.lineWidth = 7 * pulse;
+          ctx.beginPath();
+          ctx.arc(gate.x, gate.y, gr, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.strokeStyle = `rgba(167,139,250,${0.75 * sysT})`;
+          ctx.lineWidth = 1.6;
+          ctx.setLineDash([10, 14]);
+          ctx.lineDashOffset = -time * 12;
+          ctx.beginPath();
+          ctx.arc(gate.x, gate.y, gr, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          // Dead center — nothing comes through. Yet.
+          ctx.fillStyle = `rgba(8,6,16,${sysT})`;
+          ctx.beginPath();
+          ctx.arc(gate.x, gate.y, gr * 0.72, 0, Math.PI * 2);
+          ctx.fill();
+          // Label — only when the system is mostly present.
+          if (sysT > 0.55) {
+            ctx.font = "600 11px system-ui, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.fillStyle = `rgba(196,181,253,${0.9 * sysT})`;
+            ctx.fillText("JUMP GATE", gate.x, gate.y + gr + 6);
+          }
+          ctx.restore();
+        }
       }
     };
     raf = requestAnimationFrame(frame);
@@ -2227,8 +2363,14 @@ export default function WorldGlobe({
         return;
       }
       // SOLAR SYSTEM: out here, taps choose planets — never globe markers.
+      // The jump gate gets its own sheet (the next saga's door).
       if (isSystemDominant(view.current.scale)) {
         const pid = hitTestPlanet(e.clientX, e.clientY);
+        if (pid === "jump-gate") {
+          playSelect();
+          setGateOpen(true);
+          return;
+        }
         if (pid && pid !== selectedPlanetRef.current) {
           playSelect();
           selectPlanetRef.current(pid);
@@ -2758,6 +2900,57 @@ export default function WorldGlobe({
               <p className="text-[10px] text-gray-300">
                 {t("worldglobe.systemHint", "Tap a planet — send a probe, or zoom + to dive back in")}
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* JUMP GATE sheet (Hans Oct 11 2026): the next saga's door. Not
+            functional — but it was put here for a reason. */}
+        {gateOpen && (
+          <div className="absolute inset-x-3 bottom-20 z-30 mx-auto max-w-md">
+            <div className="rounded-2xl border border-violet-400/40 bg-[#0d0a1a]/95 p-4 backdrop-blur-md">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[14px] font-bold text-violet-200">◈ Jump Gate</p>
+                  <p className="text-[11px] text-violet-300/70">Unknown origin · dormant</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setGateOpen(false)}
+                  className="rounded-full border border-white/15 px-2 py-1 text-[12px] text-zinc-400"
+                  aria-label="Close"
+                >
+                  ✕
+                </button>
+              </div>
+              {!gateInspected ? (
+                <button
+                  type="button"
+                  onClick={() => { setGateInspected(true); playSelect(); }}
+                  className="mt-3 w-full rounded-xl border border-violet-400/50 bg-violet-900/40 px-3 py-2.5 text-[13px] font-semibold text-violet-100"
+                >
+                  🔍 Inspect the gate
+                </button>
+              ) : (
+                <div className="mt-3 space-y-2 text-[12px] leading-relaxed text-zinc-300">
+                  <p>
+                    Up close, the hull reads wrong. The alloy doesn't match anything
+                    the resistance foundries have ever poured — no known forge leaves
+                    a grain like this.
+                  </p>
+                  <p>
+                    Markings run the length of the ring. They're not in any database,
+                    any language, any wreck we've ever pulled apart.
+                  </p>
+                  <p className="text-violet-200">
+                    Whatever built this had tools we don't have. And it didn't drift
+                    here. It was <em>placed</em>.
+                  </p>
+                  <p className="text-[11px] text-zinc-500">
+                    The gate is dormant. For now.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
