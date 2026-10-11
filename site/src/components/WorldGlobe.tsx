@@ -1019,6 +1019,9 @@ export default function WorldGlobe({
   const pinch = useRef<{ d: number } | null>(null);
   const lastInteract = useRef(0);
   const screenPos = useRef(new Map<string, { x: number; y: number; r: number }>());
+  // Colony skin hit positions (Hans Oct 11 2026): skins must be tappable at
+  // every altitude, not just when the globe markers are visible.
+  const skinScreenPos = useRef(new Map<string, { x: number; y: number; r: number }>());
   const markersRef = useRef<GlobeMarker[]>([]);
   const reduceMotion = useRef(false);
   // ZOOM-MORPH (slice 2): the frame loop's current sphere→plane factor,
@@ -1829,6 +1832,8 @@ export default function WorldGlobe({
           ctx.globalAlpha = skinAlpha;
           ctx.drawImage(spr, sx - size / 2, sy - size / 2, size, size);
           ctx.restore();
+          // Record for tap hit-testing — skins are clickable at any altitude.
+          skinScreenPos.current.set(m.id, { x: sx, y: sy, r: size / 2 });
           // Selected colony: name pill (mirrors the globe marker label).
           if (m.id === selectedIdRef.current) {
             ctx.save();
@@ -2254,10 +2259,24 @@ export default function WorldGlobe({
           return;
         }
       }
-      // ZOOM-MORPH (slice 2): past the morph the globe markers have faded
-      // out with the sphere — taps find no sheet targets up here (region
-      // interactions land in later slices).
-      if (morphTRef.current > 0.5) return;
+      // ZOOM-MORPH: past the morph the globe markers have faded out — but the
+      // colony SKINS are tappable up here (Hans Oct 11 2026: everything
+      // clickable at every altitude). Hit-test skins instead of markers.
+      if (morphTRef.current > 0.5) {
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (rect) {
+          const lx = e.clientX - rect.left, ly = e.clientY - rect.top;
+          for (const [id, p] of skinScreenPos.current.entries()) {
+            const dx = lx - p.x, dy = ly - p.y;
+            if (dx * dx + dy * dy <= p.r * p.r) {
+              setSelectedId(id);
+              playSelect();
+              return;
+            }
+          }
+        }
+        return;
+      }
       const id = hitTest(e.clientX, e.clientY);
       // CRADLE ENTRY (slice 10): tapping the Cradle's home-layer marker
       // starts the tap→focus→hover→descend chain (spec §10). The Z1 detail
@@ -2800,7 +2819,7 @@ export default function WorldGlobe({
               role="menu"
               className="absolute right-0 top-full mt-1 min-w-[140px] overflow-hidden rounded-xl border border-white/15 bg-black/85 backdrop-blur-md"
             >
-              {(["Z1", "Z2", "Z3", "Z4"] as ZoomBand[]).map((b) => (
+              {(["Z0", "Z1", "Z2", "Z3", "Z4"] as ZoomBand[]).map((b) => (
                 <button
                   key={b}
                   type="button"
