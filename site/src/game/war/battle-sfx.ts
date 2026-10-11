@@ -11,6 +11,7 @@
 
 import { sound } from "../sound";
 import type { ScenePhase } from "./battle-scene-model";
+import { zoomBusGain, zoomVirtualRadius, clampZoomBand } from "../audio/zoom-audio";
 
 // ---------------------------------------------------------------------------
 // Pure mappings — unit-tested, no audio needed.
@@ -80,6 +81,13 @@ class BattleSfx {
   private bedTimers: number[] = [];
   private bedNodes: AudioNode[] = [];
   private lastPhase: string | null = null;
+  // Zoom-driven audio LOD (seamless-world spec §5): zoomBusGain() scales the
+  // bus gain, zoomVirtualRadius() feeds dist() below. Defaults = Z4 ground,
+  // i.e. byte-identical behavior to before the zoom LOD existed.
+  private zoomBand: 1 | 2 | 3 | 4 = 4;
+  private zoomGain = 1;
+  private zoomRadius = 0;
+  private busBaseGain = 0.9; // battle bus nominal gain, captured on attach
   private lastTracerMs = 0;
   private lastFarBoomMs = 0;
   private lastDropshipMs = 0;
@@ -91,6 +99,29 @@ class BattleSfx {
     this.cam = getter;
   }
 
+  /** Zoom-driven audio LOD (seamless-world spec §5) — the scene calls this
+   *  from the frame loop with the current zoom band (1 = orbit … 4 = ground).
+   *  Applies the zoom gain multiplier onto the bus gain and the zoom virtual
+   *  radius into the EXISTING blastGain/blastCutoff distance curve — one
+   *  curve, fed by zoom, no second distance model. Out-of-range clamps to
+   *  the nearest band; non-finite fails safe to Z1 (silent). Mute toggle
+   *  behavior unchanged — master still governs the bus. */
+  setZoomAudioLevel(z: number): void {
+    const band = clampZoomBand(z);
+    if (band === this.zoomBand) return;
+    this.zoomBand = band;
+    this.zoomGain = zoomBusGain(band);
+    this.zoomRadius = zoomVirtualRadius(band);
+    this.applyZoomGain();
+  }
+
+  /** Push the zoom gain multiplier onto the bus gain (smoothed — no clicks).
+   *  Scales the bus's nominal gain, so Z4 is identical to today's level. */
+  private applyZoomGain(): void {
+    if (!this.ctx || !this.bus) return;
+    this.bus.gain.setTargetAtTime(this.busBaseGain * this.zoomGain, this.ctx.currentTime, 0.25);
+  }
+
   /** Call from a user gesture (tap in the scene). Safe to call repeatedly. */
   attach(): void {
     const a = sound.getBattleBus();
@@ -98,8 +129,12 @@ class BattleSfx {
     const fresh = !this.ctx;
     this.ctx = a.ctx;
     this.bus = a.bus;
-    if (fresh) this.ensureNoise();
+    if (fresh) {
+      this.ensureNoise();
+      this.busBaseGain = this.bus.gain.value;
+    }
     if (!this.bedOn) this.startBed();
+    this.applyZoomGain(); // a zoom level set pre-attach takes effect now
   }
 
   /** Stop the bed. The context stays warm for the next battle. */
@@ -179,7 +214,12 @@ class BattleSfx {
 
   private dist(x: number, y: number): number {
     const c = this.cam();
-    const r = Math.max(0.05, c.radius);
+    // Zoom LOD virtual radius: at altitude the audio pretends the camera's
+    // view radius is small, so every explosion reads at/beyond the view edge
+    // on the SAME blastGain/blastCutoff curve — distant rumble that opens up
+    // as you descend. 0 = no override, the live camera's radius drives (Z4).
+    const real = Math.max(0.05, c.radius);
+    const r = this.zoomRadius > 0 ? this.zoomRadius : real;
     let d = Math.hypot(x - c.x, y - c.y) / r;
     if (c.ground) d *= 0.7; // down in the dirt: everything is nearer
     return Math.min(1.2, Math.max(0, d));
