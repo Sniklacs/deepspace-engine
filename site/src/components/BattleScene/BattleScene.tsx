@@ -1006,7 +1006,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           const d = Math.hypot(dx, dy);
           // Slower (owner 2026-10-11): maneuvers take time — both sides can
           // respond. Was 0.05/0.035/0.02 (a full-field cross in ~3s).
-          const speed = (u.kind === "thunder" ? 0.008 : u.kind === "warden" ? 0.014 : 0.02) * sdt * 10;
+          const speed = (u.kind === "thunder" ? 0.005 : u.kind === "warden" ? 0.008 : 0.012) * sdt * 10;
           if (d < 0.015) {
             u.x = u.tx; u.y = u.ty;
             u.state = "holding";
@@ -2275,8 +2275,8 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           cx /= members.length; cy /= members.length;
           tx /= members.length; ty /= members.length;
           c.save();
-          c.strokeStyle = "rgba(251,191,36,0.7)";
-          c.lineWidth = 2;
+          c.strokeStyle = "rgba(251,191,36,0.95)";
+          c.lineWidth = 3.5;
           c.setLineDash([7, 5]);
           c.beginPath(); c.moveTo(X(cx), Y(cy)); c.lineTo(X(tx), Y(ty)); c.stroke();
           c.setLineDash([]);
