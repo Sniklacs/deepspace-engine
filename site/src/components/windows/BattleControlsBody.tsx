@@ -27,8 +27,11 @@ import {
   recenterMap,
   cycleDayNight,
   setTurretMode,
+  turretModeOf,
+  setSiegeHoldAll,
   BATTLE_SPEEDS,
   type BattleSpeed,
+  type TurretMode,
 } from "../../game/war/battle-scene-ui-store";
 import { TROOP_KINDS, UNIT_KIND_LABEL } from "../../game/war/battle-scene-model";
 import type { ManeuverVector } from "../../game/war/war-types";
@@ -148,6 +151,85 @@ export function BattleControlsBody() {
             : "Real-time: full pace. Nothing runs faster than reality."}
         </p>
       </section>
+
+      {/* turrets — open a turret (gunner cam) / close it, plus a hold-fire
+          pip per gun (owner 2026-10-11: moved off the fixed HUD into the
+          window — the battle view stays clean) */}
+      <section aria-label="Turrets">
+        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Turrets</p>
+        {ui.turrets.length === 0 ? (
+          <p className="text-[11px] text-zinc-500">No turrets on the field yet.</p>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {ui.turrets.map((t) => {
+              const mode: TurretMode = turretModeOf(ui, t.id);
+              return (
+                <div key={t.id} className="flex items-stretch gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => { battleSfx.uiClick(); setTurretMode(t.id, mode === "gunner" ? "auto" : "gunner"); }}
+                    data-testid={`turret-toggle-${t.id}`}
+                    aria-label={mode === "gunner" ? `Close turret ${t.idx + 1}` : `Open turret ${t.idx + 1} — take the gunner cam`}
+                    className={`flex-1 rounded-lg border px-2.5 py-2 text-[11px] font-semibold ${
+                      mode === "gunner"
+                        ? "border-cyan-300/60 bg-cyan-950/70 font-bold text-cyan-100"
+                        : "border-cyan-300/40 bg-black/60 text-cyan-200"
+                    }`}
+                  >
+                    {mode === "gunner" ? `🎯 Close turret ${t.idx + 1} ✕` : `🎯 Open turret ${t.idx + 1}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { battleSfx.uiClick(); setTurretMode(t.id, mode === "held" ? "auto" : "held"); }}
+                    data-testid={`turret-hold-${t.id}`}
+                    aria-pressed={mode === "held"}
+                    aria-label={
+                      mode === "held"
+                        ? `Turret ${t.idx + 1} is holding fire — tap to let it shoot`
+                        : `Turret ${t.idx + 1} is free-firing — tap to hold its fire`
+                    }
+                    className={`rounded-lg border px-2.5 py-2 text-[11px] font-semibold ${
+                      mode === "held"
+                        ? "border-amber-300/50 bg-amber-950/60 text-amber-200"
+                        : "border-white/15 bg-black/50 text-zinc-400"
+                    }`}
+                  >
+                    {mode === "held" ? "⏸ held" : "▶ auto"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* siege — the battery's master panic switch (owner 2026-10-11: moved
+          off the fixed HUD into the window). Every thunder holds its shells
+          while this is on — silence the guns the moment Reavers enter the
+          blast zone. */}
+      {ui.squads.some((s) => s.hasThunders && s.alive > 0) && (
+        <section aria-label="Siege">
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Siege</p>
+          <button
+            type="button"
+            onClick={() => { battleSfx.uiClick(); setSiegeHoldAll(!ui.siegeHoldAll); }}
+            data-testid="hud-siege-toggle"
+            aria-pressed={ui.siegeHoldAll}
+            aria-label={
+              ui.siegeHoldAll
+                ? "Siege guns are silent — tap to resume bombardment"
+                : "Siege guns are firing — tap to silence them instantly"
+            }
+            className={`w-full rounded-lg border px-3 py-2.5 text-[12px] font-bold ${
+              ui.siegeHoldAll
+                ? "border-amber-300/50 bg-amber-950/60 text-amber-200"
+                : "border-orange-400/40 bg-orange-950/50 text-orange-200"
+            }`}
+          >
+            {ui.siegeHoldAll ? "💥 Siege: OFF" : "💥 Siege: ON"}
+          </button>
+        </section>
+      )}
 
       {/* field force — know what you're loading, at a glance */}
       <section aria-label="Field force">

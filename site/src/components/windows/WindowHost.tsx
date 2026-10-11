@@ -25,6 +25,7 @@ import { WindowFrame } from "./WindowFrame";
 import { ChatWindowBody } from "./ChatWindowBody";
 import { SatelliteResearchBody } from "./SatelliteResearchBody";
 import { BattleControlsBody } from "./BattleControlsBody";
+import { BattleSquadsBody } from "./BattleSquadsBody";
 import type { GameState } from "../../game/types";
 
 /** What window content needs from the game. Provided by play.tsx via AppShell. */
@@ -51,6 +52,8 @@ function WindowContent({ win, ctx }: { win: WindowInstance; ctx: WindowCtx }) {
     }
     case "battle-controls":
       return <BattleControlsBody />;
+    case "battle-squads":
+      return <BattleSquadsBody />;
   }
 }
 
@@ -93,7 +96,7 @@ export function WindowHost({ ctx }: { ctx: WindowCtx | null }) {
               className="win-tray-chip"
               aria-label={t("windows.restore", "Restore {title}", { title: t(win.titleKey, win.titleFallback) })}
             >
-              <Icon name={win.kind === "satellite-research" ? "globe" : win.kind === "battle-controls" ? "gamepad" : "chat"} size={13} aria-hidden="true" />
+              <Icon name={win.kind === "satellite-research" ? "globe" : win.kind === "battle-controls" ? "gamepad" : win.kind === "battle-squads" ? "shield" : "chat"} size={13} aria-hidden="true" />
               <span className="max-w-28 truncate">{t(win.titleKey, win.titleFallback)}</span>
             </button>
           ))}

@@ -48,8 +48,11 @@ export function BattleSceneFullscreen({
   onSaveDoctrine?: (draft: DoctrineDraft) => void;
 }) {
   useEffect(() => {
+    // BattleScene itself opens the squads window on mount and closes it on
+    // unmount; the controls window is fullscreen-only chrome here.
     return () => {
       closeWindowsOfKind("battle-controls");
+      closeWindowsOfKind("battle-squads");
     };
   }, []);
 

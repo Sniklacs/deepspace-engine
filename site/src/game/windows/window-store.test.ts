@@ -15,6 +15,8 @@ import {
   resetWindowSize,
   moveWindow,
   resetWindowPos,
+  setWindowOpacity,
+  resetWindowOpacity,
   isWindowOpen,
   visibleWindows,
   minimizedWindows,
@@ -245,5 +247,72 @@ describe("moveWindow (owner 2026-10-05: EVE-style float)", () => {
     resetWindows();
     openWindow("battle-controls");
     expect(windowSnapshot().windows[0]?.pos).toBeNull();
+  });
+});
+
+describe("snap-to-grid (owner 2026-10-11)", () => {
+  test("moveWindow snaps to the 20px grid", () => {
+    const id = openWindow("battle-controls");
+    moveWindow(id, 127, 213);
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.pos).toEqual({ x: 120, y: 220 });
+  });
+
+  test("on-grid positions are untouched", () => {
+    const id = openWindow("battle-controls");
+    moveWindow(id, 120, 200);
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.pos).toEqual({ x: 120, y: 200 });
+  });
+
+  test("snapped positions are remembered across reopen", () => {
+    const id = openWindow("battle-squads");
+    moveWindow(id, 133, 187);
+    closeWindow(id);
+    openWindow("battle-squads");
+    expect(windowSnapshot().windows[0]?.pos).toEqual({ x: 140, y: 180 });
+  });
+});
+
+describe("per-window opacity (owner 2026-10-11)", () => {
+  test("new windows are fully opaque by default", () => {
+    const id = openWindow("battle-squads");
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.opacity).toBeNull();
+  });
+
+  test("setWindowOpacity clamps to 0.3–1", () => {
+    const id = openWindow("battle-squads");
+    setWindowOpacity(id, 0.1);
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.opacity).toBe(0.3);
+    setWindowOpacity(id, 5);
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.opacity).toBe(1);
+  });
+
+  test("opacity is remembered per kind across reopen", () => {
+    const id = openWindow("battle-squads");
+    setWindowOpacity(id, 0.55);
+    closeWindow(id);
+    openWindow("battle-squads");
+    expect(windowSnapshot().windows[0]?.opacity).toBe(0.55);
+  });
+
+  test("resetWindowOpacity restores solid", () => {
+    const id = openWindow("battle-squads");
+    setWindowOpacity(id, 0.5);
+    resetWindowOpacity(id);
+    expect(windowSnapshot().windows.find((w) => w.id === id)?.opacity).toBeNull();
+  });
+
+  test("resetWindows clears remembered opacities (test isolation)", () => {
+    const id = openWindow("battle-squads");
+    setWindowOpacity(id, 0.5);
+    closeWindow(id);
+    resetWindows();
+    openWindow("battle-squads");
+    expect(windowSnapshot().windows[0]?.opacity).toBeNull();
+  });
+
+  test("battle-squads is a first-class window kind", () => {
+    const id = openWindow("battle-squads");
+    expect(id).toBe("battle-squads::battle-squads");
+    expect(isWindowOpen("battle-squads")).toBe(true);
   });
 });

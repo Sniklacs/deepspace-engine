@@ -297,6 +297,9 @@ interface Props {
   variant?: "embedded" | "fullscreen";
   /** fullscreen only: back out to wherever the scene was opened from */
   onClose?: () => void;
+  /** embedded only: the parent jumps this battle to the fullscreen scene
+      (owner 2026-10-11 — Hans's fullscreen toggle). Absent = no toggle. */
+  onRequestFullscreen?: () => void;
   /**
    * Called with the named formation draft when the commander taps
    * "Save formation" on the result sheet (owner 2026-10-11). The draft
@@ -391,7 +394,7 @@ function snapshotFormation(scene: SceneBattle): {
   return { squads, units };
 }
 
-export function BattleScene({ scene: sceneProp, liveCasualties = null, variant = "embedded", onClose, onSaveFormation, onSaveDoctrine, continuumScale = null }: Props) {
+export function BattleScene({ scene: sceneProp, liveCasualties = null, variant = "embedded", onClose, onRequestFullscreen, onSaveFormation, onSaveDoctrine, continuumScale = null }: Props) {
   // Retry / re-challenge (owner 2026-10-11): the battle can restart on the
   // same field (retry — same seed) or as a fresh challenge (same forces,
   // new seed). `scene` below is the ACTIVE scene — every downstream read
@@ -434,6 +437,18 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
   // Whether the floating controls window is open (fullscreen only).
   useSyncExternalStore(subscribeWindows, windowSnapshot, windowServerSnapshot);
   const controlsOpen = isWindowOpen("battle-controls");
+
+  // The squads window (owner 2026-10-11): Hans's squad buttons live in an
+  // EVE window, not fixed chrome. Open it when the battle mounts; close it
+  // when the battle unmounts so no stale squads float over other tabs.
+  // openWindow focuses instead of duplicating when already open.
+  useEffect(() => {
+    openWindow("battle-squads", { titleFallback: "Squads" });
+    return () => {
+      closeWindowsOfKind("battle-squads");
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Working copy of units — the animation loop mutates this, never the model.
   const unitsRef = useRef<SceneUnit[]>([]);
@@ -3460,14 +3475,29 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     <div className="overflow-hidden rounded-xl border border-line bg-[#0b0d13]">
       {/* header — where you're standing + tier + server clock */}
       <div className="border-b border-line/60 px-4 py-2.5">
-        <SceneHeader
-          name={scene.name}
-          tier={scene.tier}
-          sub={sceneSub}
-          band="Z4"
-        />
-        <div className="mt-2">
-          <BattleClock tS={ui.tS} compact />
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <SceneHeader
+              name={scene.name}
+              tier={scene.tier}
+              sub={sceneSub}
+              band="Z4"
+            />
+            <div className="mt-2">
+              <BattleClock tS={ui.tS} compact />
+            </div>
+          </div>
+          {onRequestFullscreen && (
+            <button
+              type="button"
+              onClick={onRequestFullscreen}
+              data-testid="battle-scene-fullscreen-btn"
+              aria-label="Watch this battle fullscreen"
+              className="flex-none rounded-full border border-white/20 bg-black/55 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-200 hover:bg-black/80"
+            >
+              ⤢ Fullscreen
+            </button>
+          )}
         </div>
       </div>
 
@@ -3491,6 +3521,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           comms={comms}
           onDismissComms={(id) => setComms((prev) => dismissBubble(prev, id))}
           variant="embedded"
+          onRequestFullscreen={onRequestFullscreen}
         />
         <BattleLegend />
       </div>

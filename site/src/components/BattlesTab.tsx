@@ -21,7 +21,9 @@ import { BATTLES_CONFIG } from "../game/war/war-types";
 import { battleMoment, battleEndAt } from "../game/war/battle-engine";
 import BattleReplay from "./BattleReplay";
 import { BattleScene } from "./BattleScene/BattleScene";
+import { BattleSceneFullscreen } from "./BattleScene/BattleSceneFullscreen";
 import { buildDemoScene, sceneFromBattle } from "../game/war/battle-scene-model";
+import type { SceneBattle } from "../game/war/battle-scene-model";
 import { availableWeight } from "../game/war/troops";
 import { battleIssueFn, battleRespondFn, battleScreenFn } from "../game/api";
 import type { GameResult } from "../game/api";
@@ -359,6 +361,9 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<"detail" | "scene">("detail");
   const [demoScene, setDemoScene] = useState(false);
+  // Fullscreen battle (owner 2026-10-11): Hans's fullscreen toggle on the
+  // embedded scene jumps the live battle into the viewport-filling scene.
+  const [sceneFullscreen, setSceneFullscreen] = useState<SceneBattle | null>(null);
   const active = (state.battles ?? []).filter((b) => b.status === "active").sort((a, b) => a.startedAt - b.startedAt);
   const selected = active.find((b) => b.id === selectedId) ?? active[0] ?? null;
   // Reset the detail/scene toggle + demo when the selection changes.
@@ -461,9 +466,16 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
             <BattleScene
               scene={sceneFromBattle(selected)}
               liveCasualties={battleMoment(selected, now).casualties}
+              onRequestFullscreen={() => setSceneFullscreen(sceneFromBattle(selected))}
             />
           )}
         </div>
+      )}
+      {sceneFullscreen && (
+        <BattleSceneFullscreen
+          scene={sceneFullscreen}
+          onClose={() => setSceneFullscreen(null)}
+        />
       )}
     </div>
   );

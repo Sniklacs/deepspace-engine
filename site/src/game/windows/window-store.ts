@@ -25,7 +25,7 @@
 // This store owns chrome state ONLY (open/minimized/z-order/size). Window
 // CONTENT data (chat messages, research state) stays in its own store.
 
-export type WindowKind = "chat" | "satellite-research" | "battle-controls";
+export type WindowKind = "chat" | "satellite-research" | "battle-controls" | "battle-squads";
 
 export interface WindowProps {
   /** satellite-research: the covered node id, e.g. "rim-3" */
@@ -50,6 +50,8 @@ export interface WindowInstance {
   size: { w: number; h: number } | null;
   /** player-dragged position (EVE-style float); null = default CSS placement */
   pos: { x: number; y: number } | null;
+  /** player-chosen translucency (Hans 2026-10-11); null = fully opaque */
+  opacity: number | null;
 }
 
 /** Minimum window size — below this the content is unusable. */
@@ -177,6 +179,80 @@ function rememberSize(kind: WindowKind, size: { w: number; h: number }, persist:
   }
 }
 
+/** Per-window opacity (Hans 2026-10-11): 0.3–1, remembered per kind like
+ *  size/position. In-memory is the source of truth; localStorage mirrors. */
+export const WIN_MIN_OPACITY = 0.3;
+const rememberedOpacities = new Map<WindowKind, number>();
+
+function opacityStorageKey(kind: WindowKind): string {
+  return `unbound:win-opacity:${kind}`;
+}
+
+export function clampWindowOpacity(v: number): number {
+  if (!Number.isFinite(v)) return 1;
+  return Math.min(1, Math.max(WIN_MIN_OPACITY, v));
+}
+
+function loadRememberedOpacity(kind: WindowKind): number | null {
+  const mem = rememberedOpacities.get(kind);
+  if (mem !== undefined) return mem;
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(opacityStorageKey(kind));
+    if (!raw) return null;
+    const parsed = parseFloat(raw);
+    if (!Number.isFinite(parsed)) return null;
+    const o = clampWindowOpacity(parsed);
+    rememberedOpacities.set(kind, o);
+    return o;
+  } catch {
+    return null;
+  }
+}
+
+function rememberOpacity(kind: WindowKind, opacity: number): void {
+  rememberedOpacities.set(kind, opacity);
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(opacityStorageKey(kind), String(opacity));
+    }
+  } catch {
+    /* private mode — the in-memory opacity still works for the session */
+  }
+}
+
+/** Set a window's translucency (Hans 2026-10-11). Clamped 0.3–1, remembered
+ *  per kind and restored when the window reopens. */
+export function setWindowOpacity(id: string, opacity: number): void {
+  const win = state.windows.find((x) => x.id === id);
+  if (!win) return;
+  const o = clampWindowOpacity(opacity);
+  rememberOpacity(win.kind, o);
+  if (win.opacity === o) return;
+  state = {
+    ...state,
+    windows: state.windows.map((x) => (x.id === id ? { ...x, opacity: o } : x)),
+  };
+  emit();
+}
+
+/** Forget a window kind's custom opacity (resets to fully opaque). */
+export function resetWindowOpacity(id: string): void {
+  const win = state.windows.find((x) => x.id === id);
+  if (!win || win.opacity == null) return;
+  rememberedOpacities.delete(win.kind);
+  try {
+    if (typeof localStorage !== "undefined") localStorage.removeItem(opacityStorageKey(win.kind));
+  } catch {
+    /* ignore */
+  }
+  state = {
+    ...state,
+    windows: state.windows.map((x) => (x.id === id ? { ...x, opacity: null } : x)),
+  };
+  emit();
+}
+
 function windowId(kind: WindowKind, key: string): string {
   return `${kind}::${key}`;
 }
@@ -189,6 +265,8 @@ function defaultTitle(kind: WindowKind): { titleKey: string; titleFallback: stri
       return { titleKey: "windows.satResearchTitle", titleFallback: "Satellite research" };
     case "battle-controls":
       return { titleKey: "windows.battleControlsTitle", titleFallback: "Battle controls" };
+    case "battle-squads":
+      return { titleKey: "windows.battleSquadsTitle", titleFallback: "Squads" };
   }
 }
 
@@ -235,6 +313,8 @@ export function openWindow(kind: WindowKind, opts: OpenWindowOpts = {}): string 
           size: loadRememberedSize(kind),
           // EVE remembers: reopen where the player left it.
           pos: loadRememberedPos(kind),
+          // EVE remembers: reopen at the player's last translucency.
+          opacity: loadRememberedOpacity(kind),
         },
       ],
     };
@@ -337,15 +417,22 @@ export function resetWindowSize(id: string): void {  const win = state.windows.f
  * Pass persist=false while a drag is in flight — the frame re-calls with
  * persist=true on pointer-up so localStorage isn't hammered mid-drag.
  */
+/** Drag snap grid (Hans 2026-10-11): windows settle magnetically onto a 20px
+ *  grid — once snapped, a window sits at clean coordinates. */
+export const WIN_SNAP_GRID = 20;
+
 export function moveWindow(id: string, x: number, y: number, persist = true): void {
   const win = state.windows.find((w) => w.id === id);
   if (!win) return;
   const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
   const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-  // Keep a grab-handle's worth of the window on screen.
+  // Snap to the grid first (magnetic), then keep a grab-handle's worth of
+  // the window on screen.
+  const sx = Math.round(x / WIN_SNAP_GRID) * WIN_SNAP_GRID;
+  const sy = Math.round(y / WIN_SNAP_GRID) * WIN_SNAP_GRID;
   const pos = {
-    x: Math.round(Math.min(Math.max(x, -vw + 96), vw - 96)),
-    y: Math.round(Math.min(Math.max(y, 0), vh - 96)),
+    x: Math.round(Math.min(Math.max(sx, -vw + 96), vw - 96)),
+    y: Math.round(Math.min(Math.max(sy, 0), vh - 96)),
   };
   rememberPos(win.kind, pos, persist);
   state = {
@@ -418,5 +505,6 @@ export function resetWindows(): void {
   state = initialState;
   rememberedSizes.clear();
   rememberedPositions.clear();
+  rememberedOpacities.clear();
   emit();
 }

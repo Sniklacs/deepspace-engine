@@ -12,7 +12,7 @@
 // Phone: near-full-screen panel by default. Desktop (sm+): centered panel.
 // Windows never auto-close on navigation — the store is the truth and the
 // host remounts them.
-import { useRef, type CSSProperties, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { useT } from "../i18n/I18n";
 import { Icon } from "../icons";
 import {
@@ -21,8 +21,11 @@ import {
   resetWindowPos,
   resizeWindow,
   resetWindowSize,
+  setWindowOpacity,
+  resetWindowOpacity,
   WIN_MIN_W,
   WIN_MIN_H,
+  WIN_MIN_OPACITY,
   type WindowInstance,
 } from "../../game/windows/window-store";
 
@@ -35,6 +38,10 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
   const t = useT();
   const title = t(win.titleKey, win.titleFallback);
   const frameRef = useRef<HTMLElement | null>(null);
+  // Opacity popover (Hans 2026-10-11): the ◐ chrome button opens a small
+  // translucency slider under the title bar. 30–100%, per window kind.
+  const [opacityOpen, setOpacityOpen] = useState(false);
+  const opacity = win.opacity ?? 1;
   const dragRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
   // Title-bar float drag (owner 2026-10-05): EVE-style windows are floatable —
   // grab the title bar to move the window around the screen. Double-click the
@@ -117,6 +124,9 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
   // windows keep the pure-CSS default sizing/placement.
   const frameStyle: CSSProperties = {
     zIndex: 70 + win.z,
+    // Per-window translucency (Hans 2026-10-11): the whole frame fades,
+    // title bar included, so the game shows through a parked window.
+    ...(win.opacity != null ? { opacity: win.opacity } : {}),
     ...(win.pos ? { left: win.pos.x, top: win.pos.y, right: "auto" as const, bottom: "auto" as const } : {}),
     ...(win.size
       ? {
@@ -153,6 +163,17 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
         <div className="flex flex-none items-center gap-1.5">
           <button
             type="button"
+            onClick={(e) => { e.stopPropagation(); setOpacityOpen((o) => !o); focusWindow(win.id); }}
+            aria-label={t("windows.opacity", "Window translucency")}
+            aria-expanded={opacityOpen}
+            data-testid={`window-opacity-${win.id}`}
+            className="win-chrome-btn"
+            style={{ fontSize: 15 }}
+          >
+            <span aria-hidden="true">◐</span>
+          </button>
+          <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onMinimize(); }}
             aria-label={t("windows.minimize", "Minimize")}
             data-testid={`window-min-${win.id}`}
@@ -171,6 +192,39 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
           </button>
         </div>
       </div>
+      {opacityOpen && (
+        <div
+          className="flex flex-none items-center gap-2.5 border-b border-line bg-black/40 px-3 py-2"
+          data-testid={`window-opacity-panel-${win.id}`}
+        >
+          <span aria-hidden="true" className="text-[13px] text-text-3">◐</span>
+          <input
+            type="range"
+            min={Math.round(WIN_MIN_OPACITY * 100)}
+            max={100}
+            step={1}
+            value={Math.round(opacity * 100)}
+            onChange={(e) => setWindowOpacity(win.id, Number(e.target.value) / 100)}
+            aria-label={t("windows.opacitySlider", "Window opacity, percent")}
+            data-testid={`window-opacity-slider-${win.id}`}
+            className="min-w-0 flex-1 accent-amber-400"
+          />
+          <span className="w-10 flex-none text-right text-[11px] tabular-nums text-text-2">
+            {Math.round(opacity * 100)}%
+          </span>
+          {win.opacity != null && (
+            <button
+              type="button"
+              onClick={() => resetWindowOpacity(win.id)}
+              aria-label={t("windows.opacityReset", "Reset opacity to solid")}
+              data-testid={`window-opacity-reset-${win.id}`}
+              className="flex-none rounded-md border border-line px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-text-3 hover:text-text-1"
+            >
+              {t("windows.opacityResetShort", "Solid")}
+            </button>
+          )}
+        </div>
+      )}
       <div className="win-body">{children}</div>
       {/* resize grip — drag to scale the window, double-click to reset */}
       <div
