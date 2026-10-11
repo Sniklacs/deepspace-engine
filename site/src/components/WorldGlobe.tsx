@@ -72,12 +72,32 @@ import {
 // extended scale clamp (the axis now runs past the old SCALE_MAX=3 down
 // to the ground). Stable pure kernel; other agents import it too.
 import {
+  BAND_Z2,
+  BAND_Z4,
   bandCenter,
   bandForScale,
   clampZoomScale,
   morphTFromScale,
   ZOOM_BAND_LABEL,
 } from "../game/world/zoom-bands";
+// CRADLE ENTRY (Phase 2, slice 10): the tap→focus→hover→descend→inside→
+// ascend state machine (spec §10) — pure kernel; this file wires gestures
+// and the camera to it. Slice 11's module ids double as the ?module= URL
+// param, so they stay URL-safe by contract.
+import {
+  CRADLE_ENTRY_INITIAL,
+  panBreaksHover,
+  recoverFromBackground,
+  recordSpreadHint,
+  shouldShowSpreadHint,
+  spreadHintCount,
+  syncWithZoom,
+  transition,
+  type CradleEntryContext,
+  type CradleEntryEvent,
+} from "../game/world/cradle-entry";
+import { SceneHeader } from "./SceneHeader";
+import { colonyMarkerName } from "../game/worldmap";
 // ORBIT DUST CLOUDS (Phase 2, slice 3): live battles as dust-cloud markers
 // on the surface at Z1 — intensity from existing engine feeds, churn via
 // noise-offset drift, warm/ash vs-Chorus vs red-fringe PvP.
@@ -1041,6 +1061,25 @@ export default function WorldGlobe({
     lastInteract.current = performance.now();
   }
 
+  // ---- CRADLE ENTRY (Phase 2, slice 10) ----
+  // The tap→focus→hover→descend→inside→ascend machine (spec §10). The
+  // machine is the decider; the frame loop + gesture handlers feed it
+  // events and z-observations. The world canvas never unmounts for any of
+  // it — that is the one hard rule of the whole spec.
+  const [cradle, setCradle] = useState<CradleEntryContext>(CRADLE_ENTRY_INITIAL);
+  const cradleRef = useRef(cradle);
+  cradleRef.current = cradle;
+  // True while the centering ease belongs to the entry flow (the shared
+  // focusAnim also serves dust-cloud + snap-to-site eases — only the
+  // cradle's own ease may complete into EASE_DONE).
+  const cradleEaseRef = useRef(false);
+  // HOVERING hold anchor: pan-away detection measures drift from the
+  // centered spin/tilt captured when the ease starts.
+  const hoverAnchorRef = useRef<{ spin: number; tilt: number } | null>(null);
+  // The one-time "spread to enter" hint pill (max 3 lifetime shows, then
+  // never — persisted in localStorage, see cradle-entry.ts).
+  const [spreadHint, setSpreadHint] = useState(false);
+
   // ---- render loop ----
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1068,6 +1107,17 @@ export default function WorldGlobe({
       e.preventDefault();
       lastInteract.current = performance.now();
       const v = view.current;
+      const zoomingIn = e.deltaY < 0;
+      // CRADLE ENTRY: wheel direction feeds the machine like a pinch
+      // (desktop gesture-equivalent of spread / pinch-out).
+      const ce = cradleRef.current.entry;
+      if (ce === "HOVERING" || ce === "FOCUSING") {
+        sendCradleRef.current({ type: zoomingIn ? "SPREAD" : "PINCH_OUT" });
+      } else if (!zoomingIn && (ce === "INSIDE" || ce === "DESCENDING")) {
+        sendCradleRef.current({ type: "PINCH_OUT" });
+      } else if (zoomingIn && ce === "ASCENDING") {
+        sendCradleRef.current({ type: "SPREAD" });
+      }
       v.targetScale = clampZoomScale(v.targetScale * (e.deltaY < 0 ? 1.12 : 0.89));
     };
     canvas.addEventListener("wheel", wheelHandler, { passive: false });
@@ -1084,7 +1134,14 @@ export default function WorldGlobe({
     };
     updateSun();
     const sunTimer = window.setInterval(updateSun, 60_000);
-    const onVis = () => { if (document.visibilityState === "visible") updateSun(); };
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      updateSun();
+      // CRADLE ENTRY: background/foreground mid-transition → nearest
+      // stable band (spec §10: state is recoverable, never stuck).
+      const settled = recoverFromBackground(cradleRef.current, view.current.scale);
+      if (settled !== cradleRef.current) applyCradleRef.current(settled);
+    };
     document.addEventListener("visibilitychange", onVis);
 
     let raf = 0;
@@ -1112,8 +1169,27 @@ export default function WorldGlobe({
         lastInteract.current = ms; // keep ambient drift from fighting the ease
         if (Math.abs(shortestSpinDelta(v.spin, f.spin)) < 0.2 && Math.abs(f.tilt - v.tilt) < 0.2) {
           focusAnim.current = null;
+          // CRADLE ENTRY: only the entry flow's own ease completes into
+          // EASE_DONE (dust-cloud + snap-to-site eases are not ours).
+          if (cradleEaseRef.current) {
+            cradleEaseRef.current = false;
+            sendCradleRef.current({ type: "EASE_DONE" });
+          }
         }
       }
+
+      // CRADLE ENTRY (slice 10): the machine follows the camera.
+      // HOVERING holds at the Z1/Z2 boundary — the camera parks, waiting
+      // for the spread (or the pan-away / pinch-out that cancels it).
+      const ceNow = cradleRef.current.entry;
+      if (ceNow === "HOVERING") {
+        v.targetScale = Math.min(BAND_Z2 + 0.1, Math.max(BAND_Z2 - 0.1, v.targetScale));
+      }
+      // z-coherence: programmatic zooms (zoom buttons, recenter) move the
+      // camera without gestures — the guards keep machine and camera
+      // agreeing so nobody strands between bands.
+      const synced = syncWithZoom(cradleRef.current, v.scale);
+      if (synced !== cradleRef.current) applyCradleRef.current(synced);
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
@@ -1165,6 +1241,15 @@ export default function WorldGlobe({
         sysOpenRef.current = sysOpen;
         setInSystem(sysOpen);
         if (sysOpen && selectedIdRef.current) setSelectedId(null);
+        // CRADLE ENTRY: the entry flow is a globe-side affair — backing out
+        // to the solar system cancels a pending focus/hover. (The z-driven
+        // states can't be out here: pinch-out already walked them to FREE.)
+        if (sysOpen) {
+          const ce = cradleRef.current.entry;
+          if (ce === "FOCUSING" || ce === "HOVERING") {
+            sendCradleRef.current({ type: "TAP_ELSEWHERE" });
+          }
+        }
       }
       // WS5 — real day/night: the sun in view space from the cached
       // player-anchored subsolar point. Per-frame so the terminator tracks
@@ -1437,7 +1522,10 @@ export default function WorldGlobe({
           g.arc(s.sx, s.sy, Math.max(4, pr), 0, Math.PI * 2);
           g.stroke();
         }
-        screenPos.current.set(m.id, { x: s.sx, y: s.sy, r: Math.max(20, base + 8) });
+        // CRADLE ENTRY (slice 10): the home marker is the entry door — its
+        // touch target is min 44px (spec §10), bigger than the 40px default.
+        const hitR = m.id === "home" ? Math.max(22, base + 8) : Math.max(20, base + 8);
+        screenPos.current.set(m.id, { x: s.sx, y: s.sy, r: hitR });
         // label pill for the selected marker
         if (isSel) {
           g.font = "600 11px system-ui, sans-serif";
@@ -1808,6 +1896,18 @@ export default function WorldGlobe({
     v.tilt = Math.max(-TILT_MAX, Math.min(TILT_MAX, v.tilt + dTilt));
     d.velSpin = d.velSpin * 0.8 + (dSpin / dt) * 1000 * 0.2;
     d.velTilt = d.velTilt * 0.8 + (dTilt / dt) * 1000 * 0.2;
+    // CRADLE ENTRY: a real drag during FOCUSING cancels the centering ease;
+    // during HOVERING, drifting off the hover anchor past the threshold pans
+    // away (→ FREE). A committed DESCENDING is never cancelled by a pan.
+    const ce = cradleRef.current.entry;
+    if (ce === "FOCUSING") {
+      sendCradleRef.current({ type: "PAN_AWAY" });
+    } else if (ce === "HOVERING") {
+      const a = hoverAnchorRef.current;
+      if (a && panBreaksHover(a.spin, a.tilt, v.spin, v.tilt)) {
+        sendCradleRef.current({ type: "PAN_AWAY" });
+      }
+    }
     d.x = e.clientX;
     d.y = e.clientY;
     d.lastT = now;
@@ -1850,6 +1950,11 @@ export default function WorldGlobe({
       if (bandForScale(view.current.scale) === "Z1") {
         const cloud = hitTestDust(e.clientX, e.clientY);
         if (cloud) {
+          // CRADLE ENTRY: choosing a battle cancels a pending Cradle focus.
+          const ceDust = cradleRef.current.entry;
+          if (ceDust === "FOCUSING" || ceDust === "HOVERING") {
+            sendCradleRef.current({ type: "TAP_ELSEWHERE" });
+          }
           playSelect();
           const v = view.current;
           const target = focusViewTarget(cloud.lat, cloud.lon);
@@ -1863,6 +1968,44 @@ export default function WorldGlobe({
       // interactions land in later slices).
       if (morphTRef.current > 0.5) return;
       const id = hitTest(e.clientX, e.clientY);
+      // CRADLE ENTRY (slice 10): tapping the Cradle's home-layer marker
+      // starts the tap→focus→hover→descend chain (spec §10). The Z1 detail
+      // sheet still opens — it is the fallback path for players who never
+      // spread; the gesture is the fast path. The existing
+      // GlobeFocusTarget/focusViewTarget ease does the centering — reused,
+      // not rewritten.
+      if (id === "home") {
+        const ceHome = cradleRef.current.entry;
+        if (ceHome === "FREE" || ceHome === "FOCUSING" || ceHome === "HOVERING") {          const home = markersRef.current.find((m) => m.id === "home");
+          if (home) {
+            const target = focusViewTarget(home.lat, home.lon);
+            focusAnim.current = { ...target, nonce: (focusAnim.current?.nonce ?? 0) + 1 };
+            cradleEaseRef.current = true;
+            hoverAnchorRef.current = { spin: target.spin, tilt: target.tilt };
+            playSelect();
+            setSelectedId("home");
+            setLinkHint(null);
+            sendCradleRef.current({ type: "TAP_CRADLE" });
+            // HOVERING → DESCENDING via the marker tap: the tap is the
+            // enter gesture's button-equivalent here — drive z; the
+            // z-guard lands INSIDE when the camera arrives.
+            if (cradleRef.current.entry === "DESCENDING") {
+              view.current.targetScale = BAND_Z4;
+              lastInteract.current = performance.now();
+            }
+            return;
+          }
+        }
+        // Committed to the flow (DESCENDING/INSIDE/ASCENDING): the home
+        // marker is not a sheet target right now — swallow the tap.
+        return;
+      } else {
+        // Tapping anything (or nothing) else abandons a pending focus/hover.
+        const ceOther = cradleRef.current.entry;
+        if (ceOther === "FOCUSING" || ceOther === "HOVERING") {
+          sendCradleRef.current({ type: "TAP_ELSEWHERE" });
+        }
+      }
       if (id) {
         if (id === selectedIdRef.current) {
           playDeselect();
@@ -1903,6 +2046,18 @@ export default function WorldGlobe({
       const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
       if (pinch.current) {
         const v = view.current;
+        const zoomingIn = d > pinch.current.d;
+        // CRADLE ENTRY: pinch direction feeds the machine (spread = toward
+        // the ground, pinch-out = away); the targetScale math below keeps
+        // driving z continuously either way.
+        const ce = cradleRef.current.entry;
+        if (ce === "HOVERING" || ce === "FOCUSING") {
+          sendCradleRef.current({ type: zoomingIn ? "SPREAD" : "PINCH_OUT" });
+        } else if (!zoomingIn && (ce === "INSIDE" || ce === "DESCENDING")) {
+          sendCradleRef.current({ type: "PINCH_OUT" });
+        } else if (zoomingIn && ce === "ASCENDING") {
+          sendCradleRef.current({ type: "SPREAD" });
+        }
         v.targetScale = clampZoomScale(v.targetScale * (d / pinch.current.d));
       }
       pinch.current = { d };
@@ -1913,6 +2068,14 @@ export default function WorldGlobe({
   const zoomBy = useCallback((f: number) => {
     lastInteract.current = performance.now();
     const v = view.current;
+    // CRADLE ENTRY: the zoom buttons are gesture-equivalents — + is a
+    // spread, − is a pinch-out (spec §10: every gesture has a button).
+    const ce = cradleRef.current.entry;
+    if (f > 1 && (ce === "HOVERING" || ce === "FOCUSING" || ce === "ASCENDING")) {
+      sendCradleRef.current({ type: "SPREAD" });
+    } else if (f < 1 && ce !== "FREE") {
+      sendCradleRef.current({ type: "PINCH_OUT" });
+    }
     // Deeper steps inside the back-out band, so a few minus taps cross
     // from globe to solar system (and a few plus taps dive back).
     const eff = f < 1 && v.targetScale <= SYSTEM_GLOBE_SCALE ? 0.66
@@ -1925,6 +2088,15 @@ export default function WorldGlobe({
   const recenter = useCallback(() => {
     lastInteract.current = performance.now();
     const v = view.current;
+    // CRADLE ENTRY: recentering abandons the entry flow — walk the machine
+    // out through its own transitions first, so the z-guards never fight
+    // the camera on the way home.
+    const ce = cradleRef.current.entry;
+    if (ce === "FOCUSING" || ce === "HOVERING") {
+      sendCradleRef.current({ type: "TAP_ELSEWHERE" });
+    } else if (ce !== "FREE") {
+      sendCradleRef.current({ type: "PINCH_OUT" });
+    }
     v.spin = 24;
     v.tilt = 14;
     v.targetScale = 1;
@@ -1943,6 +2115,105 @@ export default function WorldGlobe({
     );
     playClick();
   }, [t]);
+
+  // ---- CRADLE ENTRY plumbing (slice 10) ----
+  /** The single funnel for entry-flow state: applies a machine transition
+   *  plus its side effects (hint pill, sheet lifecycle). The machine itself
+   *  stays pure — this is where the component reacts to it. */
+  const applyCradleNext = useCallback((next: CradleEntryContext) => {
+    const prev = cradleRef.current;
+    if (next === prev) return;
+    cradleRef.current = next;
+    setCradle(next);
+    // FOCUSING → FREE abandons the centering ease (it belongs to the flow).
+    if (prev.entry === "FOCUSING" && next.entry === "FREE") {
+      focusAnim.current = null;
+      cradleEaseRef.current = false;
+    }
+    // The one-time "spread to enter" hint: entering HOVERING, max 3
+    // lifetime shows, then never (Hans: no tutorial needed).
+    if (next.entry === "HOVERING" && prev.entry !== "HOVERING") {
+      try {
+        if (shouldShowSpreadHint(spreadHintCount(localStorage))) {
+          recordSpreadHint(localStorage);
+          setSpreadHint(true);
+        }
+      } catch {
+        /* private mode — no hint, no crash */
+      }
+    } else if (next.entry !== "HOVERING") {
+      setSpreadHint(false);
+    }
+    // The Z1 detail sheet is the fallback path — once the descent is
+    // committed (or we're inside), it has no meaning; close it.
+    if (
+      (next.entry === "DESCENDING" || next.entry === "INSIDE") &&
+      selectedIdRef.current === "home"
+    ) {
+      setSelectedId(null);
+    }
+  }, []);
+
+  const sendCradleEvent = useCallback(
+    (event: CradleEntryEvent) => {
+      applyCradleNext(transition(cradleRef.current, event));
+    },
+    [applyCradleNext],
+  );
+  // Render-time ref mirrors (the frame loop + native wheel handler run
+  // outside React's render cycle — same pattern as selectPlanetRef).
+  const sendCradleRef = useRef(sendCradleEvent);
+  sendCradleRef.current = sendCradleEvent;
+  const applyCradleRef = useRef(applyCradleNext);
+  applyCradleRef.current = applyCradleNext;
+
+  /** "Enter Cradle" — the button-equivalent of the tap→spread gesture chain
+   *  (spec §10: every gesture transition has a button equivalent). Each tap
+   *  advances the machine one step, exactly like the gesture does. */
+  const enterCradle = useCallback(() => {
+    const prevEntry = cradleRef.current.entry;
+    if (prevEntry === "FREE") {
+      // Button-equivalent of tapping the home marker: the home layer must
+      // be visible, then the existing focus ease centers it (not rewritten).
+      const home = markersRef.current.find((m) => m.id === "home");
+      if (!home) return;
+      setLayersOn((pl) => {
+        if (pl.home) return pl;
+        const nx = { ...pl, home: true };
+        try {
+          localStorage.setItem(LAYER_STORE_KEY, JSON.stringify(nx));
+        } catch {
+          /* private mode */
+        }
+        return nx;
+      });
+      const target = focusViewTarget(home.lat, home.lon);
+      focusAnim.current = { ...target, nonce: (focusAnim.current?.nonce ?? 0) + 1 };
+      cradleEaseRef.current = true;
+      hoverAnchorRef.current = { spin: target.spin, tilt: target.tilt };
+      playSelect();
+      sendCradleEvent({ type: "TAP_CRADLE" });
+      return;
+    }
+    playSelect();
+    sendCradleEvent({ type: "TAP_CRADLE" });
+    // HOVERING → DESCENDING: drive z; the z-guard lands INSIDE on arrival.
+    if (cradleRef.current.entry === "DESCENDING") {
+      view.current.targetScale = BAND_Z4;
+      lastInteract.current = performance.now();
+    }
+  }, [sendCradleEvent]);
+
+  /** "Leave" — the button-equivalent of pinch-out (spec §10). The camera
+   *  pulls back out; the z-guard walks the machine home to FREE. */
+  const leaveCradle = useCallback(() => {
+    playDeselect();
+    sendCradleEvent({ type: "PINCH_OUT" });
+    if (cradleRef.current.entry !== "FREE") {
+      view.current.targetScale = 1;
+      lastInteract.current = performance.now();
+    }
+  }, [sendCradleEvent]);
 
 
   return (
@@ -2129,6 +2400,46 @@ export default function WorldGlobe({
           </button>
         </div>
 
+        {/* CRADLE ENTRY (slice 10): gesture≡button (spec §10). "Enter
+            Cradle" advances the tap→focus→hover→descend chain one step per
+            tap, exactly like the gesture; "Leave" is the pinch-out
+            equivalent. The canvas never unmounts for either. */}
+        {!inSystem && (
+          <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1.5">
+            {(cradle.entry === "FREE" || cradle.entry === "FOCUSING" || cradle.entry === "HOVERING") && (
+              <button
+                type="button"
+                onClick={enterCradle}
+                className="flex min-h-[44px] items-center gap-1.5 rounded-full border border-amber-300/40 bg-amber-950/70 px-4 text-[13px] font-bold text-amber-100 backdrop-blur-sm"
+              >
+                <span aria-hidden>🏰</span>
+                {t("worldglobe.enterCradle", "Enter Cradle")}
+              </button>
+            )}
+            {cradle.entry !== "FREE" && (
+              <button
+                type="button"
+                onClick={leaveCradle}
+                aria-label={t("worldglobe.leaveCradle", "Leave the Cradle")}
+                className="flex min-h-[44px] items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-4 text-[13px] font-bold text-gray-200 backdrop-blur-sm"
+              >
+                <span aria-hidden>↩</span>
+                {t("worldglobe.leave", "Leave")}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* The one-time "spread to enter" hint (slice 10): pulses while
+            HOVERING, max 3 lifetime shows, then never. */}
+        {spreadHint && cradle.entry === "HOVERING" && !inSystem && (
+          <div className="pointer-events-none absolute left-1/2 top-2 z-10 -translate-x-1/2">
+            <div className="animate-pulse rounded-full border border-amber-300/50 bg-black/70 px-4 py-1.5 text-[12px] font-semibold text-amber-100 backdrop-blur-sm">
+              {t("worldglobe.spreadHint", "Spread your fingers to enter ✌")}
+            </div>
+          </div>
+        )}
+
         {/* Detail sheet */}
         {selected && (
           <DetailSheet
@@ -2138,7 +2449,20 @@ export default function WorldGlobe({
             hint={linkHint}
             onHivePick={selected.ref.kind === "home" ? startHivePick : undefined}
             hiveNote={selected.ref.kind === "home" ? (hiveBlockers[0] ?? null) : null}
+            // CRADLE ENTRY (slice 10): the home sheet's Enter button starts
+            // the tap→focus→hover→descend chain (spec §10) instead of the
+            // linking-pass note — the sheet is the fallback path.
+            onEnterColony={selected.ref.kind === "home" ? enterCradle : undefined}
           />
+        )}
+
+        {/* CRADLE ENTRY (slice 10): INSIDE renders the Cradle interior as
+            the Z4 band — the world canvas stays live behind it. Placeholder
+            panel reusing existing colony data for this slice (the
+            illustrated 2D Plus art scene lands later); module logic is not
+            rewritten. Buildings open as overlays in slice 11. */}
+        {cradle.entry === "INSIDE" && !inSystem && (
+          <CradleInteriorPanel state={state} />
         )}
 
         {/* Hive relocation confirmation (Hans, Oct 4 2026, WS-E) */}
@@ -2173,6 +2497,7 @@ function DetailSheet({
   hint,
   onHivePick,
   hiveNote,
+  onEnterColony,
 }: {
   marker: GlobeMarker;
   onClose: () => void;
@@ -2182,6 +2507,9 @@ function DetailSheet({
   onHivePick?: () => void;
   /** Inline blocker note shown under the relocate button (Hans's UI rule). */
   hiveNote?: string | null;
+  /** CRADLE ENTRY (slice 10): the home sheet's Enter button starts the
+   *  tap→focus→hover→descend chain instead of the linking-pass note. */
+  onEnterColony?: () => void;
 }) {
   const t = useT();
   const meta = GLOBE_LAYER_META[marker.layer];
@@ -2218,7 +2546,13 @@ function DetailSheet({
       </div>
 
       <div className="px-4 pb-4">
-        <SheetActions marker={marker} onAction={onAction} onHivePick={onHivePick} hiveNote={hiveNote} />
+        <SheetActions
+          marker={marker}
+          onAction={onAction}
+          onHivePick={onHivePick}
+          hiveNote={hiveNote}
+          onEnterColony={onEnterColony}
+        />
         {hint && (
           <p role="status" className="mt-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-gray-300">
             {hint}
@@ -2387,11 +2721,15 @@ function SheetActions({
   onAction,
   onHivePick,
   hiveNote,
+  onEnterColony,
 }: {
   marker: GlobeMarker;
   onAction: (label: string) => void;
   onHivePick?: () => void;
   hiveNote?: string | null;
+  /** CRADLE ENTRY (slice 10): the home sheet's Enter button starts the
+   *  entry chain — the sheet is the fallback path, the gesture the fast one. */
+  onEnterColony?: () => void;
 }) {
   const t = useT();
   const r = marker.ref;
@@ -2408,7 +2746,15 @@ function SheetActions({
     return (
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap gap-2">
-          <ActionButton primary label={t("worldglobe.enterColony", "Enter colony")} onClick={go(t("worldglobe.enterColony", "Enter colony"))} />
+          {/* CRADLE ENTRY (slice 10): when the entry flow is wired, Enter
+              starts the tap→focus→hover→descend chain; otherwise it keeps
+              the honest linking-pass note (Hans's UI rule — never a dead
+              button). */}
+          <ActionButton
+            primary
+            label={t("worldglobe.enterColony", "Enter colony")}
+            onClick={onEnterColony ?? go(t("worldglobe.enterColony", "Enter colony"))}
+          />
           {/* HIVE RELOCATION (Hans, Oct 4 2026, WS-E): always tappable — a
               tap while blocked shows the blocker inline (Hans's UI rule). */}
           {onHivePick && (
@@ -2590,6 +2936,57 @@ function HiveConfirmPanel({
             {error}
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cradle interior — the INSIDE band (slice 10)
+// ---------------------------------------------------------------------------
+
+/** INSIDE renders the Cradle interior as the Z4 band — the world canvas stays
+ *  live behind it (the one hard rule). PLACEHOLDER for this slice: reuses
+ *  existing colony data (name, supplies, embers, energy) and the game-wide
+ *  SceneHeader (location name + live UTC clock, Hans Oct 5). The
+ *  illustrated 2D Plus art scene — buildings as clickable links — lands in
+ *  a later slice; no module logic is rewritten here. Buildings open as
+ *  overlays in slice 11. */
+function CradleInteriorPanel({ state }: { state: GameState }) {
+  const t = useT();
+  const colonyLabel = state.playerName
+    ? colonyMarkerName(state.playerName)
+    : t("worldglobe.yourColony", "Your colony");
+  const supplies = state.resources?.supplies ?? 0;
+  const embers = state.resources?.embers ?? 0;
+  const energy = state.energy ?? 0;
+
+  return (
+    <div
+      role="dialog"
+      aria-label={t("worldglobe.cradleInteriorTitle", "Cradle interior")}
+      className="absolute inset-x-0 bottom-0 z-20 max-h-[62%] overflow-y-auto rounded-t-2xl border-t border-amber-300/40 bg-[#0a0d18]/95 backdrop-blur-md"
+      style={{ boxShadow: "0 -12px 48px rgba(251,191,36,0.25)" }}
+    >
+      <div className="flex justify-center pt-2">
+        <div className="h-1 w-10 rounded-full bg-white/25" />
+      </div>
+      <div className="px-4 pb-5 pt-1">
+        <SceneHeader
+          name={colonyLabel}
+          sub={t("worldglobe.cradleInteriorSub", "Cradle interior — preview")}
+        />
+        <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">
+          {t(
+            "worldglobe.cradleInteriorNote",
+            "PREVIEW — the illustrated Cradle art scene lands in a later slice. The world stays live behind this panel; pinch out (or Leave) to ascend.",
+          )}
+        </p>
+        <div className="mt-2 grid grid-cols-3 gap-1.5">
+          <Stat k={t("worldglobe.supplies", "Supplies")} v={supplies.toLocaleString()} />
+          <Stat k={t("worldglobe.embers", "Embers")} v={embers.toLocaleString()} />
+          <Stat k={t("worldglobe.energy", "Energy")} v={`${energy}`} />
+        </div>
       </div>
     </div>
   );
