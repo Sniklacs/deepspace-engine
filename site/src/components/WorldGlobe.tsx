@@ -639,6 +639,125 @@ function ensureTerrainSprites(): HTMLCanvasElement[] {
   return terrainSprites;
 }
 
+// ---------------------------------------------------------------------------
+// ZOOM-MORPH region tiles (Phase 2, slice 2): the sphere→plane crossfade.
+//
+// The planar region view is a tile baked from the SAME landmass sprites the
+// globe blits (the baked-terrain pattern from game/globe-layers.ts) —
+// composited equirectangularly around a quantized focus cell. The frame loop
+// crossfades the globe group out and this tile in over morphT (zoom-bands).
+// Tiles bake synchronously on first need (a few drawImages of already-baked
+// sprites — no elevation resampling); slice 4 moves streaming off-thread.
+// Fallback: bake failure → null → the globe keeps drawing. ALWAYS something
+// on screen, never a black frame.
+// ---------------------------------------------------------------------------
+
+const REGION_TILE_PX = 512;
+/** The tile spans ±60° around its cell center. */
+const REGION_HALF_DEG = 60;
+/** Focus quantization — panning rebakes only at cell crossings. */
+const REGION_CELL_DEG = 20;
+const REGION_TILE_CACHE_MAX = 6;
+/** Bake-space px per degree (constant for every tile). */
+const REGION_PPD = REGION_TILE_PX / (REGION_HALF_DEG * 2);
+
+interface RegionTile {
+  key: string;
+  canvas: HTMLCanvasElement;
+  qLat: number;
+  qLon: number;
+}
+
+let regionTileCache: RegionTile[] = [];
+
+/** Wrap degrees to [-180, 180). Pure. */
+export function wrapLon180(lon: number): number {
+  let l = lon % 360;
+  if (l > 180) l -= 360;
+  if (l < -180) l += 360;
+  return l;
+}
+
+/** The globe point currently screen-centered: tilt IS latitude, and
+ *  focusViewTarget's inverse gives longitude from spin. Pure. */
+export function focusLatLon(spin: number, tilt: number): { lat: number; lon: number } {
+  return { lat: tilt, lon: wrapLon180(-spin) };
+}
+
+function regionTileKey(lat: number, lon: number): { key: string; qLat: number; qLon: number } {
+  const qLat = Math.max(-80, Math.min(80, Math.round(lat / REGION_CELL_DEG) * REGION_CELL_DEG));
+  const qLon = wrapLon180(Math.round(lon / REGION_CELL_DEG) * REGION_CELL_DEG);
+  return { key: `${qLat}:${qLon}`, qLat, qLon };
+}
+
+function bakeRegionTile(qLat: number, qLon: number): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = c.height = REGION_TILE_PX;
+  const g = c.getContext("2d")!;
+  // Ocean base — the globe's deep-water read, flat (the tile is overhead).
+  const ocean = g.createRadialGradient(256, 256, 40, 256, 256, 320);
+  ocean.addColorStop(0, "#14456e");
+  ocean.addColorStop(1, "#0a2440");
+  g.fillStyle = ocean;
+  g.fillRect(0, 0, REGION_TILE_PX, REGION_TILE_PX);
+  // Landmasses: the same baked sprites the globe blits, laid equirectangular.
+  // Sprite width on the globe = 2·r·1.25 degrees → px via REGION_PPD.
+  const sprites = ensureTerrainSprites();
+  const cosLat = Math.cos((qLat * Math.PI) / 180);
+  for (let i = 0; i < BLOBS.length; i++) {
+    const b = BLOBS[i];
+    const dLon = wrapLon180(b.lon - qLon);
+    const dLat = b.lat - qLat;
+    const reach = REGION_HALF_DEG + b.r * 1.25;
+    if (Math.abs(dLat) > reach || Math.abs(dLon * cosLat) > reach) continue;
+    const x = REGION_TILE_PX / 2 + dLon * cosLat * REGION_PPD;
+    const y = REGION_TILE_PX / 2 - dLat * REGION_PPD;
+    const wpx = 2 * b.r * 1.25 * REGION_PPD;
+    g.drawImage(sprites[i], x - wpx / 2, y - wpx / 2, wpx, wpx);
+  }
+  return c;
+}
+
+/** The region tile for the focus point, or null if the bake failed
+ *  (caller falls back to the globe sprite). Small LRU. */
+function ensureRegionTile(lat: number, lon: number): RegionTile | null {
+  const { key, qLat, qLon } = regionTileKey(lat, lon);
+  const hit = regionTileCache.find((t) => t.key === key);
+  if (hit) {
+    regionTileCache = [hit, ...regionTileCache.filter((t) => t !== hit)];
+    return hit;
+  }
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = bakeRegionTile(qLat, qLon);
+  } catch {
+    return null;
+  }
+  const tile: RegionTile = { key, canvas, qLat, qLon };
+  regionTileCache = [tile, ...regionTileCache].slice(0, REGION_TILE_CACHE_MAX);
+  return tile;
+}
+
+// Offscreen canvas for the morph composite: while 0 < morphT < 1 the globe
+// group (steps 2–11) renders here so its many inner globalAlpha assignments
+// survive the fade — the frame loop then blits it at (1 − morphT) over the
+// region tile. Reused across frames; recreated on resize.
+let morphCanvas: HTMLCanvasElement | null = null;
+let morphCtx: CanvasRenderingContext2D | null = null;
+let morphCanvasKey = "";
+
+function ensureMorphCtx(w: number, h: number, dpr: number): CanvasRenderingContext2D {
+  const key = `${w}x${h}x${dpr}`;
+  if (!morphCanvas || !morphCtx || morphCanvasKey !== key) {
+    morphCanvas = document.createElement("canvas");
+    morphCanvas.width = Math.max(1, Math.round(w * dpr));
+    morphCanvas.height = Math.max(1, Math.round(h * dpr));
+    morphCtx = morphCanvas.getContext("2d")!;
+    morphCanvasKey = key;
+  }
+  return morphCtx;
+}
+
 /** One foreign planet of the solar system, drawn 2D Plus: atmosphere
  *  glow, a sphere lit from the sun's actual direction, sunlit rim. */
 function drawSystemPlanet(
@@ -721,13 +840,15 @@ export default function WorldGlobe({
   const screenPos = useRef(new Map<string, { x: number; y: number; r: number }>());
   const markersRef = useRef<GlobeMarker[]>([]);
   const reduceMotion = useRef(false);
+  // ZOOM-MORPH (slice 2): the frame loop's current sphere→plane factor,
+  // mirrored here so tap handling knows when the globe markers are gone.
+  const morphTRef = useRef(0);
   // ZOOM-AXIS (Phase 2, slice 1): temporary dev readout of the zoom
   // continuum (band + scale + morph factor). Updated via textContent in the
   // frame loop — no React re-renders. Tap it to dismiss for the session
   // (persists via worldglobe.zoomdebug="0" in localStorage).
   const zoomDebugRef = useRef<HTMLDivElement>(null);
-  const zoomDebugHidden = useRef(false);
-  if (typeof localStorage !== "undefined" && !zoomDebugHidden.current) {
+  const zoomDebugHidden = useRef(false);  if (typeof localStorage !== "undefined" && !zoomDebugHidden.current) {
     try {
       zoomDebugHidden.current = localStorage.getItem("worldglobe.zoomdebug") === "0";
     } catch { /* private mode */ }
@@ -1035,27 +1156,57 @@ export default function WorldGlobe({
       }
       ctx.globalAlpha = 1;
 
+      // ZOOM-MORPH (Phase 2, slice 2): sphere→plane crossfade over the focus
+      // point as z crosses Z1→Z2. morphT 0→1 across the first half-octave
+      // of Z2 (zoom-bands). While morphing, the globe group (steps 2–11)
+      // renders into a reused offscreen canvas — its many inner
+      // globalAlpha assignments can't survive an outer fade, so the frame
+      // loop blits it at (1 − morphT) over the planar region tile (baked
+      // from the same landmass sprites, first tile LOD). Past the morph
+      // the globe group is skipped entirely and the tile IS the world.
+      // Fallback: tile bake failure → null → today's direct path at full
+      // alpha. ALWAYS something on screen — never a cut, never a black
+      // frame.
+      const morphT = morphTFromScale(v.scale);
+      const focusLL = focusLatLon(v.spin, v.tilt);
+      let regionTile: RegionTile | null = null;
+      if (morphT > 0) {
+        try {
+          regionTile = ensureRegionTile(focusLL.lat, focusLL.lon);
+        } catch {
+          regionTile = null;
+        }
+      }
+      morphTRef.current = morphT;
+      const pastMorph = morphT >= 1 && regionTile !== null;
+      const morphing = morphT > 0 && morphT < 1 && regionTile !== null;
+      const g: CanvasRenderingContext2D = morphing ? ensureMorphCtx(w, h, dpr) : ctx;
+      if (morphing) {
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        g.clearRect(0, 0, w, h);
+      }
+      if (!pastMorph) {
       // 2 — atmosphere glow (behind the sphere)
-      const atm = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.32);
+      const atm = g.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.32);
       atm.addColorStop(0, "rgba(56,189,248,0.30)");
       atm.addColorStop(0.75, "rgba(56,189,248,0.10)");
       atm.addColorStop(1, "rgba(56,189,248,0)");
-      ctx.fillStyle = atm;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * 1.32, 0, Math.PI * 2);
-      ctx.fill();
+      g.fillStyle = atm;
+      g.beginPath();
+      g.arc(cx, cy, R * 1.32, 0, Math.PI * 2);
+      g.fill();
 
       // 3 — ocean sphere
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, 0, Math.PI * 2);
-      ctx.clip();
-      const ocean = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.38, R * 0.1, cx, cy, R * 1.35);
+      g.save();
+      g.beginPath();
+      g.arc(cx, cy, R, 0, Math.PI * 2);
+      g.clip();
+      const ocean = g.createRadialGradient(cx - R * 0.35, cy - R * 0.38, R * 0.1, cx, cy, R * 1.35);
       ocean.addColorStop(0, "#1d5a8a");
       ocean.addColorStop(0.55, "#0d2f52");
       ocean.addColorStop(1, "#071a30");
-      ctx.fillStyle = ocean;
-      ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+      g.fillStyle = ocean;
+      g.fillRect(cx - R, cy - R, R * 2, R * 2);
 
       // 4 — landmasses with baked topography (true 3D rotation; one blit each)
       const squash = 0.72; // screen-space foreshortening, as before
@@ -1065,8 +1216,8 @@ export default function WorldGlobe({
         if (!p.visible) continue;
         const rPx = (b.r * Math.PI) / 180 * R * 1.25; // sprite spans 1.25× r
         const a = 0.45 + 0.55 * p.z;
-        ctx.globalAlpha = a * 0.95;
-        ctx.drawImage(
+        g.globalAlpha = a * 0.95;
+        g.drawImage(
           landSprites[i],
           cx + p.x * R - rPx,
           cy + p.y * R - rPx * squash,
@@ -1074,46 +1225,46 @@ export default function WorldGlobe({
           rPx * 2 * squash,
         );
       }
-      ctx.globalAlpha = 1;
+      g.globalAlpha = 1;
 
       // 5 — ice caps
       for (const capLat of [78, -78]) {
         const p = projectGlobe(capLat, 0, v.spin, v.tilt);
         if (!p.visible) continue;
         const rPx = (15 * Math.PI) / 180 * R;
-        const g2 = ctx.createRadialGradient(cx + p.x * R, cy + p.y * R, 0, cx + p.x * R, cy + p.y * R, rPx);
+        const g2 = g.createRadialGradient(cx + p.x * R, cy + p.y * R, 0, cx + p.x * R, cy + p.y * R, rPx);
         g2.addColorStop(0, `rgba(226,240,250,${0.85 * p.z})`);
         g2.addColorStop(1, "rgba(226,240,250,0)");
-        ctx.fillStyle = g2;
-        ctx.beginPath();
-        ctx.arc(cx + p.x * R, cy + p.y * R, rPx, 0, Math.PI * 2);
-        ctx.fill();
+        g.fillStyle = g2;
+        g.beginPath();
+        g.arc(cx + p.x * R, cy + p.y * R, rPx, 0, Math.PI * 2);
+        g.fill();
       }
 
       // 6 — graticule
-      ctx.strokeStyle = "rgba(148,163,184,0.10)";
-      ctx.lineWidth = 1;
+      g.strokeStyle = "rgba(148,163,184,0.10)";
+      g.lineWidth = 1;
       for (let lon = -180; lon < 180; lon += 30) {
-        ctx.beginPath();
+        g.beginPath();
         let pen = false;
         for (let lat = -90; lat <= 90; lat += 6) {
           const p = projectGlobe(lat, lon, v.spin, v.tilt);
           if (!p.visible) { pen = false; continue; }
           const x = cx + p.x * R, y = cy + p.y * R;
-          if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
+          if (!pen) { g.moveTo(x, y); pen = true; } else g.lineTo(x, y);
         }
-        ctx.stroke();
+        g.stroke();
       }
       for (let lat = -60; lat <= 60; lat += 30) {
-        ctx.beginPath();
+        g.beginPath();
         let pen = false;
         for (let lon = -180; lon <= 180; lon += 6) {
           const p = projectGlobe(lat, lon, v.spin, v.tilt);
           if (!p.visible) { pen = false; continue; }
           const x = cx + p.x * R, y = cy + p.y * R;
-          if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
+          if (!pen) { g.moveTo(x, y); pen = true; } else g.lineTo(x, y);
         }
-        ctx.stroke();
+        g.stroke();
       }
 
       // 7 — REAL terminator shading (WS5, GLOBE WAVE 3): the night cap is the
@@ -1121,66 +1272,66 @@ export default function WorldGlobe({
       // view space so it survives spin/zoom/tilt. Two fills: a soft twilight
       // band (slightly expanded, low alpha) + the full night (same peak
       // darkness as the old static gradient: rgba(2,6,14,0.55)).
-      const nightKind = traceNightPath(ctx, sun, cx, cy, R);
+      const nightKind = traceNightPath(g, sun, cx, cy, R);
       if (nightKind === "full") {
-        ctx.fillStyle = "rgba(2,6,14,0.55)";
-        ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+        g.fillStyle = "rgba(2,6,14,0.55)";
+        g.fillRect(cx - R, cy - R, R * 2, R * 2);
       } else if (nightKind === "partial") {
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.scale(1.045, 1.045);
-        ctx.translate(-cx, -cy);
-        ctx.fillStyle = "rgba(2,6,14,0.20)";
-        ctx.fill();
-        ctx.restore();
-        ctx.fillStyle = "rgba(2,6,14,0.55)";
-        ctx.fill();
+        g.save();
+        g.translate(cx, cy);
+        g.scale(1.045, 1.045);
+        g.translate(-cx, -cy);
+        g.fillStyle = "rgba(2,6,14,0.20)";
+        g.fill();
+        g.restore();
+        g.fillStyle = "rgba(2,6,14,0.55)";
+        g.fill();
       }
-      ctx.restore();
+      g.restore();
 
       // 8 — city lights, drawn AFTER the night shading so they shine through
       // the dark (WS5). Invisible by day, brighter the deeper the night —
       // the cheap win the night side deserves. Re-clips to the disk.
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.globalCompositeOperation = "lighter";
+      g.save();
+      g.beginPath();
+      g.arc(cx, cy, R, 0, Math.PI * 2);
+      g.clip();
+      g.globalCompositeOperation = "lighter";
       for (const L of CITY_LIGHTS) {
         const p = projectGlobe(L.lat, L.lon, v.spin, v.tilt);
         if (!p.visible) continue;
         const nf = nightFactor(p.x, p.y, p.z, sun.x, sun.y, sun.z);
         if (nf < 0.03) continue;
-        ctx.globalAlpha = 0.25 + 0.75 * nf;
-        ctx.fillStyle = "#fcd34d";
+        g.globalAlpha = 0.25 + 0.75 * nf;
+        g.fillStyle = "#fcd34d";
         const s = 1.2 + 1.4 * nf;
-        ctx.fillRect(cx + p.x * R - s / 2, cy + p.y * R - s / 2, s, s);
+        g.fillRect(cx + p.x * R - s / 2, cy + p.y * R - s / 2, s, s);
       }
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = "source-over";
-      ctx.restore();
+      g.globalAlpha = 1;
+      g.globalCompositeOperation = "source-over";
+      g.restore();
 
       // 9 — rim light (the POP)
-      ctx.save();
-      ctx.strokeStyle = "rgba(125,211,252,0.55)";
-      ctx.lineWidth = 2.5;
-      ctx.shadowBlur = 14;
-      ctx.shadowColor = "#38bdf8";
-      ctx.beginPath();
-      ctx.arc(cx, cy, R - 1, Math.PI * 0.55, Math.PI * 1.45);
-      ctx.stroke();
-      ctx.restore();
+      g.save();
+      g.strokeStyle = "rgba(125,211,252,0.55)";
+      g.lineWidth = 2.5;
+      g.shadowBlur = 14;
+      g.shadowColor = "#38bdf8";
+      g.beginPath();
+      g.arc(cx, cy, R - 1, Math.PI * 0.55, Math.PI * 1.45);
+      g.stroke();
+      g.restore();
 
       // 10 — satellite orbit ring (globe furniture — parks once the sky opens)
       if (layersOnRef.current.satellites && sysT < 0.5) {
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(-0.32);
-        ctx.strokeStyle = "rgba(56,189,248,0.25)";
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, R * 1.5, R * 1.5 * 0.36, 0, 0, Math.PI * 2);
-        ctx.stroke();
+        g.save();
+        g.translate(cx, cy);
+        g.rotate(-0.32);
+        g.strokeStyle = "rgba(56,189,248,0.25)";
+        g.lineWidth = 1.2;
+        g.beginPath();
+        g.ellipse(0, 0, R * 1.5, R * 1.5 * 0.36, 0, 0, Math.PI * 2);
+        g.stroke();
         for (let i = 0; i < 4; i++) {
           const a = time * 0.12 + (i * Math.PI) / 2;
           const ex = Math.cos(a) * R * 1.5;
@@ -1191,11 +1342,11 @@ export default function WorldGlobe({
           // markers and the legend row (shape, not color).
           const satSpr = iconSprite("satellite", "#7dd3fc");
           const satSize = 16;
-          ctx.globalAlpha = 0.5 + 0.5 * blink;
-          ctx.drawImage(satSpr, ex - satSize / 2, ey - satSize / 2, satSize, satSize);
+          g.globalAlpha = 0.5 + 0.5 * blink;
+          g.drawImage(satSpr, ex - satSize / 2, ey - satSize / 2, satSize, satSize);
         }
-        ctx.globalAlpha = 1;
-        ctx.restore();
+        g.globalAlpha = 1;
+        g.restore();
       }
 
       // 11 — markers
@@ -1226,7 +1377,7 @@ export default function WorldGlobe({
         const isSel = m.id === selectedIdRef.current;
         const base = isSel ? 15 : 10;
         // WS5: night-side dim (subtle — readability wins).
-        ctx.globalAlpha = (1 - 0.3 * (nightByMarker.get(m) ?? 0)) * markerVis;
+        g.globalAlpha = (1 - 0.3 * (nightByMarker.get(m) ?? 0)) * markerVis;
         const isSatellite = m.ref.kind === "satellite";
         // Satellite dishes carry their own dark underlay in the baked
         // sprite — the soft glow halo swamped the dish into a plain dot,
@@ -1234,7 +1385,7 @@ export default function WorldGlobe({
         if (!isSatellite) {
           const spr = glowSprite(m.color);
           const sprSize = base * 3.2;
-          ctx.drawImage(spr, s.sx - sprSize / 2, s.sy - sprSize / 2, sprSize, sprSize);
+          g.drawImage(spr, s.sx - sprSize / 2, s.sy - sprSize / 2, sprSize, sprSize);
         }
         // WS2: the marker ICON — shape carries the meaning, not the color.
         // One pre-baked sprite blit; 20px+ hit targets preserved below.
@@ -1246,34 +1397,60 @@ export default function WorldGlobe({
           : isSatellite
             ? (isSel ? 30 : 24)
             : (isSel ? 26 : 20);
-        ctx.drawImage(icon, s.sx - iconSize / 2, s.sy - iconSize / 2, iconSize, iconSize);
-        ctx.globalAlpha = markerVis; // pulse ring + label fade with the markers
+        g.drawImage(icon, s.sx - iconSize / 2, s.sy - iconSize / 2, iconSize, iconSize);
+        g.globalAlpha = markerVis; // pulse ring + label fade with the markers
         // pulse ring for raids (and selected)
         if (m.pulse || isSel) {
           const pr = base + 5 + 4 * Math.sin(time * 4);
-          ctx.strokeStyle = m.color + "cc";
-          ctx.lineWidth = 1.6;
-          ctx.beginPath();
-          ctx.arc(s.sx, s.sy, Math.max(4, pr), 0, Math.PI * 2);
-          ctx.stroke();
+          g.strokeStyle = m.color + "cc";
+          g.lineWidth = 1.6;
+          g.beginPath();
+          g.arc(s.sx, s.sy, Math.max(4, pr), 0, Math.PI * 2);
+          g.stroke();
         }
         screenPos.current.set(m.id, { x: s.sx, y: s.sy, r: Math.max(20, base + 8) });
         // label pill for the selected marker
         if (isSel) {
-          ctx.font = "600 11px system-ui, sans-serif";
-          const tw = ctx.measureText(m.label).width;
+          g.font = "600 11px system-ui, sans-serif";
+          const tw = g.measureText(m.label).width;
           const px = Math.min(Math.max(s.sx, tw / 2 + 12), w - tw / 2 - 12);
           const py = Math.max(26, s.sy - 34);
-          roundRectPath(ctx, px - tw / 2 - 8, py - 14, tw + 16, 24, 12);
-          ctx.fillStyle = "rgba(2,6,14,0.85)";
-          ctx.fill();
-          ctx.strokeStyle = m.color;
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          ctx.fillStyle = "#fff";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(m.label, px, py - 1);
+          roundRectPath(g, px - tw / 2 - 8, py - 14, tw + 16, 24, 12);
+          g.fillStyle = "rgba(2,6,14,0.85)";
+          g.fill();
+          g.strokeStyle = m.color;
+          g.lineWidth = 1;
+          g.stroke();
+          g.fillStyle = "#fff";
+          g.textAlign = "center";
+          g.textBaseline = "middle";
+          g.fillText(m.label, px, py - 1);
+        }
+      }
+      } // end if (!pastMorph) — the globe group is skipped past the morph
+
+      // ZOOM-MORPH composite (slice 2): the planar region tile under the
+      // fading globe. Tile alpha = morphT; the offscreen globe group blits
+      // at (1 − morphT) over it. At morphT = 0 regionTile is null and this
+      // block never runs — today's path is untouched. The starfield behind
+      // stays put, so there is never an empty or black frame.
+      if (regionTile) {
+        const ppdDraw = R / 90; // screen px per degree at the focus point
+        const s = ppdDraw / REGION_PPD;
+        const size = REGION_TILE_PX * s;
+        const cosLat = Math.cos((focusLL.lat * Math.PI) / 180);
+        const dLon = wrapLon180(regionTile.qLon - focusLL.lon);
+        const tcx = cx + dLon * cosLat * ppdDraw;
+        const tcy = cy + (regionTile.qLat - focusLL.lat) * ppdDraw;
+        ctx.save();
+        ctx.globalAlpha = morphT >= 1 ? 1 : morphT;
+        ctx.drawImage(regionTile.canvas, tcx - size / 2, tcy - size / 2, size, size);
+        ctx.restore();
+        if (morphing && morphCanvas) {
+          ctx.save();
+          ctx.globalAlpha = 1 - morphT;
+          ctx.drawImage(morphCanvas, 0, 0, w, h);
+          ctx.restore();
         }
       }
 
@@ -1594,6 +1771,10 @@ export default function WorldGlobe({
         }
         return;
       }
+      // ZOOM-MORPH (slice 2): past the morph the globe markers have faded
+      // out with the sphere — taps find no sheet targets up here (region
+      // interactions land in later slices).
+      if (morphTRef.current > 0.5) return;
       const id = hitTest(e.clientX, e.clientY);
       if (id) {
         if (id === selectedIdRef.current) {
