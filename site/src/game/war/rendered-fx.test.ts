@@ -13,6 +13,8 @@ import {
   fireballOffsets,
   planExplosion,
   spawnExplosion,
+  spawnExplosionDust,
+  spawnImpact,
   spawnMuzzleBloom,
   spawnVolumetricDust,
   SPARK_GRAVITY,
@@ -202,5 +204,119 @@ describe("fireballOffsets", () => {
     const a = fireballOffsets(111, 0.3);
     const b = fireballOffsets(222, 0.3);
     expect(a[0].dx === b[0].dx && a[1].dx === b[1].dx).toBe(false);
+  });
+});
+
+describe("explosion detail layers (debris, embers, scorch, dust ring)", () => {
+  test("CINEMATIC plan includes debris chunks, embers, scorch, and a dust ring", () => {
+    const p = planExplosion("cinematic");
+    expect(p.debrisChunks).toBeGreaterThan(0);
+    expect(p.embers).toBeGreaterThan(0);
+    expect(p.scorch).toBe(true);
+    expect(p.dustRing).toBeGreaterThan(0);
+  });
+
+  test("BALANCED keeps the detail but fewer of each", () => {
+    const c = planExplosion("cinematic");
+    const b = planExplosion("balanced");
+    expect(b.debrisChunks).toBeGreaterThan(0);
+    expect(b.debrisChunks).toBeLessThan(c.debrisChunks);
+    expect(b.embers).toBeGreaterThan(0);
+    expect(b.embers).toBeLessThan(c.embers);
+    expect(b.scorch).toBe(true);
+    expect(b.dustRing).toBeGreaterThan(0);
+    expect(b.dustRing).toBeLessThan(c.dustRing);
+  });
+
+  test("PERFORMANCE skips all detail layers (composite only)", () => {
+    const p = planExplosion("performance");
+    expect(p.debrisChunks).toBe(0);
+    expect(p.embers).toBe(0);
+    expect(p.scorch).toBe(false);
+    expect(p.dustRing).toBe(0);
+  });
+
+  test("cinematic spawnExplosion creates chunks, embers, scorch, and lit dust", () => {
+    const fx = new Fx();
+    spawnExplosion(fx, 100, 200, 1, "cinematic");
+    expect(fx.chunks.length).toBeGreaterThan(0);
+    expect(fx.embers.length).toBeGreaterThan(0);
+    expect(fx.scorches).toHaveLength(1);
+    expect(fx.scorches[0].radius).toBeGreaterThan(0);
+    // The dust ring is born lit — it glows while the fire is young.
+    const litDust = fx.dusts.filter((d) => d.lit > 0);
+    expect(litDust.length).toBeGreaterThan(0);
+  });
+
+  test("performance spawnExplosion creates no chunks, embers, scorch, or dust ring", () => {
+    const fx = new Fx();
+    spawnExplosion(fx, 100, 200, 1, "performance");
+    expect(fx.chunks).toHaveLength(0);
+    expect(fx.embers).toHaveLength(0);
+    expect(fx.scorches).toHaveLength(0);
+    expect(fx.dusts.filter((d) => d.lit > 0)).toHaveLength(0);
+  });
+
+  test("debris chunks tumble and fall under gravity in Fx.update", () => {
+    const fx = new Fx();
+    spawnExplosion(fx, 0, 0, 1, "cinematic");
+    const ch = fx.chunks[0];
+    const vy0 = ch.vy;
+    const rot0 = ch.rot;
+    // Run long enough for gravity to dominate the initial upward kick.
+    fx.update(0.5);
+    expect(ch.vy).toBeGreaterThan(vy0); // gravity accelerates downward (+y)
+    expect(ch.rot === rot0).toBe(false); // tumbling
+  });
+
+  test("embers rise (buoyant) in Fx.update", () => {
+    const fx = new Fx();
+    spawnExplosion(fx, 0, 0, 1, "cinematic");
+    const e = fx.embers[0];
+    const y0 = e.y;
+    fx.update(0.1);
+    expect(e.y).toBeLessThan(y0); // rises (-y)
+  });
+
+  test("dust lit decays in Fx.update", () => {
+    const fx = new Fx();
+    spawnExplosion(fx, 0, 0, 1, "cinematic");
+    const d = fx.dusts.find((x) => x.lit > 0);
+    expect(d).toBeDefined();
+    const lit0 = d!.lit;
+    fx.update(0.5);
+    expect(d!.lit).toBeLessThan(lit0);
+  });
+});
+
+describe("spawnImpact", () => {
+  test("spawns a flash and sparks at the impact point", () => {
+    const fx = new Fx();
+    spawnImpact(fx, 50, 60, "#ffd27a", "cinematic");
+    expect(fx.flashes.length).toBeGreaterThan(0);
+    expect(fx.sparks.length).toBeGreaterThan(0);
+    const f = fx.flashes[fx.flashes.length - 1];
+    expect(f.x).toBe(50);
+    expect(f.y).toBe(60);
+  });
+
+  test("Fx.fire triggers an impact at the target end", () => {
+    const fx = new Fx();
+    fx.fire(0, 0, 100, 100, "#ffd27a");
+    expect(fx.tracers).toHaveLength(1);
+    // Impact flash at (100,100) plus the muzzle flash at (0,0).
+    expect(fx.flashes.length).toBe(2);
+  });
+});
+
+describe("spawnExplosionDust", () => {
+  test("kicks up a ring of lit dust around the blast", () => {
+    const fx = new Fx();
+    spawnExplosionDust(fx, 0, 0, 1, 8, 1);
+    expect(fx.dusts.length).toBeGreaterThan(0);
+    for (const d of fx.dusts) {
+      expect(d.lit).toBe(1);
+      expect(d.maxLife).toBeGreaterThan(1);
+    }
   });
 });

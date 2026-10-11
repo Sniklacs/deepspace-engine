@@ -16,6 +16,7 @@ import {
 import {
   SPARK_GRAVITY,
   spawnExplosion,
+  spawnImpact,
   spawnMuzzleBloom,
   spawnVolumetricDust,
 } from "../../game/war/rendered-fx";
@@ -50,6 +51,8 @@ export interface Dust {
   age: number;
   /** Seeded churn phase for drift wobble while the dust hangs. */
   churn: number;
+  /** 0..1 — how strongly the dust is lit by a nearby blast (tints orange, decays). */
+  lit: number;
 }
 /** Point-light bloom: a flash of light cast onto terrain/units (rendered-fx). */
 export interface Bloom {
@@ -60,6 +63,22 @@ export interface Bloom {
 /** Impact spark: hot debris with gravity. */
 export interface Spark {
   x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; color: string;
+}
+/** Debris chunk: a tumbling solid fragment from an explosion — dark body, hot edge. */
+export interface Chunk {
+  x: number; y: number; vx: number; vy: number;
+  life: number; maxLife: number; size: number;
+  rot: number; rotV: number; color: string;
+}
+/** Ember: a tiny bright mote that rises on the heat and flickers out. */
+export interface Ember {
+  x: number; y: number; vx: number; vy: number;
+  life: number; maxLife: number; size: number; seed: number;
+}
+/** Scorch: the dark mark an explosion leaves on the ground — fades slowly. */
+export interface Scorch {
+  x: number; y: number; radius: number;
+  life: number; maxLife: number;
 }
 
 export class Fx {
@@ -74,6 +93,12 @@ export class Fx {
   blooms: Bloom[] = [];
   /** Impact sparks with gravity. */
   sparks: Spark[] = [];
+  /** Tumbling explosion debris. */
+  chunks: Chunk[] = [];
+  /** Rising heat embers. */
+  embers: Ember[] = [];
+  /** Ground scorch decals. */
+  scorches: Scorch[] = [];
   /** Screen shake trauma 0..1 — decays; offset = trauma² × max. */
   trauma = 0;
   /** Radar sweep angle (radians), active during contact phase. */
@@ -86,6 +111,8 @@ export class Fx {
     // SEAMLESS-WORLD §9 (slice 9): muzzle-flash bloom at the tracer origin —
     // the light travels with the shot (ladder-gated, off on PERFORMANCE).
     spawnMuzzleBloom(this, x1, y1, resolveGraphicsLevel());
+    // The shot lands: impact flash + sparks at the target end.
+    spawnImpact(this, x2, y2, color, resolveGraphicsLevel());
     if (this.tracers.length > 220) this.tracers.splice(0, this.tracers.length - 220);
   }
 
@@ -131,6 +158,7 @@ export class Fx {
     };
     step(this.tracers); step(this.flashes); step(this.rings); step(this.beams);
     step(this.dusts); step(this.blooms); step(this.sparks);
+    step(this.chunks); step(this.embers); step(this.scorches);
     for (const d of this.dusts) {
       d.age += dt;
       d.x += d.vx * dt; d.y += d.vy * dt;
@@ -139,12 +167,29 @@ export class Fx {
       d.x += Math.sin(d.churn + d.age * 2.2) * 9 * dt;
       d.y += Math.cos(d.churn * 1.4 + d.age * 1.6) * 6 * dt;
       d.size += 10 * dt;
+      // Blast lighting fades as the cloud drifts from the fire.
+      d.lit = Math.max(0, d.lit - dt * 0.8);
     }
     for (const s of this.sparks) {
       // step() already moved life; integrate velocity under gravity.
       s.vy += SPARK_GRAVITY * dt;
       s.vx *= 1 - 0.6 * dt;
       s.x += s.vx * dt; s.y += s.vy * dt;
+    }
+    for (const ch of this.chunks) {
+      // Tumbling debris: gravity pulls, drag slows, it spins as it falls.
+      ch.vy += SPARK_GRAVITY * 0.7 * dt;
+      ch.vx *= 1 - 0.4 * dt;
+      ch.x += ch.vx * dt; ch.y += ch.vy * dt;
+      ch.rot += ch.rotV * dt;
+    }
+    for (const e of this.embers) {
+      // Embers are buoyant — they rise on the heat, drift, and flicker out.
+      e.vy -= 60 * dt;
+      e.vx *= 1 - 0.8 * dt;
+      e.vy *= 1 - 0.5 * dt;
+      e.x += e.vx * dt + Math.sin(e.seed + e.life * 9) * 14 * dt;
+      e.y += e.vy * dt;
     }
     for (let i = this.booms.length - 1; i >= 0; i--) {
       const b = this.booms[i];

@@ -143,9 +143,13 @@ import { Fx } from "./effects";
 // SEAMLESS-WORLD §9 (slice 9): the rendered explosion/dust draw paths.
 import {
   drawBloom,
+  drawDebrisChunks,
+  drawEmbers,
   drawExplosionBody,
+  drawScorch,
   drawShockwave,
   drawSpark,
+  drawTracerBeam,
   drawVolDust,
 } from "../../game/war/rendered-fx";
 // SEAMLESS-WORLD §8 (slice 13): quality-gated terrain detail overlays.
@@ -1583,14 +1587,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         c.setLineDash([]);
       }
       for (const tr of fx.tracers) {
-        c.strokeStyle = tr.color;
-        c.globalAlpha = alpha(tr.life, tr.maxLife);
-        c.lineWidth = tr.width;
-        c.shadowColor = tr.color;
-        c.shadowBlur = 8;
-        c.beginPath(); c.moveTo(tr.x1, tr.y1); c.lineTo(tr.x2, tr.y2); c.stroke();
+        // 3-pass beam: halo + body + white-hot core + bright head.
+        drawTracerBeam(c, tr);
       }
-      c.shadowBlur = 0;
+      // (shadowBlur retired — the layered beam strokes ARE the glow.)
       for (const f of fx.flashes) {
         const a = alpha(f.life, f.maxLife);
         const g2 = c.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.radius);
@@ -1606,6 +1606,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       for (const bl of fx.blooms) drawBloom(c, bl);
       for (const b of fx.booms) drawExplosionBody(c, b);
       for (const sp of fx.sparks) drawSpark(c, sp);
+      drawDebrisChunks(c, fx.chunks);
+      drawEmbers(c, fx.embers);
       c.restore();
       c.save();
       for (const rg2 of fx.rings) {
@@ -1626,6 +1628,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       c.restore();
       // Smoke (normal blend, under night).
       c.save();
+      for (const sc of fx.scorches) drawScorch(c, sc);
       for (const b of fx.booms) {
         for (const sm of b.smoke) {
           if (sm.life <= 0) continue;
