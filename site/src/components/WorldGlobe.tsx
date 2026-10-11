@@ -232,6 +232,25 @@ const WORLD_TEX_H = 512;
 /** Patch grid over the texture — one map, drawn as projected patches. */
 const WORLD_PATCH_COLS = 16;
 const WORLD_PATCH_ROWS = 8;
+// Offscreen disc for the patch composite (Hans Oct 11 2026): per-patch
+// alpha telegraphed the patch grid as block seams. Patches now draw at
+// alpha 1 into this disc — same-texture overdraw is invisible — and a
+// radial limb mask softens the edge. Recreated when the disc size changes.
+let discCanvas: HTMLCanvasElement | null = null;
+let discCtx: CanvasRenderingContext2D | null = null;
+let discKey = "";
+function ensureDiscCtx(diameterPx: number): CanvasRenderingContext2D | null {
+  const s = Math.max(2, Math.round(diameterPx));
+  const key = `${s}`;
+  if (!discCanvas || !discCtx || discKey !== key) {
+    discCanvas = document.createElement("canvas");
+    discCanvas.width = discCanvas.height = s;
+    discCtx = discCanvas.getContext("2d");
+    discKey = key;
+  }
+  return discCtx;
+}
+
 let worldTexture: HTMLCanvasElement | null = null;
 let worldTextureBaking = false;
 /** The world texture, baked off the frame loop on first need. Null until
@@ -248,6 +267,7 @@ function ensureWorldTexture(): HTMLCanvasElement | null {
         c.height = WORLD_TEX_H;
         c.getContext("2d")!.putImageData(new ImageData(baked.data, baked.width, baked.height), 0, 0);
         worldTexture = c;
+        tileDebugStatus.texture = "ready";
       } catch {
         worldTextureBaking = false; // retry next call
       }
@@ -747,6 +767,46 @@ function bakeRegionTile(qLat: number, qLon: number, level: number): HTMLCanvasEl
   return c;
 }
 
+/** ?tiledebug overlay — remote eyes on the tile pipeline. */
+function TileDebugOverlay() {
+  const [snap, setSnap] = useState(() => ({ ...tileDebugStatus, cache: "" }));
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.location.search.includes("tiledebug")) return;
+    const id = window.setInterval(() => {
+      setSnap({
+        ...tileDebugStatus,
+        cache: tileDebugStatus.cacheKeys.join(" "),
+      });
+    }, 600);
+    return () => window.clearInterval(id);
+  }, []);
+  if (typeof window === "undefined" || !window.location.search.includes("tiledebug")) return null;
+  return (
+    <div
+      style={{
+        position: "absolute", left: 8, bottom: 8, zIndex: 50,
+        background: "rgba(0,0,0,0.82)", color: "#a7f3d0",
+        font: "10px/1.5 monospace", padding: "8px 10px", borderRadius: 8,
+        maxWidth: "92%", pointerEvents: "none", whiteSpace: "pre-wrap",
+      }}
+    >
+      {`scale ${snap.scale.toFixed(2)} · want L${snap.tileLevel} · served ${snap.served} ${snap.servedKey}\ntexture ${snap.texture} · queued ${snap.queued} · cache [${snap.cache}]\nerr: ${snap.lastError || "—"}`}
+    </div>
+  );
+}
+
+/** Tile pipeline telemetry — surfaced by the ?tiledebug overlay. */
+export const tileDebugStatus = {
+  scale: 0,
+  tileLevel: -1,
+  served: "none",
+  servedKey: "",
+  cacheKeys: [] as string[],
+  queued: 0,
+  lastError: "",
+  texture: "baking",
+};
+
 const tileBakeQueued = new Set<string>();
 /** The region tile for the focus point — or the best coarser layer while the
  *  requested one bakes. Bakes run off the frame loop (a detail tile is real
@@ -759,10 +819,13 @@ function ensureRegionTile(lat: number, lon: number, level: number): RegionTile |
   const hit = regionTileCache.find((t) => t.key === key);
   if (hit) {
     regionTileCache = [hit, ...regionTileCache.filter((t) => t !== hit)];
+    tileDebugStatus.served = `L${level}-hit`;
+    tileDebugStatus.servedKey = key;
     return hit;
   }
   if (!tileBakeQueued.has(key)) {
     tileBakeQueued.add(key);
+    tileDebugStatus.queued = tileBakeQueued.size;
     setTimeout(() => {
       try {
         const canvas = bakeRegionTile(qLat, qLon, level);
@@ -771,10 +834,13 @@ function ensureRegionTile(lat: number, lon: number, level: number): RegionTile |
           ppd: L.tilePx / (L.halfDeg * 2), tilePx: L.tilePx,
         };
         regionTileCache = [tile, ...regionTileCache.filter((t) => t.key !== key)].slice(0, L.cacheMax + 6);
-      } catch {
+        tileDebugStatus.cacheKeys = regionTileCache.map((t) => t.key);
+      } catch (err) {
         // Keep serving the coarser layer; retry on the next visit.
+        tileDebugStatus.lastError = `L${level} ${key}: ${String(err)}`.slice(0, 160);
       }
       tileBakeQueued.delete(key);
+      tileDebugStatus.queued = tileBakeQueued.size;
     }, 0);
   }
   // Progressive: serve the coarser layer stretched while this one bakes.
@@ -1305,10 +1371,16 @@ export default function WorldGlobe({
         // the ground keeps resolving as you descend instead of stretching
         // the morph tile forever.
         const tileLevel = v.scale >= TILE_DETAIL_SCALE ? 1 : 0;
+        tileDebugStatus.scale = v.scale;
+        tileDebugStatus.tileLevel = tileLevel;
         try {
           regionTile = ensureRegionTile(focusLL.lat, focusLL.lon, tileLevel);
         } catch {
           regionTile = null;
+        }
+        if (!regionTile) {
+          tileDebugStatus.served = "none";
+          tileDebugStatus.servedKey = "";
         }
       }
       morphTRef.current = morphT;
@@ -1331,41 +1403,59 @@ export default function WorldGlobe({
       g.fill();
 
       // 3 — the world disc: ONE continuous landmass (Hans Oct 11 2026 — no
-      // ocean, no stacked cutouts). The single world texture, drawn as
-      // projected patches with true 3D rotation. Overdrawn patches sample
-      // the same texture, so seams are invisible by construction.
-      g.save();
-      g.beginPath();
-      g.arc(cx, cy, R, 0, Math.PI * 2);
-      g.clip();
-      // Land-colored base — covers any sub-pixel patch gaps at the limb.
-      g.fillStyle = "#3d5a3f";
-      g.fillRect(cx - R, cy - R, R * 2, R * 2);
+      // ocean, no stacked cutouts). The single world texture, composited as
+      // projected patches into an offscreen disc at alpha 1 (same-texture
+      // overdraw is invisible), then limb-masked and blitted. Per-patch
+      // alpha telegraphed the patch grid as block seams — never again.
       const tex = ensureWorldTexture();
       if (tex) {
-        const cols = WORLD_PATCH_COLS, rows = WORLD_PATCH_ROWS;
-        const pw = tex.width / cols, ph = tex.height / rows;
-        const squash = 0.72; // screen-space foreshortening, as before
-        const patchAng = (360 / cols) * (Math.PI / 180); // patch angular size
-        for (let r = 0; r < rows; r++) {
-          const lat = 90 - (r + 0.5) * (180 / rows);
-          for (let c = 0; c < cols; c++) {
-            const lon = -180 + (c + 0.5) * (360 / cols);
-            const p = projectGlobe(lat, lon, v.spin, v.tilt);
-            if (!p.visible) continue;
-            const sPx = patchAng * R * 1.45; // overlap: same-texture overdraw
-            const a = 0.45 + 0.55 * p.z;
-            g.globalAlpha = a;
-            g.drawImage(
-              tex, c * pw, r * ph, pw, ph,
-              cx + p.x * R - sPx / 2,
-              cy + p.y * R - (sPx * squash) / 2,
-              sPx,
-              sPx * squash,
-            );
+        const D = Math.ceil(R * 2);
+        const dg = ensureDiscCtx(D);
+        if (dg && discCanvas) {
+          dg.setTransform(1, 0, 0, 1, 0, 0);
+          dg.clearRect(0, 0, D, D);
+          dg.fillStyle = "#3d5a3f"; // land-colored base under the patches
+          dg.fillRect(0, 0, D, D);
+          const cols = WORLD_PATCH_COLS, rows = WORLD_PATCH_ROWS;
+          const pw = tex.width / cols, ph = tex.height / rows;
+          const squash = 0.72; // screen-space foreshortening, as before
+          const patchAng = (360 / cols) * (Math.PI / 180);
+          const dc = D / 2;
+          for (let r = 0; r < rows; r++) {
+            const lat = 90 - (r + 0.5) * (180 / rows);
+            for (let c = 0; c < cols; c++) {
+              const lon = -180 + (c + 0.5) * (360 / cols);
+              const p = projectGlobe(lat, lon, v.spin, v.tilt);
+              if (!p.visible) continue;
+              const sPx = patchAng * R * 1.45; // overlap: invisible overdraw
+              dg.drawImage(
+                tex, c * pw, r * ph, pw, ph,
+                dc + p.x * R - sPx / 2,
+                dc + p.y * R - (sPx * squash) / 2,
+                sPx,
+                sPx * squash,
+              );
+            }
           }
+          // Limb mask — soft planetary edge.
+          dg.globalCompositeOperation = "destination-in";
+          const mask = dg.createRadialGradient(dc, dc, dc * 0.7, dc, dc, dc);
+          mask.addColorStop(0, "rgba(0,0,0,1)");
+          mask.addColorStop(0.8, "rgba(0,0,0,1)");
+          mask.addColorStop(1, "rgba(0,0,0,0)");
+          dg.fillStyle = mask;
+          dg.fillRect(0, 0, D, D);
+          dg.globalCompositeOperation = "source-over";
+          g.drawImage(discCanvas, cx - dc, cy - dc, D, D);
         }
-        g.globalAlpha = 1;
+      } else {
+        // Texture still baking — land-colored disc holds the frame.
+        g.save();
+        g.beginPath();
+        g.arc(cx, cy, R, 0, Math.PI * 2);
+        g.fillStyle = "#3d5a3f";
+        g.fill();
+        g.restore();
       }
 
       // 5 — ice caps
@@ -2401,6 +2491,8 @@ export default function WorldGlobe({
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
         />
+
+        <TileDebugOverlay />
 
         {/* Legend — every layer toggleable (globe furniture; parks in the system view) */}
         {!inSystem && (
