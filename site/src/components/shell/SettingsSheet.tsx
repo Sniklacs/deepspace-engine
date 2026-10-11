@@ -6,6 +6,7 @@
 // graphics quality, both real (the CSS behind them lives in styles/app.css).
 // L9 is why all three are device-shaped: they are read from, and written to, the
 // device record only — nothing about them follows an account.
+import { useEffect, useState } from "react";
 import { Sheet, SheetHeader } from "../Sheet";
 import { SegmentedControl } from "../SegmentedControl";
 import { LanguageRows } from "../i18n/LanguagePicker";
@@ -18,15 +19,24 @@ import {
   langMeta,
   setDeviceChatChime,
   setDeviceLang,
-  setDeviceQuality,
   setDeviceTextSize,
 } from "../../game/i18n";
+import {
+  getGraphicsMode,
+  setGraphicsMode,
+  subscribeGraphicsMode,
+  type GraphicsMode,
+} from "../../game/graphics-quality";
 import { useDeviceSettings, useT } from "../i18n/I18n";
 
 export default function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT();
   const s = useDeviceSettings();
   const meta = langMeta(s.lang);
+  // The graphics ladder is its own device record (game/graphics-quality),
+  // subscribed here so a change elsewhere in the session re-renders this row.
+  const [gfxMode, setGfxMode] = useState<GraphicsMode>(() => getGraphicsMode());
+  useEffect(() => subscribeGraphicsMode(() => setGfxMode(getGraphicsMode())), []);
 
   return (
     <Sheet open={open} onClose={onClose} labelledBy="settings-title" title={t("settings.title")}>
@@ -73,20 +83,32 @@ export default function SettingsSheet({ open, onClose }: { open: boolean; onClos
           </div>
         </section>
 
-        {/* 3 · Graphics quality — fewer effects, honest wording, real weight */}
-        <section aria-labelledby="settings-quality" className="space-y-1.5">
-          <h3 id="settings-quality" className="eyebrow">
-            {t("settings.quality")}
+        {/* 3 · Graphics — the seamless-world ladder (spec §9): Cinematic is
+               full fidelity; Balanced / Performance scale the effects down;
+               Auto steps down on its own on sustained low frame rate and can
+               be overridden anytime. Replaces the old Full/Reduced switch —
+               Performance still gets the honest CSS weight rule (the module
+               syncs html[data-quality]) behind the same ladder. */}
+        <section aria-labelledby="settings-graphics" className="space-y-1.5">
+          <h3 id="settings-graphics" className="eyebrow">
+            {t("settings.graphicsLadder", "Graphics")}
           </h3>
-          <p className="text-[11px] leading-snug text-text-3">{t("settings.qualitySub")}</p>
-          <div data-testid="settings-quality">
+          <p className="text-[11px] leading-snug text-text-3">
+            {t(
+              "settings.graphicsLadderSub",
+              "Cinematic is full detail. Auto steps down on its own if the frame rate struggles.",
+            )}
+          </p>
+          <div data-testid="settings-graphics-ladder">
             <SegmentedControl
-              ariaLabel={t("settings.quality")}
-              value={s.quality}
-              onChange={(id) => setDeviceQuality(id as "full" | "reduced")}
+              ariaLabel={t("settings.graphicsLadder", "Graphics")}
+              value={gfxMode}
+              onChange={(id) => setGraphicsMode(id as GraphicsMode)}
               options={[
-                { id: "full", label: t("settings.qualityFull") },
-                { id: "reduced", label: t("settings.qualityReduced") },
+                { id: "cinematic", label: t("settings.gfxCinematic", "Cinematic") },
+                { id: "balanced", label: t("settings.gfxBalanced", "Balanced") },
+                { id: "performance", label: t("settings.gfxPerformance", "Performance") },
+                { id: "auto", label: t("settings.gfxAuto", "Auto") },
               ]}
             />
           </div>

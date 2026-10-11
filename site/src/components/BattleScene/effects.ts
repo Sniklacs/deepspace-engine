@@ -4,6 +4,7 @@
 // beams, radar sweep. All procedural — no sprite sheets needed, animates at
 // any frame rate. The component owns one Fx instance per scene and calls
 // update(dt) + draw(ctx, view) each frame.
+import { particleBudgetMultiplier } from "../../game/graphics-quality";
 
 export interface Tracer {
   x1: number; y1: number; x2: number; y2: number;
@@ -48,9 +49,15 @@ export class Fx {
   }
 
   explode(x: number, y: number, scale = 1): void {
+    // SEAMLESS-WORLD §9 (slice 8): the graphics ladder thins spawned
+    // particles per rung — counts only. Sim behavior (damage, timing,
+    // trauma) is untouched; CINEMATIC (budget 1) is byte-identical.
+    const budget = particleBudgetMultiplier();
+    const nParts = Math.max(1, Math.round(26 * budget));
+    const nSmoke = Math.max(1, Math.round(8 * budget));
     const parts: Boom["particles"] = [];
     const smoke: Boom["smoke"] = [];
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < nParts; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = (60 + Math.random() * 220) * scale;
       parts.push({
@@ -61,7 +68,7 @@ export class Fx {
         color: ["#ffdf8a", "#ff9c3f", "#ff5f2b", "#fff3d6"][i % 4],
       });
     }
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < nSmoke; i++) {
       const a = Math.random() * Math.PI * 2;
       smoke.push({
         x: x + (Math.random() - 0.5) * 20, y: y + (Math.random() - 0.5) * 20,
@@ -90,6 +97,9 @@ export class Fx {
   /** Dust kicked up by a moving troop — soft tan puff, drifts and settles. */
   dust(x: number, y: number): void {
     if (this.dusts.length > 160) return;
+    // SEAMLESS-WORLD §9 (slice 8): ambient dust thins probabilistically per
+    // rung — CINEMATIC (budget 1) always spawns, PERFORMANCE keeps ~15%.
+    if (Math.random() > particleBudgetMultiplier()) return;
     this.dusts.push({
       x: x + (Math.random() - 0.5) * 10,
       y: y + (Math.random() - 0.5) * 6,
