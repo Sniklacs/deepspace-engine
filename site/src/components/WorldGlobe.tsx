@@ -72,11 +72,22 @@ import {
 // extended scale clamp (the axis now runs past the old SCALE_MAX=3 down
 // to the ground). Stable pure kernel; other agents import it too.
 import {
+  bandCenter,
   bandForScale,
   clampZoomScale,
   morphTFromScale,
   ZOOM_BAND_LABEL,
 } from "../game/world/zoom-bands";
+// ORBIT DUST CLOUDS (Phase 2, slice 3): live battles as dust-cloud markers
+// on the surface at Z1 — intensity from existing engine feeds, churn via
+// noise-offset drift, warm/ash vs-Chorus vs red-fringe PvP.
+import {
+  buildOrbitBattleFeeds,
+  defaultBattlePosition,
+  drawOrbitBattleMarkers,
+  type OrbitBattleFeed,
+  type OrbitMarkerHit,
+} from "../game/world/orbit-battle-markers";
 
 /** #rrggbb + alpha → rgba() string for canvas gradients/strokes. */
 function hexA(hex: string, alpha: number): string {
@@ -843,6 +854,11 @@ export default function WorldGlobe({
   // ZOOM-MORPH (slice 2): the frame loop's current sphere→plane factor,
   // mirrored here so tap handling knows when the globe markers are gone.
   const morphTRef = useRef(0);
+  // ORBIT DUST CLOUDS (slice 3): live-battle feeds + their screen hit
+  // rects, refreshed by the frame loop. Same render-time ref pattern as
+  // markersRef — the tap handler reads the latest.
+  const battleFeedsRef = useRef<OrbitBattleFeed[]>([]);
+  const dustHitsRef = useRef<OrbitMarkerHit[]>([]);
   // ZOOM-AXIS (Phase 2, slice 1): temporary dev readout of the zoom
   // continuum (band + scale + morph factor). Updated via textContent in the
   // frame loop — no React re-renders. Tap it to dismiss for the session
@@ -946,6 +962,19 @@ export default function WorldGlobe({
   }, [state, now, hiveCandidate]);
   const counts = useMemo(() => countByLayer(markers), [markers]);
   markersRef.current = markers;
+  // ORBIT DUST CLOUDS (slice 3): live battles → orbit feeds. Chorus-site
+  // battles resolve to their site's globe position; anything else (home
+  // defense, PvP) falls back to the home colony position for now.
+  const battleFeeds = useMemo(
+    () =>
+      buildOrbitBattleFeeds(
+        state.battles,
+        now,
+        (b) => defaultBattlePosition(b) ?? currentHomeGlobePosition(state),
+      ),
+    [state, now],
+  );
+  battleFeedsRef.current = battleFeeds;
   // WS5: keep the day/night anchor on the CURRENT home position — hive
   // relocation re-anchors the phase on the next sun tick.
   homePosRef.current = currentHomeGlobePosition(state);
@@ -1097,7 +1126,7 @@ export default function WorldGlobe({
       const zd = zoomDebugRef.current;
       if (zd && !zoomDebugHidden.current) {
         const band = bandForScale(v.scale);
-        const txt = `ZOOM ${ZOOM_BAND_LABEL[band]} · z ${v.scale.toFixed(2)} · morph ${morphTFromScale(v.scale).toFixed(2)}`;
+        const txt = `ZOOM ${ZOOM_BAND_LABEL[band]} · z ${v.scale.toFixed(2)} · morph ${morphTFromScale(v.scale).toFixed(2)} · ⚔ ${battleFeedsRef.current.length}`;
         if (zd.textContent !== txt) zd.textContent = txt;
       }
 
@@ -1427,6 +1456,28 @@ export default function WorldGlobe({
           g.fillText(m.label, px, py - 1);
         }
       }
+
+      // 11b — ORBIT DUST-CLOUD MARKERS (Phase 2, slice 3): live battles as
+      // dust clouds on the surface at Z1. View-space, over the globe, under
+      // nothing — they ARE the orbit read. Intensity from existing engine
+      // feeds; churn via noise-offset drift (no sprite frames). They thin
+      // as the sphere→plane morph runs (alpha → 0 by morphT 0.5) and are
+      // gone past it — the Z2 sigils take over in a later slice.
+      if (morphT < 0.5) {
+        dustHitsRef.current = drawOrbitBattleMarkers(
+          g,
+          battleFeedsRef.current,
+          (lat, lon) => {
+            const p = projectGlobe(lat, lon, v.spin, v.tilt);
+            return p.visible
+              ? { x: cx + p.x * R, y: cy + p.y * R, visible: true }
+              : { x: 0, y: 0, visible: false };
+          },
+          { globeR: R, time, alpha: 1 - morphT * 2 },
+        );
+      } else {
+        dustHitsRef.current = [];
+      }
       } // end if (!pastMorph) — the globe group is skipped past the morph
 
       // ZOOM-MORPH composite (slice 2): the planar region tile under the
@@ -1684,6 +1735,26 @@ export default function WorldGlobe({
     return null;
   }, []);
 
+  /** ORBIT DUST CLOUDS (slice 3) tap target: nearest live-battle cloud
+   *  within its churn radius (+ thumb slack). Hit rects refresh every
+   *  frame from the render loop. */
+  const hitTestDust = useCallback((x: number, y: number): OrbitMarkerHit | null => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const lx = x - rect.left, ly = y - rect.top;
+    let best: OrbitMarkerHit | null = null;
+    let bestD = Infinity;
+    for (const hit of dustHitsRef.current) {
+      const rr = Math.max(22, hit.r + 6);
+      const d = (lx - hit.x) * (lx - hit.x) + (ly - hit.y) * (ly - hit.y);
+      if (d <= rr * rr && d < bestD) {
+        best = hit;
+        bestD = d;
+      }
+    }
+    return best;
+  }, []);
+
   /** SOLAR SYSTEM tap target: nearest planet within its disc (+ thumb
    *  slack). Positions refresh every frame from the render loop. */
   const hitTestPlanet = useCallback((x: number, y: number): string | null => {
@@ -1771,6 +1842,22 @@ export default function WorldGlobe({
         }
         return;
       }
+      // ORBIT DUST CLOUDS (slice 3): at Z1, tapping a live battle's dust
+      // cloud sets a focus target and eases z toward Z3. The globe's own
+      // focus ease (focusViewTarget + shortestSpinDelta — the snap-to-site
+      // flow) centers it; the smoothed targetScale ease descends. The ease
+      // math already exists — reused, not rewritten.
+      if (bandForScale(view.current.scale) === "Z1") {
+        const cloud = hitTestDust(e.clientX, e.clientY);
+        if (cloud) {
+          playSelect();
+          const v = view.current;
+          const target = focusViewTarget(cloud.lat, cloud.lon);
+          focusAnim.current = { ...target, nonce: (focusAnim.current?.nonce ?? 0) + 1 };
+          v.targetScale = clampZoomScale(bandCenter("Z3"));
+          return;
+        }
+      }
       // ZOOM-MORPH (slice 2): past the morph the globe markers have faded
       // out with the sphere — taps find no sheet targets up here (region
       // interactions land in later slices).
@@ -1807,7 +1894,7 @@ export default function WorldGlobe({
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-  }, [hitTest, hitTestPlanet, tapToGlobe]);
+  }, [hitTest, hitTestDust, hitTestPlanet, tapToGlobe]);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (e.touches.length === 2) {
