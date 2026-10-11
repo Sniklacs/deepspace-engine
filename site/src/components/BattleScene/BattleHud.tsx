@@ -157,7 +157,7 @@ export function BattleHud({
         // instead of the chip that was tapped (QA 2026-10-06: taps aimed at
         // the reserve chip kept selecting Squad 4). min-h keeps ≥40px thumb
         // targets at phone widths.
-        className={`${CHIP} pointer-events-auto min-h-[44px] w-full touch-manipulation items-center justify-between ${
+        className={`${CHIP} pointer-events-auto min-h-[22px] w-full touch-manipulation items-center justify-between !px-1.5 !py-0.5 !text-[9px] !rounded-md ${
           selected
             ? "border-white/70 bg-white/15 text-white"
             : sq.onCallReserve
