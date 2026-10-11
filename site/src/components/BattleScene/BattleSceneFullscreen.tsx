@@ -12,18 +12,40 @@ import { useEffect } from "react";
 import { BattleScene } from "./BattleScene";
 import { closeWindowsOfKind } from "../../game/windows/window-store";
 import type { SceneBattle } from "../../game/war/battle-scene-model";
-import type { SlotLoads } from "../../game/war/playbook";
+import type { SavedFormation, SlotLoads } from "../../game/war/playbook";
+import type { CompactReplay } from "../../game/war/battle-replays";
+
+export interface FormationDraft {
+  name: string;
+  playId: string;
+  loads: SlotLoads;
+  slotMeta?: SavedFormation["slotMeta"];
+  replayId?: string;
+}
+
+export interface DoctrineDraft {
+  name: string;
+  playId: string;
+  loads: SlotLoads;
+  slotMeta?: SavedFormation["slotMeta"];
+  replay?: CompactReplay;
+  battleName: string;
+  victor: "attacker" | "defender" | null;
+  durationS: number;
+  killsAttacker: number;
+  killsDefender: number;
+}
 
 export function BattleSceneFullscreen({
   scene,
   onClose,
-  formation = null,
   onSaveFormation,
+  onSaveDoctrine,
 }: {
   scene: SceneBattle;
   onClose: () => void;
-  formation?: { name: string; playId: string; loads: SlotLoads } | null;
-  onSaveFormation?: (draft: { name: string; playId: string; loads: SlotLoads }) => void;
+  onSaveFormation?: (draft: FormationDraft) => void;
+  onSaveDoctrine?: (draft: DoctrineDraft) => void;
 }) {
   useEffect(() => {
     return () => {
@@ -31,5 +53,5 @@ export function BattleSceneFullscreen({
     };
   }, []);
 
-  return <BattleScene scene={scene} variant="fullscreen" onClose={onClose} formation={formation} onSaveFormation={onSaveFormation} />;
+  return <BattleScene scene={scene} variant="fullscreen" onClose={onClose} onSaveFormation={onSaveFormation} onSaveDoctrine={onSaveDoctrine} />;
 }

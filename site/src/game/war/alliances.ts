@@ -27,6 +27,8 @@ import {
   recordCasualties,
   releaseWeight,
 } from "./troops";
+import type { SlotLoads, SavedFormation } from "./playbook";
+import type { CompactReplay } from "./battle-replays";
 
 /** Local activity-log line (mirrors engine.log's shape). */
 function alog(state: GameState, msg: string): void {
@@ -57,11 +59,183 @@ export const ALLIANCE_CONFIG = {
 
 export type AllianceRole = "leader" | "officer" | "member";
 
+/**
+ * Member permissions (owner 2026-10-11): per-member flags assigned by the
+ * leader/officers. New members join with the default set (doctrines OFF —
+ * the leader grants it when the recruit is ready). Extensible: add new
+ * flags to this union; memberPermissions() is the single check.
+ */
+export type AlliancePermission = "doctrines";
+
+/** Default permissions for a fresh member — doctrines OFF by default. */
+export const DEFAULT_MEMBER_PERMISSIONS: readonly AlliancePermission[] = [];
+
+// ---------------------------------------------------------------------------
+// Member avatars + service record (owner 2026-10-11).
+// ---------------------------------------------------------------------------
+
+/**
+ * A member's avatar: a preset sigil we provide, or their own uploaded image.
+ * Uploads live on the player's own save (served on demand); the member
+ * record carries only the reference, so the alliance record stays lean and
+ * avatar changes sync out with the next mirror update.
+ */
+export type MemberAvatar =
+  | { kind: "preset"; key: string }
+  | { kind: "upload"; id: string };
+
+/** Preset avatar sigils — the set every member can pick from. */
+export const AVATAR_PRESETS: readonly { key: string; glyph: string; label: string }[] = [
+  { key: "war-helm", glyph: "🪖", label: "War helm" },
+  { key: "blade", glyph: "⚔️", label: "Crossed blades" },
+  { key: "shield", glyph: "🛡️", label: "Shield" },
+  { key: "dragon", glyph: "🐉", label: "Dragon" },
+  { key: "flame", glyph: "🔥", label: "Flame" },
+  { key: "bolt", glyph: "⚡", label: "Bolt" },
+  { key: "crown", glyph: "👑", label: "Crown" },
+  { key: "skull", glyph: "💀", label: "Skull" },
+  { key: "wolf", glyph: "🐺", label: "Wolf" },
+  { key: "eagle", glyph: "🦅", label: "Eagle" },
+  { key: "bow", glyph: "🏹", label: "Bow" },
+  { key: "trident", glyph: "🔱", label: "Trident" },
+  { key: "star", glyph: "🌟", label: "Star" },
+  { key: "comet", glyph: "☄️", label: "Comet" },
+  { key: "fist", glyph: "✊", label: "Fist" },
+  { key: "eye", glyph: "👁️", label: "Eye" },
+];
+
+export const DEFAULT_AVATAR_KEY = "war-helm";
+
+export function avatarGlyph(key: string): string {
+  return AVATAR_PRESETS.find((p) => p.key === key)?.glyph ?? "🪖";
+}
+
+/** Effective avatar for a member (pure). */
+export function avatarFor(m: Pick<AllianceMember, "avatar">): MemberAvatar {
+  return m.avatar ?? { kind: "preset", key: DEFAULT_AVATAR_KEY };
+}
+
+/**
+ * Service record — what a member has given the alliance (owner 2026-10-11).
+ * "Sacrifice" means troops committed to the alliance cause and lost in
+ * battle: reinforcements/reserves sent to allies that died holding the line.
+ * Not wasted — given. Persistent on the member record; incremented when
+ * their reinforcements die in an allied battle (record-service fx).
+ */
+export interface MemberServiceRecord {
+  /** troop weight lost in alliance service */
+  troopsLost: number;
+  /** allied battles they bled in */
+  battles: number;
+  /** supplies donated to the alliance cause */
+  donated: number;
+}
+
+export function emptyServiceRecord(): MemberServiceRecord {
+  return { troopsLost: 0, battles: 0, donated: 0 };
+}
+
+export function serviceOf(m: Pick<AllianceMember, "service">): MemberServiceRecord {
+  return m.service ?? emptyServiceRecord();
+}
+
+/**
+ * Contribution score (owner 2026-10-11): troops lost in service feed it
+ * directly — a member who bleeds for the alliance shows it — plus
+ * donations. One number, comparable across the roster.
+ */
+export function memberContribution(m: Pick<AllianceMember, "service">): number {
+  const s = serviceOf(m);
+  return s.troopsLost + s.donated;
+}
+
+/**
+ * Record sacrifice on the canonical record (pure): a member's troops died
+ * in alliance service. Bumps version so mirrors converge.
+ */
+export function recordMemberService(a: Alliance, memberId: string, troopsLost: number): boolean {
+  const m = a.members.find((x) => x.colonyId === memberId);
+  if (!m) return false;
+  const s = serviceOf(m);
+  s.troopsLost += Math.max(0, Math.trunc(troopsLost));
+  s.battles += 1;
+  m.service = s;
+  logAllianceActivity(
+    a,
+    "sacrifice",
+    `${m.colonyName} bled for the war band — ${troopsLost} fallen.`,
+    { byColonyId: memberId, byColonyName: m.colonyName, at: Date.now() },
+  );
+  touchAlliance(a);
+  return true;
+}
+
+/**
+ * Canonical-side applier: record-service fx. A member's troops bled in
+ * alliance service — idempotent per key (crash-replays can't double-count
+ * sacrifice).
+ */
+export function applyRecordService(
+  state: GameState,
+  fx: Extract<AllianceFx, { kind: "record-service" }>,
+  now = Date.now(),
+): boolean {
+  if (fxDone(state, fx.key)) return false;
+  markFxDone(state, fx.key, now);
+  const a = allianceStore(state)[fx.allianceId];
+  if (!a) return false;
+  return recordMemberService(a, fx.memberId, fx.troopsLost);
+}
+
 export interface AllianceMember {
   colonyId: string;
   colonyName: string;
   role: AllianceRole;
   joinedAt: number;
+  /** Granted permissions. Missing = defaults. Leaders/officers implicitly
+   *  hold every permission — they run the alliance. */
+  permissions?: AlliancePermission[];
+  /** Avatar: preset sigil or uploaded image reference. */
+  avatar?: MemberAvatar;
+  /** Service record — troops lost in alliance service + contribution. */
+  service?: MemberServiceRecord;
+}
+
+/** Effective permissions for a member (pure). */
+export function memberPermissions(a: Alliance, colonyId: string): AlliancePermission[] {
+  const m = a.members.find((x) => x.colonyId === colonyId);
+  if (!m) return [];
+  if (m.role === "leader" || m.role === "officer") {
+    return ["doctrines"];
+  }
+  return m.permissions ?? [...DEFAULT_MEMBER_PERMISSIONS];
+}
+
+/** Single permission check (pure). */
+export function memberCan(a: Alliance, colonyId: string, perm: AlliancePermission): boolean {
+  return memberPermissions(a, colonyId).includes(perm);
+}
+
+/**
+ * Leader/officer-only: assign a member's permissions (pure, mutates the
+ * record + bumps version). The leader's own permissions can't be changed.
+ */
+export function setMemberPermissions(
+  a: Alliance,
+  byColonyId: string,
+  targetColonyId: string,
+  permissions: AlliancePermission[],
+): { ok: boolean; error?: string } {
+  const by = memberRole(a, byColonyId);
+  if (by !== "leader" && by !== "officer") {
+    return { ok: false, error: "Only the leader and officers assign permissions." };
+  }
+  const m = a.members.find((x) => x.colonyId === targetColonyId);
+  if (!m) return { ok: false, error: "Not a member of this alliance." };
+  if (m.role === "leader") return { ok: false, error: "The leader's permissions can't be changed." };
+  m.permissions = [...new Set(permissions)];
+  touchAlliance(a);
+  return { ok: true };
 }
 
 export interface AllianceApplication {
@@ -109,6 +283,117 @@ export interface Alliance {
    *  policy changes. Newest first, capped at ALLIANCE_ACTIVITY_CAP. Fans
    *  out to mirrors with the record (sync-alliance). */
   activity?: AllianceActivityEntry[];
+  /**
+   * DOCTRINES (owner 2026-10-11): the alliance's institutional memory — how
+   * the war band fights. Saved from a won battle, named, with the teaching
+   * tape (compact replay) attached. Alliance-scoped: they live here, not on
+   * the globe. Viewing requires the "doctrines" member permission.
+   */
+  doctrines?: AllianceDoctrine[];
+}
+
+// ---------------------------------------------------------------------------
+// Doctrines — the alliance's way of war (owner 2026-10-11).
+// A doctrine is a named, battle-proven formation saved to the ALLIANCE
+// (personal setups stay in the war room). New members open the doctrine
+// library, see how the alliance fights, watch the attached replay, and
+// build their forces to fit. Doctrines ride the alliance record and fan
+// out to mirrors with sync-alliance.
+// ---------------------------------------------------------------------------
+
+/** Cap on doctrines per alliance — the shelf, not the archive. */
+export const MAX_DOCTRINES = 10;
+
+export interface AllianceDoctrine {
+  id: string;
+  /** Required — every doctrine is findable by name. */
+  name: string;
+  authorId: string;
+  authorName: string;
+  createdAt: number;
+  playId: string;
+  loads: SlotLoads;
+  slotMeta?: SavedFormation["slotMeta"];
+  /** The teaching tape — compact replay, embedded. */
+  replay?: CompactReplay;
+  /** Proof it works: the battle it was saved from. */
+  battleName: string;
+  victor: "attacker" | "defender" | null;
+  durationS: number;
+  killsAttacker: number;
+  killsDefender: number;
+}
+
+/** One line of the "build to this doctrine" guide (pure). */
+export interface DoctrineGuideLine {
+  type: string;
+  tier: number;
+  count: number;
+}
+
+/**
+ * "Build to this doctrine": the composition a new player needs, grouped by
+ * type+tier (pure). The UI pairs this with their roster deficit.
+ */
+export function doctrineGuide(d: Pick<AllianceDoctrine, "loads">): {
+  total: number;
+  lines: DoctrineGuideLine[];
+} {
+  const byKT = new Map<string, DoctrineGuideLine>();
+  for (const picks of Object.values(d.loads ?? {})) {
+    for (const p of picks ?? []) {
+      const k = `${p.type}:${p.tier}`;
+      const line = byKT.get(k);
+      if (line) line.count += Math.max(0, Math.trunc(p.count));
+      else byKT.set(k, { type: p.type, tier: p.tier, count: Math.max(0, Math.trunc(p.count)) });
+    }
+  }
+  const lines = [...byKT.values()].sort((a, b) => b.count - a.count);
+  return { total: lines.reduce((n, l) => n + l.count, 0), lines };
+}
+
+export function doctrinesOf(a: Alliance): AllianceDoctrine[] {
+  return a.doctrines ?? [];
+}
+
+/**
+ * Save a doctrine to the alliance (pure, mutates the record + bumps
+ * version). Any member may contribute — the library is the war band's
+ * memory. Viewing is gated by the "doctrines" permission, not saving.
+ */
+export function addDoctrine(
+  a: Alliance,
+  d: Omit<AllianceDoctrine, "id" | "createdAt">,
+  now: number,
+): AllianceDoctrine {
+  const doc: AllianceDoctrine = {
+    ...d,
+    id: `doc-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    createdAt: now,
+  };
+  a.doctrines = [...(a.doctrines ?? []), doc].slice(-MAX_DOCTRINES);
+  touchAlliance(a);
+  return doc;
+}
+
+/**
+ * Remove a doctrine (pure). The author may retract their own; the leader
+ * and officers may remove any.
+ */
+export function removeDoctrine(
+  a: Alliance,
+  byColonyId: string,
+  doctrineId: string,
+): { ok: boolean; error?: string } {
+  const d = (a.doctrines ?? []).find((x) => x.id === doctrineId);
+  if (!d) return { ok: false, error: "Doctrine not found." };
+  const role = memberRole(a, byColonyId);
+  if (d.authorId !== byColonyId && role !== "leader" && role !== "officer") {
+    return { ok: false, error: "Only the author, the leader, or an officer can remove a doctrine." };
+  }
+  a.doctrines = (a.doctrines ?? []).filter((x) => x.id !== doctrineId);
+  touchAlliance(a);
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +419,8 @@ export type AllianceActivityKind =
   | "rally-resolved"
   | "rally-cancelled"
   | "policy"
-  | "tithe";
+  | "tithe"
+  | "sacrifice";
 
 export interface AllianceActivityEntry {
   id: string;
@@ -264,6 +550,18 @@ export type AllianceFx =
       mirrorId: string;
       /** Monotonic sync: the mirror's weight becomes min(current, weight). */
       weight: number;
+      key: string;
+    }
+  | {
+      kind: "record-service";
+      /** The FOUNDER's colony — canonical record holder. */
+      colonyId: string;
+      allianceId: string;
+      /** The member whose troops bled. */
+      memberId: string;
+      /** Troop weight lost in alliance service. */
+      troopsLost: number;
+      battleId: string;
       key: string;
     }
   | {
@@ -1209,6 +1507,10 @@ export function applyBillForeignCasualties(
       }
     }
     if (killed > 0) alog(state, `Your guests bled at ${fx.site} — ${killed} weight fallen.`);
+    // Service record (owner 2026-10-11): troops committed to the alliance
+    // cause and lost — sacrifice, not waste. Queued to the canonical
+    // record; the war band sees it on the member's profile.
+    queueServiceRecord(state, fx.battleId, fx.segmentId, killed);
     // Sync the host's mirror back to reality (monotonic — never clobbers
     // newer local desertion). Without this the next battle would simulate
     // dead guests back into the line.
@@ -1223,8 +1525,32 @@ export function applyBillForeignCasualties(
     // Rally pledger: survivors march home (their lock was only this battle).
     releaseWeight(roster, Math.max(0, fx.segmentWeight - killed));
     if (killed > 0) alog(state, `Your rally pledge bled at ${fx.site} — ${killed} weight fallen.`);
+    // Rally pledges are alliance service too — the fallen count.
+    queueServiceRecord(state, fx.battleId, fx.segmentId, killed);
   }
   return { killed };
+}
+
+/**
+ * Queue a record-service fx to the canonical alliance record (owner
+ * 2026-10-11): the sender's troops died in alliance service. No-op when
+ * the sender holds no alliance or nothing was lost.
+ */
+function queueServiceRecord(state: GameState, battleId: string, segmentId: string, killed: number): void {
+  if (killed <= 0) return;
+  const me = state.gameId;
+  if (!me) return;
+  const a = allianceOf(state, me);
+  if (!a) return;
+  queueAllianceFx(state, {
+    kind: "record-service",
+    colonyId: a.founderId,
+    allianceId: a.id,
+    memberId: me,
+    troopsLost: Math.trunc(killed),
+    battleId,
+    key: `service:${battleId}:${segmentId}:${me}`,
+  });
 }
 
 /** Target-side applier: apply-help-tick. Shaves the target's build/research

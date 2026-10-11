@@ -64,14 +64,18 @@ export interface SquadSummary {
   eyes?: boolean;
   /** on-call reserve still in staging — tap the squad, tap the map: hot drop */
   onCallReserve?: boolean;
+  /** living thunders in this squad — it has siege controls (aim, hold-fire) */
+  hasThunders?: boolean;
 }
 
 /** What one log entry IS (QA 2026-10-06: a hot-drop must not read like a
  *  plain move — the receipt drives its own wording per kind):
  *    "move"    — a judged move order (accepted/rejected by the doctrine).
  *    "hotdrop" — an on-call reserve was COMMITTED: it fell on the tap.
+ *    "jumpdrop" — a combat drop behind enemy lines (jump-ship only, Warden
+ *                 escort required) — the only legal rear entry.
  *    "comms"   — a field report (the ORDERS log's other half: the report feed). */
-export type OrderKind = "move" | "hotdrop" | "comms";
+export type OrderKind = "move" | "hotdrop" | "jumpdrop" | "comms";
 
 /** One judged order for the ORDERS log — the command log seed. */
 export interface OrderLogEntry {
@@ -93,6 +97,11 @@ export interface OrderLogEntry {
 export function orderReceipt(entry: OrderLogEntry): { text: string; tone: "ok" | "bad" | "note" } {
   if (entry.kind === "hotdrop") {
     return { text: `${entry.squadName} hot-dropped → ${entry.dest}`, tone: "ok" };
+  }
+  if (entry.kind === "jumpdrop") {
+    return entry.verdict === "accepted"
+      ? { text: `✈ ${entry.squadName} combat-dropped → ${entry.dest}`, tone: "ok" }
+      : { text: `${entry.squadName} — ${entry.reason ?? "jump drop refused"}`, tone: "bad" };
   }
   if (entry.kind === "comms") {
     return { text: entry.reason ? `${entry.squadName} — ${entry.reason}` : entry.squadName, tone: "note" };
@@ -154,6 +163,28 @@ export interface SceneUIState {
   zoomLevel: number;
   /** recenter token — bump to reset pan + zoom */
   mapNonce: number;
+  /**
+   * Siege aim point, world coords (owner 2026-10-11): the draggable
+   * targeter. Thunder guns walk their fire to it. Null = not placed —
+   * thunders fall back to nearest-enemy fire.
+   */
+  siegeAim: { x: number; y: number } | null;
+  /** Aim mode armed — the next map tap with a thunder squad selected places the targeter. */
+  siegeAimArmed: boolean;
+  /**
+   * Per-squad stance (owner 2026-10-11):
+   *   weaponsHold — the squad's direct-fire weapons stay silent, even in range.
+   *   holdPosition — the squad stays put; ground move orders are refused.
+   * Defaults: weapons live; thunder squads hold position (deployed siege),
+   * everyone else moves. Missing entry = defaults.
+   */
+  squadStance: Record<string, { weaponsHold?: boolean; holdPosition?: boolean }>;
+  /**
+   * Siege master hold-fire (owner 2026-10-11): the panic button — every
+   * thunder holds its shells while this is on. Per-unit siegeHold also exists
+   * for future per-gun control; either one silences the gun.
+   */
+  siegeHoldAll: boolean;
 }
 
 const INITIAL: SceneUIState = {
@@ -177,6 +208,10 @@ const INITIAL: SceneUIState = {
   orderLog: [],
   zoomLevel: 1,
   mapNonce: 0,
+  siegeAim: null,
+  siegeAimArmed: false,
+  squadStance: {},
+  siegeHoldAll: false,
 };
 
 let state: SceneUIState = INITIAL;
@@ -382,7 +417,55 @@ export function resetSceneUI(): void {
     squads: [],
     selectedSquadId: null,
     orderLog: [],
+    siegeAim: null,
+    siegeAimArmed: false,
+    squadStance: {},
+    siegeHoldAll: false,
   });
+}
+
+/** Stance accessors with defaults (pure): weapons live; thunder squads hold. */
+export function squadStanceOf(
+  ui: { squadStance: Record<string, { weaponsHold?: boolean; holdPosition?: boolean }> },
+  id: string,
+  hasThunders: boolean,
+): { weaponsHold: boolean; holdPosition: boolean } {
+  const s = ui.squadStance[id];
+  return {
+    weaponsHold: s?.weaponsHold ?? false,
+    holdPosition: s?.holdPosition ?? hasThunders,
+  };
+}
+
+/** Toggle a squad's weapons hold. */
+export function setSquadWeaponsHold(id: string, hold: boolean): void {
+  const cur = state.squadStance[id] ?? {};
+  if ((cur.weaponsHold ?? false) === hold) return;
+  set({ squadStance: { ...state.squadStance, [id]: { ...cur, weaponsHold: hold } } });
+}
+
+/** Toggle a squad's hold-position. */
+export function setSquadHoldPosition(id: string, hold: boolean): void {
+  const cur = state.squadStance[id] ?? {};
+  if ((cur.holdPosition ?? false) === hold) return;
+  set({ squadStance: { ...state.squadStance, [id]: { ...cur, holdPosition: hold } } });
+}
+
+/** Siege master hold-fire — the panic button. */
+export function setSiegeHoldAll(hold: boolean): void {
+  if (state.siegeHoldAll === hold) return;
+  set({ siegeHoldAll: hold });
+}
+
+/** Siege: place/move the aim targeter (world coords). */
+export function setSiegeAim(p: { x: number; y: number } | null): void {
+  set({ siegeAim: p });
+}
+
+/** Siege: arm/disarm aim mode — the next map tap places the targeter. */
+export function setSiegeAimArmed(armed: boolean): void {
+  if (state.siegeAimArmed === armed) return;
+  set({ siegeAimArmed: armed });
 }
 
 /** Test/utility: reset the whole store. */

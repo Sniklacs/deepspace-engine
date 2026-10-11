@@ -32,6 +32,14 @@ import {
   shrinkGuestMirrors,
   transferLeadership,
   type AllianceFx,
+  memberCan,
+  setMemberPermissions,
+  addDoctrine,
+  removeDoctrine,
+  doctrinesOf,
+  doctrineGuide,
+  MAX_DOCTRINES,
+  type Alliance,
 } from "./alliances";
 import { addCohort, advanceTroopHome, availableWeight, bandWeight, emptyTroopHome, rosterWeight } from "./troops";
 import type { GameState } from "../types";
@@ -485,5 +493,112 @@ describe("allianceReverb", () => {
     const a = allianceOf(st, "col-a")!;
     a.shipyard = { level: 1, queue: [], ships: [], seq: 1 };
     expect(allianceReverb(a)).toBe(0);
+  });
+});
+
+describe("alliance member permissions", () => {
+  function testAlliance(): Alliance {
+    return {
+      id: "a1", name: "Test Band", banner: "⚔️", motto: "", foundedAt: 0,
+      founderId: "c-leader", homeServerId: "home", version: 1,
+      members: [
+        { colonyId: "c-leader", colonyName: "Leader", role: "leader", joinedAt: 0 },
+        { colonyId: "c-officer", colonyName: "Officer", role: "officer", joinedAt: 0 },
+        { colonyId: "c-new", colonyName: "Recruit", role: "member", joinedAt: 0 },
+      ],
+      applications: [], invites: [],
+    };
+  }
+
+  test("new members join with doctrines OFF; leader/officers implicit", () => {
+    const a = testAlliance();
+    expect(memberCan(a, "c-new", "doctrines")).toBe(false);
+    expect(memberCan(a, "c-leader", "doctrines")).toBe(true);
+    expect(memberCan(a, "c-officer", "doctrines")).toBe(true);
+    expect(memberCan(a, "c-stranger", "doctrines")).toBe(false);
+  });
+
+  test("leader grants the doctrines permission", () => {
+    const a = testAlliance();
+    const r = setMemberPermissions(a, "c-leader", "c-new", ["doctrines"]);
+    expect(r.ok).toBe(true);
+    expect(memberCan(a, "c-new", "doctrines")).toBe(true);
+  });
+
+  test("officer can grant; plain members cannot", () => {
+    const a = testAlliance();
+    expect(setMemberPermissions(a, "c-officer", "c-new", ["doctrines"]).ok).toBe(true);
+    const b = testAlliance();
+    expect(setMemberPermissions(b, "c-new", "c-officer", ["doctrines"]).ok).toBe(false);
+  });
+
+  test("leader's own permissions can't be changed", () => {
+    const a = testAlliance();
+    expect(setMemberPermissions(a, "c-officer", "c-leader", []).ok).toBe(false);
+  });
+});
+
+describe("alliance doctrines", () => {
+  function testAlliance(): Alliance {
+    return {
+      id: "a1", name: "Test Band", banner: "⚔️", motto: "", foundedAt: 0,
+      founderId: "c-leader", homeServerId: "home", version: 1,
+      members: [
+        { colonyId: "c-leader", colonyName: "Leader", role: "leader", joinedAt: 0 },
+        { colonyId: "c-hans", colonyName: "Hans", role: "member", joinedAt: 0 },
+      ],
+      applications: [], invites: [],
+    };
+  }
+
+  const draft = {
+    name: "Hammer 10/11", authorId: "c-hans", authorName: "Hans",
+    playId: "custom",
+    loads: { A0: [{ type: "bulwark", tier: 2, count: 10 }] } as Parameters<typeof addDoctrine>[1]["loads"],
+    battleName: "Chorus Raid", victor: "attacker" as const, durationS: 240,
+    killsAttacker: 40, killsDefender: 12,
+  };
+
+  test("any member can contribute a doctrine", () => {
+    const a = testAlliance();
+    const d = addDoctrine(a, draft, 1000);
+    expect(d.id.startsWith("doc-")).toBe(true);
+    expect(doctrinesOf(a)).toHaveLength(1);
+    expect(a.version).toBe(2);
+  });
+
+  test("doctrine shelf caps at MAX_DOCTRINES", () => {
+    const a = testAlliance();
+    for (let i = 0; i < MAX_DOCTRINES + 5; i++) {
+      addDoctrine(a, { ...draft, name: `D${i}` }, 1000 + i);
+    }
+    expect(doctrinesOf(a)).toHaveLength(MAX_DOCTRINES);
+  });
+
+  test("author can retract their own; strangers cannot; leader can remove any", () => {
+    const a = testAlliance();
+    // add a second plain member
+    a.members.push({ colonyId: "c-stranger", colonyName: "Stranger", role: "member", joinedAt: 0 });
+    const d = addDoctrine(a, draft, 1000); // authored by c-hans
+    expect(removeDoctrine(a, "c-stranger", d.id).ok).toBe(false);
+    expect(removeDoctrine(a, "c-hans", d.id).ok).toBe(true);
+    expect(doctrinesOf(a)).toHaveLength(0);
+    const d2 = addDoctrine(a, draft, 2000);
+    expect(removeDoctrine(a, "c-leader", d2.id).ok).toBe(true);
+    expect(doctrinesOf(a)).toHaveLength(0);
+  });
+
+  test("doctrineGuide summarizes composition", () => {
+    const g = doctrineGuide({
+      loads: {
+        A0: [
+          { type: "bulwark", tier: 2, count: 10 },
+          { type: "reaver", tier: 2, count: 8 },
+        ],
+        A4: [{ type: "thunder", tier: 3, count: 4 }],
+      },
+    });
+    expect(g.total).toBe(22);
+    expect(g.lines[0]).toEqual({ type: "bulwark", tier: 2, count: 10 });
   });
 });

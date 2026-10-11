@@ -456,3 +456,24 @@ describe("troop tiers — power", () => {
     expect(byTier.reaver).toEqual({ 1: 600, 2: 300, 3: 100, 4: 0 });
   });
 });
+
+// ============================================================================
+// WEAPON IDENTITY (owner 2026-10-11): lasers vs lead at a glance.
+// ============================================================================
+import { weaponKindFor } from "./troops";
+
+describe("weaponKindFor", () => {
+  test("line infantry shoot kinetic", () => {
+    expect(weaponKindFor("bulwark")).toBe("kinetic");
+    expect(weaponKindFor("reaver")).toBe("kinetic");
+    expect(weaponKindFor("longeye")).toBe("kinetic");
+  });
+  test("thunder lobs siege shells", () => {
+    expect(weaponKindFor("thunder")).toBe("siege");
+  });
+  test("everything else is energy", () => {
+    expect(weaponKindFor("warden")).toBe("energy");
+    expect(weaponKindFor("turret")).toBe("energy");
+    expect(weaponKindFor("dropship")).toBe("energy");
+  });
+});

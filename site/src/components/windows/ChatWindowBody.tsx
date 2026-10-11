@@ -7,12 +7,13 @@
 //
 // Bigger by default (owner: "bigger window so you can see chats better") —
 // the frame is near-full-screen on phones.
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore, useCallback, useState } from "react";
 import { EmptyRow } from "../ui/RowButton";
 import { useT } from "../i18n/I18n";
 import { ChatSurfaceTabs, surfaceLabel } from "../chat/ChatSurfaceTabs";
 import { Composer } from "../chat/Composer";
 import { MessageList } from "../chat/MessageList";
+import { MemberProfile } from "../alliance/MemberProfile";
 import {
   chatServerSnapshot,
   chatSnapshot,
@@ -20,6 +21,13 @@ import {
   setChatSurface,
   subscribeChat,
 } from "../../game/chat/chat-store";
+import {
+  chatMemberServerSnapshot,
+  chatMemberSnapshot,
+  resolveChatMember,
+  subscribeChatMembers,
+} from "../../game/chat/chat-members";
+import type { GameResult } from "../../game/api";
 import { patchWindow } from "../../game/windows/window-store";
 
 /** Height of the visual viewport, in px. Set only while the keyboard can matter. */
@@ -58,7 +66,18 @@ function useKeyboardClamp(active: boolean): void {
 export function ChatWindowBody({ windowId }: { windowId: string }) {
   const t = useT();
   const chat = useSyncExternalStore(subscribeChat, chatSnapshot, chatServerSnapshot);
+  // Alliance directory (owner 2026-10-11): sender avatars + tap-to-profile.
+  const memberCtx = useSyncExternalStore(subscribeChatMembers, chatMemberSnapshot, chatMemberServerSnapshot);
+  const [profileId, setProfileId] = useState<string | null>(null);
   useKeyboardClamp(chat.open);
+
+  const act = useCallback((fn: () => Promise<GameResult>, _label: string) => {
+    void fn().catch(() => {});
+  }, []);
+
+  const profileMember = profileId && memberCtx
+    ? memberCtx.alliance.members.find((m) => m.colonyId === profileId) ?? null
+    : null;
 
   const title = surfaceLabel(t, chat.surface);
   const sub =
@@ -85,6 +104,9 @@ export function ChatWindowBody({ windowId }: { windowId: string }) {
       openingText={t("chat.opening", "Opening the channel…")}
       onRetry={() => void refreshChat()}
       emptyText={t("chat.world.empty", "The world channel is quiet. Say the first thing.")}
+      resolveMember={resolveChatMember}
+      memberToken={memberCtx?.token}
+      onMemberTap={(m) => setProfileId(m.colonyId)}
     />
   ) : chat.surface === "covenant" ? (
     <EmptyRow icon="users" text={t("chat.covenant.none", "You are not in a Covenant yet. This channel opens the day you join one.")} />
@@ -107,6 +129,19 @@ export function ChatWindowBody({ windowId }: { windowId: string }) {
       {/* The composer is the LAST flex child and exists only where a player may
           write. No fixed bar, no floating input. */}
       {chat.surface === "world" && !chat.signedOut ? <Composer /> : null}
+      {/* Tap a member in chat → their info panel (owner 2026-10-11). */}
+      {profileMember && memberCtx && (
+        <MemberProfile
+          member={profileMember}
+          alliance={memberCtx.alliance}
+          me={memberCtx.me}
+          isLeader={memberCtx.isLeader}
+          isOfficer={memberCtx.isOfficer}
+          token={memberCtx.token}
+          onAction={act}
+          onClose={() => setProfileId(null)}
+        />
+      )}
     </div>
   );
 }

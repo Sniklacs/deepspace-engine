@@ -40,6 +40,7 @@ import {
   applyBillForeignCasualties,
   applyCreateGuestMirror,
   applyHelpFx,
+  applyRecordService,
   applyReleaseTroopLock,
   applyRemoveGuestMirror,
   applyShrinkGuestMirror,
@@ -406,6 +407,7 @@ function fxIdentity(fx: AllianceFx): string {
     case "remove-guest-mirror":
     case "release-troop-lock":
     case "shrink-guest-mirror":
+    case "record-service":
     case "sync-alliance":
     case "depart-alliance":
     case "sync-rally":
@@ -458,6 +460,9 @@ export function applyOneFx(target: GameState, fx: AllianceFx, now: number): void
       break;
     case "shrink-guest-mirror":
       applyShrinkGuestMirror(target, fx.mirrorId, fx.weight, fx.key);
+      break;
+    case "record-service":
+      applyRecordService(target, fx, now);
       break;
     case "sync-alliance":
       applySyncAlliance(target, fx.alliance);

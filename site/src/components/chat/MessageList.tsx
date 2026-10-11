@@ -14,6 +14,7 @@ import { useLang, useT } from "../i18n/I18n";
 import { Bdi } from "../ui/Bdi";
 import { daysAgo, formatDate, formatNumber } from "../../game/i18n/format";
 import type { ChatMessage } from "../../game/chat/chat-types";
+import type { AllianceMember } from "../../game/war/alliances";
 import { MessageRow } from "./MessageRow";
 import { TranslatorNotice } from "./TranslatedText";
 
@@ -55,6 +56,9 @@ export function MessageList({
   openingText,
   onRetry,
   emptyText,
+  resolveMember,
+  memberToken,
+  onMemberTap,
 }: {
   messages: ChatMessage[];
   me: string | null;
@@ -66,6 +70,14 @@ export function MessageList({
   onRetry: () => void;
   /** the honest empty state for THIS surface, resolved in the player's language */
   emptyText: string;
+  /**
+   * Alliance member lookup by author name (owner 2026-10-11). When it
+   * resolves, the row shows the member's avatar (live from the member
+   * record — stays in sync on change) and taps through to their profile.
+   */
+  resolveMember?: (colonyName: string) => AllianceMember | null;
+  memberToken?: string;
+  onMemberTap?: (member: AllianceMember) => void;
 }) {
   const t = useT();
   const lang = useLang();
@@ -153,6 +165,9 @@ export function MessageList({
               message={m}
               mine={!!me && m.accountId === me}
               grouped={!!prev && !newDay && !startsGroup(prev, m)}
+              member={resolveMember ? resolveMember(m.colonyName) : null}
+              memberToken={memberToken}
+              onMemberTap={onMemberTap}
             />
           </div>
         );

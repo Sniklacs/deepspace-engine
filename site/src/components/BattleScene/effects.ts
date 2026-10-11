@@ -24,6 +24,8 @@ import {
 export interface Tracer {
   x1: number; y1: number; x2: number; y2: number;
   life: number; maxLife: number; color: string; width: number;
+  /** beam = sustained energy shot; slug = kinetic round (short bright streak). */
+  kind: "beam" | "slug";
 }
 export interface Flash {
   x: number; y: number; life: number; maxLife: number; radius: number; color: string;
@@ -40,7 +42,22 @@ export interface Boom {
 export interface Ring {
   x: number; y: number; life: number; maxLife: number; maxR: number; color: string; width: number;
   /** "shock" = the rendered explosion's shockwave ring (double-stroked). */
-  kind?: "shock" | "jam";
+  kind?: "shock" | "jam" | "shield";
+}
+/** A lobbed siege shell — travels a visible arc, then detonates. */
+export interface Shell {
+  x1: number; y1: number; x2: number; y2: number;
+  /** 0..1 flight progress */
+  t: number;
+  /** seconds of flight */
+  dur: number;
+  /** arc height in px */
+  arc: number;
+  color: string;
+  size: number;
+  /** damage payload + firing side — set by the scene, resolved on landing. */
+  dmg?: number;
+  side?: string;
 }
 export interface Beam {
   x1: number; y1: number; x2: number; y2: number; life: number; maxLife: number; color: string;
@@ -99,6 +116,8 @@ export class Fx {
   embers: Ember[] = [];
   /** Ground scorch decals. */
   scorches: Scorch[] = [];
+  /** Lobbed siege shells in flight. */
+  shells: Shell[] = [];
   /** Screen shake trauma 0..1 — decays; offset = trauma² × max. */
   trauma = 0;
   /** Radar sweep angle (radians), active during contact phase. */
@@ -106,7 +125,7 @@ export class Fx {
   sweepOn = false;
 
   fire(x1: number, y1: number, x2: number, y2: number, color = "#ffd27a"): void {
-    this.tracers.push({ x1, y1, x2, y2, life: 0.22, maxLife: 0.22, color, width: 2 });
+    this.tracers.push({ x1, y1, x2, y2, life: 0.22, maxLife: 0.22, color, width: 2, kind: "beam" });
     this.flashes.push({ x: x1, y: y1, life: 0.12, maxLife: 0.12, radius: 14, color: "#ffe9b0" });
     // SEAMLESS-WORLD §9 (slice 9): muzzle-flash bloom at the tracer origin —
     // the light travels with the shot (ladder-gated, off on PERFORMANCE).
@@ -114,6 +133,60 @@ export class Fx {
     // The shot lands: impact flash + sparks at the target end.
     spawnImpact(this, x2, y2, color, resolveGraphicsLevel());
     if (this.tracers.length > 220) this.tracers.splice(0, this.tracers.length - 220);
+  }
+
+  /**
+   * Kinetic burst (owner 2026-10-11): chain guns and rifles don't shoot
+   * lightsabers. A 3-round burst of short bright slugs — dakka, not a beam.
+   * Same damage event as one beam shot; the burst is pure presentation.
+   */
+  fireKinetic(x1: number, y1: number, x2: number, y2: number, color = "#ffe9b0"): void {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = dx / len, ny = dy / len;
+    // perpendicular for the spread jitter
+    const px = -ny, py = nx;
+    for (let i = 0; i < 3; i++) {
+      // stagger the burst along the flight path — the rounds chase each other
+      const back = i * len * 0.06;
+      const jx = (Math.random() - 0.5) * 10, jy = (Math.random() - 0.5) * 10;
+      const sx = x1 - nx * back + px * jx * 0.3;
+      const sy = y1 - ny * back + py * jy * 0.3;
+      // slugs are SHORT — a bright streak, not a full-length line
+      const slugLen = Math.min(len * 0.35, 46);
+      const ex = sx + nx * slugLen + px * jx * 0.3;
+      const ey = sy + ny * slugLen + py * jy * 0.3;
+      const life = 0.14 - i * 0.02;
+      this.tracers.push({ x1: sx, y1: sy, x2: ex, y2: ey, life, maxLife: 0.14, color, width: 1.6, kind: "slug" });
+    }
+    // the muzzle blast: bigger, hotter, star-shaped flash for gunfire
+    this.flashes.push({ x: x1, y: y1, life: 0.1, maxLife: 0.1, radius: 20, color: "#fff6d8" });
+    spawnMuzzleBloom(this, x1, y1, resolveGraphicsLevel());
+    spawnImpact(this, x2, y2, color, resolveGraphicsLevel());
+    if (this.tracers.length > 220) this.tracers.splice(0, this.tracers.length - 220);
+  }
+
+  /**
+   * Lob a siege shell (owner 2026-10-11): a big visible projectile arcing
+   * through the air. Presentation only — BattleScene advances the flight
+   * and detonates on landing.
+   */
+  lobShell(x1: number, y1: number, x2: number, y2: number, dur = 1.4, size = 1): void {
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    this.shells.push({
+      x1, y1, x2, y2, t: 0, dur,
+      arc: Math.min(140, 40 + dist * 0.25),
+      color: "#ffb347", size,
+    });
+    // the thump of the launch
+    this.flashes.push({ x: x1, y: y1, life: 0.18, maxLife: 0.18, radius: 26, color: "#ffd9a0" });
+    if (this.shells.length > 40) this.shells.splice(0, this.shells.length - 40);
+  }
+
+  /** Shield impact ripple (owner 2026-10-11): the bubble shivers where the hit lands. */
+  shieldHit(x: number, y: number): void {
+    if (this.rings.length > 60) return;
+    this.rings.push({ x, y, life: 0.45, maxLife: 0.45, maxR: 26, color: "rgba(125,211,252,0.8)", width: 2, kind: "shield" });
   }
 
   explode(x: number, y: number, scale = 1): void {

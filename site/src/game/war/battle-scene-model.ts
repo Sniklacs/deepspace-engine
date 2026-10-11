@@ -77,6 +77,24 @@ export interface SceneUnit {
   moveAtS?: number;
   /** True while logistics autopilot paints this enemy (target-paint beam). */
   painted?: boolean;
+  /**
+   * Warden-projected shield (owner 2026-10-11): 0..1 energy pool that
+   * absorbs damage BEFORE armor/hull. Only nonzero while living Wardens
+   * cover this unit; regenerates while covered, collapses when they die.
+   */
+  shield01?: number;
+  /** Max shield01 — derives from covering Warden count. */
+  shieldMax?: number;
+  /** Living friendly Wardens projecting over this unit (4Hz refresh). */
+  wardenCover?: number;
+  /** Sim-time when this thunder may lob its next shell (siege cooldown). */
+  nextSiegeAt?: number;
+  /**
+   * Siege hold-fire (owner 2026-10-11): when true this thunder holds its
+   * shells — the commander silences the battery before friendlies enter
+   * the blast zone, then resumes. Per-unit; the HUD flips the whole battery.
+   */
+  siegeHold?: boolean;
 }
 
 export interface SceneTurret {
@@ -110,6 +128,11 @@ export interface SceneBattle {
   seed: number;
   /** Total troops per side — drives casualty-matched deaths for live. */
   troops: { attacker: number; defender: number };
+  /**
+   * Real player-vs-player duel (owner 2026-10-11): the replay ALWAYS
+   * auto-saves and the result feeds the arena ladder rankings.
+   */
+  pvp?: { opponentId: string; opponentName: string; duelId: string };
 }
 
 export type ScenePhase = "approach" | "touchdown" | "contact" | "weapons-free" | "resolved";
@@ -231,6 +254,43 @@ export const WORLD_CX = WORLD_W / 2;
 export const WORLD_CY = WORLD_H / 2;
 /** Whole-field framing zoom: at this zoom the full battlefield fits the view. */
 export const WORLD_FIT_ZOOM = 1 / WORLD_W;
+
+/**
+ * Meters per world unit (owner 2026-10-11): the 1.5-unit field is 150m
+ * across — rifle engagement at 0.45 reads as ~45m. Siege AoE, shield radii
+ * and other distance-tuned mechanics speak meters; convert at the edges.
+ */
+export const METERS_PER_WORLD_UNIT = 100;
+
+/** Siege blast damage radius in meters (owner 2026-10-11). */
+export const SIEGE_BLAST_R_M = 20;
+
+/**
+ * Siege AoE falloff (owner 2026-10-11): damage fraction by distance from
+ * impact — 2m:100%, 5m:70%, 10m:50%, 15m:30%, 20m:10%, beyond:0.
+ * Smoothly interpolated between rings; shells don't discriminate, so this
+ * applies to every unit in the blast, friend or foe. Pure.
+ */
+const SIEGE_FALLOFF_RINGS: Array<readonly [meters: number, frac: number]> = [
+  [0, 1],
+  [2, 1],
+  [5, 0.7],
+  [10, 0.5],
+  [15, 0.3],
+  [20, 0.1],
+];
+export function siegeFalloff(meters: number): number {
+  if (meters <= 2) return 1;
+  for (let i = 1; i < SIEGE_FALLOFF_RINGS.length; i++) {
+    const [m1, f1] = SIEGE_FALLOFF_RINGS[i - 1];
+    const [m2, f2] = SIEGE_FALLOFF_RINGS[i];
+    if (meters <= m2) {
+      const k = (meters - m1) / (m2 - m1);
+      return f1 + (f2 - f1) * k;
+    }
+  }
+  return 0;
+}
 
 /** Depth lean per vector from midfield (world units, south-north axis).
  *  dir = +1 for the attacker (south), −1 for the defender (north).
@@ -568,6 +628,13 @@ export function sceneFromBattle(battle: Battle): SceneBattle {
     seed,
     troops,
     terrain: terrainFor(seed),
+    // Real PvP duel (owner 2026-10-11): arena bouts auto-save their replay.
+    // The ladder itself is fed by the arena's bout ledger (buildLadderEntries).
+    pvp: battle.arena ? {
+      opponentId: battle.defender.colonyId,
+      opponentName: battle.defender.colonyName,
+      duelId: battle.arena.challengeId,
+    } : undefined,
   };
 }
 

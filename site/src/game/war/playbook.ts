@@ -474,6 +474,10 @@ export interface SavedFormation {
   loads: SlotLoads;
   /** custom/renamed slot metadata: slotId -> overrides */
   slotMeta?: Record<string, { name?: string; vector?: ManeuverVector; entry?: SlotEntry; dx?: number; dy?: number }> & { __slots?: PlaySlot[] };
+  /** battle replay attached at save time (owner 2026-10-11) — localStorage id
+   *  on the saver's device; the war room offers a watch affordance when it
+   *  resolves locally. */
+  replayId?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -640,4 +644,90 @@ export function buildFormationScene(
   const total = placed.length;
   const seed = opts.seed ?? deploySeedFor(formationPicks(f));
   return buildSceneFromPlaced(placed, total, seed, grade ?? DEFAULT_CHORUS_GRADE, opts);
+}
+
+// ============================================================================
+// SAVE FORMATION FROM A FOUGHT BATTLE (owner 2026-10-11)
+// If the battle went well and the commander likes how his forces were set
+// up, one tap saves that battle's formation — squads, unit composition, and
+// STARTING positions — into the War Room library under a name he picks.
+// Deploying it later is one tap from its entry. No unnamed formations:
+// the name is required and the library is searchable by name.
+// ============================================================================
+
+/** One unit as it stood at battle start — the formation's raw material. */
+export interface BattleFormationUnit {
+  squadId: string;
+  kind: TroopType;
+  tier: TroopTier;
+  /** starting position on the field (tactical coords 0..1) */
+  x: number;
+  y: number;
+  vector: ManeuverVector;
+  onCall?: boolean;
+}
+
+export interface BattleFormationSquad {
+  id: string;
+  name: string;
+}
+
+export interface BattleFormationDraft {
+  playId: "custom";
+  loads: SlotLoads;
+  slotMeta: SavedFormation["slotMeta"];
+}
+
+/**
+ * Build a War Room formation draft from a fought battle's starting
+ * disposition (pure). Each squad becomes a slot: its name, its vector, its
+ * entry timing (on-call reserves stay on-call), and its starting centroid
+ * as the slot's diagram position. Composition is captured per kind+tier.
+ */
+export function formationFromBattle(
+  squads: BattleFormationSquad[],
+  units: BattleFormationUnit[],
+): BattleFormationDraft {
+  const loads: SlotLoads = {};
+  const slots: PlaySlot[] = [];
+  for (const sq of squads) {
+    const members = units.filter((u) => u.squadId === sq.id && TROOP_TYPES.includes(u.kind));
+    if (members.length === 0) continue;
+    // Composition: group by kind+tier.
+    const byKT = new Map<string, DeploymentPick>();
+    for (const u of members) {
+      const k = `${u.kind}:${u.tier}`;
+      const p = byKT.get(k);
+      if (p) p.count += 1;
+      else byKT.set(k, { type: u.kind, tier: u.tier, count: 1 });
+    }
+    loads[sq.id] = [...byKT.values()];
+    // Vector: the squad's majority vector. Entry: on-call if most of the
+    // squad rode as on-call reserve.
+    const vecCount = new Map<ManeuverVector, number>();
+    let onCall = 0;
+    let cx = 0, cy = 0;
+    for (const u of members) {
+      vecCount.set(u.vector, (vecCount.get(u.vector) ?? 0) + 1);
+      if (u.onCall) onCall += 1;
+      cx += u.x; cy += u.y;
+    }
+    let vector: ManeuverVector = "MAIN";
+    let best = -1;
+    for (const [v, n] of vecCount) {
+      if (n > best) { best = n; vector = v; }
+    }
+    const entry: SlotEntry =
+      onCall * 2 >= members.length ? { kind: "oncall", atS: 240 } : { kind: "start" };
+    slots.push({
+      id: sq.id,
+      name: sq.name,
+      vector,
+      entry,
+      dx: Math.min(1, Math.max(0, cx / members.length)),
+      dy: Math.min(1, Math.max(0, cy / members.length)),
+    });
+  }
+  const slotMeta = { __slots: slots } as SavedFormation["slotMeta"];
+  return { playId: "custom", loads, slotMeta };
 }

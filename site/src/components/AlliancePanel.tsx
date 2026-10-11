@@ -41,6 +41,9 @@ import {
 import { Icon } from "./icons";
 import PageBanner from "./PageBanner";
 import { AllianceShipyardSection } from "./AllianceShipyard";
+import { MemberAvatar } from "./alliance/MemberAvatar";
+import { MemberProfile } from "./alliance/MemberProfile";
+import { AllianceDoctrines } from "./alliance/AllianceDoctrines";
 import { Bdi } from "./ui/Bdi";
 import { useT } from "./i18n/I18n";
 
@@ -524,6 +527,7 @@ export function AllianceHome({
       </div>
 
       <Members me={me} alliance={alliance} isLeader={isLeader} isOfficer={isOfficer} token={token} onAction={onAction} />
+      <AllianceDoctrines state={state} alliance={alliance} me={me} token={token} onAction={onAction} />
       {isOfficer && alliance.applications.length > 0 && (
         <Applications alliance={alliance} token={token} onAction={onAction} />
       )}
@@ -565,18 +569,30 @@ function Members({ me, alliance, isLeader, isOfficer, token, onAction }: {
   const t = useT();
   const [inviteId, setInviteId] = useState("");
   const [hint, setHint] = useState<string | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(null);
   const post = (fn: () => Promise<GameResult>, label: string) => { if (token) onAction(fn, label); };
   const sorted = [...alliance.members].sort((a, b) => ({ leader: 0, officer: 1, member: 2 }[a.role] - { leader: 0, officer: 1, member: 2 }[b.role]));
+  const profileMember = profileId ? alliance.members.find((m) => m.colonyId === profileId) ?? null : null;
   return (
     <div data-testid="alliance-roster">
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-2">Sworn ({alliance.members.length})</h4>
       <ul className="space-y-1">
         {sorted.map((m) => (
           <li key={m.colonyId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surf-1 px-3 py-1.5">
-            <span className="text-sm text-text-1">
-              {m.colonyName} {m.colonyId === me && <span className="text-xs text-text-2">(you)</span>}
-              <span className="ms-2 rounded-full border border-line px-2 py-0.5 text-[10px] text-text-2">{ROLE_LABEL[m.role]}</span>
-            </span>
+            <button
+              type="button"
+              onClick={() => setProfileId(m.colonyId)}
+              className="flex min-w-0 items-center gap-2 text-left"
+              aria-label={`View ${m.colonyName}'s profile`}
+              data-testid={`member-row-${m.colonyId}`}
+            >
+              <MemberAvatar member={m} token={token} size={28} />
+              <span className="min-w-0 text-sm text-text-1">
+                <span className="truncate font-semibold underline decoration-dotted underline-offset-2">{m.colonyName}</span>
+                {m.colonyId === me && <span className="text-xs text-text-2"> (you)</span>}
+                <span className="ms-2 rounded-full border border-line px-2 py-0.5 text-[10px] text-text-2">{ROLE_LABEL[m.role]}</span>
+              </span>
+            </button>
             {m.colonyId !== me && (isLeader || (isOfficer && m.role === "member")) && (
               <span className="flex gap-1">
                 {isLeader && m.role !== "officer" && m.role !== "leader" && (
@@ -594,6 +610,18 @@ function Members({ me, alliance, isLeader, isOfficer, token, onAction }: {
           </li>
         ))}
       </ul>
+      {profileMember && (
+        <MemberProfile
+          member={profileMember}
+          alliance={alliance}
+          me={me}
+          isLeader={isLeader}
+          isOfficer={isOfficer}
+          token={token}
+          onAction={onAction}
+          onClose={() => setProfileId(null)}
+        />
+      )}
       {isOfficer && (
         <div>
           <div className="mt-2 flex gap-2">

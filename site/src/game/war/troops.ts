@@ -21,6 +21,21 @@
 export const TROOP_TYPES = ["bulwark", "reaver", "longeye", "thunder", "warden"] as const;
 export type TroopType = (typeof TROOP_TYPES)[number];
 
+/**
+ * Weapon identity per unit kind (owner 2026-10-11): a player must tell at a
+ * glance whether they're watching lasers or lead flying.
+ *   energy  — sustained beams: thunder siege cannons, warden emitters,
+ *             turrets, dropship guns.
+ *   kinetic — rapid-fire tracers: bulwark chain guns, reaver assault rifles,
+ *             longeye long rifles. Dakka, not lightsabers.
+ */
+export type WeaponKind = "energy" | "kinetic" | "siege";
+const KINETIC_TYPES: ReadonlySet<string> = new Set(["bulwark", "reaver", "longeye"]);
+export function weaponKindFor(kind: string): WeaponKind {
+  if (kind === "thunder") return "siege"; // siege guns lob visible shells
+  return KINETIC_TYPES.has(kind) ? "kinetic" : "energy";
+}
+
 /** Troop tiers T1–T4 (owner 2026-10-05): TYPES differ by role/weight; TIERS are
  *  the power progression. T1 always musterable; T2+ gated by muster research
  *  (muster_1/2/3 unlock T2/T3/T4). */

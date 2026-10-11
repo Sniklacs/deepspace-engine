@@ -48,6 +48,9 @@ import {
 import { TROOP_TYPES, label as troopLabel, type TroopRoster } from "../../game/war/troops";
 import { FormationDiagram } from "./FormationDiagram";
 import { FormationBuilder, type BuilderSeed } from "./FormationBuilder";
+import { BattleReplayViewer } from "./BattleReplayViewer";
+import { encodeFormationShare, decodeFormationShare } from "../../game/war/formation-share";
+import { getReplay } from "../../game/war/battle-replays";
 
 const TABS = ["Deploy", "Playbook", "Formations", "Builder"] as const;
 type Tab = (typeof TABS)[number];
@@ -89,7 +92,7 @@ export interface WarRoomProps {
   warRoom: WarRoomState;
   leaderLevel: number;
   gameId: string;
-  onSaveFormation: (draft: { id?: string; name: string; playId: string; loads: SlotLoads; slotMeta?: SavedFormation["slotMeta"]; locked: boolean }) => void;
+  onSaveFormation: (draft: { id?: string; name: string; playId: string; loads: SlotLoads; slotMeta?: SavedFormation["slotMeta"]; replayId?: string; locked: boolean }) => void;
   onDeleteFormation: (id: string) => void;
   onToggleLock: (id: string, locked: boolean) => void;
   onDeployFormation: (formation: SavedFormation, grade: ChorusGrade) => void;
@@ -146,6 +149,13 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
   const [viewId, setViewId] = useState<string | null>(null);
   const [builderSeed, setBuilderSeed] = useState<BuilderSeed>({ playId: "mixed-wedge" });
   const [builderKey, setBuilderKey] = useState(0);
+  // Formation library: searchable by name (owner 2026-10-11) — every saved
+  // formation is findable. Plus share codes and the replay tape.
+  const [formationQuery, setFormationQuery] = useState("");
+  const [shareId, setShareId] = useState<string | null>(null);
+  const [importCode, setImportCode] = useState("");
+  const [importHint, setImportHint] = useState<string | null>(null);
+  const [watchReplayId, setWatchReplayId] = useState<string | null>(null);
 
   const locked = useMemo(() => warRoom.formations.filter((f) => f.locked), [warRoom]);
   const selected = locked.find((f) => f.id === selectedId) ?? null;
@@ -436,12 +446,76 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
         {tab === "Formations" && (
           <div className="space-y-2" data-testid="warroom-formations">
             <p className="text-[11px] text-zinc-500">The home shelf — every formation, playbook-built or custom. Only 🔒 locked ones deploy.</p>
+            {/* searchable by name (owner 2026-10-11): no unnamed formations,
+                every one findable. */}
+            <input
+              type="search"
+              value={formationQuery}
+              onChange={(e) => setFormationQuery(e.target.value)}
+              placeholder="🔍 Search formations by name…"
+              aria-label="Search formations by name"
+              data-testid="warroom-formation-search"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-xs text-white placeholder:text-zinc-500"
+            />
+            {/* import a shared formation (owner 2026-10-11) */}
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-2.5" data-testid="warroom-import">
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                Import shared formation
+              </p>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={importCode}
+                  onChange={(e) => { setImportCode(e.target.value); setImportHint(null); }}
+                  placeholder="Paste a DOCTRINE-… share code"
+                  aria-label="Share code"
+                  data-testid="warroom-import-code"
+                  className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-black/50 px-2.5 py-1.5 font-mono text-[10px] text-white placeholder:text-zinc-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const decoded = decodeFormationShare(importCode);
+                    if (!decoded) {
+                      setImportHint("That code didn't decode — check the paste.");
+                      return;
+                    }
+                    onSaveFormation({
+                      name: `${decoded.name} (shared)`,
+                      playId: decoded.playId,
+                      loads: decoded.loads,
+                      slotMeta: decoded.slotMeta,
+                      locked: false,
+                    });
+                    setImportCode("");
+                    setImportHint(`✓ Imported “${decoded.name}” — lock it down to deploy.`);
+                  }}
+                  data-testid="warroom-import-confirm"
+                  className="flex-none rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-black"
+                >
+                  Import
+                </button>
+              </div>
+              {importHint && <p className="mt-1 text-[11px] text-zinc-400">{importHint}</p>}
+            </div>
             {warRoom.formations.length === 0 && (
               <p className="rounded-xl border border-dashed border-zinc-700 p-4 text-center text-xs text-zinc-400">
                 Empty shelf. Build in the Builder tab, then lock it down.
               </p>
             )}
-            {warRoom.formations.map((f) => (
+            {(() => {
+              const q = formationQuery.trim().toLowerCase();
+              const list = q
+                ? warRoom.formations.filter((f) => f.name.toLowerCase().includes(q))
+                : warRoom.formations;
+              if (q && list.length === 0) {
+                return (
+                  <p className="rounded-xl border border-dashed border-zinc-700 p-4 text-center text-xs text-zinc-400">
+                    No formations named “{formationQuery.trim()}”.
+                  </p>
+                );
+              }
+              return list.map((f) => (
               <div key={f.id} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3" data-testid={`formation-row-${f.id}`}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
@@ -482,8 +556,37 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
                     >
                       🗑
                     </button>
+                    {/* shareable (owner 2026-10-11): a copy-paste-safe code */}
+                    <button
+                      type="button"
+                      onClick={() => setShareId(shareId === f.id ? null : f.id)}
+                      aria-label={`Share ${f.name}`}
+                      title="Share"
+                      data-testid={`formation-share-${f.id}`}
+                      className="rounded-md border border-zinc-700 px-2 py-1.5 text-xs text-zinc-300"
+                    >
+                      🔗
+                    </button>
+                    {/* attached replay (owner 2026-10-11): proof it works */}
+                    {f.replayId && getReplay(f.replayId) && (
+                      <button
+                        type="button"
+                        onClick={() => setWatchReplayId(f.replayId!)}
+                        aria-label={`Watch ${f.name}'s replay`}
+                        title="Watch replay"
+                        data-testid={`formation-replay-${f.id}`}
+                        className="rounded-md border border-zinc-700 px-2 py-1.5 text-xs text-zinc-300"
+                      >
+                        🎬
+                      </button>
+                    )}
                   </div>
                 </div>
+                {shareId === f.id && (
+                  <ShareCodePanel
+                    code={encodeFormationShare({ name: f.name, playId: f.playId, loads: f.loads, slotMeta: f.slotMeta })}
+                  />
+                )}
                 {viewId === f.id && (
                   <div className="mt-2">
                     <FormationDiagram play={playById(f.playId) ?? null} formation={f} loads={f.loads} compact />
@@ -501,9 +604,21 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
                   </div>
                 )}
               </div>
-            ))}
+              ));
+            })()}
           </div>
         )}
+
+        {watchReplayId && (() => {
+          const rp = getReplay(watchReplayId);
+          return rp ? (
+            <BattleReplayViewer
+              replay={rp}
+              title={rp.name}
+              onClose={() => setWatchReplayId(null)}
+            />
+          ) : null;
+        })()}
 
         {tab === "Builder" && (
           <div data-testid="warroom-builder">
@@ -520,6 +635,36 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
             />
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Share code panel — the copy-paste-safe formation code (owner 2026-10-11). */
+function ShareCodePanel({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="mt-2 rounded-lg border border-zinc-800 bg-black/40 p-2.5" data-testid="formation-share-panel">
+      <p className="mb-1 text-[11px] text-zinc-500">
+        Send this code to a specific player — they paste it into their war room's Import box.
+      </p>
+      <div className="flex gap-1.5">
+        <input
+          readOnly
+          value={code}
+          onFocus={(e) => e.target.select()}
+          aria-label="Formation share code"
+          className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900/60 px-2 py-1.5 font-mono text-[10px] text-zinc-200"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            navigator.clipboard?.writeText(code).then(() => setCopied(true)).catch(() => setCopied(false));
+          }}
+          className="flex-none rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-black"
+        >
+          {copied ? "✓ Copied" : "Copy"}
+        </button>
       </div>
     </div>
   );

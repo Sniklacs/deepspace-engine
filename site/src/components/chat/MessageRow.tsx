@@ -21,6 +21,8 @@ import { useLang, useT } from "../i18n/I18n";
 import { Bdi } from "../ui/Bdi";
 import { formatTime } from "../../game/i18n/format";
 import type { ChatMessage } from "../../game/chat/chat-types";
+import type { AllianceMember } from "../../game/war/alliances";
+import { MemberAvatar } from "../alliance/MemberAvatar";
 import { TranslatedText } from "./TranslatedText";
 
 /** The initial on the author plate — the ribbon's identity idiom, at 24px. */
@@ -33,28 +35,64 @@ export function MessageRow({
   message,
   mine,
   grouped,
+  member,
+  memberToken,
+  onMemberTap,
 }: {
   message: ChatMessage;
   /** my own line: "You", at the logical end */
   mine: boolean;
   /** a continuation of the previous line by the same author: no plate, no meta */
   grouped: boolean;
+  /**
+   * The author's alliance member record, when known (owner 2026-10-11).
+   * Avatars render from the member record — never stamped on the message —
+   * so they stay in sync when someone changes theirs.
+   */
+  member?: AllianceMember | null;
+  /** token for fetching uploaded avatars */
+  memberToken?: string;
+  /** tap avatar/name → the member info panel */
+  onMemberTap?: (member: AllianceMember) => void;
 }) {
   const t = useT();
   const lang = useLang();
+  const tappable = !!member && !!onMemberTap;
   return (
     <div className={`flex flex-col gap-1 ${mine ? "ms-auto" : "me-auto"} w-fit max-w-[85%]`}>
       {!grouped ? (
         <div className="flex items-center gap-2 text-[11px] text-text-3">
-          <span
-            aria-hidden="true"
-            className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-ember/20 text-[11px] font-semibold text-ember-soft"
-          >
-            {initialOf(message.colonyName)}
-          </span>
-          <Bdi className="max-w-[9rem] truncate font-semibold text-text-2">
-            {mine ? t("chat.you", "You") : message.colonyName}
-          </Bdi>
+          {member ? (
+            <button
+              type="button"
+              onClick={() => tappable && onMemberTap!(member)}
+              aria-label={tappable ? `View ${message.colonyName}'s profile` : undefined}
+              className={tappable ? "rounded-full" : "cursor-default"}
+              data-testid={`chat-avatar-${message.id}`}
+            >
+              <MemberAvatar member={member} token={memberToken} size={24} />
+            </button>
+          ) : (
+            <span
+              aria-hidden="true"
+              className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-ember/20 text-[11px] font-semibold text-ember-soft"
+            >
+              {initialOf(message.colonyName)}
+            </span>
+          )}
+          {tappable ? (
+            <button
+              type="button"
+              onClick={() => onMemberTap!(member!)}
+              className="max-w-[9rem] truncate font-semibold text-text-2 underline decoration-dotted underline-offset-2"
+            >
+              <Bdi>{mine ? t("chat.you", "You") : message.colonyName}</Bdi>
+            </button>
+          ) : (
+            <Bdi className="max-w-[9rem] truncate font-semibold text-text-2">
+              {mine ? t("chat.you", "You") : message.colonyName}
+            </Bdi>
+          )}
           <Bdi dir="ltr" className="num">
             {formatTime(lang, message.createdAt)}
           </Bdi>

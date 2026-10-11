@@ -29,8 +29,9 @@ import { Icon } from "./icons";
 import { BattleSceneFullscreen } from "./BattleScene/BattleSceneFullscreen";
 import { WarRoom, writeLastRun } from "./BattleScene/WarRoom";
 import { buildDemoScene, type SceneBattle } from "../game/war/battle-scene-model";
-import { buildFormationScene, clampLoadsToRoster, emptyWarRoomState, formationCount, type SavedFormation, type SlotLoads } from "../game/war/playbook";
-import { warRoomDeleteFormationFn, warRoomSaveFormationFn, warRoomSetLockFn } from "../game/api";
+import { buildFormationScene, clampLoadsToRoster, emptyWarRoomState, formationCount, type SavedFormation } from "../game/war/playbook";
+import { warRoomDeleteFormationFn, warRoomSaveFormationFn, warRoomSetLockFn, allianceSaveDoctrineFn } from "../game/api";
+import { allianceOf } from "../game/war/alliances";
 import { leaderLevel } from "../game/leader-xp";
 import { rosterCount } from "../game/war/troops";
 import { battleSfx } from "../game/war/battle-sfx";
@@ -461,7 +462,6 @@ export default function ArenaPanel({ state, token, onAction }: {
   // never musters, moves, or loses troops.
   const [showWarRoom, setShowWarRoom] = useState(false);
   const [deployScene, setDeployScene] = useState<SceneBattle | null>(null);
-  const [deployFormation, setDeployFormation] = useState<{ name: string; playId: string; loads: SlotLoads } | null>(null);
   const roster = state.troops?.home.roster ?? null;
   const rosterSize = roster ? rosterCount(roster) : 0;
   const warRoom = state.warRoom ?? emptyWarRoomState();
@@ -476,7 +476,6 @@ export default function ArenaPanel({ state, token, onAction }: {
     const clamped: SavedFormation = { ...formation, loads: clampLoadsToRoster(formation.loads, roster) };
     if (formationCount(clamped) === 0) return;
     battleSfx.attach(); // user gesture — wake the war
-    setDeployFormation({ name: clamped.name, playId: clamped.playId, loads: clamped.loads });
     setDeployScene(
       buildFormationScene(clamped, { attackerName: me || "Warlord", nowMs: Date.now() }, grade),
     );
@@ -541,7 +540,6 @@ export default function ArenaPanel({ state, token, onAction }: {
             onClick={() => {
               battleSfx.attach(); // user gesture — wake the war so the approach stinger lands
               setDeployScene(null);
-              setDeployFormation(null);
               setShowScene((s) => !s);
             }}
             data-testid="arena-watch-scene"
@@ -556,7 +554,6 @@ export default function ArenaPanel({ state, token, onAction }: {
             onClick={() => {
               setShowScene(false);
               setDeployScene(null);
-              setDeployFormation(null);
               setShowWarRoom((s) => !s);
             }}
             disabled={!roster || rosterSize === 0}
@@ -586,6 +583,7 @@ export default function ArenaPanel({ state, token, onAction }: {
                       playId: draft.playId,
                       loads: draft.loads as Record<string, { type: string; tier: number; count: number }[]>,
                       slotMeta: draft.slotMeta as Record<string, { name?: string }> | undefined,
+                      replayId: draft.replayId,
                       locked: draft.locked,
                     },
                   }),
@@ -601,11 +599,12 @@ export default function ArenaPanel({ state, token, onAction }: {
             onDeployFormation={(formation, grade) => launchFormation(formation, grade)}
           />
         )}
-        {deployScene && (
+        {deployScene && (() => {
+          const alliance = me ? allianceOf(state, me) : null;
+          return (
           <BattleSceneFullscreen
             scene={deployScene}
-            onClose={() => { setDeployScene(null); setDeployFormation(null); }}
-            formation={deployFormation}
+            onClose={() => { setDeployScene(null); }}
             onSaveFormation={(draft) =>
               onAction(
                 () =>
@@ -615,14 +614,39 @@ export default function ArenaPanel({ state, token, onAction }: {
                       name: draft.name,
                       playId: draft.playId,
                       loads: draft.loads as Record<string, { type: string; tier: number; count: number }[]>,
+                      slotMeta: draft.slotMeta as Record<string, { name?: string }> | undefined,
+                      replayId: draft.replayId,
                       locked: true,
                     },
                   }),
                 "war room",
               )
             }
+            onSaveDoctrine={(draft) =>
+              onAction(
+                () =>
+                  allianceSaveDoctrineFn({
+                    data: {
+                      token: token!,
+                      allianceId: alliance?.id ?? "",
+                      name: draft.name,
+                      playId: draft.playId,
+                      loads: draft.loads as Record<string, { type: string; tier: number; count: number }[]>,
+                      slotMeta: draft.slotMeta as Record<string, { name?: string }> | undefined,
+                      replay: draft.replay,
+                      battleName: draft.battleName,
+                      victor: draft.victor,
+                      durationS: draft.durationS,
+                      killsAttacker: draft.killsAttacker,
+                      killsDefender: draft.killsDefender,
+                    },
+                  }),
+                "doctrine",
+              )
+            }
           />
-        )}
+          );
+        })()}
         {showScene && (
           <BattleSceneFullscreen scene={buildDemoScene(Date.now())} onClose={() => setShowScene(false)} />
         )}

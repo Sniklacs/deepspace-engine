@@ -89,6 +89,12 @@ import {
   setTitheRate,
   transferLeadership,
   unlockRallyHeroes,
+  addDoctrine,
+  removeDoctrine,
+  setMemberPermissions,
+  touchAlliance,
+  AVATAR_PRESETS,
+  type AllianceDoctrine,
 } from "./war/alliances";
 import {
   contributeAllianceShip,
@@ -2411,6 +2417,9 @@ const warRoomSaveFormationFn = createServerFn({ method: "POST" }).validator(
       dy: z.number().min(0).max(1).optional(),
     }).passthrough()).optional(),
     locked: z.boolean().default(false),
+    /** localStorage replay id attached to the formation (owner 2026-10-11) —
+     *  the war room shows a watch-replay affordance when it resolves. */
+    replayId: z.string().max(128).optional(),
   })
 ).handler(async ({ data }): Promise<GameResult> => {
   const accountId = await accountForToken(data.token);
@@ -2446,6 +2455,7 @@ const warRoomSaveFormationFn = createServerFn({ method: "POST" }).validator(
     f.playId = data.playId;
     f.loads = cleanLoads as SlotLoads;
     if (data.slotMeta) f.slotMeta = data.slotMeta as SavedFormation["slotMeta"];
+    if (data.replayId !== undefined) f.replayId = data.replayId;
     f.locked = data.locked;
     f.updatedAt = now;
   } else {
@@ -2457,6 +2467,7 @@ const warRoomSaveFormationFn = createServerFn({ method: "POST" }).validator(
       locked: data.locked,
       loads: cleanLoads as SlotLoads,
       slotMeta: data.slotMeta as SavedFormation["slotMeta"],
+      replayId: data.replayId,
       createdAt: now,
       updatedAt: now,
     });
@@ -2511,6 +2522,248 @@ const warRoomSetLockFn = createServerFn({ method: "POST" }).validator(
   f.updatedAt = Date.now();
   await saveAccountSaves(accountId, saves);
   return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
+});
+
+// ---------------------------------------------------------------------------
+// ALLIANCE DOCTRINES (owner 2026-10-11) — the war band's way of war.
+// Alliance-scoped, never global: doctrines ride the canonical alliance
+// record (canonicalAllianceTx) and fan out with sync-alliance. Any member
+// may contribute; viewing is gated client-side by the "doctrines"
+// permission; removal is author/leader/officer.
+// ---------------------------------------------------------------------------
+
+const doctrineLoadsSchema = z.record(z.string(), z.array(z.object({
+  type: z.string(),
+  tier: z.number().int().min(1).max(4),
+  count: z.number().int().min(1).max(100),
+}))).default({});
+
+const doctrineSlotMetaSchema = z.record(z.string(), z.object({
+  name: z.string().max(40).optional(),
+  vector: z.enum(["MAIN", "FLANK_LEFT", "FLANK_RIGHT", "REAR", "RESERVE"]).optional(),
+  entry: z.union([
+    z.object({ kind: z.literal("start") }),
+    z.object({ kind: z.literal("delayed"), atS: z.number().int().min(0).max(3600) }),
+    z.object({ kind: z.literal("oncall"), atS: z.number().int().min(0).max(3600) }),
+  ]).optional(),
+  dx: z.number().min(0).max(1).optional(),
+  dy: z.number().min(0).max(1).optional(),
+}).passthrough()).optional();
+
+const compactReplaySchema = z.object({
+  stepS: z.number(),
+  durationS: z.number(),
+  victor: z.enum(["attacker", "defender"]).nullable(),
+  kinds: z.array(z.string().max(32)),
+  frames: z.array(z.object({ t: z.number(), u: z.array(z.number()) })).max(400),
+});
+
+const allianceSaveDoctrineFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().min(8),
+    allianceId: z.string().max(64),
+    name: z.string().min(1).max(40),
+    playId: z.string().max(64).default("custom"),
+    loads: doctrineLoadsSchema,
+    slotMeta: doctrineSlotMetaSchema,
+    replay: compactReplaySchema.optional(),
+    battleName: z.string().max(80),
+    victor: z.enum(["attacker", "defender"]).nullable(),
+    durationS: z.number().min(0).max(86400),
+    killsAttacker: z.number().int().min(0),
+    killsDefender: z.number().int().min(0),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const mine = allianceOf(st, ctx.colonyId);
+    if (!mine || mine.id !== data.allianceId) return { ok: false, error: "You're not in that alliance." };
+    let total = 0;
+    for (const picks of Object.values(data.loads)) {
+      for (const p of picks) {
+        if (!isTroopType(p.type)) return { ok: false, error: "Unknown troop type in doctrine." };
+        total += p.count;
+      }
+    }
+    if (total > 100) return { ok: false, error: "Doctrine exceeds the 100-unit field cap." };
+    if (data.replay && JSON.stringify(data.replay).length > 64 * 1024) {
+      return { ok: false, error: "Replay too large." };
+    }
+    const result = await canonicalAllianceTx(st, data.allianceId, (fst) => {
+      const ca = allianceById(fst, data.allianceId);
+      if (!ca) return { ok: false as const, error: "That alliance doesn't exist." };
+      if (!ca.members.some((m) => m.colonyId === ctx.colonyId)) {
+        return { ok: false as const, error: "You're not a member." };
+      }
+      const doc = addDoctrine(ca, {
+        name: data.name,
+        authorId: ctx.colonyId,
+        authorName: ctx.colonyName,
+        playId: data.playId,
+        loads: data.loads as AllianceDoctrine["loads"],
+        slotMeta: data.slotMeta as AllianceDoctrine["slotMeta"],
+        replay: data.replay,
+        battleName: data.battleName,
+        victor: data.victor,
+        durationS: data.durationS,
+        killsAttacker: data.killsAttacker,
+        killsDefender: data.killsDefender,
+      }, ctx.now);
+      return { ok: true as const, value: doc };
+    });
+    if (!result || (typeof result === "object" && "ok" in result && !result.ok)) {
+      const err = (result as { error?: string } | null)?.error ?? "Couldn't save the doctrine.";
+      return { ok: false as const, error: err };
+    }
+    // Optimistic: the saver sees it immediately on their own mirror; the
+    // canonical sync-alliance converges everyone else (same id, no version
+    // fight — we don't bump the local version).
+    const doc = (result as { ok: true; value: AllianceDoctrine }).value;
+    const local = allianceById(st, data.allianceId);
+    if (local && !(local.doctrines ?? []).some((d) => d.id === doc.id)) {
+      local.doctrines = [...(local.doctrines ?? []), JSON.parse(JSON.stringify(doc)) as AllianceDoctrine];
+    }
+    return { ok: true as const };
+  }),
+);
+
+const allianceDeleteDoctrineFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().min(8),
+    allianceId: z.string().max(64),
+    doctrineId: z.string().max(64),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const mine = allianceOf(st, ctx.colonyId);
+    if (!mine || mine.id !== data.allianceId) return { ok: false, error: "You're not in that alliance." };
+    const result = await canonicalAllianceTx(st, data.allianceId, (fst) => {
+      const ca = allianceById(fst, data.allianceId);
+      if (!ca) return { ok: false as const, error: "That alliance doesn't exist." };
+      const r = removeDoctrine(ca, ctx.colonyId, data.doctrineId);
+      return r.ok
+        ? { ok: true as const, value: undefined }
+        : { ok: false as const, error: r.error ?? "Can't remove that doctrine." };
+    });
+    if (result && typeof result === "object" && "ok" in result && result.ok) {
+      const local = allianceById(st, data.allianceId);
+      if (local) local.doctrines = (local.doctrines ?? []).filter((d) => d.id !== data.doctrineId);
+      return { ok: true as const };
+    }
+    const err = (result as { error?: string } | null)?.error ?? "Couldn't remove the doctrine.";
+    return { ok: false as const, error: err };
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// MEMBER PERMISSIONS (owner 2026-10-11) — leader/officer-assigned per-member
+// flags. "doctrines" gates the doctrine library; the union is extensible.
+// ---------------------------------------------------------------------------
+
+const allianceSetPermissionsFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().min(8),
+    allianceId: z.string().max(64),
+    targetId: z.string().max(64),
+    permissions: z.array(z.enum(["doctrines"])).max(8),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const mine = allianceOf(st, ctx.colonyId);
+    if (!mine || mine.id !== data.allianceId) return { ok: false, error: "You're not in that alliance." };
+    const result = await canonicalAllianceTx(st, data.allianceId, (fst) => {
+      const ca = allianceById(fst, data.allianceId);
+      if (!ca) return { ok: false as const, error: "That alliance doesn't exist." };
+      const r = setMemberPermissions(ca, ctx.colonyId, data.targetId, data.permissions);
+      return r.ok
+        ? { ok: true as const, value: undefined }
+        : { ok: false as const, error: r.error ?? "Can't set permissions." };
+    });
+    if (result && typeof result === "object" && "ok" in result && result.ok) {
+      // Optimistic local mirror update (no version bump — canonical wins).
+      const local = allianceById(st, data.allianceId);
+      const m = local?.members.find((x) => x.colonyId === data.targetId);
+      if (m && m.role !== "leader") m.permissions = [...data.permissions];
+      return { ok: true as const };
+    }
+    const err = (result as { error?: string } | null)?.error ?? "Couldn't set permissions.";
+    return { ok: false as const, error: err };
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// MEMBER AVATARS (owner 2026-10-11) — preset sigil or own upload. Uploads
+// live on the player's own save (downscaled data URL); the member record
+// carries only the reference. Mates fetch the image on demand.
+// ---------------------------------------------------------------------------
+
+const allianceSetAvatarFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().min(8),
+    avatar: z.union([
+      z.object({ kind: z.literal("preset"), key: z.string().max(32) }),
+      z.object({ kind: z.literal("upload"), dataUrl: z.string().max(400_000) }),
+    ]),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    const mine = allianceOf(st, ctx.colonyId);
+    if (!mine) return { ok: false, error: "Join an alliance to set your war band avatar." };
+    if (data.avatar.kind === "preset") {
+      if (!AVATAR_PRESETS.some((p) => p.key === (data.avatar as { key: string }).key)) {
+        return { ok: false, error: "Unknown avatar." };
+      }
+    } else {
+      if (!data.avatar.dataUrl.startsWith("data:image/")) return { ok: false, error: "Not an image." };
+      st.avatarUpload = data.avatar.dataUrl;
+    }
+    const ref = data.avatar.kind === "preset"
+      ? { kind: "preset" as const, key: (data.avatar as { key: string }).key }
+      : { kind: "upload" as const, id: ctx.colonyId };
+    const result = await canonicalAllianceTx(st, mine.id, (fst) => {
+      const ca = allianceById(fst, mine.id);
+      if (!ca) return { ok: false as const, error: "That alliance doesn't exist." };
+      const m = ca.members.find((x) => x.colonyId === ctx.colonyId);
+      if (!m) return { ok: false as const, error: "You're not a member." };
+      m.avatar = ref;
+      touchAlliance(ca);
+      return { ok: true as const, value: undefined };
+    });
+    if (result && typeof result === "object" && "ok" in result && result.ok) {
+      const local = allianceById(st, mine.id);
+      const m = local?.members.find((x) => x.colonyId === ctx.colonyId);
+      if (m) m.avatar = ref;
+      return { ok: true as const };
+    }
+    const err = (result as { error?: string } | null)?.error ?? "Couldn't set the avatar.";
+    return { ok: false as const, error: err };
+  }),
+);
+
+/** Serve a member's uploaded avatar image to an alliance mate (privacy:
+ *  requester must share an alliance with the target). */
+const allianceGetAvatarFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().min(8),
+    colonyId: z.string().max(64),
+  })
+).handler(async ({ data }): Promise<GameResult & { dataUrl?: string | null }> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  const saves = await loadAccountSaves(accountId);
+  const st = saves?.activeGameId ? saves.games[saves.activeGameId] : undefined;
+  if (!st) return { ok: false, error: "Start a colony first." };
+  const me = (st as { gameId?: string }).gameId;
+  const mine = me ? allianceOf(st, me) : null;
+  if (!mine || !mine.members.some((m) => m.colonyId === data.colonyId)) {
+    return { ok: false, error: "Not an alliance mate." };
+  }
+  const { findColonyAccountId } = await import("./alliance-transact");
+  const targetAccount = await findColonyAccountId(data.colonyId);
+  if (!targetAccount) return { ok: false, error: "Colony not found." };
+  const tSaves = await loadAccountSaves(targetAccount);
+  const tg = tSaves?.activeGameId ? tSaves.games[tSaves.activeGameId] : undefined;
+  const dataUrl = (tg as { avatarUpload?: string } | undefined)?.avatarUpload ?? null;
+  return { ok: true, dataUrl };
 });
 
 /** Hire a mercenary band: the deserters' market (muster-troops.md §10). The
@@ -3288,6 +3541,11 @@ export {
   warRoomSaveFormationFn,
   warRoomDeleteFormationFn,
   warRoomSetLockFn,
+  allianceSaveDoctrineFn,
+  allianceDeleteDoctrineFn,
+  allianceSetPermissionsFn,
+  allianceSetAvatarFn,
+  allianceGetAvatarFn,
   plantForwardBaseFn,
   relocateColonyFn,
   musterForwardTroopsFn,

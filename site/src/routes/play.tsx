@@ -63,6 +63,7 @@ import MailboxSheet from "../components/Mailbox";
 import RaidAlarmOverlay from "../components/RaidAlarmOverlay";
 
 import { configureChat } from "../game/chat/chat-store";
+import { configureChatMembers } from "../game/chat/chat-members";
 import { useT, useLang } from "../components/i18n/I18n";
 import { navBadges } from "../game/nav-badges";
 import type { Tab } from "../game/nav-slots";
@@ -252,6 +253,30 @@ function PlayPage() {
   useEffect(() => {
     configureChat(signedIn === true ? token : null, null);
   }, [signedIn, token]);
+  // ---- CHAT MEMBER DIRECTORY (owner 2026-10-11) ------------------------------
+  // The chat window resolves sender avatars + tap-to-profile from the alliance
+  // roster. Published here on every state/token change so avatars stay in sync
+  // when someone changes theirs.
+  useEffect(() => {
+    if (signedIn !== true || !token || !state) {
+      configureChatMembers(null);
+      return;
+    }
+    const me = state.gameId ?? "";
+    const alliance = allianceOf(state, me);
+    if (!alliance) {
+      configureChatMembers(null);
+      return;
+    }
+    const mine = alliance.members.find((m) => m.colonyId === me);
+    configureChatMembers({
+      token,
+      me,
+      alliance,
+      isLeader: mine?.role === "leader",
+      isOfficer: mine?.role === "officer",
+    });
+  }, [signedIn, token, state]);
   // ---- PAYMENT RETURN (Payments) ----------------------------------------------------
   // Xsolla sends the player back to /play?purchase=return&sku=… (the return_url
   // minted with the token). The URL proves nothing, so it is never used to

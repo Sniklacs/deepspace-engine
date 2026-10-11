@@ -136,6 +136,7 @@ const KIND_ICON: Record<AllianceActivityKind, string> = {
   "rally-cancelled": "📯",
   policy: "⚙️",
   tithe: "⚙️",
+  sacrifice: "🩸",
 };
 
 function fmtAgo(at: number, now: number): string {

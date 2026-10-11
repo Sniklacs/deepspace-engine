@@ -29,10 +29,13 @@ export interface CommsBubble {
   atS: number;
 }
 
-/** Cap on unread bubbles — old unread ones age out, nothing is unbounded. */
-export const MAX_COMMS = 8;
-/** How many bubbles the stack shows before the "+N more" overflow line. */
-export const COMMS_SHOWN = 3;
+/** Cap on unread bubbles — old unread ones age out, nothing is unbounded.
+ *  Raised (owner 2026-10-11): bubbles are the commander's reading time —
+ *  more of them survive before aging out. */
+export const MAX_COMMS = 16;
+/** How many bubbles the stack shows before the "+N more" overflow line.
+ *  Raised (owner 2026-10-11) so more reports stay visible without tapping. */
+export const COMMS_SHOWN = 4;
 
 /** Push a bubble onto the queue (pure — returns the new queue). */
 export function pushBubble(queue: CommsBubble[], b: CommsBubble): CommsBubble[] {
@@ -76,7 +79,8 @@ export type CommsEventKind =
   | "clock-1"
   | "clock-end"
   | "phase"
-  | "reserve";
+  | "reserve"
+  | "siege";
 
 export interface CommsSpec {
   source: string;
@@ -146,6 +150,8 @@ export function commsFor(kind: CommsEventKind, detail: string): CommsSpec {
       return { source: "PHASE", message: detail, critical: false };
     case "reserve":
       return { source: "RESERVE", message: detail, critical: false };
+    case "siege":
+      return { source: "SIEGE", message: detail, critical: false };
   }
 }
 
@@ -163,6 +169,7 @@ export const COMMS_EVENT_KINDS: readonly CommsEventKind[] = [
   "clock-end",
   "phase",
   "reserve",
+  "siege",
 ];
 
 // ---------------------------------------------------------------------------

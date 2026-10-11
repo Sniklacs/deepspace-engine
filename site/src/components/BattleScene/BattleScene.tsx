@@ -28,6 +28,9 @@ import {
   WORLD_FIT_ZOOM,
   WORLD_H,
   WORLD_W,
+  METERS_PER_WORLD_UNIT,
+  SIEGE_BLAST_R_M,
+  siegeFalloff,
   clampWorldX,
   clampWorldY,
   demoBreakVictor,
@@ -81,16 +84,25 @@ import {
   registerSquads,
   setSelectedSquad,
   logOrder,
+  orderReceipt,
   resetSceneUI,
+  setSiegeAim,
+  setSiegeAimArmed,
+  setSquadHoldPosition,
+  squadStanceOf,
   setZoomLevel,
   recenterMap,
   BATTLE_SPEED_MUL,
 } from "../../game/war/battle-scene-ui-store";
 import {
   buildSquads,
+  enemyLineY,
   hasLongeyeCover,
+  isBehindLines,
   isDrivable,
+  judgeJumpDrop,
   judgeMoveOrder,
+  lineWardenCount,
   destLabel,
   ORDER_DELAY_S,
   squadEyeCount,
@@ -126,10 +138,27 @@ import {
   type BattleCamera,
 } from "../../game/war/battle-camera";
 // Playbook formation type (the result sheet's "Save in war room" draft).
-import { suggestedFormationName } from "../../game/war/playbook";
+import {
+  formationFromBattle,
+  type BattleFormationSquad,
+  type BattleFormationUnit,
+} from "../../game/war/playbook";
+import {
+  storeReplay,
+  markReplaySaved,
+  getReplay,
+  compactReplay,
+  retentionForBattle,
+  defaultBattleName,
+  PENDING_REPLAY_TTL_MS,
+  type BattleReplay,
+  type ReplayFrame,
+  type ReplayEvent,
+} from "../../game/war/battle-replays";
+import { BattleReplayViewer } from "./BattleReplayViewer";
 // Troop tiers are real (owner 2026-10-05): a T4 genuinely out-hits and
 // out-lasts a T1 — the same power curve the war engine prices forces at.
-import { tierPowerMult } from "../../game/war/troops";
+import { tierPowerMult, weaponKindFor } from "../../game/war/troops";
 import {
   subscribeWindows,
   windowSnapshot,
@@ -148,10 +177,17 @@ import {
   drawExplosionBody,
   drawScorch,
   drawShockwave,
+  drawShell,
   drawSpark,
   drawTracerBeam,
+  drawTracerSlug,
   drawVolDust,
 } from "../../game/war/rendered-fx";
+import {
+  clearRadarFeed,
+  pushRadarFrame,
+  radarPing,
+} from "../../game/war/battle-radar-feed";
 // SEAMLESS-WORLD §8 (slice 13): quality-gated terrain detail overlays.
 import {
   createOverlaySpec,
@@ -261,12 +297,37 @@ interface Props {
   variant?: "embedded" | "fullscreen";
   /** fullscreen only: back out to wherever the scene was opened from */
   onClose?: () => void;
-  /** The formation just fought (deploy-my-loadout / war room): enables the
-   *  post-battle "Save in war room" action. Null for the canned demo. */
-  formation?: { name: string; playId: string; loads: import("../../game/war/playbook").SlotLoads } | null;
-  /** Called with the named formation draft when the commander taps
-   *  "Save in war room" on the result overlay. */
-  onSaveFormation?: (draft: { name: string; playId: string; loads: import("../../game/war/playbook").SlotLoads }) => void;
+  /**
+   * Called with the named formation draft when the commander taps
+   * "Save formation" on the result sheet (owner 2026-10-11). The draft
+   * captures the battle's own squads, composition, and starting positions
+   * — works for ANY battle, not just deployed formations.
+   */
+  onSaveFormation?: (draft: {
+    name: string;
+    playId: string;
+    loads: import("../../game/war/playbook").SlotLoads;
+    slotMeta?: import("../../game/war/playbook").SavedFormation["slotMeta"];
+    replayId?: string;
+  }) => void;
+  /**
+   * Called with the named doctrine draft when the commander saves the
+   * battle as an alliance doctrine (owner 2026-10-11). The parent posts
+   * it to the alliance library (allianceSaveDoctrineFn). Absent = no
+   * alliance context, the doctrine option is hidden.
+   */
+  onSaveDoctrine?: (draft: {
+    name: string;
+    playId: string;
+    loads: import("../../game/war/playbook").SlotLoads;
+    slotMeta?: import("../../game/war/playbook").SavedFormation["slotMeta"];
+    replay?: import("../../game/war/battle-replays").CompactReplay;
+    battleName: string;
+    victor: "attacker" | "defender" | null;
+    durationS: number;
+    killsAttacker: number;
+    killsDefender: number;
+  }) => void;
   /**
    * Seamless-world continuum scale (the globe's z axis) when this scene is
    * embedded in the world. Drives the Z3-overview LOD (shapes vs models)
@@ -294,7 +355,54 @@ const VEC_LABEL: Record<ManeuverVector, string> = {
   MAIN: "Main", FLANK_LEFT: "Flank L", FLANK_RIGHT: "Flank R", REAR: "Rear", RESERVE: "Reserve",
 };
 
-export function BattleScene({ scene, liveCasualties = null, variant = "embedded", onClose, formation = null, onSaveFormation, continuumScale = null }: Props) {
+/** Battle-clock stamp for reports/replays: T+02:34. */
+function fmtClock(tS: number): string {
+  const m = Math.floor(Math.max(0, tS) / 60);
+  const s = Math.floor(Math.max(0, tS) % 60);
+  return `T+${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+/**
+ * Snapshot a battle's starting disposition for "Save formation" (owner
+ * 2026-10-11, pure): the attacker's squads, each unit's kind/tier, vector,
+ * entry, and STARTING position. The saved formation redeploys exactly this.
+ */
+function snapshotFormation(scene: SceneBattle): {
+  squads: BattleFormationSquad[];
+  units: BattleFormationUnit[];
+} {
+  const squads = buildSquads(scene.units)
+    .filter((s) => isDrivable(s))
+    .map((s) => ({ id: s.id, name: s.name }));
+  const units: BattleFormationUnit[] = [];
+  for (const u of scene.units) {
+    if (u.side !== "attacker") continue;
+    if (!(u.kind === "bulwark" || u.kind === "reaver" || u.kind === "longeye" || u.kind === "thunder" || u.kind === "warden")) continue;
+    units.push({
+      squadId: u.squadId,
+      kind: u.kind,
+      tier: u.tier,
+      x: u.x,
+      y: u.y,
+      vector: u.vector,
+      onCall: u.onCall,
+    });
+  }
+  return { squads, units };
+}
+
+export function BattleScene({ scene: sceneProp, liveCasualties = null, variant = "embedded", onClose, onSaveFormation, onSaveDoctrine, continuumScale = null }: Props) {
+  // Retry / re-challenge (owner 2026-10-11): the battle can restart on the
+  // same field (retry — same seed) or as a fresh challenge (same forces,
+  // new seed). `scene` below is the ACTIVE scene — every downstream read
+  // uses it, so a retry is a full clean reset.
+  const [activeScene, setActiveScene] = useState(sceneProp);
+  const [battleRunId, setBattleRunId] = useState(0);
+  const scene = activeScene;
+  useEffect(() => {
+    // Parent handed a new battle: adopt it.
+    setActiveScene((cur) => (cur.id === sceneProp.id ? cur : sceneProp));
+  }, [sceneProp]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const sprites = useMemo(loadSprites, []);
@@ -349,6 +457,24 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   const [resolvedSide, setResolvedSide] = useState<"attacker" | "defender" | null>(null);
   const [saveName, setSaveName] = useState("");
   const [savedInWarRoom, setSavedInWarRoom] = useState(false);
+  // End-of-battle action bar (owner 2026-10-11): retry / re-challenge /
+  // report / save replay / watch replay / save formation(+doctrine).
+  const [resultView, setResultView] = useState<"actions" | "report" | "save">("actions");
+  const [replayId, setReplayId] = useState<string | null>(null);
+  const [replaySaved, setReplaySaved] = useState(false);
+  const [watchingReplay, setWatchingReplay] = useState(false);
+  const [saveWithReplay, setSaveWithReplay] = useState(true);
+  const [saveDest, setSaveDest] = useState<"personal" | "doctrine">("personal");
+  /** Replay capture: 1Hz keyframes + sparse events, finalized at resolve. */
+  const replayFramesRef = useRef<ReplayFrame[]>([]);
+  const replayEventsRef = useRef<ReplayEvent[]>([]);
+  const replayLastRef = useRef(0);
+  const replayDoneRef = useRef(false);
+  const replayStartRef = useRef(Date.now());
+  /** The battle's starting disposition — what "Save formation" captures. */
+  const formationSnapshotRef = useRef<{ squads: BattleFormationSquad[]; units: BattleFormationUnit[] }>({ squads: [], units: [] });
+  /** comms mirror for the report's key moments + the replay record. */
+  const commsRef = useRef<import("../../game/war/battle-comms").CommsBubble[]>([]);
   // Longeye movement-report state (canvas-local):
   //  - watches: enemy moves in flight, reported at ~50% of progress
   //    (see watchShouldReport in battle-comms).
@@ -369,6 +495,43 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   const victorRef = useRef<"attacker" | "defender" | null>(null);
   // Last doctrine phase seen — phase transitions earn SFX stingers.
   const phaseRef = useRef<string | null>(null);
+  // ATTRITION GOVERNOR (owner 2026-10-11): the reaction window is the metric.
+  // A squad losing badly grinds down over 30-60s of visible losing — never
+  // evaporates. Two levers:
+  //  - ATTRITION_SCALE: every damage number in the scene is scaled by this.
+  //  - SQUAD_DMG_CAP: max hp01 ONE squad can lose per 0.28s exchange tick,
+  //    scaled by living strength (0.006 × alive). A full 20-unit squad can
+  //    lose at most ~0.43 hp/s even under 3:1 focus — the wipe takes ≥45s.
+  //    Even-odds fights deal under the cap naturally: slugging matches.
+  const ATTRITION_SCALE = 0.6;
+  const SQUAD_DMG_CAP_FRAC = 0.006;
+  const SQUAD_DMG_CAP_MIN = 0.05;
+  // Warden shields (owner 2026-10-11): coverage radius in world units,
+  // shield max per covering Warden, and regen per sim-second while covered.
+  const SHIELD_RADIUS = 0.2;
+  const SHIELD_PER_WARDEN = 0.3;
+  const SHIELD_MAX = 0.75;
+  const SHIELD_REGEN = 0.035;
+  // Siege (owner 2026-10-11): thunder guns lob shells — cooldown between
+  // shots, and the per-shell damage before the governor. Blast radius and
+  // falloff are meter-based (SIEGE_BLAST_R_M, siegeFalloff) — 20m of hurt
+  // that doesn't discriminate between friend and foe.
+  const SIEGE_COOLDOWN_S = 2.8;
+  const SIEGE_SPLASH_R = SIEGE_BLAST_R_M / METERS_PER_WORLD_UNIT;
+  const SIEGE_DMG = 0.5;
+  // Per-frame damage ledger — every damage source accumulates here and is
+  // flushed once per exchange tick through the governor (cap + shields).
+  const dmgLedgerRef = useRef<Array<{ u: SceneUnit; amt: number }>>([]);
+  // Engine-casualty throttle (owner 2026-10-11): live engine ticks match
+  // visuals to engine casualties, but never burst-wipe — one engine kill
+  // per side per ENGINE_KILL_GAP_S, and per squad per SQUAD_KILL_GAP_S.
+  const engineKillAtRef = useRef<Record<string, number>>({ attacker: -99, defender: -99 });
+  const squadKillAtRef = useRef<Map<string, number>>(new Map());
+  const ENGINE_KILL_GAP_S = 2.0;
+  const SQUAD_KILL_GAP_S = 6.0;
+  // Initial squad headcounts — the SQUADS panel's casualty counts need the
+  // ORIGINAL strength, not the shrinking living count.
+  const squadTotalRef = useRef<Map<string, number>>(new Map());
   // Last squad alive-counts pushed to the store — the SQUADS panel refreshes
   // only when something actually died.
   const squadAliveRef = useRef<string>("");
@@ -401,6 +564,12 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   if (unitsRef.current.length === 0) {
     unitsRef.current = scene.units.map((u) => ({ ...u }));
     turretsRef.current = scene.turrets.map((t) => ({ ...t }));
+    // First mount: freeze the ORIGINAL squad headcounts for casualty counts.
+    squadTotalRef.current = new Map(
+      buildSquads(unitsRef.current)
+        .filter((s) => isDrivable(s))
+        .map((s) => [s.id, s.unitIds.length] as [string, number]),
+    );
   }
 
   // The SFX engine needs the live camera for distance-muffled blasts.
@@ -415,11 +584,14 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     };
   });
 
-  // Reset working copy + shared UI when the scene identity changes.
-  const sceneIdRef = useRef(scene.id);
+  // Reset working copy + shared UI when the battle identity changes:
+  // a new scene, a retry (same field, same seed), or a re-challenge
+  // (same forces, new seed). (owner 2026-10-11)
+  const runKeyRef = useRef("");
   useEffect(() => {
-    if (sceneIdRef.current !== scene.id) {
-      sceneIdRef.current = scene.id;
+    const key = `${scene.id}#${battleRunId}`;
+    if (runKeyRef.current !== key) {
+      runKeyRef.current = key;
       unitsRef.current = scene.units.map((u) => ({ ...u }));
       turretsRef.current = scene.turrets.map((t) => ({ ...t }));
       camRef.current = { ...CAM_HOME };
@@ -441,6 +613,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       reserveAnnouncedRef.current = new Set();
       battleSfx.reset();
       resetSceneUI();
+      // Fresh battle: freeze the ORIGINAL squad headcounts (casualty counts
+      // need them) and drop any stale radar snapshot.
+      squadTotalRef.current = new Map(
+        buildSquads(unitsRef.current)
+          .filter((s) => isDrivable(s))
+          .map((s) => [s.id, s.unitIds.length] as [string, number]),
+      );
+      squadKillAtRef.current = new Map();
+      engineKillAtRef.current = { attacker: -99, defender: -99 };
+      clearRadarFeed();
     }
     registerTurrets(
       turretsRef.current
@@ -487,6 +669,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           onCallReserve: unitsRef.current.some(
             (u) => u.squadId === s.id && u.state === "staging" && u.onCall,
           ),
+          hasThunders: s.unitIds.some((id) => {
+            const u = unitsRef.current.find((w) => w.id === id);
+            return u !== undefined && u.kind === "thunder" && u.state !== "dead";
+          }),
         })),
     );
     // New battle, new intel: reset comms, reveal, and movement watches.
@@ -496,7 +682,21 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     watchesRef.current = [];
     arrowRef.current = null;
     highlightRef.current = null;
-  }, [scene]);
+    // Replay capture + formation snapshot reset for the new run.
+    replayFramesRef.current = [];
+    replayEventsRef.current = [];
+    replayLastRef.current = 0;
+    replayDoneRef.current = false;
+    replayStartRef.current = Date.now();
+    setReplayId(null);
+    setReplaySaved(false);
+    setResultView("actions");
+    setWatchingReplay(false);
+    setSaveName("");
+    setSavedInWarRoom(false);
+    commsRef.current = [];
+    formationSnapshotRef.current = snapshotFormation(scene);
+  }, [scene, battleRunId]);
 
   // ---- main loop ---------------------------------------------------------
   useEffect(() => {
@@ -561,13 +761,61 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       return best;
     };
 
+    /**
+     * Finalize the battle replay at resolve (owner 2026-10-11): the captured
+     * keyframes + events become a stored replay. PvP duels auto-save and
+     * queue a ladder result; everything else pends — trashed after 24h
+     * unless the commander taps Save Replay.
+     */
+    const finalizeReplay = (victor: "attacker" | "defender") => {
+      if (replayDoneRef.current) return;
+      replayDoneRef.current = true;
+      const now = Date.now();
+      const uiSnap = sceneUISnapshot();
+      const pvp = !!scene.pvp;
+      const retention = retentionForBattle(pvp);
+      const replay: BattleReplay = {
+        id: `rp-${scene.id}-${now.toString(36)}`,
+        battleId: scene.id,
+        name: defaultBattleName(scene.name, now),
+        attackerName: scene.attackerName,
+        defenderName: scene.defenderName,
+        victor,
+        startedAt: replayStartRef.current,
+        endedAt: now,
+        durationS: Math.round(simTRef.current),
+        pvp,
+        duelId: scene.pvp?.duelId,
+        retention,
+        expiresAt: retention === "pending" ? now + PENDING_REPLAY_TTL_MS : undefined,
+        squads: uiSnap.squads.map((s) => ({ id: s.id, name: s.name, alive: s.alive, total: s.total })),
+        kills: { attacker: uiSnap.kills.attacker, defender: uiSnap.kills.defender },
+        orders: uiSnap.orderLog.map((o) => orderReceipt(o).text),
+        keyMoments: commsRef.current
+          .filter((c) => c.critical)
+          .map((c) => `${fmtClock(c.atS)} — ${c.message}`),
+        frames: replayFramesRef.current,
+        events: replayEventsRef.current,
+      };
+      storeReplay(replay, now);
+      setReplayId(replay.id);
+      // Duels auto-save; the arena ladder is fed by the arena's own bout
+      // ledger (buildLadderEntries) — no separate queue needed.
+      setReplaySaved(retention !== "pending");
+    };
+
     const killUnit = (u: SceneUnit) => {
       if (u.state === "dead") return;
       u.state = "dead";
       u.hp01 = 0;
+      u.shield01 = 0;
       fx.explode(X(u.x), Y(u.y), u.kind === "thunder" ? 1.5 : 1);
       battleSfx.explosion(u.x, u.y, u.kind === "thunder");
       bumpKill(u.side as "attacker" | "defender");
+      radarPing(u.x, u.y, "kill");
+      replayEventsRef.current.push({
+        t: simTRef.current, kind: "kill", x: u.x, y: u.y, side: u.side,
+      });
       // Demo only: the field breaks at the casualty threshold — the other
       // side holds it. Live battles resolve on the engine's own ticks.
       if (!liveCasualties && !victorRef.current) {
@@ -576,6 +824,52 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           victorRef.current = v;
           setResolvedSide(v);
           battleSfx.victor(v === "attacker");
+          finalizeReplay(v);
+        }
+      }
+    };
+
+    /**
+     * Damage ledger (owner 2026-10-11): every damage source accumulates
+     * here; flushDamage() applies it once per exchange tick through the
+     * governor — global scale, per-squad cap, shields-first. No burst wipes.
+     */
+    const dealDamage = (target: SceneUnit, amt: number) => {
+      if (target.state === "dead" || amt <= 0) return;
+      dmgLedgerRef.current.push({ u: target, amt: amt * ATTRITION_SCALE });
+    };
+    const flushDamage = () => {
+      const ledger = dmgLedgerRef.current;
+      if (ledger.length === 0) return;
+      dmgLedgerRef.current = [];
+      // group by squad for the per-squad cap
+      const bySquad = new Map<string, Array<{ u: SceneUnit; amt: number }>>();
+      for (const e of ledger) {
+        const arr = bySquad.get(e.u.squadId) ?? [];
+        arr.push(e);
+        bySquad.set(e.u.squadId, arr);
+      }
+      for (const [, entries] of bySquad) {
+        const alive = entries.filter((e) => e.u.state !== "dead").length;
+        if (alive === 0) continue;
+        const cap = Math.max(SQUAD_DMG_CAP_MIN, SQUAD_DMG_CAP_FRAC * alive);
+        const total = entries.reduce((s, e) => s + e.amt, 0);
+        const k = total > cap ? cap / total : 1;
+        for (const { u, amt } of entries) {
+          if (u.state === "dead") continue;
+          let a = amt * k;
+          // shields absorb first — the bubble shivers where the hit lands
+          const sh = u.shield01 ?? 0;
+          if (sh > 0 && a > 0) {
+            const absorbed = Math.min(sh, a);
+            u.shield01 = sh - absorbed;
+            a -= absorbed;
+            if (absorbed > 0.015) fx.shieldHit(X(u.x), Y(u.y));
+          }
+          if (a > 0) {
+            u.hp01 -= a;
+            if (u.hp01 <= 0) killUnit(u);
+          }
         }
       }
     };
@@ -632,6 +926,24 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       const sdt = victorRef.current ? 0 : dt * BATTLE_SPEED_MUL[ui.battleSpeed];
       simTRef.current += sdt;
       const t = simTRef.current;
+      // REPLAY CAPTURE (owner 2026-10-11): 1Hz keyframes of living units.
+      // Capped — a 20-minute battle is 1200 frames, plenty.
+      if (!victorRef.current && t - replayLastRef.current >= 1 && replayFramesRef.current.length < 1200) {
+        replayLastRef.current = t;
+        const units: ReplayFrame["units"] = [];
+        for (const u of unitsRef.current) {
+          if (u.state === "dead") continue;
+          units.push({
+            i: u.id,
+            x: Math.round(u.x * 1000) / 1000,
+            y: Math.round(u.y * 1000) / 1000,
+            s: u.side,
+            k: u.kind,
+            st: u.state,
+          });
+        }
+        replayFramesRef.current.push({ t: Math.round(t * 10) / 10, units });
+      }
       const phase = scenePhaseAt(t);
       // Doctrine phase transitions earn SFX stingers — ears know where you
       // are before your eyes catch up.
@@ -653,6 +965,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       for (const u of stepOffUnits(unitsRef.current, t)) {
         u.moveAtS = undefined;
         if (u.state === "holding" || u.state === "advancing") u.state = "advancing";
+      }
+      // MOVEMENT BLOCKING precompute (owner 2026-10-11): the enemy's forward
+      // line and its Warden guards, once per frame. Squads with living
+      // Reavers may breach a BROKEN line (guards ground down); an intact
+      // line blocks everyone.
+      const atkLineY = enemyLineY(unitsRef.current, "attacker");
+      const atkLineWardens = lineWardenCount(unitsRef.current, "attacker");
+      const reaverSquads = new Set<string>();
+      for (const u of unitsRef.current) {
+        if (u.state !== "dead" && u.kind === "reaver") reaverSquads.add(u.squadId);
       }
       for (const u of unitsRef.current) {
         if (u.state === "dead") continue;
@@ -682,13 +1004,53 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           const dx = u.tx - u.x;
           const dy = u.ty - u.y;
           const d = Math.hypot(dx, dy);
-          const speed = (u.kind === "thunder" ? 0.02 : u.kind === "warden" ? 0.035 : 0.05) * sdt * 10;
+          // Slower (owner 2026-10-11): maneuvers take time — both sides can
+          // respond. Was 0.05/0.035/0.02 (a full-field cross in ~3s).
+          const speed = (u.kind === "thunder" ? 0.008 : u.kind === "warden" ? 0.014 : 0.02) * sdt * 10;
           if (d < 0.015) {
             u.x = u.tx; u.y = u.ty;
             u.state = "holding";
+            // Siege re-deploys (owner 2026-10-11): once the whole squad has
+            // arrived, thunders limber down — toggle MOVE to displace again.
+            if (u.kind === "thunder") {
+              const moving = unitsRef.current.some(
+                (w) => w.squadId === u.squadId && w.state === "advancing",
+              );
+              if (!moving) setSquadHoldPosition(u.squadId, true);
+            }
           } else {
-            u.x += (dx / d) * Math.min(d, speed);
-            u.y += (dy / d) * Math.min(d, speed);
+            let mx = dx / d, my = dy / d;
+            // BREACH CHECK: Reaver squad vs a broken line (Wardens gone) —
+            // they push through the gap. Everyone else respects the block.
+            const lineY = u.side === "attacker" ? atkLineY : null;
+            const breacher =
+              lineY !== null &&
+              atkLineWardens === 0 &&
+              reaverSquads.has(u.squadId);
+            if (!breacher) {
+              // MOVEMENT BLOCKING: enemy units obstruct the path — probe
+              // ahead; a blocker ahead steers the unit around it, a wall of
+              // them stops it at contact. Never ghosts through.
+              const blocker = nearestEnemy(u.x + mx * 0.07, u.y + my * 0.07, u.side, 0.08);
+              if (blocker) {
+                const ax = u.x - blocker.x, ay = u.y - blocker.y;
+                const al = Math.hypot(ax, ay) || 1;
+                mx = (mx * 1.2 + (ax / al) * 1.8) / 3;
+                my = (my * 1.2 + (ay / al) * 1.8) / 3;
+                const ml = Math.hypot(mx, my) || 1;
+                mx /= ml; my /= ml;
+              }
+            }
+            let nx = u.x + mx * Math.min(d, speed);
+            let ny = u.y + my * Math.min(d, speed);
+            // THE LINE HOLDS: attacker ground units never cross north of the
+            // defender's forward line (jump ships fly over it; breachers push
+            // through a broken one). Defender doctrine moves are scripted
+            // and telegraphed — the clamp is the attacker's rule.
+            if (u.side === "attacker" && !breacher && lineY !== null) {
+              ny = Math.max(ny, lineY - 0.03);
+            }
+            u.x = nx; u.y = ny;
           }
         }
         if (u.state === "descending") {
@@ -707,12 +1069,12 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
             u.dropAtS = undefined;
             battleSfx.flankCrash(); // the loud landing — everybody hears it
             fx.explode(X(u.x), Y(u.y), 1.2);
+            radarPing(u.x, u.y, "blast");
             if (res.scattered) {
               for (const id of res.splash) {
                 const v = unitsRef.current.find((w) => w.id === id);
                 if (v && v.state !== "dead") {
-                  v.hp01 -= HOTDROP_SPLASH_DMG;
-                  if (v.hp01 <= 0) killUnit(v);
+                  dealDamage(v, HOTDROP_SPLASH_DMG);
                 }
               }
               postComms("reserve", "Bad drop — landed on occupied ground, casualties both ways");
@@ -722,9 +1084,12 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
             u.y += (dy / d) * Math.min(d, fall);
             const hot = nearestEnemy(u.x, u.y, u.side, HOTDROP_HOT_RADIUS);
             if (hot) {
-              u.hp01 -= 0.05 * sdt;
-              if (Math.random() < 0.1) fx.fire(X(hot.x), Y(hot.y), X(u.x), Y(u.y), "#fda4af");
-              if (u.hp01 <= 0) killUnit(u);
+              dealDamage(u, 0.05 * sdt);
+              if (Math.random() < 0.1) {
+                // weapon identity: the defender shoots what it carries
+                if (weaponKindFor(hot.kind) === "kinetic") fx.fireKinetic(X(hot.x), Y(hot.y), X(u.x), Y(u.y), "#fda4af");
+                else fx.fire(X(hot.x), Y(hot.y), X(u.x), Y(u.y), "#fda4af");
+              }
             }
           }
         }
@@ -742,24 +1107,61 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         // Cap simultaneous exchanges for perf + readability.
         for (const u of engaged.slice(0, 40)) {
           if (Math.random() < 0.55) continue;
+          // WEAPONS HOLD (owner 2026-10-11): the squad's direct-fire weapons
+          // stay silent, even with enemies in range.
+          if (ui.squadStance[u.squadId]?.weaponsHold) continue;
+          const wk = weaponKindFor(u.kind);
+          const col = u.side === "attacker" ? "#ffd27a" : "#fda4af";
+          if (wk === "siege") {
+            // SIEGE (owner 2026-10-11): thunder guns don't instant-hit —
+            // they lob a visible shell on a cooldown. You SEE it coming.
+            // HOLD-FIRE: the commander silences the battery before
+            // friendlies walk into the blast zone — one tap, instant.
+            // Either the per-gun flag or the master panic switch.
+            if (u.siegeHold || ui.siegeHoldAll) continue;
+            if (t < (u.nextSiegeAt ?? 0)) continue;
+            // MANUAL AIM: Hans's draggable targeter if placed (his guns
+            // only — the Chorus aims its own). Else nearest enemy (legacy).
+            // The guns walk fire to the aim point.
+            const aim = u.side === "attacker" ? ui.siegeAim : null;
+            let gx: number, gy: number, tierDiv = 1;
+            if (aim) {
+              gx = aim.x; gy = aim.y;
+            } else {
+              const tgt = nearestEnemy(u.x, u.y, u.side, 0.45);
+              if (!tgt) { u.state = "holding"; continue; }
+              gx = tgt.x; gy = tgt.y;
+              tierDiv = tierPowerMult(tgt.tier);
+            }
+            u.nextSiegeAt = t + SIEGE_COOLDOWN_S;
+            const dist = Math.hypot(gx - u.x, gy - u.y);
+            fx.lobShell(X(u.x), Y(u.y), X(gx), Y(gy), 1.0 + dist * 1.2, 1.2);
+            battleSfx.tracer("snipe");
+            const sh = fx.shells[fx.shells.length - 1];
+            if (sh) {
+              sh.dmg = (0.3 + Math.random() * 0.15) * (tierPowerMult(u.tier) / tierDiv);
+              sh.side = u.side;
+            }
+            continue;
+          }
           const e = nearestEnemy(u.x, u.y, u.side, 0.45);
           if (!e) { u.state = "holding"; continue; }
-          fx.fire(X(u.x), Y(u.y), X(e.x), Y(e.y), u.side === "attacker" ? "#ffd27a" : "#fda4af");
-          battleSfx.tracer(u.kind === "thunder" ? "snipe" : "crack"); // T4s sniping crack
-          // Tuned down (owner 2026-10-05): the demo used to annihilate both
-          // sides in under a minute of weapons-free. Hits stay frequent so
-          // the tracers keep flying — they just don't kill as fast.
+          // Weapon identity (owner 2026-10-11): lasers read as beams,
+          // kinetics as rapid-fire slug bursts. Same damage event.
+          if (wk === "kinetic") fx.fireKinetic(X(u.x), Y(u.y), X(e.x), Y(e.y), col);
+          else fx.fire(X(u.x), Y(u.y), X(e.x), Y(e.y), col);
+          battleSfx.tracer("crack");
           // Tiers are real: elites out-hit chaff and shrug off chaff fire.
           // Chorus doctrine (owner 2026-10-06): a holding defender takes ~12%
           // less — dug in, not yet engaged. Cover takes ~12% less. Flank it
           // or overwhelm it; the bonuses reward maneuver, they don't make
           // the line unbreakable.
-          e.hp01 -= (((0.015 + Math.random() * 0.03) * tierPowerMult(u.tier)) / tierPowerMult(e.tier)) * dmgTakenMul(e);
-          if (e.hp01 <= 0) killUnit(e);
+          dealDamage(e, (((0.015 + Math.random() * 0.03) * tierPowerMult(u.tier)) / tierPowerMult(e.tier)) * dmgTakenMul(e));
         }
         // Turret fire — per-turret modes (owner 2026-10-06). AUTO command:
         // every gun free-fires. Manual: held turrets stay silent while auto
         // turrets keep shooting and the gunner's own gun takes the lock.
+        // Turrets are energy weapons: sustained beams.
         for (const tr of turretsRef.current) {
           if (tr.hp01 <= 0) continue;
           if (!turretFires(ui, tr.id)) continue;
@@ -773,14 +1175,47 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
             tr.aim = Math.atan2(Y(target.y) - Y(tr.y), X(target.x) - X(tr.x));
             fx.fire(X(tr.x), Y(tr.y), X(target.x), Y(target.y), "#a5f3fc");
             battleSfx.tracer("turret");
-            // Tuned down with the rest (owner 2026-10-05).
-            target.hp01 -= (0.04 + Math.random() * 0.05) * dmgTakenMul(target);
-            if (target.hp01 <= 0) killUnit(target);
+            dealDamage(target, (0.04 + Math.random() * 0.05) * dmgTakenMul(target));
+          }
+        }
+        // The tick's damage resolves through the governor — scaled, capped
+        // per squad, shields-first. No burst wipes.
+        flushDamage();
+      }
+
+      // --- siege shells in flight: advance, detonate on landing -----------
+      // The AoE joins the damage ledger — the governor still caps it, and
+      // the next exchange tick flushes it (≤0.28s later, imperceptible).
+      if (fx.shells.length > 0) {
+        for (let i = fx.shells.length - 1; i >= 0; i--) {
+          const sh = fx.shells[i];
+          sh.t += sdt / sh.dur;
+          if (sh.t >= 1) {
+            fx.shells.splice(i, 1);
+            // impact: the visual fireball roughly matches the 20m damage
+            // radius — what the player sees lines up with what the sim does.
+            // Boom radius is 46×scale px; 1 world unit = W() px pre-zoom.
+            fx.explode(X(sh.x2), Y(sh.y2), (SIEGE_SPLASH_R * W()) / 46);
+            battleSfx.explosion(sh.x2, sh.y2, true);
+            radarPing(sh.x2, sh.y2, "shell");
+            replayEventsRef.current.push({ t: simTRef.current, kind: "shell", x: sh.x2, y: sh.y2 });
+            const dmg = sh.dmg ?? SIEGE_DMG;
+            // Shells don't discriminate — friend and foe alike catch the blast.
+            for (const v of unitsRef.current) {
+              if (v.state === "dead" || v.state === "staging") continue;
+              const dM = Math.hypot(v.x - sh.x2, v.y - sh.y2) * METERS_PER_WORLD_UNIT;
+              const fall = siegeFalloff(dM);
+              if (fall <= 0) continue;
+              dealDamage(v, dmg * fall * dmgTakenMul(v));
+            }
           }
         }
       }
 
       // --- live casualty matching: the engine's ticks kill units ----------
+      // Throttled (owner 2026-10-11): the visual match can never burst-wipe —
+      // one engine kill per side per ENGINE_KILL_GAP_S, and per squad per
+      // SQUAD_KILL_GAP_S. Casualties tick up gradually, always.
       if (liveCasualties) {
         for (const side of ["attacker", "defender"] as const) {
           const want = Math.min(
@@ -788,12 +1223,17 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
             Math.round((liveCasualties[side] / Math.max(1, scene.troops[side])) * unitsRef.current.filter((u) => u.side === side).length),
           );
           const dead = unitsRef.current.filter((u) => u.side === side && u.state === "dead").length;
-          if (want > dead) {
+          if (want > dead && t - (engineKillAtRef.current[side] ?? -99) > ENGINE_KILL_GAP_S) {
             const cands = unitsRef.current
               .filter((u) => u.side === side && u.state !== "dead" && u.state !== "staging")
               .sort((a, b) => a.hp01 - b.hp01);
             const victim = cands[0];
-            if (victim && Math.random() < 0.3) killUnit(victim);
+            const lastSquadKill = squadKillAtRef.current.get(victim?.squadId ?? "") ?? -99;
+            if (victim && t - lastSquadKill > SQUAD_KILL_GAP_S && Math.random() < 0.5) {
+              engineKillAtRef.current[side] = t;
+              squadKillAtRef.current.set(victim.squadId, t);
+              killUnit(victim);
+            }
           }
         }
       } else if (phase === "weapons-free") {
@@ -805,10 +1245,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           const cands = unitsRef.current.filter((u) => u.state === "engaged" || u.state === "holding");
           const v = cands[Math.floor(Math.random() * cands.length)];
           if (v) {
-            v.hp01 -= (0.25 / tierPowerMult(v.tier)) * dmgTakenMul(v);
-            if (v.hp01 <= 0) killUnit(v);
+            dealDamage(v, (0.25 / tierPowerMult(v.tier)) * dmgTakenMul(v));
           }
         }
+        // demo-curve damage joins the ledger — flushed on the next tick.
       }
 
       // --- Chorus doctrine: the survivor defends, then smells blood -------
@@ -981,6 +1421,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           setResolvedSide("defender");
           postComms("clock-end", "");
           battleSfx.victor(false);
+          finalizeReplay("defender");
         }
       }
 
@@ -1091,6 +1532,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
             life: 0.3, maxLife: 0.3,
             color: Math.random() < 0.5 ? "#ffd27a" : "#fda4af",
             width: 3,
+            kind: "beam",
           });
         }
       }
@@ -1117,14 +1559,56 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
               id: s.id,
               name: s.name,
               alive: s.unitIds.length,
-              total: s.unitIds.length,
+              // Casualties must VISIBLY add up: total is the ORIGINAL
+              // headcount, frozen at battle start — not the shrinking living
+              // count (owner 2026-10-11).
+              total: squadTotalRef.current.get(s.id) ?? s.unitIds.length,
               eyes: squadEyeCount(unitsRef.current, s.id) > 0,
               onCallReserve: unitsRef.current.some(
                 (u) => u.squadId === s.id && u.state === "staging" && u.onCall,
               ),
+              hasThunders: s.unitIds.some((id) => {
+                const u = unitsRef.current.find((w) => w.id === id);
+                return u !== undefined && u.kind === "thunder" && u.state !== "dead";
+              }),
             })),
           );
         }
+        // WARDEN SHIELDS (owner 2026-10-11): living Wardens project a shield
+        // umbrella over nearby friendlies. Shield max derives from the
+        // covering Warden count; it regenerates while covered and collapses
+        // the moment the Wardens die. No Warden = no shield, armor+hull only.
+        const wardens = unitsRef.current.filter(
+          (w) => w.kind === "warden" && w.state !== "dead" && w.state !== "staging",
+        );
+        for (const u of unitsRef.current) {
+          if (u.state === "dead" || u.state === "staging") {
+            u.wardenCover = 0;
+            continue;
+          }
+          let cover = 0;
+          for (const w of wardens) {
+            if (w.side !== u.side) continue;
+            if (Math.hypot(w.x - u.x, w.y - u.y) < SHIELD_RADIUS) {
+              cover++;
+              if (cover >= 3) break;
+            }
+          }
+          u.wardenCover = cover;
+          if (cover > 0) {
+            const max = Math.min(SHIELD_MAX, SHIELD_PER_WARDEN * cover);
+            u.shieldMax = max;
+            const cur = u.shield01 ?? 0;
+            // fresh coverage seeds at half — the bubble visibly snaps on;
+            // after that it regens toward max while the Wardens live.
+            u.shield01 = Math.min(max, cur + (cur <= 0 ? max * 0.5 : SHIELD_REGEN * 0.25));
+          } else {
+            u.shield01 = 0;
+            u.shieldMax = 0;
+          }
+        }
+        // Radar snapshot — the minimap reads the same field.
+        pushRadarFrame(unitsRef.current, turretsRef.current);
         // Rejection toast + order ping expire on their own.
         const nowMs = performance.now();
         if (toastRef.current && nowMs - toastRef.current.born > 2600) toastRef.current = null;
@@ -1469,15 +1953,51 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           c.arc(x, y, r * 0.35, 0, Math.PI * 2);
           c.stroke();
         }
-        // HP pip with a side-colored border so the pip also reads friend/foe.
-        if (u.hp01 < 1) {
-          c.fillStyle = "rgba(0,0,0,0.6)";
-          c.fillRect(x - r, y - r - 6, r * 2, 3);
-          c.fillStyle = u.hp01 > 0.5 ? "#a3e635" : u.hp01 > 0.25 ? "#fbbf24" : "#f87171";
-          c.fillRect(x - r, y - r - 6, r * 2 * Math.max(0, u.hp01), 3);
+        // WARDEN SHIELD BUBBLE (owner 2026-10-11): a visible shimmering dome
+        // around shielded units — no Warden, no bubble. It flickers as the
+        // shield depletes and collapses when the Wardens die.
+        const sh01 = u.shield01 ?? 0;
+        const shMax = u.shieldMax ?? 0;
+        if (sh01 > 0.01 && shMax > 0) {
+          const wt = performance.now() / 1000;
+          const flick = 0.55 + 0.45 * Math.sin(wt * 6 + x * 0.5 + y * 0.3);
+          const frac = sh01 / shMax;
+          const br = r * 1.9;
+          c.save();
+          c.globalAlpha = (0.25 + 0.55 * frac) * flick;
+          const sg = c.createRadialGradient(x, y, br * 0.55, x, y, br);
+          sg.addColorStop(0, "rgba(125,211,252,0)");
+          sg.addColorStop(0.82, "rgba(125,211,252,0.12)");
+          sg.addColorStop(1, "rgba(147,197,253,0.55)");
+          c.fillStyle = sg;
+          c.beginPath(); c.arc(x, y, br, 0, Math.PI * 2); c.fill();
+          c.globalAlpha = (0.35 + 0.5 * frac) * flick;
+          c.strokeStyle = "#7dd3fc";
+          c.lineWidth = 1.6;
+          c.beginPath(); c.arc(x, y, br, 0, Math.PI * 2); c.stroke();
+          c.restore();
+        }
+        // Integrity bars (owner 2026-10-11): stacked, depleting top-down —
+        // BLUE shield (Warden-projected, first), YELLOW armor, RED hull.
+        // No shield? Just armor + hull. When red goes, the unit pops.
+        if (u.hp01 < 1 || sh01 > 0.01) {
+          const bw = r * 2;
+          const bx = x - r;
+          let by = y - r - 7;
+          const bar = (frac: number, color: string) => {
+            c.fillStyle = "rgba(0,0,0,0.6)";
+            c.fillRect(bx, by, bw, 3);
+            c.fillStyle = color;
+            c.fillRect(bx, by, bw * Math.max(0, Math.min(1, frac)), 3);
+            by -= 4;
+          };
+          if (shMax > 0) bar(sh01 / shMax, "#38bdf8"); // shield — blue
+          // armor is the top half of hp01, hull the bottom half
+          bar(Math.max(0, (u.hp01 - 0.5) / 0.5), "#fbbf24"); // armor — yellow
+          bar(Math.max(0, u.hp01 / 0.5), "#f87171"); // hull — red
           c.strokeStyle = SIDE_COLOR[u.side];
           c.lineWidth = 1;
-          c.strokeRect(x - r - 0.5, y - r - 6.5, r * 2 + 1, 4);
+          c.strokeRect(bx - 0.5, by + 0.5, bw + 1, (y - r - 4) - by);
         }
         // Friend/foe ring: crisp side-colored ring over a soft under-glow —
         // at a glance you know which dots are yours. 2D Plus glow, no cartoon.
@@ -1587,9 +2107,13 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         c.setLineDash([]);
       }
       for (const tr of fx.tracers) {
-        // 3-pass beam: halo + body + white-hot core + bright head.
-        drawTracerBeam(c, tr);
+        // Weapon identity (owner 2026-10-11): beams read as lasers,
+        // slugs as kinetic rounds — never the same look.
+        if (tr.kind === "slug") drawTracerSlug(c, tr);
+        else drawTracerBeam(c, tr); // 3-pass beam: halo + body + white-hot core + bright head.
       }
+      // Lobbed siege shells riding their arcs.
+      for (const sh of fx.shells) drawShell(c, sh);
       // (shadowBlur retired — the layered beam strokes ARE the glow.)
       for (const f of fx.flashes) {
         const a = alpha(f.life, f.maxLife);
@@ -1726,6 +2250,114 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           if (plotting) c.setLineDash([4, 3]);
           c.lineWidth = 2.5;
           c.beginPath(); c.arc(X(ping.x), Y(ping.y), pr, 0, Math.PI * 2); c.stroke();
+          c.restore();
+        }
+      }
+
+      // --- movement tracers (owner 2026-10-11) ------------------------------
+      // OWN squads: a full dashed line from the squad's centroid to its
+      // destination — Hans tracks at a glance what's moving where. ENEMY
+      // squads: a short direction tick only — you SEE they're moving and
+      // roughly which way, but never their destination. That's hidden intel.
+      {
+        const own = new Map<string, SceneUnit[]>();
+        const foe = new Map<string, SceneUnit[]>();
+        for (const u of unitsRef.current) {
+          if (u.state !== "advancing") continue;
+          const m = u.side === "attacker" ? own : foe;
+          const arr = m.get(u.squadId) ?? [];
+          arr.push(u);
+          m.set(u.squadId, arr);
+        }
+        for (const [, members] of own) {
+          let cx = 0, cy = 0, tx = 0, ty = 0;
+          for (const u of members) { cx += u.x; cy += u.y; tx += u.tx; ty += u.ty; }
+          cx /= members.length; cy /= members.length;
+          tx /= members.length; ty /= members.length;
+          c.save();
+          c.strokeStyle = "rgba(251,191,36,0.7)";
+          c.lineWidth = 2;
+          c.setLineDash([7, 5]);
+          c.beginPath(); c.moveTo(X(cx), Y(cy)); c.lineTo(X(tx), Y(ty)); c.stroke();
+          c.setLineDash([]);
+          // destination diamond
+          c.fillStyle = "rgba(251,191,36,0.9)";
+          const dr = 5;
+          c.beginPath();
+          c.moveTo(X(tx), Y(ty) - dr); c.lineTo(X(tx) + dr, Y(ty));
+          c.lineTo(X(tx), Y(ty) + dr); c.lineTo(X(tx) - dr, Y(ty));
+          c.closePath(); c.fill();
+          c.restore();
+        }
+        for (const [, members] of foe) {
+          let cx = 0, cy = 0, dx = 0, dy = 0;
+          for (const u of members) {
+            cx += u.x; cy += u.y; dx += u.tx - u.x; dy += u.ty - u.y;
+          }
+          cx /= members.length; cy /= members.length;
+          const l = Math.hypot(dx, dy);
+          if (l < 0.01) continue;
+          dx /= l; dy /= l;
+          // short tick in the movement direction — direction, not destination
+          const tickW = 0.045; // world units
+          const ex = cx + dx * tickW, ey = cy + dy * tickW;
+          c.save();
+          c.strokeStyle = "rgba(248,113,113,0.9)";
+          c.lineWidth = 3;
+          c.lineCap = "round";
+          c.beginPath(); c.moveTo(X(cx), Y(cy)); c.lineTo(X(ex), Y(ey)); c.stroke();
+          // arrowhead
+          const ah = 0.016;
+          const px = -dy, py = dx;
+          c.fillStyle = "rgba(248,113,113,0.9)";
+          c.beginPath();
+          c.moveTo(X(ex + dx * ah), Y(ey + dy * ah));
+          c.lineTo(X(ex + px * ah * 0.7), Y(ey + py * ah * 0.7));
+          c.lineTo(X(ex - px * ah * 0.7), Y(ey - py * ah * 0.7));
+          c.closePath(); c.fill();
+          c.restore();
+        }
+      }
+
+      // --- siege aim targeter (owner 2026-10-11) ---------------------------
+      // The draggable blast circle: amber ring = clear, RED ring + warning
+      // label = own units inside the 20m falloff — shells don't discriminate.
+      {
+        const aim = ui.siegeAim;
+        if (aim) {
+          const ax = X(aim.x);
+          const ay = Y(aim.y);
+          const rpx = SIEGE_SPLASH_R * W();
+          let friendliesInBlast = 0;
+          for (const u of unitsRef.current) {
+            if (u.side !== "attacker" || u.state === "dead" || u.state === "staging") continue;
+            if (Math.hypot(u.x - aim.x, u.y - aim.y) < SIEGE_SPLASH_R) friendliesInBlast++;
+          }
+          const warn = friendliesInBlast > 0;
+          const col = warn ? "248,113,113" : "251,191,36";
+          const pulse = 0.55 + 0.15 * Math.sin(performance.now() / 300);
+          c.save();
+          c.beginPath();
+          c.arc(ax, ay, rpx, 0, Math.PI * 2);
+          c.fillStyle = `rgba(${col},0.07)`;
+          c.fill();
+          c.lineWidth = 2.5;
+          c.setLineDash([12, 7]);
+          c.strokeStyle = `rgba(${col},${pulse + 0.25})`;
+          c.beginPath();
+          c.arc(ax, ay, rpx, 0, Math.PI * 2);
+          c.stroke();
+          c.setLineDash([]);
+          // Explosion icon at the aim point — the grab handle.
+          c.font = "600 15px system-ui";
+          c.textAlign = "center";
+          c.textBaseline = "middle";
+          c.fillText("💥", ax, ay);
+          if (warn) {
+            c.font = "700 10px system-ui";
+            c.fillStyle = `rgba(248,113,113,${pulse + 0.25})`;
+            c.fillText("⚠ FRIENDLIES IN BLAST", ax, ay - rpx - 12);
+          }
           c.restore();
         }
       }
@@ -2002,6 +2634,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   const downRef = useRef<{ x: number; y: number; t: number; id: number } | null>(null);
   const lastTapRef = useRef(0);
   const pinchRef = useRef<{ d: number } | null>(null);
+  /** Siege targeter drag (owner 2026-10-11): pointer id while dragging the aim targeter. */
+  const siegeDragRef = useRef<number | null>(null);
 
   const canvasCss = () => {
     const canvas = canvasRef.current;
@@ -2062,7 +2696,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   const postComms = (kind: CommsEventKind, detail: string) => {
     const spec = commsFor(kind, detail);
     const id = commsIdRef.current++;
-    setComms((prev) => pushBubble(prev, { id, source: spec.source, message: spec.message, critical: spec.critical, atS: simTRef.current }));
+    const bubble = { id, source: spec.source, message: spec.message, critical: spec.critical, atS: simTRef.current };
+    setComms((prev) => pushBubble(prev, bubble));
+    commsRef.current = [...commsRef.current, bubble].slice(-40);
     logOrder({ squadName: spec.source, dest: "—", verdict: "accepted", reason: spec.message, kind: "comms" });
     if (spec.critical) battleSfx.ping();
     else battleSfx.blip();
@@ -2102,7 +2738,50 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       orderPingRef.current = { x: dest.x, y: dest.y, fx: dest.x, fy: dest.y, born: t, atS: t };
       return;
     }
-    const verdict = judgeMoveOrder(squadUnits, dest);
+    // REAR ENTRY IS JUMP-SHIP ONLY (owner 2026-10-11): a tap behind the
+    // enemy line never becomes a ground move — not around the edges, not
+    // through gaps. With Warden escort it becomes a combat drop (the jump
+    // ship flies the squad in); without escort it's refused, with the reason.
+    if (isBehindLines(dest, unitsRef.current, "attacker")) {
+      const jd = judgeJumpDrop(squadUnits);
+      logOrder({
+        squadName: name,
+        dest: destLabel(dest.x, dest.y),
+        verdict: jd.ok ? "accepted" : "rejected",
+        reason: jd.ok ? undefined : jd.reason,
+        kind: "jumpdrop",
+      });
+      if (!jd.ok) {
+        toastRef.current = { text: jd.reason, born: performance.now() };
+        battleSfx.orderRejected();
+        return;
+      }
+      const t = simTRef.current;
+      for (const u of squadUnits) {
+        if (u.state !== "holding" && u.state !== "advancing") continue;
+        u.state = "descending"; // airborne — jump ships fly OVER the line
+        u.tx = softClampX(dest.x + (Math.random() - 0.5) * 0.05);
+        u.ty = softClampY(dest.y + (Math.random() - 0.5) * 0.05);
+        u.dropAtS = t;
+        u.moveAtS = undefined;
+      }
+      battleSfx.dropship(); // engines spool — the jump ship is inbound
+      postComms("reserve", "Jump ship inbound — combat drop behind their lines");
+      orderPingRef.current = { x: dest.x, y: dest.y, fx: dest.x, fy: dest.y, born: t, atS: t };
+      return;
+    }
+    // HOLD POSITION (owner 2026-10-11): the squad stays put even if ordered —
+    // toggle MOVE to reposition it. Siege batteries hold by default
+    // (deployed); jump drops bypass — that's an airlift, not a ground move.
+    const squadHasThunders = squadUnits.some((u) => u.kind === "thunder" && u.state !== "dead");
+    if (squadStanceOf(sceneUISnapshot(), squadId, squadHasThunders).holdPosition) {
+      const reason = "Holding position — toggle MOVE to reposition.";
+      logOrder({ squadName: name, dest: destLabel(dest.x, dest.y), verdict: "rejected", reason });
+      toastRef.current = { text: reason, born: performance.now() };
+      battleSfx.orderRejected();
+      return;
+    }
+    const verdict = judgeMoveOrder(squadUnits, dest, unitsRef.current);
     logOrder({
       squadName: name,
       dest: destLabel(dest.x, dest.y),
@@ -2178,6 +2857,22 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       setSelectedSquad(su.squadId);
       return;
     }
+    // SIEGE AIM MODE (owner 2026-10-11): with a thunder squad selected and
+    // aim armed, the tap drops the draggable targeter — the guns walk fire
+    // to it. Not a move order.
+    if (ui.siegeAimArmed && ui.selectedSquadId) {
+      const hasTh = unitsRef.current.some(
+        (u) => u.squadId === ui.selectedSquadId && u.kind === "thunder" && u.state !== "dead",
+      );
+      if (hasTh) {
+        setSiegeAim({ x: softClampX(tx), y: softClampY(ty) });
+        setSiegeAimArmed(false);
+        battleSfx.orderAccepted();
+        postComms("siege", "Siege aim updated — walking fire to the new target");
+        return;
+      }
+      setSiegeAimArmed(false);
+    }
     // With a squad selected, the tap is a destination — judge the order.
     if (ui.selectedSquadId) {
       issueOrder(ui.selectedSquadId, tx, ty);
@@ -2193,10 +2888,25 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointersRef.current.size === 1) {
       downRef.current = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+      // SIEGE TARGETER DRAG (owner 2026-10-11): grabbing the aim targeter
+      // repositions it directly — no tap needed.
+      const uiSnap = sceneUISnapshot();
+      if (uiSnap.siegeAim) {
+        const r = e.currentTarget.getBoundingClientRect();
+        const { sx, sy } = worldToScreen(
+          rigCamera(camRef.current), r.width, r.height,
+          uiSnap.siegeAim.x, uiSnap.siegeAim.y,
+        );
+        if (Math.hypot(e.clientX - r.left - sx, e.clientY - r.top - sy) < 32) {
+          siegeDragRef.current = e.pointerId;
+          downRef.current = null; // it's a drag, not a tap
+        }
+      }
     } else if (pointersRef.current.size === 2) {
       const [a, b] = [...pointersRef.current.values()];
       pinchRef.current = { d: Math.hypot(a.x - b.x, a.y - b.y) };
       downRef.current = null; // two fingers: no tap
+      siegeDragRef.current = null;
     }
   };
 
@@ -2207,6 +2917,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     const dx = e.clientX - prev.x;
     const dy = e.clientY - prev.y;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Siege targeter drag: walk the aim point under the finger.
+    if (siegeDragRef.current === e.pointerId && pts.size === 1) {
+      const r = e.currentTarget.getBoundingClientRect();
+      const { x, y } = screenToWorld(
+        rigCamera(camRef.current), r.width, r.height,
+        e.clientX - r.left, e.clientY - r.top,
+      );
+      setSiegeAim({ x: softClampX(x), y: softClampY(y) });
+      return;
+    }
     if (pts.size === 2) {
       const [a, b] = [...pts.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -2227,6 +2947,14 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
 
   const endPointer = (e: React.PointerEvent<HTMLCanvasElement>, cancelled: boolean) => {
     const pts = pointersRef.current;
+    // Siege targeter drop: the drag is done — the guns walk fire to the spot.
+    if (siegeDragRef.current === e.pointerId) {
+      siegeDragRef.current = null;
+      pts.delete(e.pointerId);
+      if (pts.size < 2) pinchRef.current = null;
+      if (!cancelled) battleSfx.orderAccepted();
+      return;
+    }
     const wasDown = downRef.current;
     pts.delete(e.pointerId);
     if (pts.size < 2) pinchRef.current = null;
@@ -2252,6 +2980,78 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
 
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => endPointer(e, false);
   const onPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => endPointer(e, true);
+
+  /**
+   * End-of-battle actions (owner 2026-10-11):
+   *  retry — restart this exact battle: same forces, same map, same seed.
+   *  re-challenge — a fresh challenge: same forces, NEW seed (new field).
+   *  (For PvP, re-challenge issues the rematch against the same opponent.)
+   */
+  const retryBattle = () => {
+    battleSfx.uiClick();
+    setBattleRunId((n) => n + 1);
+  };
+  const rechallengeBattle = () => {
+    battleSfx.uiClick();
+    setActiveScene({
+      ...sceneProp,
+      id: `${sceneProp.id}-rc${Date.now().toString(36)}`,
+      seed: (Math.random() * 1e9) | 0,
+      t0: Date.now(),
+    });
+    setBattleRunId((n) => n + 1);
+  };
+  /** Save Replay — keep a pending capture (duels auto-save). */
+  const saveReplay = () => {
+    if (!replayId || replaySaved) return;
+    if (markReplaySaved(replayId)) {
+      setReplaySaved(true);
+      battleSfx.uiClick();
+    }
+  };
+
+  /**
+   * Save formation (owner 2026-10-11): captures the battle's own squads,
+   * composition, and starting positions under the commander's name —
+   * personal war room or alliance doctrine. Optional replay attachment:
+   * the tape travels with the formation so the war room can show proof.
+   */
+  const confirmSaveFormation = () => {
+    const nm = saveName.trim();
+    if (!nm) return;
+    const snap = formationSnapshotRef.current;
+    const draft = formationFromBattle(snap.squads, snap.units);
+    let rid: string | undefined;
+    if (saveWithReplay && replayId) {
+      if (markReplaySaved(replayId)) setReplaySaved(true);
+      rid = replayId;
+    }
+    if (saveDest === "doctrine" && onSaveDoctrine) {
+      const rp = replayId ? getReplay(replayId) : null;
+      onSaveDoctrine({
+        name: nm,
+        playId: "custom",
+        loads: draft.loads,
+        slotMeta: draft.slotMeta,
+        replay: rp ? compactReplay(rp) : undefined,
+        battleName: scene.name,
+        victor: resolvedSide,
+        durationS: Math.round(simTRef.current),
+        killsAttacker: sceneUISnapshot().kills.attacker,
+        killsDefender: sceneUISnapshot().kills.defender,
+      });
+    } else if (onSaveFormation) {
+      onSaveFormation({
+        name: nm,
+        playId: "custom",
+        loads: draft.loads,
+        slotMeta: draft.slotMeta,
+        replayId: rid,
+      });
+    }
+    battleSfx.uiClick();
+    setSavedInWarRoom(true);
+  };
 
   const toggleControls = () => {
     if (isWindowOpen("battle-controls")) closeWindowsOfKind("battle-controls");
@@ -2370,9 +3170,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         />
 
         {/* battle result sheet — the canvas draws the victor banner; this
-            DOM sheet carries the commander's actions. "Save in war room"
-            (owner 2026-10-06) saves the just-fought formation under a name —
-            the player decides after a good run; never auto-saved. */}
+            DOM sheet carries the commander's end-of-battle actions (owner
+            2026-10-11): retry, re-challenge, report, save/watch replay, and
+            save formation — personal war room or alliance doctrine. */}
         {resolvedSide && (
           <div
             className="absolute inset-x-0 bottom-0 z-30 flex justify-center px-4"
@@ -2390,46 +3190,267 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
                   ? `${scene.attackerName.toUpperCase()} HOLDS THE FIELD`
                   : "THE DEFENSE HELD — RAID FAILED"}
               </p>
-              {formation && onSaveFormation && !savedInWarRoom && (
-                <div className="mt-3">
+
+              {resultView === "actions" && (
+                <div className="mt-3 grid grid-cols-3 gap-1.5" data-testid="battle-actions">
+                  <button
+                    type="button"
+                    onClick={retryBattle}
+                    data-testid="battle-retry"
+                    className="rounded-lg border border-white/15 bg-black/60 px-2 py-2.5 text-[11px] font-bold text-zinc-200 active:scale-[0.97]"
+                  >
+                    🔁<br />Retry
+                  </button>
+                  <button
+                    type="button"
+                    onClick={rechallengeBattle}
+                    data-testid="battle-rechallenge"
+                    aria-label="Re-challenge — same forces, new field"
+                    className="rounded-lg border border-white/15 bg-black/60 px-2 py-2.5 text-[11px] font-bold text-zinc-200 active:scale-[0.97]"
+                  >
+                    ⚔️<br />Re-challenge
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { battleSfx.uiClick(); setResultView("report"); }}
+                    data-testid="battle-report"
+                    className="rounded-lg border border-white/15 bg-black/60 px-2 py-2.5 text-[11px] font-bold text-zinc-200 active:scale-[0.97]"
+                  >
+                    📋<br />Report
+                  </button>
+                  {!replaySaved ? (
+                    <button
+                      type="button"
+                      onClick={saveReplay}
+                      data-testid="battle-save-replay"
+                      disabled={!replayId}
+                      className="rounded-lg border border-white/15 bg-black/60 px-2 py-2.5 text-[11px] font-bold text-zinc-200 active:scale-[0.97] disabled:opacity-40"
+                    >
+                      💾<br />Save replay
+                    </button>
+                  ) : (
+                    <span className="rounded-lg border border-emerald-400/30 bg-emerald-950/40 px-2 py-2.5 text-center text-[11px] font-bold text-emerald-200">
+                      ✓<br />{scene.pvp ? "Auto-saved" : "Saved"}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { battleSfx.uiClick(); setWatchingReplay(true); }}
+                    data-testid="battle-watch-replay"
+                    disabled={!replayId}
+                    className="rounded-lg border border-white/15 bg-black/60 px-2 py-2.5 text-[11px] font-bold text-zinc-200 active:scale-[0.97] disabled:opacity-40"
+                  >
+                    🎬<br />Watch replay
+                  </button>
+                  {(onSaveFormation || onSaveDoctrine) && !savedInWarRoom ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        battleSfx.uiClick();
+                        setSaveName((cur) => cur || defaultBattleName(scene.name));
+                        setResultView("save");
+                      }}
+                      data-testid="battle-save-formation"
+                      className="rounded-lg border border-amber-300/40 bg-amber-950/50 px-2 py-2.5 text-[11px] font-bold text-amber-200 active:scale-[0.97]"
+                    >
+                      📚<br />Save formation
+                    </button>
+                  ) : savedInWarRoom ? (
+                    <span className="rounded-lg border border-emerald-400/30 bg-emerald-950/40 px-2 py-2.5 text-center text-[11px] font-bold text-emerald-200">
+                      ✓<br />Saved
+                    </span>
+                  ) : (
+                    <span className="rounded-lg border border-white/10 bg-black/40 px-2 py-2.5 text-center text-[11px] text-zinc-500">
+                      📚<br />Save N/A
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {resultView === "report" && (
+                <div className="mt-3" data-testid="battle-report-view">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
+                      After-action report
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setResultView("actions")}
+                      className="text-[11px] font-semibold text-zinc-400 underline"
+                    >
+                      ← Actions
+                    </button>
+                  </div>
+                  {/* per-squad casualties — the numbers Hans watched tick up */}
+                  <div className="space-y-1">
+                    {[...ui.squads]
+                      .sort((a, b) => b.total - b.alive - (a.total - a.alive))
+                      .map((s) => {
+                        const dead = Math.max(0, s.total - s.alive);
+                        const frac = s.total > 0 ? dead / s.total : 0;
+                        return (
+                          <div key={s.id} className="flex items-center gap-2 text-[11px]">
+                            <span className="w-20 flex-none truncate font-semibold text-zinc-200">{s.name}</span>
+                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
+                              <div
+                                className="h-full rounded-full bg-red-500/80"
+                                style={{ width: `${Math.round(frac * 100)}%` }}
+                              />
+                            </div>
+                            <span className="w-16 flex-none text-right tabular-nums text-zinc-400">
+                              <span className="text-emerald-300">{s.alive}</span>/{s.total}
+                              {dead > 0 && <span className="ml-1 font-bold text-red-400">−{dead}</span>}
+                            </span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                  <p className="mt-2 text-[11px] text-zinc-400">
+                    Confirmed down: <span className="font-bold text-amber-300">{ui.kills.attacker}✕</span> theirs ·{" "}
+                    <span className="font-bold text-red-400">{ui.kills.defender}✕</span> yours ·{" "}
+                    {fmtClock(simTRef.current)} of battle.
+                  </p>
+                  {/* key moments */}
+                  {commsRef.current.filter((c) => c.critical).length > 0 && (
+                    <div className="mt-2">
+                      <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
+                        Key moments
+                      </p>
+                      <ul className="max-h-24 space-y-0.5 overflow-y-auto">
+                        {commsRef.current
+                          .filter((c) => c.critical)
+                          .map((c) => (
+                            <li key={c.id} className="text-[11px] text-zinc-300">
+                              <span className="tabular-nums text-zinc-500">{fmtClock(c.atS)}</span> — {c.message}
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
+                  )}
+                  {/* order timeline */}
+                  {ui.orderLog.length > 0 && (
+                    <div className="mt-2">
+                      <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
+                        Orders
+                      </p>
+                      <ul className="max-h-24 space-y-0.5 overflow-y-auto">
+                        {ui.orderLog.slice(0, 12).map((o) => (
+                          <li key={o.id} className="text-[11px] text-zinc-400">
+                            {orderReceipt(o).text}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {resultView === "save" && !savedInWarRoom && (
+                <div className="mt-3" data-testid="battle-save-view">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
+                      Save formation
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setResultView("actions")}
+                      className="text-[11px] font-semibold text-zinc-400 underline"
+                    >
+                      ← Actions
+                    </button>
+                  </div>
+                  <p className="mb-2 text-[11px] text-zinc-400">
+                    Captures this battle's squads, composition, and starting positions — every saved
+                    formation needs a name so it's findable later.
+                  </p>
                   <label
-                    htmlFor="warroom-save-name"
+                    htmlFor="battle-save-name"
                     className="mb-1 block text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400"
                   >
                     Formation name
                   </label>
                   <input
-                    id="warroom-save-name"
+                    id="battle-save-name"
                     type="text"
                     value={saveName}
                     onChange={(e) => setSaveName(e.target.value)}
-                    placeholder={suggestedFormationName(formation.playId, Date.now())}
+                    placeholder={defaultBattleName(scene.name)}
                     maxLength={40}
-                    data-testid="warroom-save-name"
+                    data-testid="battle-save-name"
                     className="w-full rounded-lg border border-white/15 bg-black/60 px-3 py-2 text-sm text-white placeholder:text-zinc-600"
                   />
+                  <label className="mt-2 flex cursor-pointer items-center gap-2 text-[12px] text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={saveWithReplay}
+                      onChange={(e) => setSaveWithReplay(e.target.checked)}
+                      data-testid="battle-save-with-replay"
+                      className="h-4 w-4 accent-amber-500"
+                    />
+                    🎬 Save replay with this formation
+                  </label>
+                  {onSaveDoctrine && (
+                    <div className="mt-2 flex gap-1.5" data-testid="battle-save-dest">
+                      <button
+                        type="button"
+                        onClick={() => setSaveDest("personal")}
+                        aria-pressed={saveDest === "personal"}
+                        className={`flex-1 rounded-lg border px-2 py-2 text-[11px] font-bold ${
+                          saveDest === "personal"
+                            ? "border-amber-300/50 bg-amber-950/50 text-amber-200"
+                            : "border-white/15 bg-black/50 text-zinc-400"
+                        }`}
+                      >
+                        📚 My war room
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSaveDest("doctrine")}
+                        aria-pressed={saveDest === "doctrine"}
+                        className={`flex-1 rounded-lg border px-2 py-2 text-[11px] font-bold ${
+                          saveDest === "doctrine"
+                            ? "border-amber-300/50 bg-amber-950/50 text-amber-200"
+                            : "border-white/15 bg-black/50 text-zinc-400"
+                        }`}
+                      >
+                        📜 Alliance doctrine
+                      </button>
+                    </div>
+                  )}
                   <button
                     type="button"
-                    onClick={() => {
-                      const nm = saveName.trim() || suggestedFormationName(formation.playId, Date.now());
-                      onSaveFormation({ name: nm, playId: formation.playId, loads: formation.loads });
-                      setSavedInWarRoom(true);
-                    }}
-                    data-testid="warroom-save-confirm"
-                    className="mt-2 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-black"
+                    onClick={confirmSaveFormation}
+                    disabled={!saveName.trim()}
+                    data-testid="battle-save-confirm"
+                    className="mt-2 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-black disabled:opacity-40"
                   >
-                    📚 Save in war room
+                    {saveDest === "doctrine" ? "📜 Save as doctrine" : "📚 Save formation"}
                   </button>
+                  {!saveName.trim() && (
+                    <p className="mt-1 text-center text-[11px] text-zinc-500">
+                      Name it — no unnamed formations.
+                    </p>
+                  )}
                 </div>
               )}
               {savedInWarRoom && (
                 <p className="mt-3 text-center text-xs font-semibold text-emerald-300" data-testid="warroom-saved-flag">
-                  ✓ Saved in the war room — locked down and ready to deploy.
+                  ✓ {saveDest === "doctrine" ? "Saved to the alliance doctrine library." : "Saved in the war room — locked down and ready to deploy."}
                 </p>
               )}
             </div>
           </div>
         )}
+        {watchingReplay && replayId && (() => {
+          const rp = getReplay(replayId);
+          return rp ? (
+            <BattleReplayViewer
+              replay={rp}
+              title={rp.name}
+              onClose={() => setWatchingReplay(false)}
+            />
+          ) : null;
+        })()}
       </div>
     );
   }

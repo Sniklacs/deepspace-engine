@@ -5,11 +5,16 @@
 // through the doctrine BEFORE it executes:
 //
 //   • Siege (Thunder) can NEVER sweep or flank.
-//   • A deep strike behind enemy lines (north of DEEP_Y — the attacker
-//     pushes north from the south edge) is a rear entry: it needs a
-//     Warden/logistics escort (≥20% Warden weight, the
-//     maneuverRearWardenFrac rule) and legal troop speed (Thunder is too
-//     slow — siege never sweeps).
+//   • REAR ENTRY IS JUMP-SHIP ONLY (owner 2026-10-11): no ground move ends
+//     behind the enemy line — not around the edges, not through gaps. A tap
+//     behind the lines with Warden escort (≥20% Warden weight, the
+//     maneuverRearWardenFrac rule) becomes a combat drop; without escort
+//     it's refused.
+//   • MOVEMENT BLOCKING (owner 2026-10-11): enemy units obstruct the path —
+//     ground units steer around or stop at contact, never ghost through.
+//     BREACH EXCEPTION: Reaver assault squads can push through a BROKEN
+//     line — one whose Wardens have been ground down. Intact line (Wardens
+//     holding) blocks everyone, Reavers included.
 //   • ENGAGED units are locked — the one-way door: once casualties start,
 //     there is no backing out, no vector change.
 //
@@ -171,14 +176,114 @@ function wardenShare(units: SceneUnit[]): number {
   return total > 0 ? warden / total : 0;
 }
 
+/** Vectors that form a side's battle line (the deep reserve/rear are not the line). */
+const LINE_VECTORS: ReadonlySet<string> = new Set(["MAIN", "FLANK_LEFT", "FLANK_RIGHT"]);
+
+/**
+ * The enemy's forward line (owner 2026-10-11). The attacker pushes north
+ * (low y): the defender's southernmost line unit. The defender pushes south:
+ * the attacker's northernmost line unit. Null when the enemy has no living
+ * line — nothing left to be behind.
+ */
+export function enemyLineY(
+  allUnits: SceneUnit[],
+  side: "attacker" | "defender",
+): number | null {
+  const enemy = side === "attacker" ? "defender" : "attacker";
+  let line: number | null = null;
+  for (const u of allUnits) {
+    if (u.side !== enemy || u.state === "dead" || u.state === "staging") continue;
+    if (!LINE_VECTORS.has(u.vector)) continue;
+    if (line === null) line = u.y;
+    else if (side === "attacker") line = Math.min(line, u.y);
+    else line = Math.max(line, u.y);
+  }
+  return line;
+}
+
+/**
+ * Behind enemy lines (owner 2026-10-11): past their forward line with a
+ * small margin. A ground move can never end here — jump ships only.
+ */
+export function isBehindLines(
+  dest: { x: number; y: number },
+  allUnits: SceneUnit[],
+  side: "attacker" | "defender",
+): boolean {
+  const line = enemyLineY(allUnits, side);
+  if (line === null) return false;
+  return side === "attacker" ? dest.y < line - 0.03 : dest.y > line + 0.03;
+}
+
+/**
+ * The enemy line's guards (owner 2026-10-11): living enemy Wardens holding
+ * the line vectors. The sim tracks this per formation so the breach
+ * condition can be evaluated: intact line (guards > 0) blocks ALL ground
+ * movement; broken line (guards = 0) can be breached by assault.
+ */
+export function lineWardenCount(
+  allUnits: SceneUnit[],
+  side: "attacker" | "defender",
+): number {
+  const enemy = side === "attacker" ? "defender" : "attacker";
+  let n = 0;
+  for (const u of allUnits) {
+    if (u.side !== enemy || u.kind !== "warden") continue;
+    if (u.state === "dead" || u.state === "staging") continue;
+    if (LINE_VECTORS.has(u.vector)) n++;
+  }
+  return n;
+}
+
+/**
+ * Breach check (owner 2026-10-11): a squad with living Reavers may push
+ * through the enemy line ONLY once its Wardens are ground down. Intact
+ * line → nobody passes, Reavers included. Broken line → assault infiltrates;
+ * every other squad still can't.
+ */
+export function canBreachLine(
+  squadUnits: SceneUnit[],
+  allUnits: SceneUnit[],
+  side: "attacker" | "defender",
+): boolean {
+  const live = squadUnits.filter((u) => u.state !== "dead");
+  if (!live.some((u) => u.kind === "reaver")) return false;
+  if (enemyLineY(allUnits, side) === null) return false;
+  return lineWardenCount(allUnits, side) === 0;
+}
+
+/**
+ * Jump-drop legality (owner 2026-10-11): rear entry is jump-ship only and
+ * needs Warden escort ≥ maneuverRearWardenFrac. The one-way door holds —
+ * engaged squads can't lift.
+ */
+export function judgeJumpDrop(squadUnits: SceneUnit[]): OrderVerdict {
+  const live = squadUnits.filter((u) => u.state !== "dead");
+  if (live.length === 0) {
+    return { ok: false, reason: "No living units in that squad." };
+  }
+  if (live.some((u) => u.state === "engaged")) {
+    return { ok: false, reason: "Unit engaged — casualties mean commitment." };
+  }
+  if (wardenShare(live) < BATTLES_CONFIG.maneuverRearWardenFrac) {
+    return { ok: false, reason: "Combat drop needs Warden escort (≥20%)." };
+  }
+  return { ok: true };
+}
+
 /**
  * Judge a click-to-move order. Returns { ok: true } or the refusal with the
  * doctrine reason. Check order matters — the one-way door is checked first
  * because it overrides everything: an engaged squad answers to nothing.
+ *
+ * allUnits (the whole field) enables the behind-lines rule: when provided,
+ * a ground move ending behind the enemy line is refused — rear entry is
+ * jump-ship only. Omitted (legacy tests), the old deep-strike rule applies.
  */
 export function judgeMoveOrder(
   units: SceneUnit[],
   dest: { x: number; y: number },
+  allUnits?: SceneUnit[],
 ): OrderVerdict {
   const live = units.filter((u) => u.state !== "dead");
   if (live.length === 0) {
@@ -190,14 +295,21 @@ export function judgeMoveOrder(
     return { ok: false, reason: "Unit engaged — casualties mean commitment." };
   }
   const lane = destLaneOf(dest.x);
-  const deep = dest.y < DEEP_Y;
   const thunder = hasKind(live, "thunder");
   // SIEGE NEVER SWEEPS — Thunder is too heavy for flank work. Ever.
   if (thunder && lane !== "MIDDLE") {
     return { ok: false, reason: "Thunder can't flank — siege never sweeps." };
   }
+  if (allUnits) {
+    // REAR ENTRY IS JUMP-SHIP ONLY — no ground move ends behind the line.
+    if (isBehindLines(dest, allUnits, "attacker")) {
+      return { ok: false, reason: "Behind enemy lines — call a jump drop." };
+    }
+    return { ok: true };
+  }
+  // Legacy path (no field context): the old deep-strike rule.
+  const deep = dest.y < DEEP_Y;
   if (deep) {
-    // A deep strike is a rear entry: it needs legs AND a logistics tail.
     if (thunder) {
       return { ok: false, reason: "Thunder too slow for a deep strike." };
     }

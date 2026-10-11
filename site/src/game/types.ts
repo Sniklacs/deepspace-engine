@@ -203,6 +203,10 @@ export interface GameState {
   createdAt: number;
   lastTick: number; // last time the engine advanced (epoch ms)
   playerName: string;
+  /** Member avatar upload (owner 2026-10-11): downscaled data URL (≤256px),
+   *  served on demand to alliance mates. The alliance member record carries
+   *  only the reference. */
+  avatarUpload?: string;
   race: RaceId | null;
   raceLocked: boolean;
 

@@ -20,6 +20,8 @@ import {
   weakestVector,
   WORLD_H,
   WORLD_W,
+  SIEGE_BLAST_R_M,
+  siegeFalloff,
   HOTDROP_SCATTER_CHANCE,
   HOTDROP_SCATTER_RADIUS,
   sceneClockS,
@@ -361,5 +363,31 @@ describe("hot-drop scatter", () => {
     const outside = [{ id: "far", side: "defender", state: "holding", x: 0.5 + HOTDROP_SCATTER_RADIUS + 0.01, y: 0.5 }];
     const r = scatterLanding(outside, "dropper", 0.5, 0.5, 0.01);
     expect(r.scattered).toBe(false);
+  });
+});
+
+describe("siegeFalloff", () => {
+  test("rings match the spec", () => {
+    expect(siegeFalloff(0)).toBe(1);
+    expect(siegeFalloff(2)).toBe(1);
+    expect(siegeFalloff(5)).toBeCloseTo(0.7, 5);
+    expect(siegeFalloff(10)).toBeCloseTo(0.5, 5);
+    expect(siegeFalloff(15)).toBeCloseTo(0.3, 5);
+    expect(siegeFalloff(20)).toBeCloseTo(0.1, 5);
+  });
+  test("interpolates smoothly between rings", () => {
+    const at7 = siegeFalloff(7);
+    expect(at7).toBeGreaterThan(0.5);
+    expect(at7).toBeLessThan(0.7);
+    // monotonic decrease across the whole blast
+    let prev = 2;
+    for (let m = 2.5; m <= SIEGE_BLAST_R_M; m += 0.5) {
+      expect(siegeFalloff(m) <= prev).toBe(true);
+      prev = siegeFalloff(m);
+    }
+  });
+  test("beyond the blast radius there is nothing", () => {
+    expect(siegeFalloff(20.5)).toBe(0);
+    expect(siegeFalloff(100)).toBe(0);
   });
 });

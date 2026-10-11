@@ -20,6 +20,11 @@ import {
   squadEyeCount,
   stampOrder,
   stepOffUnits,
+  enemyLineY,
+  isBehindLines,
+  lineWardenCount,
+  canBreachLine,
+  judgeJumpDrop,
 } from "./scene-orders";
 
 let n = 0;
@@ -113,14 +118,27 @@ describe("judgeMoveOrder", () => {
     if (!v.ok) expect(v.reason).toMatch(/warden/i);
   });
 
-  test("deep strike with a warden tail is accepted", () => {
+  test("deep ground move with a warden tail is rejected — rear entry is jump-ship only", () => {
     const squad = [
       unit("reaver", "FLANK_LEFT"),
       unit("reaver", "FLANK_LEFT"),
       unit("reaver", "FLANK_LEFT"),
       unit("warden", "FLANK_LEFT"),
     ];
-    const v = judgeMoveOrder(squad, { x: 0.85, y: 0.2 });
+    // defender line holding at y=0.35 — the destination is behind it
+    const field = [...squad, unit("bulwark", "MAIN", "defender"), unit("warden", "MAIN", "defender")];
+    field[field.length - 2].y = 0.35;
+    field[field.length - 1].y = 0.35;
+    const v = judgeMoveOrder(squad, { x: 0.85, y: 0.2 }, field);
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toMatch(/jump drop/i);
+  });
+
+  test("ground move short of the line is accepted", () => {
+    const squad = [unit("reaver", "FLANK_LEFT"), unit("bulwark", "FLANK_LEFT")];
+    const field = [...squad, unit("bulwark", "MAIN", "defender")];
+    field[field.length - 1].y = 0.35;
+    const v = judgeMoveOrder(squad, { x: 0.4, y: 0.5 }, field);
     expect(v).toEqual({ ok: true });
   });
 
@@ -209,5 +227,74 @@ describe("longeye coverage is positional", () => {
   test("dead eyes give no coverage — the sector goes blind", () => {
     const units = [unit("longeye", "REAR", "attacker", "dead")];
     expect(hasLongeyeCover(units, "REAR")).toBe(false);
+  });
+});
+
+describe("rear-entry doctrine (owner 2026-10-11)", () => {
+  // defender line at y=0.35 (MAIN), attacker line at y=0.9
+  function field() {
+    const d1 = unit("bulwark", "MAIN", "defender");
+    const d2 = unit("warden", "MAIN", "defender");
+    const a1 = unit("bulwark", "MAIN", "attacker");
+    d1.y = 0.35; d2.y = 0.35; a1.y = 0.9;
+    return { d1, d2, a1 };
+  }
+
+  test("enemyLineY finds the defender's forward line", () => {
+    const { d1, d2, a1 } = field();
+    expect(enemyLineY([d1, d2, a1], "attacker")).toBe(0.35);
+  });
+
+  test("enemyLineY is null when the enemy line is gone", () => {
+    const a1 = unit("bulwark", "MAIN", "attacker");
+    expect(enemyLineY([a1], "attacker")).toBe(null);
+  });
+
+  test("isBehindLines: north of the defender line is behind", () => {
+    const { d1, d2, a1 } = field();
+    const all = [d1, d2, a1];
+    expect(isBehindLines({ x: 0.75, y: 0.2 }, all, "attacker")).toBe(true);
+    expect(isBehindLines({ x: 0.75, y: 0.5 }, all, "attacker")).toBe(false);
+  });
+
+  test("lineWardenCount tracks the guards", () => {
+    const { d1, d2, a1 } = field();
+    expect(lineWardenCount([d1, d2, a1], "attacker")).toBe(1);
+    d2.state = "dead";
+    expect(lineWardenCount([d1, d2, a1], "attacker")).toBe(0);
+  });
+
+  test("canBreachLine: reavers breach only a broken line", () => {
+    const { d1, d2, a1 } = field();
+    const reavers = [unit("reaver", "FLANK_LEFT"), unit("reaver", "FLANK_LEFT")];
+    const bulwarks = [unit("bulwark", "FLANK_LEFT")];
+    const all = [d1, d2, a1, ...reavers, ...bulwarks];
+    // intact line (warden holding) — nobody breaches
+    expect(canBreachLine(reavers, all, "attacker")).toBe(false);
+    // grind the warden down — the line breaks
+    d2.state = "dead";
+    expect(canBreachLine(reavers, all, "attacker")).toBe(true);
+    // regular squads still can't
+    expect(canBreachLine(bulwarks, all, "attacker")).toBe(false);
+  });
+
+  test("judgeJumpDrop needs warden escort", () => {
+    const noEscort = [unit("reaver", "FLANK_LEFT"), unit("reaver", "FLANK_LEFT")];
+    expect(judgeJumpDrop(noEscort).ok).toBe(false);
+    const escort = [
+      unit("reaver", "FLANK_LEFT"),
+      unit("reaver", "FLANK_LEFT"),
+      unit("reaver", "FLANK_LEFT"),
+      unit("warden", "FLANK_LEFT"),
+    ];
+    expect(judgeJumpDrop(escort).ok).toBe(true);
+  });
+
+  test("judgeJumpDrop respects the one-way door", () => {
+    const escort = [
+      unit("reaver", "MAIN", "attacker", "engaged"),
+      unit("warden", "MAIN"),
+    ];
+    expect(judgeJumpDrop(escort).ok).toBe(false);
   });
 });

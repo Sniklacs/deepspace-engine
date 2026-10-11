@@ -29,6 +29,7 @@ import type {
   Chunk,
   Ember,
   Scorch,
+  Shell,
 } from "../../components/BattleScene/effects";
 import {
   GRAPHICS_LADDER,
@@ -614,6 +615,64 @@ export function drawTracerBeam(c: CanvasRenderingContext2D, tr: Tracer): void {
   c.fillStyle = hg;
   c.beginPath(); c.arc(tr.x2, tr.y2, w * 3, 0, Math.PI * 2); c.fill();
   c.globalAlpha = 1;
+}
+
+/**
+ * Kinetic slug (owner 2026-10-11): NOT a beam. A short bright streak —
+ * white-hot core over a thin warm glow, gone in a blink. The eye reads
+ * "bullet", never "lightsaber".
+ */
+export function drawTracerSlug(c: CanvasRenderingContext2D, tr: Tracer): void {
+  const a = alphaOf(tr.life, tr.maxLife);
+  if (a <= 0) return;
+  c.lineCap = "round";
+  // faint warm wake
+  c.strokeStyle = tr.color;
+  c.globalAlpha = a * 0.35;
+  c.lineWidth = tr.width * 2.2;
+  c.beginPath(); c.moveTo(tr.x1, tr.y1); c.lineTo(tr.x2, tr.y2); c.stroke();
+  // white-hot slug body
+  c.strokeStyle = "#fffdf4";
+  c.globalAlpha = a;
+  c.lineWidth = Math.max(1, tr.width * 0.9);
+  c.beginPath(); c.moveTo(tr.x1, tr.y1); c.lineTo(tr.x2, tr.y2); c.stroke();
+  c.globalAlpha = 1;
+}
+
+/**
+ * Lobbed siege shell in flight (owner 2026-10-11): a big glowing projectile
+ * riding a visible parabolic arc. The arc is the dodge read — you SEE it
+ * coming before it lands.
+ */
+export function drawShell(c: CanvasRenderingContext2D, s: Shell): void {
+  const t = Math.max(0, Math.min(1, s.t));
+  const x = s.x1 + (s.x2 - s.x1) * t;
+  const y = s.y1 + (s.y2 - s.y1) * t - Math.sin(t * Math.PI) * s.arc;
+  const r = 5 * s.size;
+  // hot glow around the shell
+  const g = c.createRadialGradient(x, y, 0, x, y, r * 4);
+  g.addColorStop(0, "rgba(255,220,160,0.9)");
+  g.addColorStop(0.4, "rgba(255,150,60,0.45)");
+  g.addColorStop(1, "rgba(255,120,40,0)");
+  c.fillStyle = g;
+  c.beginPath(); c.arc(x, y, r * 4, 0, Math.PI * 2); c.fill();
+  // the shell body — dark with a burning rim
+  c.fillStyle = "#2a1a10";
+  c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = "#ffb347";
+  c.lineWidth = 1.6;
+  c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke();
+  // fire trail along the arc behind it
+  const tb = Math.max(0, t - 0.08);
+  const tx = s.x1 + (s.x2 - s.x1) * tb;
+  const ty = s.y1 + (s.y2 - s.y1) * tb - Math.sin(tb * Math.PI) * s.arc;
+  const tg = c.createLinearGradient(tx, ty, x, y);
+  tg.addColorStop(0, "rgba(255,140,50,0)");
+  tg.addColorStop(1, "rgba(255,180,90,0.7)");
+  c.strokeStyle = tg;
+  c.lineWidth = r * 1.2;
+  c.lineCap = "round";
+  c.beginPath(); c.moveTo(tx, ty); c.lineTo(x, y); c.stroke();
 }
 
 /** Tumbling debris chunk: dark solid fragment with a hot glowing edge. */
