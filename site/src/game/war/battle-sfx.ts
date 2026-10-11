@@ -633,7 +633,7 @@ class BattleSfx {
    *  Each kind has a real voice: lasers sweep down (the pew has a throat),
    *  railguns crack violent, turrets thump heavy. Optional world coords let
    *  distant fire read distant — sound is animation. */
-  tracer(kind: "crack" | "snipe" | "turret" = "crack", x?: number, y?: number): void {
+  tracer(kind: "crack" | "snipe" | "turret" | "chaingun" = "crack", x?: number, y?: number): void {
     if (!this.live()) return;
     const now = performance.now();
     if (now - this.lastTracerMs < TRACER_MIN_MS) return;
@@ -699,6 +699,28 @@ class BattleSfx {
       th.connect(thg); thg.connect(bus);
       th.start(t); th.stop(t + 0.24);
       th.onended = () => { try { th.disconnect(); thg.disconnect(); } catch { /* gone */ } };
+    } else if (kind === "chaingun") {
+      // Chain gun — rapid mechanical bark, not a laser pew. Harsh noise
+      // burst with a metallic clank underneath. (Hans Oct 11 2026)
+      const n = this.noise(0.09);
+      if (n) {
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass"; bp.frequency.value = 900; bp.Q.value = 1.2;
+        const g = this.adsrGain(0.14 * dg, 0.002, 0.09)!;
+        n.connect(bp); bp.connect(g); g.connect(bus);
+        n.start(t); n.stop(t + 0.14);
+        n.onended = () => { try { n.disconnect(); bp.disconnect(); g.disconnect(); } catch { /* gone */ } };
+      }
+      const o = ctx.createOscillator();
+      o.type = "square";
+      o.frequency.setValueAtTime(180, t);
+      o.frequency.exponentialRampToValueAtTime(90, t + 0.08);
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = 1200;
+      const og = this.adsrGain(0.08 * dg, 0.002, 0.1)!;
+      o.connect(lp); lp.connect(og); og.connect(bus);
+      o.start(t); o.stop(t + 0.16);
+      o.onended = () => { try { o.disconnect(); lp.disconnect(); og.disconnect(); } catch { /* gone */ } };
     } else {
       // Turret — heavy rotary thump, low and blunt.
       const o = ctx.createOscillator();

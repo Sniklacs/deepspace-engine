@@ -1150,7 +1150,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           // kinetics as rapid-fire slug bursts. Same damage event.
           if (wk === "kinetic") fx.fireKinetic(X(u.x), Y(u.y), X(e.x), Y(e.y), col);
           else fx.fire(X(u.x), Y(u.y), X(e.x), Y(e.y), col);
-          battleSfx.tracer("crack");
+          battleSfx.tracer(wk === "kinetic" ? "chaingun" : "crack", u.x, u.y);
           // Tiers are real: elites out-hit chaff and shrug off chaff fire.
           // Chorus doctrine (owner 2026-10-06): a holding defender takes ~12%
           // less — dug in, not yet engaged. Cover takes ~12% less. Flank it
@@ -1611,7 +1611,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         pushRadarFrame(unitsRef.current, turretsRef.current);
         // Rejection toast + order ping expire on their own.
         const nowMs = performance.now();
-        if (toastRef.current && nowMs - toastRef.current.born > 2600) toastRef.current = null;
+        if (toastRef.current && nowMs - toastRef.current.born > 8000) toastRef.current = null;
         if (orderPingRef.current && t - orderPingRef.current.atS > 4) orderPingRef.current = null;
       }
 
