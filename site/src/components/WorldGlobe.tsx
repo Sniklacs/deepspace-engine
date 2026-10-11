@@ -229,13 +229,17 @@ interface Star { x: number; y: number; r: number; tw: number; ph: number }
 // sprite per landmass from it ONCE at init (see ensureTerrainSprites) and
 // the render loop only blits the sprites.
 const BLOBS: Blob[] = (() => {
+  // MORE LAND (Hans Oct 11 2026): the world read as "water with splashes of
+  // land". Same seed and draw order, so the original 46 landmasses keep
+  // their positions — the new blobs are added after, and every blob is a
+  // little bigger.
   const rng = mulberry32(20261004);
   const out: Blob[] = [];
-  for (let i = 0; i < 46; i++) {
+  for (let i = 0; i < 84; i++) {
     out.push({
       lat: (rng() * 2 - 1) * 62,
       lon: rng() * 360 - 180,
-      r: 5 + rng() * 11,
+      r: 6 + rng() * 13,
       shade: rng(),
       seed: i,
     });
@@ -660,8 +664,8 @@ function roundRectPath(g: CanvasRenderingContext2D, x: number, y: number, w: num
 // in shadeTerrainGrid (no artificial halo ring).
 let terrainSprites: HTMLCanvasElement[] | null = null;
 
-function bakeLandmassSprite(b: Blob): HTMLCanvasElement {
-  const S = terrainSpriteSize(b.r);
+function bakeLandmassSprite(b: Blob, pxScale = 1): HTMLCanvasElement {
+  const S = Math.round(terrainSpriteSize(b.r) * pxScale);
   const c = document.createElement("canvas");
   c.width = c.height = S;
   const g = c.getContext("2d")!;
@@ -681,8 +685,18 @@ function bakeLandmassSprite(b: Blob): HTMLCanvasElement {
 }
 
 function ensureTerrainSprites(): HTMLCanvasElement[] {
-  if (!terrainSprites) terrainSprites = BLOBS.map(bakeLandmassSprite);
+  if (!terrainSprites) terrainSprites = BLOBS.map((b) => bakeLandmassSprite(b));
   return terrainSprites;
+}
+
+let terrainSpritesHi: HTMLCanvasElement[] | null = null;
+/** 2× sprites for the deep-zoom tile level — the elevation grid rebakes at 2×
+ *  density too (buildElevationGrid is pure per seed), so deep zoom resolves
+ *  genuinely more terrain detail instead of upscaling. Baked lazily on the
+ *  first deep dive, once. */
+function ensureTerrainSpritesHi(): HTMLCanvasElement[] {
+  if (!terrainSpritesHi) terrainSpritesHi = BLOBS.map((b) => bakeLandmassSprite(b, 2));
+  return terrainSpritesHi;
 }
 
 // ---------------------------------------------------------------------------
@@ -698,20 +712,34 @@ function ensureTerrainSprites(): HTMLCanvasElement[] {
 // on screen, never a black frame.
 // ---------------------------------------------------------------------------
 
-const REGION_TILE_PX = 512;
-/** The tile spans ±60° around its cell center. */
-const REGION_HALF_DEG = 60;
-/** Focus quantization — panning rebakes only at cell crossings. */
-const REGION_CELL_DEG = 20;
-const REGION_TILE_CACHE_MAX = 6;
-/** Bake-space px per degree (constant for every tile). */
-const REGION_PPD = REGION_TILE_PX / (REGION_HALF_DEG * 2);
+interface TileLevel {
+  tilePx: number;
+  /** The tile spans ±halfDeg around its cell center. */
+  halfDeg: number;
+  /** Focus quantization — panning rebakes only at cell crossings. */
+  cellDeg: number;
+  cacheMax: number;
+  hiRes: boolean;
+}
+// LOD LEVELS (Hans Oct 11 2026): the old single 512px/±60° tile was 4.3 px/deg —
+// deep zoom only stretched it, so the ground stayed blurry forever. Level 1
+// takes over at LOW ALT and deeper: 768px over ±15° with 2× terrain sprites,
+// ~25 px/deg of real terrain detail.
+const TILE_LEVELS: TileLevel[] = [
+  { tilePx: 512, halfDeg: 60, cellDeg: 20, cacheMax: 6, hiRes: false },
+  { tilePx: 768, halfDeg: 15, cellDeg: 5, cacheMax: 8, hiRes: true },
+];
+/** Deep-zoom detail tiles take over at LOW ALT and deeper. */
+export const TILE_DETAIL_SCALE = 6;
 
 interface RegionTile {
   key: string;
   canvas: HTMLCanvasElement;
   qLat: number;
   qLon: number;
+  /** Bake-space px per degree — the draw path scales by ppdDraw / ppd. */
+  ppd: number;
+  tilePx: number;
 }
 
 let regionTileCache: RegionTile[] = [];
@@ -730,44 +758,51 @@ export function focusLatLon(spin: number, tilt: number): { lat: number; lon: num
   return { lat: tilt, lon: wrapLon180(-spin) };
 }
 
-function regionTileKey(lat: number, lon: number): { key: string; qLat: number; qLon: number } {
-  const qLat = Math.max(-80, Math.min(80, Math.round(lat / REGION_CELL_DEG) * REGION_CELL_DEG));
-  const qLon = wrapLon180(Math.round(lon / REGION_CELL_DEG) * REGION_CELL_DEG);
-  return { key: `${qLat}:${qLon}`, qLat, qLon };
+function regionTileKey(lat: number, lon: number, level: number): { key: string; qLat: number; qLon: number } {
+  const cell = TILE_LEVELS[level].cellDeg;
+  const qLat = Math.max(-80, Math.min(80, Math.round(lat / cell) * cell));
+  const qLon = wrapLon180(Math.round(lon / cell) * cell);
+  return { key: `L${level}:${qLat}:${qLon}`, qLat, qLon };
 }
 
-function bakeRegionTile(qLat: number, qLon: number): HTMLCanvasElement {
+function bakeRegionTile(qLat: number, qLon: number, level: number): HTMLCanvasElement {
+  const L = TILE_LEVELS[level];
+  const ppd = L.tilePx / (L.halfDeg * 2);
   const c = document.createElement("canvas");
-  c.width = c.height = REGION_TILE_PX;
+  c.width = c.height = L.tilePx;
   const g = c.getContext("2d")!;
   // Ocean base — the globe's deep-water read, flat (the tile is overhead).
-  const ocean = g.createRadialGradient(256, 256, 40, 256, 256, 320);
+  const ocean = g.createRadialGradient(
+    L.tilePx / 2, L.tilePx / 2, L.tilePx * 0.08,
+    L.tilePx / 2, L.tilePx / 2, L.tilePx * 0.63,
+  );
   ocean.addColorStop(0, "#14456e");
   ocean.addColorStop(1, "#0a2440");
   g.fillStyle = ocean;
-  g.fillRect(0, 0, REGION_TILE_PX, REGION_TILE_PX);
+  g.fillRect(0, 0, L.tilePx, L.tilePx);
   // Landmasses: the same baked sprites the globe blits, laid equirectangular.
-  // Sprite width on the globe = 2·r·1.25 degrees → px via REGION_PPD.
-  const sprites = ensureTerrainSprites();
+  // Sprite width on the globe = 2·r·1.25 degrees → px via the level's ppd.
+  const sprites = L.hiRes ? ensureTerrainSpritesHi() : ensureTerrainSprites();
   const cosLat = Math.cos((qLat * Math.PI) / 180);
   for (let i = 0; i < BLOBS.length; i++) {
     const b = BLOBS[i];
     const dLon = wrapLon180(b.lon - qLon);
     const dLat = b.lat - qLat;
-    const reach = REGION_HALF_DEG + b.r * 1.25;
+    const reach = L.halfDeg + b.r * 1.25;
     if (Math.abs(dLat) > reach || Math.abs(dLon * cosLat) > reach) continue;
-    const x = REGION_TILE_PX / 2 + dLon * cosLat * REGION_PPD;
-    const y = REGION_TILE_PX / 2 - dLat * REGION_PPD;
-    const wpx = 2 * b.r * 1.25 * REGION_PPD;
+    const x = L.tilePx / 2 + dLon * cosLat * ppd;
+    const y = L.tilePx / 2 - dLat * ppd;
+    const wpx = 2 * b.r * 1.25 * ppd;
     g.drawImage(sprites[i], x - wpx / 2, y - wpx / 2, wpx, wpx);
   }
   return c;
 }
 
 /** The region tile for the focus point, or null if the bake failed
- *  (caller falls back to the globe sprite). Small LRU. */
-function ensureRegionTile(lat: number, lon: number): RegionTile | null {
-  const { key, qLat, qLon } = regionTileKey(lat, lon);
+ *  (caller falls back to the globe sprite). Small per-level LRU. */
+function ensureRegionTile(lat: number, lon: number, level: number): RegionTile | null {
+  const L = TILE_LEVELS[level];
+  const { key, qLat, qLon } = regionTileKey(lat, lon, level);
   const hit = regionTileCache.find((t) => t.key === key);
   if (hit) {
     regionTileCache = [hit, ...regionTileCache.filter((t) => t !== hit)];
@@ -775,12 +810,15 @@ function ensureRegionTile(lat: number, lon: number): RegionTile | null {
   }
   let canvas: HTMLCanvasElement;
   try {
-    canvas = bakeRegionTile(qLat, qLon);
+    canvas = bakeRegionTile(qLat, qLon, level);
   } catch {
     return null;
   }
-  const tile: RegionTile = { key, canvas, qLat, qLon };
-  regionTileCache = [tile, ...regionTileCache].slice(0, REGION_TILE_CACHE_MAX);
+  const tile: RegionTile = {
+    key, canvas, qLat, qLon,
+    ppd: L.tilePx / (L.halfDeg * 2), tilePx: L.tilePx,
+  };
+  regionTileCache = [tile, ...regionTileCache].slice(0, L.cacheMax + 6);
   return tile;
 }
 
@@ -1301,8 +1339,12 @@ export default function WorldGlobe({
       const focusLL = focusLatLon(v.spin, v.tilt);
       let regionTile: RegionTile | null = null;
       if (morphT > 0) {
+        // LOD: the detail tile level takes over at LOW ALT and deeper, so
+        // the ground keeps resolving as you descend instead of stretching
+        // the morph tile forever.
+        const tileLevel = v.scale >= TILE_DETAIL_SCALE ? 1 : 0;
         try {
-          regionTile = ensureRegionTile(focusLL.lat, focusLL.lon);
+          regionTile = ensureRegionTile(focusLL.lat, focusLL.lon, tileLevel);
         } catch {
           regionTile = null;
         }
@@ -1591,8 +1633,8 @@ export default function WorldGlobe({
       // stays put, so there is never an empty or black frame.
       if (regionTile) {
         const ppdDraw = R / 90; // screen px per degree at the focus point
-        const s = ppdDraw / REGION_PPD;
-        const size = REGION_TILE_PX * s;
+        const s = ppdDraw / regionTile.ppd;
+        const size = regionTile.tilePx * s;
         const cosLat = Math.cos((focusLL.lat * Math.PI) / 180);
         const dLon = wrapLon180(regionTile.qLon - focusLL.lon);
         const tcx = cx + dLon * cosLat * ppdDraw;
@@ -1915,12 +1957,35 @@ export default function WorldGlobe({
       d.x = e.clientX; d.y = e.clientY; d.lastT = now;
       return;
     }
-    const dSpin = dx * 0.22;
-    const dTilt = dy * 0.15;
-    v.spin += dSpin;
-    v.tilt = Math.max(-TILT_MAX, Math.min(TILT_MAX, v.tilt + dTilt));
-    d.velSpin = d.velSpin * 0.8 + (dSpin / dt) * 1000 * 0.2;
-    d.velTilt = d.velTilt * 0.8 + (dTilt / dt) * 1000 * 0.2;
+    // FLAT MAP MODE (Hans Oct 11 2026): at LOW ALT and deeper the spinning
+    // globe is gone — the view is a 2D scrollable map. Dragging pans it 1:1
+    // with the finger (standard map scroll); the spin interaction and its
+    // fling do not exist down here. The camera stays (spin, tilt) under the
+    // hood, so crossing the boundary is seamless — only the mapping changes.
+    if (v.scale >= TILE_DETAIL_SCALE) {
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (rect) {
+        const Rflat = Math.min(Math.max(1, rect.width), Math.max(1, rect.height)) * 0.4 * v.scale;
+        const ppd = Rflat / 90; // screen px per degree at the focus point
+        const cosLat = Math.max(0.2, Math.cos((v.tilt * Math.PI) / 180));
+        v.spin += dx / (cosLat * ppd);
+        v.tilt = Math.max(-TILT_MAX, Math.min(TILT_MAX, v.tilt - dy / ppd));
+      }
+      d.velSpin = 0;
+      d.velTilt = 0;
+    } else {
+      // DEEP-ZOOM DRAG DAMPING (Hans Oct 11 2026): approaching the ground the
+      // same finger travel covers far fewer degrees on screen, so raw
+      // dx-driven spin felt hyper-sensitive and kept flinging. Damp the
+      // spin/tilt — and the fling velocity built from them — on the way down.
+      const zoomDamp = Math.max(0.12, Math.min(1, 2.5 / v.scale));
+      const dSpin = dx * 0.22 * zoomDamp;
+      const dTilt = dy * 0.15 * zoomDamp;
+      v.spin += dSpin;
+      v.tilt = Math.max(-TILT_MAX, Math.min(TILT_MAX, v.tilt + dTilt));
+      d.velSpin = d.velSpin * 0.8 + (dSpin / dt) * 1000 * 0.2;
+      d.velTilt = d.velTilt * 0.8 + (dTilt / dt) * 1000 * 0.2;
+    }
     // CRADLE ENTRY: a real drag during FOCUSING cancels the centering ease;
     // during HOVERING, drifting off the hover anchor past the threshold pans
     // away (→ FREE). A committed DESCENDING is never cancelled by a pan.
@@ -2047,8 +2112,10 @@ export default function WorldGlobe({
       }
       return;
     }
-    // fling → inertia (the globe only — the system view keeps its sky)
+    // fling → inertia (the globe only — the system view keeps its sky, and
+    // the flat map stops with the finger: no spin-up fling down there)
     if (isSystemDominant(view.current.scale)) return;
+    if (view.current.scale >= TILE_DETAIL_SCALE) return;
     if (Math.abs(d.velSpin) > 30 || Math.abs(d.velTilt) > 30) playWhoosh();
     let vs = d.velSpin, vt = d.velTilt;
     const tick = () => {
