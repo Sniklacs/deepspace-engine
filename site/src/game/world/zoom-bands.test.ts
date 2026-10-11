@@ -23,7 +23,7 @@ import {
 
 describe("bandForScale — the five bands of the continuum", () => {
   test("solar-system side stays Z0 below the system blend threshold", () => {
-    expect(bandForScale(0.16)).toBe("Z0");
+    expect(bandForScale(0.08)).toBe("Z0");
     expect(bandForScale(0.3)).toBe("Z0");
     expect(bandForScale(0.619)).toBe("Z0");
   });
@@ -109,8 +109,8 @@ describe("smoothstepBand", () => {
 
 describe("clampZoomScale — the axis extends downward past the old max", () => {
   test("keeps the solar-system floor", () => {
-    expect(clampZoomScale(0.16)).toBe(0.16);
-    expect(clampZoomScale(0.01)).toBe(0.16);
+    expect(clampZoomScale(0.08)).toBe(0.08);
+    expect(clampZoomScale(0.01)).toBe(0.08);
   });
 
   test("extends past the old SCALE_MAX=3 to the new ground max", () => {

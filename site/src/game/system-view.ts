@@ -33,8 +33,10 @@ import type { ScoutProbe, ScoutReport, WorldMapState } from "./worldmap";
 
 /** Widest zoom (today's globe max). */
 export const SCALE_MAX = 3;
-/** Deepest zoom-OUT: the full solar system. */
-export const SCALE_MIN = 0.16;
+/** Deepest zoom-OUT: the full solar system. Widened Oct 11 2026 (Hans):
+ * 0.16 left the planets too cramped to read — 0.08 gives the whole system
+ * room to breathe on a phone. */
+export const SCALE_MIN = 0.08;
 /** At/above this scale the view is the globe alone. */
 export const SYSTEM_GLOBE_SCALE = 0.62;
 /** At/below this scale the solar system is fully present. */

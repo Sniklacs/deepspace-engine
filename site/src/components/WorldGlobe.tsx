@@ -1906,6 +1906,15 @@ export default function WorldGlobe({
       d.lastT = now;
       return;
     }
+    // PINCH ZOOM (Hans Oct 11 2026): while a two-finger pinch is active, the
+    // per-pointer events must not spin the globe or feed fling velocity —
+    // the fingers move in opposite directions and each one was injecting
+    // spin, so the globe spun crazily after every pinch. Keep the anchor
+    // synced so there's no jump when the pinch releases.
+    if (pinch.current) {
+      d.x = e.clientX; d.y = e.clientY; d.lastT = now;
+      return;
+    }
     const dSpin = dx * 0.22;
     const dTilt = dy * 0.15;
     v.spin += dSpin;
@@ -2348,7 +2357,7 @@ export default function WorldGlobe({
           role="img"
           aria-label={t("worldglobe.canvasLabel", "Interactive globe of the world. Drag to spin, pinch or scroll to zoom, tap a marker for details. Zoom all the way out to reach the solar system and its planets.")}
           className="absolute inset-0 h-full w-full"
-          style={{ touchAction: "pan-y" }}
+          style={{ touchAction: "none" }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
