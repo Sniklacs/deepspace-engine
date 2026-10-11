@@ -95,9 +95,20 @@ import {
   transition,
   type CradleEntryContext,
   type CradleEntryEvent,
+  type CradleModuleId,
 } from "../game/world/cradle-entry";
 import { SceneHeader } from "./SceneHeader";
 import { colonyMarkerName } from "../game/worldmap";
+// MODULE OVERLAY (Phase 2, slice 11): buildings open as overlays over the
+// live world (spec §10) — the canvas never unmounts; the URL syncs via the
+// history API (?module=<id>). See ModuleOverlay.tsx for the pattern.
+import {
+  ModuleOverlay,
+  cradleModuleIds,
+  cradleModuleLabel,
+  readModuleParam,
+  withModuleParam,
+} from "./ModuleOverlay";
 // ORBIT DUST CLOUDS (Phase 2, slice 3): live battles as dust-cloud markers
 // on the surface at Z1 — intensity from existing engine feeds, churn via
 // noise-offset drift, warm/ash vs-Chorus vs red-fringe PvP.
@@ -1079,6 +1090,10 @@ export default function WorldGlobe({
   // The one-time "spread to enter" hint pill (max 3 lifetime shows, then
   // never — persisted in localStorage, see cradle-entry.ts).
   const [spreadHint, setSpreadHint] = useState(false);
+  // MODULE OVERLAY (slice 11): true while the ?module= URL entry was
+  // pushed by us — Close then history.back()s instead of stranding a
+  // forward entry, so the back button always means "close the overlay".
+  const modulePushedRef = useRef(false);
 
   // ---- render loop ----
   useEffect(() => {
@@ -2152,6 +2167,34 @@ export default function WorldGlobe({
     ) {
       setSelectedId(null);
     }
+    // MODULE OVERLAY (slice 11): the open module mirrors to the URL as
+    // ?module=<id> via the history API — the router is never involved, so
+    // the canvas (and the route) never unmounts. Opening pushes exactly
+    // one entry (back button = close); switching modules replaces; the
+    // sync is idempotent so forward-navigation re-opens never double-push.
+    if (next.module !== prev.module) {
+      try {
+        const want = next.module;
+        const have = readModuleParam(window.location.href);
+        if (want !== have) {
+          const url = withModuleParam(window.location.href, want);
+          if (!want) {
+            // Closed without the back button (camera left the ground, or a
+            // direct dispatch) — strip the param without adding history.
+            window.history.replaceState(null, "", url);
+          } else if (prev.module) {
+            window.history.replaceState({ module: want }, "", url);
+          } else {
+            window.history.pushState({ module: want }, "", url);
+            modulePushedRef.current = true;
+          }
+        }
+        if (!want) modulePushedRef.current = false;
+      } catch {
+        /* history API unavailable — the overlay still works, the URL just
+           doesn't mirror (private mode / odd embeds) */
+      }
+    }
   }, []);
 
   const sendCradleEvent = useCallback(
@@ -2214,6 +2257,69 @@ export default function WorldGlobe({
       lastInteract.current = performance.now();
     }
   }, [sendCradleEvent]);
+
+  // ---- MODULE OVERLAY (Phase 2, slice 11) ----
+  /** Tap a building inside INSIDE → its module opens as an overlay over the
+   *  live world (spec §10). The URL mirrors via ?module= (push on open,
+   *  replace on switch — see applyCradleNext); the canvas never unmounts. */
+  const openModule = useCallback(
+    (id: CradleModuleId) => {
+      playSelect();
+      sendCradleEvent({ type: "ENTER_MODULE", module: id });
+    },
+    [sendCradleEvent],
+  );
+
+  /** Close the module overlay. When the ?module= entry is ours, the back
+   *  stack pops it — the popstate handler then closes the overlay, so the
+   *  browser back button and this button always agree. */
+  const closeModule = useCallback(() => {
+    playDeselect();
+    if (modulePushedRef.current) {
+      modulePushedRef.current = false;
+      try {
+        window.history.back();
+        return;
+      } catch {
+        /* fall through to the direct close */
+      }
+    }
+    sendCradleEvent({ type: "CLOSE_MODULE" });
+  }, [sendCradleEvent]);
+
+  // Back/forward-button sanity for the overlay: the URL is the truth on
+  // popstate — back with no ?module= closes, forward with one re-opens
+  // (only while INSIDE; a stale param anywhere else is inert and stripped).
+  // Unmounting the world view never leaves a stale ?module= behind.
+  useEffect(() => {
+    const onPopState = () => {
+      const m = readModuleParam(window.location.href);
+      const cur = cradleRef.current;
+      if (!m && cur.module) {
+        modulePushedRef.current = false;
+        applyCradleRef.current(transition(cur, { type: "CLOSE_MODULE" }));
+      } else if (m && !cur.module && cur.entry === "INSIDE") {
+        applyCradleRef.current(transition(cur, { type: "ENTER_MODULE", module: m }));
+      } else if (m && cur.entry !== "INSIDE" && !cur.module) {
+        try {
+          window.history.replaceState(null, "", withModuleParam(window.location.href, null));
+        } catch {
+          /* noop */
+        }
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      try {
+        if (readModuleParam(window.location.href)) {
+          window.history.replaceState(null, "", withModuleParam(window.location.href, null));
+        }
+      } catch {
+        /* noop */
+      }
+    };
+  }, []);
 
 
   return (
@@ -2462,7 +2568,14 @@ export default function WorldGlobe({
             illustrated 2D Plus art scene lands later); module logic is not
             rewritten. Buildings open as overlays in slice 11. */}
         {cradle.entry === "INSIDE" && !inSystem && (
-          <CradleInteriorPanel state={state} />
+          <CradleInteriorPanel state={state} onOpenModule={openModule} />
+        )}
+
+        {/* MODULE OVERLAY (slice 11): the open module rides OVER the live
+            world — the canvas is a sibling and never unmounts. The URL
+            mirrors as ?module=<id>; the back button closes the overlay. */}
+        {cradle.module && cradle.entry === "INSIDE" && !inSystem && (
+          <ModuleOverlay module={cradle.module} state={state} onClose={closeModule} />
         )}
 
         {/* Hive relocation confirmation (Hans, Oct 4 2026, WS-E) */}
@@ -2951,8 +3064,15 @@ function HiveConfirmPanel({
  *  SceneHeader (location name + live UTC clock, Hans Oct 5). The
  *  illustrated 2D Plus art scene — buildings as clickable links — lands in
  *  a later slice; no module logic is rewritten here. Buildings open as
- *  overlays in slice 11. */
-function CradleInteriorPanel({ state }: { state: GameState }) {
+ *  overlays (slice 11). */
+function CradleInteriorPanel({
+  state,
+  onOpenModule,
+}: {
+  state: GameState;
+  /** Slice 11: tap a building → its module opens as an overlay. */
+  onOpenModule: (id: CradleModuleId) => void;
+}) {
   const t = useT();
   const colonyLabel = state.playerName
     ? colonyMarkerName(state.playerName)
@@ -2986,6 +3106,22 @@ function CradleInteriorPanel({ state }: { state: GameState }) {
           <Stat k={t("worldglobe.supplies", "Supplies")} v={supplies.toLocaleString()} />
           <Stat k={t("worldglobe.embers", "Embers")} v={embers.toLocaleString()} />
           <Stat k={t("worldglobe.energy", "Energy")} v={`${energy}`} />
+        </div>
+        {/* Slice 11: the buildings. Each opens its module as an overlay
+            over the live world — the URL mirrors (?module=), the back
+            button closes, the canvas never unmounts. */}
+        <div className="mt-3 grid grid-cols-2 gap-2" role="group" aria-label={t("worldglobe.buildings", "Buildings")}>
+          {cradleModuleIds().map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onOpenModule(id)}
+              className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 text-[13px] font-bold text-gray-100"
+            >
+              <span aria-hidden>🏛️</span>
+              {cradleModuleLabel(id)}
+            </button>
+          ))}
         </div>
       </div>
     </div>
