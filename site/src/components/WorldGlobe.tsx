@@ -61,13 +61,22 @@ import {
 import { WORLD_CONFIG_PUBLIC } from "../game/world-config";
 import {
   buildPlanets,
-  clampScale,
   isSystemDominant,
   planetScreenPositions,
   SYSTEM_GLOBE_SCALE,
   systemTFromScale,
   type PlanetPalette,
 } from "../game/system-view";
+// ZOOM-AXIS (Phase 2, slice 1): the seamless-world zoom continuum — band
+// thresholds Z0–Z4, octave math, the sphere→plane morph factor, and the
+// extended scale clamp (the axis now runs past the old SCALE_MAX=3 down
+// to the ground). Stable pure kernel; other agents import it too.
+import {
+  bandForScale,
+  clampZoomScale,
+  morphTFromScale,
+  ZOOM_BAND_LABEL,
+} from "../game/world/zoom-bands";
 
 /** #rrggbb + alpha → rgba() string for canvas gradients/strokes. */
 function hexA(hex: string, alpha: number): string {
@@ -712,6 +721,17 @@ export default function WorldGlobe({
   const screenPos = useRef(new Map<string, { x: number; y: number; r: number }>());
   const markersRef = useRef<GlobeMarker[]>([]);
   const reduceMotion = useRef(false);
+  // ZOOM-AXIS (Phase 2, slice 1): temporary dev readout of the zoom
+  // continuum (band + scale + morph factor). Updated via textContent in the
+  // frame loop — no React re-renders. Tap it to dismiss for the session
+  // (persists via worldglobe.zoomdebug="0" in localStorage).
+  const zoomDebugRef = useRef<HTMLDivElement>(null);
+  const zoomDebugHidden = useRef(false);
+  if (typeof localStorage !== "undefined" && !zoomDebugHidden.current) {
+    try {
+      zoomDebugHidden.current = localStorage.getItem("worldglobe.zoomdebug") === "0";
+    } catch { /* private mode */ }
+  }
   // WS5 — real day/night cycle (GLOBE WAVE 3): the player-anchored subsolar
   // point, refreshed on a 60s tick + visibility regain (see render loop).
   // homePosRef tracks hive relocation so the phase re-anchors when home moves.
@@ -898,7 +918,7 @@ export default function WorldGlobe({
       e.preventDefault();
       lastInteract.current = performance.now();
       const v = view.current;
-      v.targetScale = clampScale(v.targetScale * (e.deltaY < 0 ? 1.12 : 0.89));
+      v.targetScale = clampZoomScale(v.targetScale * (e.deltaY < 0 ? 1.12 : 0.89));
     };
     canvas.addEventListener("wheel", wheelHandler, { passive: false });
 
@@ -950,6 +970,15 @@ export default function WorldGlobe({
       let cx = w / 2, cy = h / 2;
       let R = Math.min(w, h) * 0.40 * v.scale;
       const time = ms / 1000;
+
+      // ZOOM-AXIS dev readout (slice 1): band + scale + morph factor.
+      // textContent-only — the frame loop never triggers a React render.
+      const zd = zoomDebugRef.current;
+      if (zd && !zoomDebugHidden.current) {
+        const band = bandForScale(v.scale);
+        const txt = `ZOOM ${ZOOM_BAND_LABEL[band]} · z ${v.scale.toFixed(2)} · morph ${morphTFromScale(v.scale).toFixed(2)}`;
+        if (zd.textContent !== txt) zd.textContent = txt;
+      }
 
       // SOLAR SYSTEM LAYER (Hans, Oct 6 2026): one continuous zoom — as
       // scale crosses the back-out band, sysT blends 0→1 and the home
@@ -1606,7 +1635,7 @@ export default function WorldGlobe({
       const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
       if (pinch.current) {
         const v = view.current;
-        v.targetScale = clampScale(v.targetScale * (d / pinch.current.d));
+        v.targetScale = clampZoomScale(v.targetScale * (d / pinch.current.d));
       }
       pinch.current = { d };
     }
@@ -1621,7 +1650,7 @@ export default function WorldGlobe({
     const eff = f < 1 && v.targetScale <= SYSTEM_GLOBE_SCALE ? 0.66
       : f > 1 && v.targetScale < SYSTEM_GLOBE_SCALE ? 1.5
       : f;
-    v.targetScale = clampScale(v.targetScale * eff);
+    v.targetScale = clampZoomScale(v.targetScale * eff);
     playClick();
   }, []);
 
@@ -1787,6 +1816,21 @@ export default function WorldGlobe({
               </button>
             </div>
           </div>
+        )}
+
+        {/* ZOOM-AXIS dev readout (Phase 2, slice 1 — temporary): the live
+            zoom band + scale + sphere→plane morph factor. Tap to dismiss. */}
+        {!zoomDebugHidden.current && (
+          <div
+            ref={zoomDebugRef}
+            onClick={() => {
+              zoomDebugHidden.current = true;
+              try { localStorage.setItem("worldglobe.zoomdebug", "0"); } catch { /* private mode */ }
+              if (zoomDebugRef.current) zoomDebugRef.current.style.display = "none";
+            }}
+            className="absolute left-2 top-2 z-10 cursor-pointer rounded bg-black/55 px-2 py-1 font-mono text-[10px] tracking-wide text-amber-200/90 backdrop-blur-sm"
+            title="Zoom continuum debug — tap to dismiss"
+          />
         )}
 
         {/* Zoom controls */}
