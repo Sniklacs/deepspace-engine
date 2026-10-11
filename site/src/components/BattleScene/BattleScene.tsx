@@ -110,6 +110,17 @@ import {
   type WatchUnit,
 } from "../../game/war/battle-comms";
 import { battleSfx } from "../../game/war/battle-sfx";
+// Seamless-world camera-origin model (Phase 2, slice 7): the renderer gains
+// a camera origin + tile offset; world units are the engine's, unchanged.
+import {
+  audioBandFor,
+  bandForContinuumScale,
+  screenToWorld,
+  softClampX,
+  softClampY,
+  worldToScreen,
+  type BattleCamera,
+} from "../../game/war/battle-camera";
 // Playbook formation type (the result sheet's "Save in war room" draft).
 import { suggestedFormationName } from "../../game/war/playbook";
 // Troop tiers are real (owner 2026-10-05): a T4 genuinely out-hits and
@@ -133,6 +144,12 @@ import {
   drawSpark,
   drawVolDust,
 } from "../../game/war/rendered-fx";
+// SEAMLESS-WORLD §8 (slice 13): quality-gated terrain detail overlays.
+import {
+  createOverlaySpec,
+  drawTerrainOverlays,
+  overlayVisibleAtZoom,
+} from "../../game/world/terrain-overlays";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { BattleHud } from "./BattleHud";
 import { BattleClock } from "./BattleClock";
@@ -211,6 +228,13 @@ function clampAnchor(ax: number, half: number, size: number, center: number): nu
   return Math.max(lo, Math.min(hi, ax));
 }
 
+/** CameraRig → the shared camera-origin frame (slice 7). The tile offset
+ *  is zero until tile streaming rebases it — the transform is identical
+ *  to the inline math it replaces, so this is a pure wiring change. */
+function rigCamera(rig: CameraRig): BattleCamera {
+  return { ox: rig.ax, oy: rig.ay, zoom: rig.zoom, ysq: rig.ysq, fy: rig.fy, tileX: 0, tileY: 0 };
+}
+
 // Friend/foe identity (owner 2026-10-05): friendlies read blue-green,
 // enemies read red — unit rings, staging markers, turret fallback, HP pips.
 const SIDE_COLOR: Record<string, string> = { attacker: "#34d399", defender: "#ef4444" };
@@ -235,6 +259,13 @@ interface Props {
   /** Called with the named formation draft when the commander taps
    *  "Save in war room" on the result overlay. */
   onSaveFormation?: (draft: { name: string; playId: string; loads: import("../../game/war/playbook").SlotLoads }) => void;
+  /**
+   * Seamless-world continuum scale (the globe's z axis) when this scene is
+   * embedded in the world. Drives the Z3-overview LOD (shapes vs models)
+   * and the battle-bus audio LOD. Null/undefined = standalone scene:
+   * Z4 ground detail + full audio, exactly today's behavior.
+   */
+  continuumScale?: number | null;
 }
 
 interface SpriteSet { [k: string]: HTMLImageElement | null; ground: HTMLImageElement | null }
@@ -255,11 +286,27 @@ const VEC_LABEL: Record<ManeuverVector, string> = {
   MAIN: "Main", FLANK_LEFT: "Flank L", FLANK_RIGHT: "Flank R", REAR: "Rear", RESERVE: "Reserve",
 };
 
-export function BattleScene({ scene, liveCasualties = null, variant = "embedded", onClose, formation = null, onSaveFormation }: Props) {
+export function BattleScene({ scene, liveCasualties = null, variant = "embedded", onClose, formation = null, onSaveFormation, continuumScale = null }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const sprites = useMemo(loadSprites, []);
   const fx = useMemo(() => new Fx(), []);
+  // SEAMLESS-WORLD §8 (slice 13): terrain detail overlays — the corruption
+  // field recenters on the Chorus stronghold (north edge), not the map
+  // center (spec §7). The spec is built once per battle at CINEMATIC
+  // density; the draw call gates density per rung and visibility per zoom.
+  const overlaySpec = useMemo(
+    () =>
+      createOverlaySpec({
+        seed: (scene.seed ^ 0x51f7) >>> 0,
+        worldW: WORLD_W,
+        worldH: WORLD_H,
+        strongholdX: WORLD_CX,
+        strongholdY: WORLD_H,
+        radius: 1.35,
+      }),
+    [scene.seed],
+  );
   const fullscreen = variant === "fullscreen";
   // Ref mirror of the variant for the animation loop (avoids re-subscribing).
   const fullscreenRef = useRef(fullscreen);
@@ -339,6 +386,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
   // Camera rig — the mode lives in the shared store; zoom/anchor ease here
   // so flipping the toggle glides instead of cutting.
   const camRef = useRef<CameraRig>({ ...CAM_HOME });
+  // Seamless-world continuum scale, read fresh in the frame loop (the main
+  // loop effect only re-runs on scene.id, so the prop is mirrored here).
+  const continuumScaleRef = useRef<number | null | undefined>(continuumScale);
+  continuumScaleRef.current = continuumScale;
   if (unitsRef.current.length === 0) {
     unitsRef.current = scene.units.map((u) => ({ ...u }));
     turretsRef.current = scene.turrets.map((t) => ({ ...t }));
@@ -767,7 +818,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           for (const o of orders) {
             const u = byId.get(o.unitId);
             if (!u || u.state === "dead") continue;
-            stampOrder(u, clampWorldX(o.tx), clampWorldY(o.ty), t);
+            // Unbounded map (slice 7): orders may land past the old hard walls.
+            stampOrder(u, softClampX(o.tx), softClampY(o.ty), t);
             if (o.enterNow) u.enterAtS = Math.min(u.enterAtS, t); // commit NOW, not on schedule
             moved.push(u);
           }
@@ -818,7 +870,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
             if (flankUnits.length === 0) continue;
             envelopRef.current[env.flank] = true;
             for (const u of flankUnits) {
-              stampOrder(u, clampWorldX(env.tx + (Math.random() - 0.5) * 0.06), clampWorldY(env.ty + (Math.random() - 0.5) * 0.06), t);
+              stampOrder(u, softClampX(env.tx + (Math.random() - 0.5) * 0.06), softClampY(env.ty + (Math.random() - 0.5) * 0.06), t);
             }
             const cx = flankUnits.reduce((s, u) => s + u.x, 0) / flankUnits.length;
             const cy = flankUnits.reduce((s, u) => s + u.y, 0) / flankUnits.length;
@@ -1004,6 +1056,11 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       cam.ax += (tax - cam.ax) * k;
       cam.ay += (tay - cam.ay) * k;
 
+      // Seamless-world audio LOD (spec §5, slice 5's real API): the current
+      // zoom band drives the battle bus — Z1 orbit silent … Z4 ground full.
+      // Standalone scenes sit at Z4, so the soundscape is unchanged there.
+      battleSfx.setZoomAudioLevel(audioBandFor(bandForContinuumScale(continuumScaleRef.current)));
+
       // --- ground-mode texture: dust under the advance, near-miss tracers --
       if (ground) {
         for (const u of unitsRef.current) {
@@ -1139,6 +1196,16 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         grad.addColorStop(1, "#2a241b");
         c.fillStyle = grad;
         c.fillRect(-12, -12, w + 24, h + 24);
+      }
+
+      // --- terrain detail overlays (spec §8, slice 13) -----------------------
+      // Live detail at Z3+: ash drifts in the blighted bands, embers pulse +
+      // heat shimmers in the burnt heart, vegetation sways in the verdant
+      // outskirts. Drawn over the baked ground; the corruption gradient
+      // itself stays in the tile bake. Quality-gated per rung (PERFORMANCE
+      // renders nothing here).
+      if (overlayVisibleAtZoom(cam.zoom, WORLD_FIT_ZOOM)) {
+        drawTerrainOverlays(c, overlaySpec, simTRef.current, night);
       }
 
       // --- vector lanes ----------------------------------------------------
@@ -1735,8 +1802,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           const idx = li++;
           const selSquad = ui.selectedSquadId === u.squadId;
           if (stride > 1 && idx % stride !== 0 && u.state !== "engaged" && !selSquad) continue;
-          const sx = (u.x - cam.ax) * cam.zoom * w + w / 2;
-          const sy = (u.y - cam.ay) * cam.zoom * cam.ysq * h + h * cam.fy;
+          // Camera-origin frame (slice 7): identical math, one transform source.
+          const { sx, sy } = worldToScreen(rigCamera(cam), w, h, u.x, u.y);
           if (sx < -70 || sx > w + 70 || sy < -40 || sy > h + 40) continue;
           const dim = u.state === "staging" ? 0.55 : u.state === "dead" ? 0.38 : 1;
           const label = `${UNIT_KIND_LABEL[u.kind].toUpperCase()} · T${u.tier}`;
@@ -1989,7 +2056,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     const squadUnits = unitsRef.current.filter((u) => u.squadId === squadId && u.state !== "dead");
     const squad = buildSquads(unitsRef.current).find((s) => s.id === squadId);
     const name = squad ? squad.name : squadId;
-    const dest = { x: clampWorldX(dx), y: clampWorldY(dy) };
+    // Unbounded map (slice 7): the commander's tap may land past the old
+    // hard walls — the soft clamp lets the order stand instead of snapping back.
+    const dest = { x: softClampX(dx), y: softClampY(dy) };
     // HOT DROP COMMIT (owner 2026-10-06): an on-call reserve still in
     // staging isn't ordered — it's COMMITTED. Tap the reserve squad, tap
     // the map, and it falls on the picked spot, loud. Only while driving
@@ -2005,8 +2074,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       const t = simTRef.current;
       for (const u of stagingOnCall) {
         u.state = "descending";
-        u.tx = clampWorldX(dest.x + (Math.random() - 0.5) * 0.05);
-        u.ty = clampWorldY(dest.y + (Math.random() - 0.5) * 0.05);
+        u.tx = softClampX(dest.x + (Math.random() - 0.5) * 0.05);
+        u.ty = softClampY(dest.y + (Math.random() - 0.5) * 0.05);
         u.dropAtS = t;
       }
       battleSfx.dropship(); // engines spool — the reserve is inbound
@@ -2038,7 +2107,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     cx /= squadUnits.length;
     cy /= squadUnits.length;
     for (const u of squadUnits) {
-      stampOrder(u, clampWorldX(dest.x + (u.x - cx)), clampWorldY(dest.y + (u.y - cy)), simTRef.current);
+      stampOrder(u, softClampX(dest.x + (u.x - cx)), softClampY(dest.y + (u.y - cy)), simTRef.current);
     }
     orderPingRef.current = { x: dest.x, y: dest.y, fx: cx, fy: cy, born: simTRef.current, atS: simTRef.current + ORDER_DELAY_S };
   };
@@ -2052,8 +2121,8 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
     // so turret picks and gunner targeting land in ground mode too.
     const cam = camRef.current;
     const { w, h } = canvasCss();
-    const tx = ((px * w - w / 2) / cam.zoom + cam.ax * w) / w;
-    const ty = ((py * h - h * cam.fy) / (cam.zoom * cam.ysq) + cam.ay * h) / h;
+    // Invert via the camera-origin frame (slice 7): screen → world.
+    const { x: tx, y: ty } = screenToWorld(rigCamera(cam), w, h, px * w, py * h);
     const ui = sceneUISnapshot();
     if (ui.gunnerId) {
       // Gunner view: click an enemy unit to target it.
