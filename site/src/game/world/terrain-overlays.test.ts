@@ -169,9 +169,26 @@ describe("drawTerrainOverlays", () => {
     return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
   }
 
-  test("draws motes on the default (cinematic) rung, balanced save/restore", () => {
-    // Default rung is AUTO → cinematic (no localStorage in this runtime),
-    // so all 12 spec motes render.
+  // Pin the rung explicitly: graphics-quality.test.ts shims the global
+  // localStorage and leaves a non-default mode behind (the shim is shared
+  // across test files in one bun run), so these tests must not assume the
+  // default rung.
+  function pinMode(mode: string): void {
+    const store = new Map<string, string>([["graphics.quality.v1", mode]]);
+    (globalThis as Record<string, unknown>).localStorage = {
+      getItem: (k: string) => (store.has(k) ? store.get(k) : null),
+      setItem: (k: string, v: string) => {
+        store.set(k, String(v));
+      },
+      removeItem: (k: string) => {
+        store.delete(k);
+      },
+      clear: () => store.clear(),
+    };
+  }
+
+  test("draws motes on cinematic, balanced save/restore", () => {
+    pinMode("cinematic");
     const spec = createOverlaySpec({ ...OPTS, count: 12 });
     const { ctx, calls } = fakeCtx();
     drawTerrainOverlays(ctx, spec, 5.0, 0.5);
@@ -179,5 +196,14 @@ describe("drawTerrainOverlays", () => {
     expect(calls.filter((c) => c === "restore")).toHaveLength(1);
     const fills = calls.filter((c) => c === "fill" || c === "fillRect").length;
     expect(fills).toBeGreaterThan(0);
+  });
+
+  test("draws nothing on performance — the baked gradient stands alone", () => {
+    pinMode("performance");
+    const spec = createOverlaySpec({ ...OPTS, count: 12 });
+    const { ctx, calls } = fakeCtx();
+    drawTerrainOverlays(ctx, spec, 5.0, 0.5);
+    const fills = calls.filter((c) => c === "fill" || c === "fillRect").length;
+    expect(fills).toBe(0);
   });
 });
