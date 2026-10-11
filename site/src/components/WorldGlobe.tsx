@@ -229,9 +229,10 @@ interface Star { x: number; y: number; r: number; tw: number; ph: number }
 // Same field everywhere → the morph never pops.
 const WORLD_TEX_W = 1024;
 const WORLD_TEX_H = 512;
-/** Patch grid over the texture — one map, drawn as projected patches. */
-const WORLD_PATCH_COLS = 16;
-const WORLD_PATCH_ROWS = 8;
+/** Patch grid over the texture — one map, drawn as projected patches.
+ *  Small enough that the flat-rectangle projection stays honest. */
+const WORLD_PATCH_COLS = 24;
+const WORLD_PATCH_ROWS = 12;
 // Offscreen disc for the patch composite (Hans Oct 11 2026): per-patch
 // alpha telegraphed the patch grid as block seams. Patches now draw at
 // alpha 1 into this disc — same-texture overdraw is invisible — and a
@@ -760,7 +761,10 @@ function bakeRegionTile(qLat: number, qLon: number, level: number): HTMLCanvasEl
   // One continuous landmass: bake this layer fresh from the terrain field
   // at the level's own px/deg — the JPEG-within-a-JPEG. No ocean, no
   // sprites; the corruption field colors the land around the Chorus heart.
-  const baked = bakeTerrainRegion(L.tilePx, L.tilePx, qLat, qLon, ppd, chorusHeartGlobePosition());
+  const baked = bakeTerrainRegion(
+    L.tilePx, L.tilePx, qLat, qLon, ppd, chorusHeartGlobePosition(),
+    level >= 1, // deep layers resolve the fine-grain relief
+  );
   const c = document.createElement("canvas");
   c.width = c.height = L.tilePx;
   c.getContext("2d")!.putImageData(new ImageData(baked.data, baked.width, baked.height), 0, 0);
@@ -1418,7 +1422,6 @@ export default function WorldGlobe({
           dg.fillRect(0, 0, D, D);
           const cols = WORLD_PATCH_COLS, rows = WORLD_PATCH_ROWS;
           const pw = tex.width / cols, ph = tex.height / rows;
-          const squash = 0.72; // screen-space foreshortening, as before
           const patchAng = (360 / cols) * (Math.PI / 180);
           const dc = D / 2;
           for (let r = 0; r < rows; r++) {
@@ -1427,13 +1430,16 @@ export default function WorldGlobe({
               const lon = -180 + (c + 0.5) * (360 / cols);
               const p = projectGlobe(lat, lon, v.spin, v.tilt);
               if (!p.visible) continue;
-              const sPx = patchAng * R * 1.45; // overlap: invisible overdraw
+              // Square in angular terms — no squash. (The old 0.72 vertical
+              // squash starved the rows of overlap and telegraphed the grid
+              // as horizontal bands.) 1.45x overlap: invisible overdraw.
+              const sPx = patchAng * R * 1.45;
               dg.drawImage(
                 tex, c * pw, r * ph, pw, ph,
                 dc + p.x * R - sPx / 2,
-                dc + p.y * R - (sPx * squash) / 2,
+                dc + p.y * R - sPx / 2,
                 sPx,
-                sPx * squash,
+                sPx,
               );
             }
           }

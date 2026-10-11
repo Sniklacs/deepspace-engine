@@ -84,6 +84,22 @@ export function elevationAt(lat: number, lon: number): number {
   return Math.min(1, Math.max(0, e));
 }
 
+// ---- fine detail (deep-zoom layers only) ------------------------------------
+// The base field carries continents and medium relief. Deep tiles need
+// genuine fine grain — features at the 0.2–1° scale that the coarse layers
+// can't show. Sampled ONLY by L1+ tile bakes (never the globe texture or
+// L0): the L0→L1 handoff then reads as the ground SHARPENING, which is the
+// whole point of the layered map. Zero-mean, bounded, seamless.
+/** Fine relief detail, ~±0.09. Deterministic per (lat, lon). */
+export function elevationDetailAt(lat: number, lon: number): number {
+  // 1150 cycles around the world ≈ 0.3°/cycle; two octaves to 0.16°/cycle.
+  // Integer cycle counts → the antimeridian stays seamless.
+  const x = ((lon + 180) / 360) * 1150;
+  const y = ((lat + 90) / 180) * 575;
+  const d = fbm(x, y, WORLD_TERRAIN_SEED + 2024, 2, 1150);
+  return (d - 0.5) * 0.3;
+}
+
 // ---- the corruption field ---------------------------------------------------
 
 /** Great-circle distance in degrees. Pure. */
@@ -212,17 +228,22 @@ export function bakeTerrainRegion(
   qLon: number,
   ppd: number,
   heart: { lat: number; lon: number },
+  fineDetail = false,
 ): BakedLayer {
   const data = new Uint8ClampedArray(new ArrayBuffer(w * h * 4));
   const px = data;
   const elev = new Float32Array(w * h);
   const cosLat = Math.max(0.2, Math.cos((qLat * Math.PI) / 180));
-  // Pass 1 — the field, sampled at this layer's own density.
+  // Pass 1 — the field, sampled at this layer's own density. Deep layers
+  // add the fine-grain relief their pixels can actually show.
   for (let j = 0; j < h; j++) {
     const lat = qLat - (j - h / 2) / ppd;
     for (let i = 0; i < w; i++) {
       const lon = qLon + (i - w / 2) / (cosLat * ppd);
-      elev[j * w + i] = elevationAt(lat, lon);
+      const e = elevationAt(lat, lon);
+      elev[j * w + i] = fineDetail
+        ? Math.min(1, Math.max(0, e + elevationDetailAt(lat, lon)))
+        : e;
     }
   }
   // Pass 2 — hillshade + color.

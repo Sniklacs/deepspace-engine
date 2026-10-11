@@ -3,6 +3,7 @@ import {
   bakeTerrainRegion,
   bakeWorldTexture,
   elevationAt,
+  elevationDetailAt,
   greatCircleDeg,
   terrainRGB,
   worldCorruptionAt,
@@ -44,6 +45,33 @@ describe("elevationAt — one continuous world", () => {
 
   test("seed is a fixed constant", () => {
     expect(WORLD_TERRAIN_SEED).toBe(20261011);
+  });
+});
+
+describe("elevationDetailAt — fine grain for deep layers", () => {
+  test("bounded, zero-mean-ish, deterministic, seamless", () => {
+    let sum = 0;
+    const n = 400;
+    for (let i = 0; i < n; i++) {
+      const lat = (i * 7.3) % 170 - 85;
+      const lon = (i * 13.7) % 360 - 180;
+      const d = elevationDetailAt(lat, lon);
+      expect(d >= -0.16 && d <= 0.16).toBe(true);
+      sum += d;
+    }
+    expect(Math.abs(sum / n)).toBeLessThan(0.03);
+    expect(elevationDetailAt(20, 30)).toBe(elevationDetailAt(20, 30));
+    for (let lat = -80; lat <= 80; lat += 20) {
+      expect(Math.abs(elevationDetailAt(lat, -180) - elevationDetailAt(lat, 180))).toBeLessThan(1e-9);
+    }
+  });
+
+  test("actually varies at the degree scale", () => {
+    const vals = new Set<number>();
+    for (let i = 0; i < 100; i++) {
+      vals.add(Math.round(elevationDetailAt(10 + i * 0.2, -40 + i * 0.13) * 1000));
+    }
+    expect(vals.size).toBeGreaterThan(20);
   });
 });
 
