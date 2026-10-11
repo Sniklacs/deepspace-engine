@@ -1430,16 +1430,19 @@ export default function WorldGlobe({
               const lon = -180 + (c + 0.5) * (360 / cols);
               const p = projectGlobe(lat, lon, v.spin, v.tilt);
               if (!p.visible) continue;
-              // Square in angular terms — no squash. (The old 0.72 vertical
-              // squash starved the rows of overlap and telegraphed the grid
-              // as horizontal bands.) 1.45x overlap: invisible overdraw.
-              const sPx = patchAng * R * 1.45;
+              // Uniform texel density: a degree of longitude shrinks with
+              // cos(lat), so high-latitude patches draw narrower. (Drawing
+              // every row the same width stretched the texture unevenly and
+              // telegraphed the grid as bands.) 1.45x overlap stays seamless.
+              const cosLat = Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+              const sPxW = patchAng * R * 1.45 * cosLat;
+              const sPxH = patchAng * R * 1.45;
               dg.drawImage(
                 tex, c * pw, r * ph, pw, ph,
-                dc + p.x * R - sPx / 2,
-                dc + p.y * R - sPx / 2,
-                sPx,
-                sPx,
+                dc + p.x * R - sPxW / 2,
+                dc + p.y * R - sPxH / 2,
+                sPxW,
+                sPxH,
               );
             }
           }
