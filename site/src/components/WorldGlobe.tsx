@@ -814,6 +814,48 @@ export const tileDebugStatus = {
 };
 
 const tileBakeQueued = new Set<string>();
+
+/**
+ * Prefetch the 4 cardinal neighbors of a served tile, so scrolling finds
+ * sharp tiles instead of waiting on bakes. Queued at low priority — the
+ * bake queue is FIFO and these go to the back. Bounded: skips if the cache
+ * is already full or the bake queue is deep.
+ */
+function prefetchNeighbors(qLat: number, qLon: number, level: number): void {
+  const L = TILE_LEVELS[level];
+  if (regionTileCache.length >= L.cacheMax + 6) return;
+  // Only prefetch when nothing urgent is waiting — on-demand tiles always win.
+  if (tileBakeQueued.size >= 2) return;
+  const cell = L.cellDeg;
+  const neighbors: Array<[number, number]> = [
+    [qLat + cell, qLon],
+    [qLat - cell, qLon],
+    [qLat, qLon + cell],
+    [qLat, qLon - cell],
+  ];
+  for (const [nLat, nLon] of neighbors) {
+    const { key, qLat: pqLat, qLon: pqLon } = regionTileKey(nLat, nLon, level);
+    if (regionTileCache.some((t) => t.key === key)) continue;
+    if (tileBakeQueued.has(key)) continue;
+    tileBakeQueued.add(key);
+    tileDebugStatus.queued = tileBakeQueued.size;
+    setTimeout(() => {
+      try {
+        const canvas = bakeRegionTile(pqLat, pqLon, level);
+        const tile: RegionTile = {
+          key, canvas, qLat: pqLat, qLon: pqLon,
+          ppd: L.tilePx / (L.halfDeg * 2), tilePx: L.tilePx,
+        };
+        regionTileCache = [tile, ...regionTileCache.filter((t) => t.key !== key)].slice(0, L.cacheMax + 6);
+        tileDebugStatus.cacheKeys = regionTileCache.map((t) => t.key);
+      } catch (err) {
+        tileDebugStatus.lastError = `prefetch L${level} ${key}: ${String(err)}`.slice(0, 160);
+      }
+      tileBakeQueued.delete(key);
+      tileDebugStatus.queued = tileBakeQueued.size;
+    }, 0);
+  }
+}
 /** The region tile for the focus point — or the best coarser layer while the
  *  requested one bakes. Bakes run off the frame loop (a detail tile is real
  *  field math, ~1s); the globe reads the SAME field, so the screen never
@@ -827,6 +869,7 @@ function ensureRegionTile(lat: number, lon: number, level: number): RegionTile |
     regionTileCache = [hit, ...regionTileCache.filter((t) => t !== hit)];
     tileDebugStatus.served = `L${level}-hit`;
     tileDebugStatus.servedKey = key;
+    prefetchNeighbors(qLat, qLon, level);
     return hit;
   }
   if (!tileBakeQueued.has(key)) {
@@ -2189,6 +2232,9 @@ export default function WorldGlobe({
     let vs = d.velSpin, vt = d.velTilt;
     const tick = () => {
       if (drag.current) return;
+      // A fling started on the globe must die when the view crosses into the
+      // flat map — otherwise the ground keeps spinning under the finger.
+      if (view.current.scale >= TILE_DETAIL_SCALE) return;
       vs *= 0.94;
       vt *= 0.94;
       if (Math.abs(vs) < 2 && Math.abs(vt) < 2) return;
