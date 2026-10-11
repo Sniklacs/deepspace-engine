@@ -115,6 +115,7 @@ import { battleSfx } from "../../game/war/battle-sfx";
 import {
   audioBandFor,
   bandForContinuumScale,
+  detailForBand,
   screenToWorld,
   softClampX,
   softClampY,
@@ -1128,6 +1129,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       const ui = sceneUISnapshot();
       const cam = camRef.current;
       const ground = ui.cameraMode === "ground";
+      // Slice 12 — Z3 battle overview: below Z4 the battle renders unit
+      // shapes + tracers, never full models. Standalone scenes stay Z4
+      // (full detail), so today's look is unchanged outside the continuum.
+      const overviewShapes = detailForBand(bandForContinuumScale(continuumScaleRef.current)) === "shapes";
       const w = W();
       const h = H();
       const s = S();
@@ -1435,7 +1440,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
           c.beginPath(); c.arc(x, y, r + 4, 0, Math.PI * 2); c.stroke();
           c.globalAlpha = 1;
         }
-        if (img && img.complete && img.naturalWidth > 0) {
+        // Z3 overview (slice 12): shapes, not models — the kind glyph reads
+        // at altitude; the sprite returns at Z4. (Also the pre-art fallback.)
+        if (!overviewShapes && img && img.complete && img.naturalWidth > 0) {
           c.drawImage(img, x - r, y - r, r * 2, r * 2);
         } else {
           // Distinct fallback glyph per kind — types read even before the
@@ -1784,7 +1791,9 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
       // pill, matching the friend/foe rings. Staging ghosts get dim tags so
       // the muster reads too, and wrecks get dim tags so the fallen keep
       // their names. Toggleable in the Controls glass (LABELS).
-      if (ui.labelsOn) {
+      // Slice 12: labels are Z4 command UI — the Z3 overview stays clean
+      // (spec §5: command UI fades in only at Z4).
+      if (ui.labelsOn && !overviewShapes) {
         c.save();
         c.font = "700 9px system-ui, sans-serif";
         c.textAlign = "center";

@@ -212,3 +212,42 @@ export function watchProgress(w: MoveWatch): number {
 export function watchShouldReport(w: MoveWatch, tS: number): boolean {
   return !w.reported && tS >= w.startsAt && watchProgress(w) >= REPORT_PROGRESS;
 }
+
+// ---------------------------------------------------------------------------
+// World-level critical pings (Seamless World §11 — slice 12).
+//
+// Bubbles are Z4 UI and stay exactly as they are. At Z3 and above only
+// CRITICAL alerts surface — as a single per-battle ping the globe renders
+// ("your battle needs you"), tapping it zooms the commander to the battle.
+// The bubble log itself stays at ground level; this is a pointer, not a
+// redesign. Callers pass their own queue (the orbit-markers feed pattern);
+// the globe tracks ping.bubbleId to avoid re-pinging the same alert.
+// ---------------------------------------------------------------------------
+
+/** A world-level "your battle needs you" ping for one battle. */
+export interface CriticalPing {
+  battleId: string;
+  /** id of the originating bubble — the globe's dedupe key */
+  bubbleId: number;
+  source: string;
+  message: string;
+  /** sim-seconds when posted */
+  atS: number;
+}
+
+/**
+ * The single world-level ping for a battle: its latest unread CRITICAL
+ * bubble, or null when nothing critical is unread (no ping, no noise).
+ * Pure — the caller keeps the last ping it surfaced and re-derives.
+ */
+export function criticalPingFor(battleId: string, queue: CommsBubble[]): CriticalPing | null {
+  const latest = [...queue].reverse().find((b) => b.critical);
+  if (!latest) return null;
+  return {
+    battleId,
+    bubbleId: latest.id,
+    source: latest.source,
+    message: latest.message,
+    atS: latest.atS,
+  };
+}
