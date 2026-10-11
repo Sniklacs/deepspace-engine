@@ -125,6 +125,14 @@ import {
 } from "../../game/windows/window-store";
 import type { ManeuverVector } from "../../game/war/war-types";
 import { Fx } from "./effects";
+// SEAMLESS-WORLD §9 (slice 9): the rendered explosion/dust draw paths.
+import {
+  drawBloom,
+  drawExplosionBody,
+  drawShockwave,
+  drawSpark,
+  drawVolDust,
+} from "../../game/war/rendered-fx";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { BattleHud } from "./BattleHud";
 import { BattleClock } from "./BattleClock";
@@ -1482,7 +1490,7 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         }
       }
 
-      // --- fx: beams, tracers, flashes, booms, rings ---------------------------
+      // --- fx: beams, tracers, flashes, blooms, booms, rings, sparks --------
       const alpha = (life: number, max: number) => Math.max(0, Math.min(1, life / max));
       c.save();
       c.globalCompositeOperation = "lighter";
@@ -1512,25 +1520,21 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         c.fillStyle = g2;
         c.beginPath(); c.arc(f.x, f.y, f.radius, 0, Math.PI * 2); c.fill();
       }
-      for (const b of fx.booms) {
-        const a = alpha(b.life, b.maxLife);
-        const g3 = c.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.radius * (1.6 - a * 0.6));
-        g3.addColorStop(0, `rgba(255,220,150,${0.85 * a})`);
-        g3.addColorStop(0.5, `rgba(255,120,40,${0.5 * a})`);
-        g3.addColorStop(1, "rgba(255,80,20,0)");
-        c.fillStyle = g3;
-        c.beginPath(); c.arc(b.x, b.y, b.radius * (1.6 - a * 0.6), 0, Math.PI * 2); c.fill();
-        for (const p of b.particles) {
-          if (p.life <= 0) continue;
-          c.globalAlpha = alpha(p.life, p.maxLife);
-          c.fillStyle = p.color;
-          c.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-        }
-        c.globalAlpha = 1;
-      }
+      // Point-light blooms (slice 9): drawn first in the lighter pass, over
+      // ground AND units — the explosion genuinely casts light on the scene
+      // for its lifetime.
+      for (const bl of fx.blooms) drawBloom(c, bl);
+      for (const b of fx.booms) drawExplosionBody(c, b);
+      for (const sp of fx.sparks) drawSpark(c, sp);
       c.restore();
       c.save();
       for (const rg2 of fx.rings) {
+        // Slice 9: the explosion's shockwave ring gets the rendered
+        // double-stroke treatment; jammer rings keep their classic look.
+        if (rg2.kind === "shock") {
+          drawShockwave(c, rg2);
+          continue;
+        }
         const a = alpha(rg2.life, rg2.maxLife);
         c.strokeStyle = rg2.color;
         c.globalAlpha = a;
@@ -1551,14 +1555,10 @@ export function BattleScene({ scene, liveCasualties = null, variant = "embedded"
         }
       }
       c.restore();
-      // Kicked-up dust around the advance — the ground cam's texture.
+      // Kicked-up dust around the advance (slice 9): volumetric — layered
+      // soft sprites that hang, spread, and settle; never pop in/out.
       c.save();
-      for (const d of fx.dusts) {
-        const da = alpha(d.life, d.maxLife);
-        c.globalAlpha = da * 0.32;
-        c.fillStyle = "#cbb98f";
-        c.beginPath(); c.arc(d.x, d.y, d.size, 0, Math.PI * 2); c.fill();
-      }
+      for (const d of fx.dusts) drawVolDust(c, d);
       c.restore();
 
       // --- scout flyby: the approach-phase intel sweep -----------------------
