@@ -122,6 +122,15 @@ import {
   type OrbitBattleFeed,
   type OrbitMarkerHit,
 } from "../game/world/orbit-battle-markers";
+// COLONY SKINS (Hans, Oct 11 2026): LOD settlement art on the flat map —
+// the first skin layer on the seamless world. Far → near → ground as the
+// camera descends; pre-baked sprites, blitted by the frame loop.
+import {
+  COLONY_SKIN_DEGREES,
+  colonySkinLODForScale,
+  colonySkinSprite,
+  type ColonySkinStatus,
+} from "../game/world/colony-skins";
 
 /** #rrggbb + alpha → rgba() string for canvas gradients/strokes. */
 function hexA(hex: string, alpha: number): string {
@@ -822,6 +831,9 @@ const tileBakeQueued = new Set<string>();
  * is already full or the bake queue is deep.
  */
 function prefetchNeighbors(qLat: number, qLon: number, level: number): void {
+  // DISABLED (Hans Oct 11 2026): background bakes blocked the main thread and
+  // froze the UI on phones. Re-enable only with a Web Worker or chunked bake.
+  return;
   const L = TILE_LEVELS[level];
   if (regionTileCache.length >= L.cacheMax + 6) return;
   // Only prefetch when nothing urgent is waiting — on-demand tiles always win.
@@ -1042,6 +1054,9 @@ export default function WorldGlobe({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [linkHint, setLinkHint] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(true);
+  // Fullscreen map (Hans Oct 11 2026): just the world, no surrounding UI.
+  // Toggle back to return to the windowed view with legend and panels.
+  const [mapFullscreen, setMapFullscreen] = useState(false);
 
   // ---- WS7 layer filters (Hans, Oct 4 2026): tier filtering for sites,
   // persisted like the layer toggles. Pure filter logic in globe-layers.ts.
@@ -1760,6 +1775,69 @@ export default function WorldGlobe({
           ctx.globalAlpha = 1 - morphT;
           ctx.drawImage(morphCanvas, 0, 0, w, h);
           ctx.restore();
+        }
+      }
+
+      // 11c — COLONY SKINS (Hans, Oct 11 2026): LOD settlement art on the
+      // flat map. The globe icon markers fade with the morph; these fade in
+      // to replace them — far (Z2) → near (Z3) → ground (Z4). Each skin is a
+      // pre-baked sprite drawn at a constant WORLD size (3°) so it scales
+      // with the zoom like the terrain does. Culled to the viewport.
+      const skinLOD = colonySkinLODForScale(v.scale);
+      if (skinLOD && morphT >= 0.4 && sysT < 0.5) {
+        const skinAlpha = Math.min(1, Math.max(0, (morphT - 0.4) / 0.3));
+        const ppdDraw = R / 90;
+        const cosLat = Math.max(0.2, Math.cos((focusLL.lat * Math.PI) / 180));
+        const homeRace = stateRef.current.race ?? "unknown";
+        // Home on top: draw others first.
+        const colonyMarkers = markersRef.current.filter(
+          (m) =>
+            (m.ref.kind === "colony" || m.ref.kind === "home") &&
+            layersOnRef.current[m.layer],
+        );
+        colonyMarkers.sort((a, b) =>
+          a.ref.kind === "home" ? 1 : b.ref.kind === "home" ? -1 : 0,
+        );
+        for (const m of colonyMarkers) {
+          const dx = wrapLon180(m.lon - focusLL.lon) * cosLat * ppdDraw;
+          const dy = (m.lat - focusLL.lat) * ppdDraw;
+          const sx = cx + dx;
+          const sy = cy + dy;
+          const size = Math.max(30, Math.min(420, COLONY_SKIN_DEGREES * ppdDraw));
+          if (sx < -size || sx > w + size || sy < -size || sy > h + size) continue;
+          const isHome = m.ref.kind === "home";
+          const race =
+            m.ref.kind === "colony" ? (m.ref.colony.race ?? "unknown") : homeRace;
+          let status: ColonySkinStatus = "active";
+          if (m.ref.kind === "colony") {
+            const st = m.ref.colony.status;
+            status = st === "husk" ? "husk" : st === "abandoned" ? "abandoned" : "active";
+          }
+          const spr = colonySkinSprite({ race, status, isHome, lod: skinLOD });
+          ctx.save();
+          ctx.globalAlpha = skinAlpha;
+          ctx.drawImage(spr, sx - size / 2, sy - size / 2, size, size);
+          ctx.restore();
+          // Selected colony: name pill (mirrors the globe marker label).
+          if (m.id === selectedIdRef.current) {
+            ctx.save();
+            ctx.globalAlpha = skinAlpha;
+            ctx.font = "600 11px system-ui, sans-serif";
+            const tw = ctx.measureText(m.label).width;
+            const px = Math.min(Math.max(sx, tw / 2 + 12), w - tw / 2 - 12);
+            const py = Math.max(26, sy - size / 2 - 22);
+            roundRectPath(ctx, px - tw / 2 - 8, py - 14, tw + 16, 24, 12);
+            ctx.fillStyle = "rgba(2,6,14,0.85)";
+            ctx.fill();
+            ctx.strokeStyle = m.color;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.fillStyle = "#fff";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(m.label, px, py - 1);
+            ctx.restore();
+          }
         }
       }
 
@@ -2531,8 +2609,12 @@ export default function WorldGlobe({
     <section aria-label={t("worldglobe.title", "The World")} className="relative">
       <div
         ref={wrapRef}
-        className="relative w-full touch-pan-y select-none overflow-hidden rounded-2xl border border-white/10 bg-[#02040a]"
-        style={{ height: "62dvh", minHeight: 400 }}
+        className={
+          mapFullscreen
+            ? "fixed inset-0 z-[60] touch-pan-y select-none overflow-hidden bg-[#02040a]"
+            : "relative w-full touch-pan-y select-none overflow-hidden rounded-2xl border border-white/10 bg-[#02040a]"
+        }
+        style={mapFullscreen ? undefined : { height: "62dvh", minHeight: 400 }}
       >
         <canvas
           ref={canvasRef}
@@ -2551,7 +2633,7 @@ export default function WorldGlobe({
         <TileDebugOverlay />
 
         {/* Legend — every layer toggleable (globe furniture; parks in the system view) */}
-        {!inSystem && (
+        {!inSystem && !mapFullscreen && (
         <div className="absolute left-2 top-2 z-10 max-h-[70%] overflow-y-auto rounded-xl border border-white/10 bg-black/55 p-1.5 backdrop-blur-sm">
           <button
             type="button"
@@ -2723,6 +2805,16 @@ export default function WorldGlobe({
               ⌖
             </button>
           )}
+          {/* Fullscreen map toggle (Hans Oct 11 2026): just the world. */}
+          <button
+            type="button"
+            onClick={() => setMapFullscreen((f) => !f)}
+            aria-label={mapFullscreen ? t("worldglobe.exitFullscreen", "Exit fullscreen map") : t("worldglobe.fullscreen", "Fullscreen map")}
+            title={mapFullscreen ? t("worldglobe.exitFullscreen", "Exit fullscreen map") : t("worldglobe.fullscreen", "Fullscreen map")}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/55 text-base text-white backdrop-blur-sm"
+          >
+            {mapFullscreen ? "✕" : "⤢"}
+          </button>
         </div>
 
         {/* CRADLE ENTRY (slice 10): gesture≡button (spec §10). "Enter
