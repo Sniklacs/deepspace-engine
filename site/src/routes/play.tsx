@@ -70,6 +70,7 @@ import type { Tab } from "../game/nav-slots";
 import { allianceOf } from "../game/war/alliances";
 import { openRallies } from "../game/war/rallies";
 import CradleScreen from "../components/screens/CradleScreen";
+import HeroesHallScreen from "../components/screens/HeroesHallScreen";
 import CradlePlate from "../components/CradlePlate";
 import PageBanner from "../components/PageBanner";
 import StarMap from "../components/StarMap";
@@ -801,6 +802,10 @@ function PlayPage() {
       )}
       {/* BARRACKS (owner 2026-10-04): the dedicated troop-building page — one module, one page. */}
       {tab === "troops" && <TroopsTab state={state} now={now} onMuster={(type, count, tier) => act(() => musterTroopsFn({ data: { token: token!, type, count, tier: tier ?? 1 } }), "muster")} />}
+      {/* HEROES & LEADERS HALL (owner 2026-10-12): one module, one page — the
+          roster, attributes, deed tiers and the level ladder. Display only:
+          heroes are earned, never bought, and nothing here sells anything. */}
+      {tab === "heroes" && <HeroesHallScreen state={state} now={now} />}
       {/* The arena is a permanent fixture — its own tab, not war-gated (owner 2026-10-01). */}
       {tab === "arena" && (
         <ArenaPanel

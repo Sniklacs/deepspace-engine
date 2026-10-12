@@ -9,7 +9,7 @@
 // word is coined by the nav.
 import type { IconName } from "../components/icons";
 
-export const NAV_IDS = ["colony", "expeditions", "lab", "armory", "troops", "loadout", "formations", "arena", "alliance", "battles", "circuit", "world"] as const;
+export const NAV_IDS = ["colony", "expeditions", "lab", "armory", "troops", "heroes", "loadout", "formations", "arena", "alliance", "battles", "circuit", "world"] as const;
 export type NavTabId = (typeof NAV_IDS)[number];
 /** The Tab union the router/screens use — derived, so no screen can be orphaned. */
 export type Tab = NavTabId;
@@ -31,6 +31,10 @@ export const NAV: readonly NavSlot[] = [
   // role explanations, muster queues, garrison counts. "Don't be afraid to
   // make pages."
   { id: "troops", label: "Barracks", icon: "users" },
+  // HEROES & LEADERS HALL (owner 2026-10-12): the spot that shows the heroes
+  // and leaders — their attributes, their tiers, and how they level with
+  // experience. Earned, never bought; the Hall displays, it never sells.
+  { id: "heroes", label: "Heroes", icon: "star" },
   { id: "loadout", label: "Loadout", icon: "shield" },
   // FORMATIONS (owner 2026-10-04): the dedicated loadout page — raid
   // loadouts, exploration loadouts, response teams. Pre-built battle groups:
