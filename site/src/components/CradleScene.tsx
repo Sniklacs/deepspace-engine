@@ -99,11 +99,14 @@ function scrollToTestid(testid: string) {
 export default function CradleScene({
   onNavigate,
   onOpenForge,
+  raceId,
 }: {
   /** open a nav tab (Lab, Barracks, Alliance, Formations, Exploration…) */
   onNavigate: (tab: Tab) => void;
   /** open the Forge room sheet */
   onOpenForge: () => void;
+  /** player's race — uses /art/cradle/{raceId}-skin.webp when it exists */
+  raceId?: string | null;
 }) {
   const t = useT();
   const boxRef = useRef<HTMLDivElement>(null);
@@ -115,8 +118,15 @@ export default function CradleScene({
   const downAt = useRef<{ x: number; y: number } | null>(null);
   const suppressClick = useRef(false);
 
-  const setClamped = useCallback((x: number, y: number, z: number) => {
-    const box = boxRef.current;
+  // Race skin first, generic panorama as fallback.
+  const raceSkin = raceId ? `/art/cradle/${raceId.toLowerCase()}-skin.webp` : null;
+  const [sceneSrc, setSceneSrc] = useState(raceSkin ?? SCENE_ART);
+  useEffect(() => {
+    setSceneSrc(raceSkin ?? SCENE_ART);
+    setArtOk(true);
+  }, [raceSkin]);
+
+  const setClamped = useCallback((x: number, y: number, z: number) => {    const box = boxRef.current;
     if (!box) return;
     const vw = box.clientWidth;
     const vh = box.clientHeight;
@@ -301,11 +311,18 @@ export default function CradleScene({
             }}
           >
             <img
-              src={SCENE_ART}
+              src={sceneSrc}
               alt=""
               aria-hidden="true"
               draggable={false}
-              onError={() => setArtOk(false)}
+              onError={() => {
+                // Race skin missing? Fall back to the generic panorama.
+                if (sceneSrc !== SCENE_ART) {
+                  setSceneSrc(SCENE_ART);
+                } else {
+                  setArtOk(false);
+                }
+              }}
               className="block h-full w-full select-none"
               style={{ WebkitUserDrag: "none" } as CSSProperties}
             />

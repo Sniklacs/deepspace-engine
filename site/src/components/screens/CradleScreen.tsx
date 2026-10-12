@@ -156,6 +156,7 @@ export default function CradleScreen({
           business panels live below it in the page scroll. */}
       <div className="mb-3">
         <CradleScene
+          raceId={state.race}
           onNavigate={onNavigate}
           onOpenForge={() => { setSheet({ kind: "forge", id: "forge" }); sound.tab(); }}
         />
