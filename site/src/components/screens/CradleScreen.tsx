@@ -40,6 +40,7 @@ import { joinValue } from "../../game/i18n/split";
 import { ForgeDoor, ForgeRoom } from "../ForgeViews";
 import CradleOverview, { type SpeedupKind } from "../CradleOverview";
 import CradleScene from "../CradleScene";
+import CradleSkin from "../CradleSkin";
 import type { Tab } from "../../game/nav-slots";
 import SlotSheet from "../SlotSheet";
 import type { EarnedTimeTokenSizeId } from "../../game/time-tokens";
@@ -148,6 +149,7 @@ export default function CradleScreen({
   const heroes = (state.prologue?.heroes ?? []).filter((h) => squad.includes(h.id));
 
   return (
+    <CradleSkin raceId={state.race} opacity={0.7}>
     <main className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4">
       {/* THE COLONY SCENE (owner 2026-10-04): the Cradle as a place — a bright
           pannable vista where the buildings ARE the navigation. The colony's
@@ -605,6 +607,7 @@ export default function CradleScreen({
           : null}
       </Sheet>
     </main>
+    </CradleSkin>
   );
 }
 
