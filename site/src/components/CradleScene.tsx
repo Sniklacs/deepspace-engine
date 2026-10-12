@@ -278,8 +278,8 @@ export default function CradleScene({
     <section
       aria-label={t("cradle.scene.label", "Your colony")}
       data-testid="cradle-scene"
-      className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-sky-300/40 via-sky-200/20 to-emerald-200/20"
-      style={{ height: "clamp(420px, 82dvh, 760px)", touchAction: "none" }}
+      className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-transparent"
+      style={{ height: "clamp(300px, 52dvh, 520px)", touchAction: "none" }}
     >
       {/* the pan surface */}
       <div
