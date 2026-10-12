@@ -180,6 +180,19 @@ import {
 } from "../../game/windows/window-store";
 import type { ManeuverVector } from "../../game/war/war-types";
 import { Fx } from "./effects";
+// POV phase 2 (owner 2026-10-12): TRUE perspective projection for the
+// command-ship view — a pinhole camera at 50ft, not a squashed map.
+import {
+  createPovCamera,
+  groundEllipse,
+  hazeFactor,
+  horizonY,
+  POV_DEFAULTS,
+  POV_HOVER_UNITS,
+  POV_MAX_DEPTH,
+  projectPoint,
+  unprojectToGround,
+} from "../../game/war/pov-projection";
 // SEAMLESS-WORLD §9 (slice 9): the rendered explosion/dust draw paths.
 import {
   drawBloom,
@@ -611,6 +624,22 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
   // Camera rig — the mode lives in the shared store; zoom/anchor ease here
   // so flipping the toggle glides instead of cutting.
   const camRef = useRef<CameraRig>({ ...CAM_HOME });
+  // POV phase 2: the true-perspective command-ship camera. Position eases
+  // behind the friendly advance; tHeading/tPitch are the player's look
+  // offsets (drag), eased toward in the frame loop. povHits mirrors the
+  // last frame's projected sprite boxes so taps can pick big near troops
+  // by their picture, not just their feet.
+  const povRef = useRef({
+    cam: createPovCamera(WORLD_CX, 1.3),
+    tHeading: 0,
+    tPitch: 0,
+  });
+  const povHitsRef = useRef<
+    { unit: SceneUnit | null; turret: SceneTurret | null; sx: number; sy: number; hw: number; hh: number; depth: number }[]
+  >([]);
+  // Perspective ground atlas: the arid tile repeated so strip draws can
+  // sample any lateral offset without wrapping seams. Built once, lazily.
+  const povAtlasRef = useRef<HTMLCanvasElement | null>(null);
   // Seamless-world continuum scale, read fresh in the frame loop (the main
   // loop effect only re-runs on scene.id, so the prop is mirrored here).
   const continuumScaleRef = useRef<number | null | undefined>(continuumScale);
@@ -1542,6 +1571,8 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         cam.uay = WORLD_CY;
         cam.pox = 0;
         cam.poy = 0;
+        povRef.current.tHeading = 0;
+        povRef.current.tPitch = 0;
         if (ui.zoomLevel !== 1) setZoomLevel(1);
       }
       // User zoom multiplies the mode zoom; the low cams clamp tighter so
@@ -1590,6 +1621,27 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       cam.fy += (targetFy - cam.fy) * k;
       cam.ax += (tax - cam.ax) * k;
       cam.ay += (tay - cam.ay) * k;
+
+      // --- POV phase 2: the true-perspective command camera ---------------
+      // The ship hovers ~50ft up BEHIND the friendly advance (south of the
+      // attacker centroid), looking north across the field. Pinch/wheel
+      // zoom leans the ship in/out (altitude), drag looks around (the
+      // tHeading/tPitch targets panBy writes). Everything eases — the
+      // commander feels mass, never a cut.
+      if (hover) {
+        const pv = povRef.current;
+        const uzC = Math.max(ZOOM_MIN, Math.min(COMMAND_ZOOM_MAX, ui.zoomLevel));
+        const tAlt = Math.max(0.05, Math.min(0.2, POV_HOVER_UNITS / Math.pow(uzC, 0.7)));
+        const tX = Math.max(-0.1, Math.min(WORLD_W + 0.1, anx));
+        const tY = Math.max(0.55, Math.min(WORLD_H + 0.18, any + 0.34));
+        const kp = 1 - Math.exp(-dt * 2.6);
+        pv.cam.x += (tX - pv.cam.x) * kp;
+        pv.cam.y += (tY - pv.cam.y) * kp;
+        pv.cam.h += (tAlt - pv.cam.h) * kp;
+        const kl = 1 - Math.exp(-dt * 5);
+        pv.cam.heading += (pv.tHeading - pv.cam.heading) * kl;
+        pv.cam.pitch += (POV_DEFAULTS.pitch + pv.tPitch - pv.cam.pitch) * kl;
+      }
 
       // Seamless-world audio LOD (spec §5, slice 5's real API): the current
       // zoom band drives the battle bus — Z1 orbit silent … Z4 ground full.
@@ -1715,6 +1767,11 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       const ui = sceneUISnapshot();
       const cam = camRef.current;
       const ground = ui.cameraMode !== "tactical"; // any low cam (ground / command hover)
+      // POV phase 2: "command" renders through the true perspective
+      // camera (renderPov below) — the top-down block is the else branch.
+      const povMode = ui.cameraMode === "command";
+      // Night factor: auto from battle longitude, or manual override.
+      const night = ui.dayNight === "auto" ? sceneNightFactor(scene.lonDeg, Date.now()) : ui.dayNight === "night" ? 1 : 0;
       // Slice 12 — Z3 battle overview: below Z4 the battle renders unit
       // shapes + tracers, never full models. Standalone scenes stay Z4
       // (full detail), so today's look is unchanged outside the continuum.
@@ -1728,6 +1785,944 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       const sh = fx.shake(ground ? 16 : 9);
       c.translate(sh.x, sh.y);
 
+      // Per-kind fallback glyph, traced as a path (caller sets paint + fills).
+      // Square = Bulwark, triangle = Reaver, diamond = Longeye,
+      // hexagon = Thunder, dot = Warden/dropship. Wrecks reuse it dimmed so
+      // the fallen keep their identity (owner 2026-10-05: every icon named,
+      // even the wrecks). Shared by the top-down block and the POV renderer.
+      const traceKindGlyph = (u: SceneUnit, x: number, y: number, rr: number) => {
+        c.beginPath();
+        if (u.kind === "bulwark") {
+          c.rect(x - rr, y - rr, rr * 2, rr * 2);
+        } else if (u.kind === "reaver") {
+          c.moveTo(x, y - rr);
+          c.lineTo(x + rr, y + rr);
+          c.lineTo(x - rr, y + rr);
+          c.closePath();
+        } else if (u.kind === "longeye") {
+          c.moveTo(x, y - rr);
+          c.lineTo(x + rr, y);
+          c.lineTo(x, y + rr);
+          c.lineTo(x - rr, y);
+          c.closePath();
+        } else if (u.kind === "thunder") {
+          for (let i = 0; i < 6; i++) {
+            const a = Math.PI / 6 + (i * Math.PI) / 3;
+            const gx = x + rr * Math.cos(a);
+            const gy = y + rr * Math.sin(a);
+            if (i === 0) c.moveTo(gx, gy);
+            else c.lineTo(gx, gy);
+          }
+          c.closePath();
+        } else {
+          // warden: ring; dropship/turret: dot.
+          c.arc(x, y, rr, 0, Math.PI * 2);
+        }
+      };
+
+      // =============== POV phase 2: TRUE perspective renderer ===============
+      // The command ship at ~50ft looking FORWARD (owner 2026-10-12 — phase
+      // 1's squashed map was rejected: "still a straight up shot from the
+      // map"). Sky + horizon, a world-locked perspective ground plane, then
+      // every unit as its real SKIN — billboarded sprite, distance-scaled,
+      // painter-sorted far→near, hazed with distance. Near troops are
+      // LARGE; the enemy shrinks across the field. Same sim, same fx —
+      // projected through the pinhole (game/war/pov-projection.ts).
+      const POV_UNIT_H: Record<string, number> = {
+        bulwark: 0.04, reaver: 0.037, longeye: 0.03, thunder: 0.056,
+        warden: 0.05, dropship: 0.085, turret: 0.046,
+      };
+      const POV_HAZE_DAY = "206,196,168";
+      const POV_HAZE_NIGHT = "26,32,58";
+
+      const renderPov = (ph: ScenePhase, nightF: number) => {
+        const cam = povRef.current.cam;
+        const hz = horizonY(cam, h);
+        const hazeRGB = nightF > 0.5 ? POV_HAZE_NIGHT : POV_HAZE_DAY;
+        const focal = h / 2 / Math.tan(cam.vfov / 2);
+        const fx2w = (v: number) => v / w; // fx space → world x
+        const fy2w = (v: number) => v / h; // fx space → world y
+        const P = (wx: number, wy: number, wz = 0) => projectPoint(cam, w, h, wx, wy, wz);
+        const a01 = (life: number, max: number) => Math.max(0, Math.min(1, life / max));
+        // A world-space segment drawn through the projection (sampled, so
+        // an endpoint behind the keel can't smear the line across frame).
+        const projLine = (x1: number, y1: number, x2: number, y2: number, wz = 0, segs = 10) => {
+          let started = false;
+          for (let i = 0; i <= segs; i++) {
+            const t = i / segs;
+            const p = P(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, wz);
+            if (!p.visible) { started = false; continue; }
+            if (!started) { c.moveTo(p.sx, p.sy); started = true; }
+            else c.lineTo(p.sx, p.sy);
+          }
+        };
+        const dropWz = (u: SceneUnit): number => {
+          if (u.state === "descending" && u.dropAtS !== undefined) {
+            const el = simTRef.current - u.dropAtS;
+            return Math.max(0, 0.34 * (1 - el / 1.1));
+          }
+          return 0;
+        };
+
+        // --- sky ---------------------------------------------------------
+        const sky = c.createLinearGradient(0, 0, 0, Math.max(1, hz));
+        if (nightF > 0.5) {
+          sky.addColorStop(0, "#05070f");
+          sky.addColorStop(1, "#141c33");
+        } else {
+          sky.addColorStop(0, "#5f7d95");
+          sky.addColorStop(0.7, "#9db0ab");
+          sky.addColorStop(1, "#d8c9a3");
+        }
+        c.fillStyle = sky;
+        c.fillRect(0, 0, w, Math.max(0, hz + 1));
+        // Ember glow low on the horizon — the Wastes burn in the distance.
+        const glowOff = Math.max(-w * 0.4, Math.min(w * 1.4, w / 2 + focal * Math.tan(-0.55 - cam.heading)));
+        const glow = c.createRadialGradient(glowOff, hz, 0, glowOff, hz, w * 0.55);
+        glow.addColorStop(0, `rgba(255,138,60,${0.16 * (1 - nightF * 0.4)})`);
+        glow.addColorStop(1, "rgba(255,138,60,0)");
+        c.fillStyle = glow;
+        c.fillRect(0, 0, w, Math.max(0, hz + 2));
+        if (nightF > 0.4) {
+          c.save();
+          c.fillStyle = "#cfe4ff";
+          for (let i = 0; i < 46; i++) {
+            const r1 = mulberry32(9000 + i)();
+            const r2 = mulberry32(5000 + i)();
+            const sxS = (((r1 + cam.heading * 0.15) % 1) + 1) % 1 * w;
+            c.globalAlpha = (nightF - 0.35) * (0.25 + 0.55 * r1);
+            c.fillRect(sxS, r2 * hz * 0.8, 1.4, 1.4);
+          }
+          c.restore();
+        }
+        // Distant ridge silhouettes — seeded, tileable, parallax by heading.
+        const ridge = (seedBase: number, amp: number, col: string, par: number) => {
+          c.save();
+          c.fillStyle = col;
+          c.beginPath();
+          c.moveTo(-4, hz + 1);
+          const steps = 28;
+          for (let i = 0; i <= steps; i++) {
+            const fxr = i / steps;
+            const idx = Math.floor(fxr * 64 + cam.heading * par * 20);
+            const n = mulberry32(seedBase + (((idx % 64) + 64) % 64) * 131)();
+            const n2 = mulberry32(seedBase + ((((idx + 1) % 64) + 64) % 64) * 131)();
+            c.lineTo(fxr * (w + 8) - 4, hz - 2 - ((n + n2) / 2) * amp);
+          }
+          c.lineTo(w + 4, hz + 1);
+          c.closePath();
+          c.fill();
+          c.restore();
+        };
+        ridge(777, h * 0.028, `rgba(${hazeRGB},0.55)`, 0.6);
+        ridge(424, h * 0.05, nightF > 0.5 ? "rgba(10,12,22,0.85)" : "rgba(74,66,52,0.8)", 1.4);
+
+        // --- ground: world-locked perspective strips ----------------------
+        // Depth bands grow geometrically from the keel to the fog wall;
+        // each band's screen span comes from projecting its edges and its
+        // texture window from the world coords under its corners — fly
+        // forward and the ground flows under the ship.
+        const TILE_U = 1.4; // world units per texture repeat (matches top-down)
+        const groundImg = sprites.ground;
+        let atlas = povAtlasRef.current;
+        if (!atlas && groundImg && groundImg.complete && groundImg.naturalWidth > 0) {
+          const TP = 256;
+          atlas = document.createElement("canvas");
+          atlas.width = TP * 8;
+          atlas.height = TP * 3;
+          const ac = atlas.getContext("2d");
+          if (ac) {
+            ac.imageSmoothingQuality = "high";
+            for (let ay = 0; ay < 3; ay++) {
+              for (let ax = 0; ax < 8; ax++) ac.drawImage(groundImg, ax * TP, ay * TP, TP, TP);
+            }
+            povAtlasRef.current = atlas;
+          }
+        }
+        const gGrad = c.createLinearGradient(0, hz, 0, h);
+        if (nightF > 0.5) { gGrad.addColorStop(0, "#171a26"); gGrad.addColorStop(1, "#0d0f16"); }
+        else { gGrad.addColorStop(0, "#8a7a5c"); gGrad.addColorStop(1, "#4c4130"); }
+        c.fillStyle = gGrad;
+        c.fillRect(0, hz, w, h - hz);
+        if (atlas) {
+          const TP = 256;
+          const fwdX = Math.sin(cam.heading);
+          const fwdY = -Math.cos(cam.heading);
+          const rightX = Math.cos(cam.heading);
+          const rightY = Math.sin(cam.heading);
+          const camF = cam.x * fwdX + cam.y * fwdY;
+          let dNear = 0.035;
+          while (dNear < POV_MAX_DEPTH) {
+            const dFar = Math.min(POV_MAX_DEPTH, dNear * 1.16);
+            const pFar = P(cam.x + fwdX * dFar, cam.y + fwdY * dFar);
+            const pNear = P(cam.x + fwdX * dNear, cam.y + fwdY * dNear);
+            if (pFar.visible && pNear.visible) {
+              const yTop = Math.max(hz, pFar.sy);
+              const yBot = Math.min(h, pNear.sy);
+              if (yBot > yTop + 0.5) {
+                const midY = (yTop + yBot) / 2;
+                const left = unprojectToGround(cam, w, h, 0, midY);
+                const right = unprojectToGround(cam, w, h, w, midY);
+                if (left && right) {
+                  const lL = left.x * rightX + left.y * rightY;
+                  const lR = right.x * rightX + right.y * rightY;
+                  const srcX = TP + ((((lL / TILE_U) % 1) + 1) % 1) * TP;
+                  const srcW = Math.max(1, ((lR - lL) / TILE_U) * TP);
+                  const srcY = TP + ((((camF + dNear) / TILE_U) % 1) + 1) % 1 * TP;
+                  const srcH = Math.max(1, ((dFar - dNear) / TILE_U) * TP);
+                  if (srcX + srcW <= TP * 8 && srcY + srcH <= TP * 3) {
+                    c.drawImage(atlas, srcX, srcY, srcW, srcH, 0, yTop, w, yBot - yTop);
+                  }
+                }
+              }
+            }
+            dNear = dFar;
+          }
+        }
+        // Distance haze over the ground + weight at the keel.
+        const hzGrad = c.createLinearGradient(0, hz, 0, hz + (h - hz) * 0.55);
+        hzGrad.addColorStop(0, `rgba(${hazeRGB},0.88)`);
+        hzGrad.addColorStop(0.5, `rgba(${hazeRGB},0.28)`);
+        hzGrad.addColorStop(1, `rgba(${hazeRGB},0)`);
+        c.fillStyle = hzGrad;
+        c.fillRect(0, hz, w, h - hz);
+        const shGrad = c.createLinearGradient(0, h * 0.72, 0, h);
+        shGrad.addColorStop(0, "rgba(0,0,0,0)");
+        shGrad.addColorStop(1, "rgba(0,0,0,0.30)");
+        c.fillStyle = shGrad;
+        c.fillRect(0, h * 0.72, w, h * 0.28);
+
+        // --- vector lanes: ground stripes running to the horizon ----------
+        const LANE_COLOR: Record<ManeuverVector, string> = {
+          MAIN: "#f59e0b", FLANK_LEFT: "#a78bfa", FLANK_RIGHT: "#a78bfa", REAR: "#a78bfa", RESERVE: "#38bdf8",
+        };
+        for (const v of Object.keys(VECTOR_LANES) as ManeuverVector[]) {
+          if (!ui.vectorsOn[v]) continue;
+          const lane = VECTOR_LANES[v];
+          c.save();
+          c.strokeStyle = LANE_COLOR[v];
+          c.globalAlpha = 0.4;
+          c.lineWidth = 1.5;
+          c.setLineDash([10, 8]);
+          for (const lx of [lane.x - lane.spread, lane.x + lane.spread]) {
+            c.beginPath();
+            projLine(lx, cam.y + 0.7, lx, cam.y - 2.4, 0.002, 14);
+            c.stroke();
+          }
+          c.restore();
+        }
+
+        // --- terrain features on the ground plane -------------------------
+        const featItems = scene.terrain
+          .map((f, fi) => ({ f, fi, p: P(f.x, f.y) }))
+          .filter((o) => o.p.visible && o.p.depth < POV_MAX_DEPTH + 0.3)
+          .sort((a, b) => b.p.depth - a.p.depth);
+        for (const { f, fi, p } of featItems) {
+          const e = groundEllipse(cam, w, h, f.x, f.y, f.r);
+          if (!e) continue;
+          const hzF = hazeFactor(p.depth);
+          const lw = Math.max(1, 1.8 * (p.scale / 320));
+          c.save();
+          c.globalAlpha = 1 - hzF * 0.7;
+          if (f.kind === "ridge") {
+            c.strokeStyle = "rgba(217,180,120,0.55)";
+            c.lineWidth = lw;
+            c.setLineDash([7, 5]);
+            c.beginPath(); c.ellipse(e.sx, e.sy, e.rx, e.ry, 0, 0, Math.PI * 2); c.stroke();
+            c.setLineDash([]);
+            c.globalAlpha *= 0.55;
+            c.beginPath(); c.ellipse(e.sx, e.sy, e.rx * 0.62, e.ry * 0.62, 0, 0, Math.PI * 2); c.stroke();
+          } else if (f.kind === "rocks") {
+            c.fillStyle = "rgba(148,163,184,0.55)";
+            const srnd = mulberry32((scene.seed ^ (0x51ab + fi * 0x1f3d)) >>> 0);
+            for (let d = 0; d < 7; d++) {
+              const a = srnd() * Math.PI * 2;
+              const rr = srnd() * 0.8;
+              const dr = Math.max(1.2, e.rx * (0.06 + srnd() * 0.1));
+              c.beginPath();
+              c.ellipse(e.sx + Math.cos(a) * e.rx * rr, e.sy + Math.sin(a) * e.ry * rr, dr, dr * 0.7, 0, 0, Math.PI * 2);
+              c.fill();
+            }
+          } else {
+            c.strokeStyle = "rgba(113,113,122,0.6)";
+            c.lineWidth = lw;
+            const srnd = mulberry32((scene.seed ^ (0x77cd + fi * 0x2b51)) >>> 0);
+            for (let d = 0; d < 9; d++) {
+              const a = srnd() * Math.PI * 2;
+              const rr = 0.25 + srnd() * 0.7;
+              const sx0 = e.sx + Math.cos(a) * e.rx * rr;
+              const sy0 = e.sy + Math.sin(a) * e.ry * rr;
+              const la = srnd() * Math.PI;
+              const ll = (4 + srnd() * 10) * (p.scale / 320);
+              c.beginPath();
+              c.moveTo(sx0, sy0);
+              c.lineTo(sx0 + Math.cos(la) * ll, sy0 + Math.sin(la) * ll * 0.5);
+              c.stroke();
+            }
+          }
+          if (hzF < 0.75 && e.rx > 14) {
+            c.globalAlpha = 0.85 * (1 - hzF);
+            c.fillStyle = "#d9b478";
+            c.font = `700 ${Math.max(9, Math.min(22, e.rx * 0.3))}px system-ui, sans-serif`;
+            c.textAlign = "center";
+            c.textBaseline = "middle";
+            c.fillText("⌖", e.sx, e.sy);
+          }
+          c.restore();
+        }
+
+        // --- wrecks: scorch + the fallen keep their glyph ------------------
+        for (const u of unitsRef.current) {
+          if (u.state !== "dead" || !ui.vectorsOn[u.vector]) continue;
+          if (u.side === "defender" && scoutRef.current !== "revealed") continue;
+          const e = groundEllipse(cam, w, h, u.x, u.y, 0.028);
+          if (!e || e.depth > POV_MAX_DEPTH) continue;
+          c.save();
+          c.fillStyle = "rgba(0,0,0,0.45)";
+          c.beginPath(); c.ellipse(e.sx, e.sy, e.rx, e.ry, 0, 0, Math.PI * 2); c.fill();
+          c.globalAlpha = 0.5 * (1 - hazeFactor(e.depth) * 0.6);
+          c.fillStyle = SIDE_DIM[u.side];
+          traceKindGlyph(u, e.sx, e.sy, Math.max(2, e.rx * 0.55));
+          c.fill();
+          c.restore();
+        }
+
+        // --- the armies: SKINS, painter-sorted far → near ------------------
+        const items: { depth: number; draw: () => void }[] = [];
+        const hits: typeof povHitsRef.current = [];
+        const tNow = performance.now();
+
+        const pushUnit = (u: SceneUnit) => {
+          if (!ui.vectorsOn[u.vector]) return;
+          if (u.side === "defender" && scoutRef.current !== "revealed") return;
+          if (u.state === "dead") return;
+          const wz = dropWz(u);
+          const feet = P(u.x, u.y, wz);
+          if (!feet.visible || feet.depth > POV_MAX_DEPTH + 0.4) return;
+          const img = sprites[u.kind];
+          const kindH = POV_UNIT_H[u.kind] ?? 0.04;
+          const sprH = kindH * feet.scale;
+          const aspect = img && img.naturalWidth > 0 ? img.naturalWidth / img.naturalHeight : 1;
+          const sprW = sprH * aspect;
+          const staging = u.state === "staging";
+          const footR = 0.03 * (u.kind === "thunder" ? 1.5 : u.kind === "dropship" ? 2 : 1);
+          items.push({
+            depth: feet.depth,
+            draw: () => {
+              const hzF = hazeFactor(feet.depth);
+              const ge = groundEllipse(cam, w, h, u.x, u.y, footR);
+              if (ge) {
+                c.save();
+                c.fillStyle = "rgba(0,0,0,0.4)";
+                c.beginPath(); c.ellipse(ge.sx, ge.sy, ge.rx, ge.ry, 0, 0, Math.PI * 2); c.fill();
+                if (u.state === "descending") {
+                  c.globalAlpha = 0.6 + 0.4 * Math.sin(tNow / 150);
+                  c.strokeStyle = "#fbbf24";
+                  c.lineWidth = 2;
+                  c.beginPath(); c.ellipse(ge.sx, ge.sy, ge.rx + 4, ge.ry + 3, 0, 0, Math.PI * 2); c.stroke();
+                }
+                c.restore();
+              }
+              const topY = feet.sy - sprH;
+              if (img && img.complete && img.naturalWidth > 0) {
+                c.save();
+                c.globalAlpha = (staging ? 0.35 : 1) * (1 - hzF * 0.3);
+                c.drawImage(img, feet.sx - sprW / 2, topY, sprW, sprH);
+                c.restore();
+              } else {
+                // Pre-art fallback — only until the skin loads.
+                c.save();
+                c.globalAlpha = (staging ? 0.4 : 0.95) * (1 - hzF * 0.3);
+                c.fillStyle = SIDE_COLOR[u.side];
+                traceKindGlyph(u, feet.sx, feet.sy - sprH * 0.4, Math.max(3, sprH * 0.32));
+                c.fill();
+                c.restore();
+              }
+              if (staging) {
+                if (ge) {
+                  c.save();
+                  c.globalAlpha = 0.8;
+                  c.strokeStyle = SIDE_COLOR[u.side];
+                  c.lineWidth = 1.5;
+                  c.setLineDash([4, 4]);
+                  c.beginPath(); c.ellipse(ge.sx, ge.sy, ge.rx + 2, ge.ry + 2, 0, 0, Math.PI * 2); c.stroke();
+                  c.restore();
+                }
+                return;
+              }
+              if (u.painted && ph === "weapons-free") {
+                c.save();
+                c.strokeStyle = "rgba(248,113,113,0.9)";
+                c.lineWidth = 1.5;
+                c.translate(feet.sx, feet.sy - sprH / 2);
+                c.rotate(Math.PI / 4);
+                const rr = Math.max(sprW, sprH) * 0.62;
+                c.strokeRect(-rr, -rr, rr * 2, rr * 2);
+                c.restore();
+              }
+              // Warden shield dome over the sprite.
+              const sh01 = u.shield01 ?? 0;
+              const shMax = u.shieldMax ?? 0;
+              if (sh01 > 0.01 && shMax > 0) {
+                const flick = 0.55 + 0.45 * Math.sin(tNow / 1000 * 6 + u.x * 40 + u.y * 30);
+                const frac = sh01 / shMax;
+                const br = Math.max(sprW, sprH) * 0.78;
+                const bcx = feet.sx;
+                const bcy = feet.sy - sprH * 0.45;
+                c.save();
+                c.globalAlpha = (0.22 + 0.5 * frac) * flick;
+                const sg = c.createRadialGradient(bcx, bcy, br * 0.55, bcx, bcy, br);
+                sg.addColorStop(0, "rgba(125,211,252,0)");
+                sg.addColorStop(0.82, "rgba(125,211,252,0.12)");
+                sg.addColorStop(1, "rgba(147,197,253,0.55)");
+                c.fillStyle = sg;
+                c.beginPath(); c.arc(bcx, bcy, br, 0, Math.PI * 2); c.fill();
+                c.globalAlpha = (0.32 + 0.45 * frac) * flick;
+                c.strokeStyle = "#7dd3fc";
+                c.lineWidth = 1.6;
+                c.beginPath(); c.arc(bcx, bcy, br, 0, Math.PI * 2); c.stroke();
+                c.restore();
+              }
+              // Friend/foe ring at the feet (+ engaged pulse, selection ring).
+              if (ge) {
+                c.save();
+                c.globalAlpha = u.state === "engaged" ? 0.7 + 0.3 * Math.sin(tNow / 130) : 0.9;
+                c.strokeStyle = SIDE_COLOR[u.side];
+                c.lineWidth = Math.max(1.2, sprH * 0.02);
+                c.beginPath(); c.ellipse(ge.sx, ge.sy, ge.rx + 3, ge.ry + 2, 0, 0, Math.PI * 2); c.stroke();
+                c.restore();
+                if (ui.selectedSquadId === u.squadId) {
+                  c.save();
+                  c.globalAlpha = 0.6 + 0.4 * Math.sin(tNow / 160);
+                  c.strokeStyle = "#ffffff";
+                  c.lineWidth = 2;
+                  c.beginPath(); c.ellipse(ge.sx, ge.sy, ge.rx + 8, ge.ry + 5, 0, 0, Math.PI * 2); c.stroke();
+                  c.restore();
+                }
+              }
+              // Integrity bars over the head: hull, armor, shield (top).
+              if (u.hp01 < 1 || sh01 > 0.01) {
+                const bw = Math.max(14, sprW * 0.9);
+                const bx = feet.sx - bw / 2;
+                let by = topY - 6;
+                const bar = (frac: number, color: string) => {
+                  c.fillStyle = "rgba(0,0,0,0.6)";
+                  c.fillRect(bx, by, bw, 3);
+                  c.fillStyle = color;
+                  c.fillRect(bx, by, bw * Math.max(0, Math.min(1, frac)), 3);
+                  by -= 4;
+                };
+                bar(Math.max(0, u.hp01 / 0.5), "#f87171");
+                bar(Math.max(0, (u.hp01 - 0.5) / 0.5), "#fbbf24");
+                if (shMax > 0) bar(sh01 / shMax, "#38bdf8");
+              }
+            },
+          });
+          hits.push({ unit: u, turret: null, sx: feet.sx, sy: feet.sy - sprH / 2, hw: sprW / 2, hh: sprH / 2, depth: feet.depth });
+        };
+        for (const u of unitsRef.current) pushUnit(u);
+
+        if (ui.turretsOn) {
+          for (const tr of turretsRef.current) {
+            if (tr.hp01 <= 0) continue;
+            if (tr.side === "defender" && scoutRef.current !== "revealed") continue;
+            const feet = P(tr.x, tr.y);
+            if (!feet.visible || feet.depth > POV_MAX_DEPTH + 0.4) continue;
+            const img = sprites.turret;
+            const sprH = POV_UNIT_H.turret * feet.scale;
+            const sprW = sprH * (img && img.naturalWidth > 0 ? img.naturalWidth / img.naturalHeight : 1);
+            items.push({
+              depth: feet.depth,
+              draw: () => {
+                const hzF = hazeFactor(feet.depth);
+                const ge = groundEllipse(cam, w, h, tr.x, tr.y, 0.036);
+                if (ge) {
+                  c.save();
+                  c.fillStyle = "rgba(0,0,0,0.4)";
+                  c.beginPath(); c.ellipse(ge.sx, ge.sy, ge.rx, ge.ry, 0, 0, Math.PI * 2); c.fill();
+                  c.restore();
+                }
+                if (img && img.complete && img.naturalWidth > 0) {
+                  c.save();
+                  c.globalAlpha = 1 - hzF * 0.3;
+                  c.drawImage(img, feet.sx - sprW / 2, feet.sy - sprH, sprW, sprH);
+                  c.restore();
+                } else {
+                  c.save();
+                  c.fillStyle = "#3f3f46";
+                  c.beginPath(); c.arc(feet.sx, feet.sy - sprH / 2, sprH * 0.4, 0, Math.PI * 2); c.fill();
+                  c.strokeStyle = SIDE_COLOR[tr.side];
+                  c.lineWidth = 2;
+                  c.beginPath(); c.arc(feet.sx, feet.sy - sprH / 2, sprH * 0.4, 0, Math.PI * 2); c.stroke();
+                  c.restore();
+                }
+                if (ui.gunnerId === tr.id && ge) {
+                  c.save();
+                  c.strokeStyle = "#a5f3fc";
+                  c.lineWidth = 2;
+                  c.setLineDash([5, 4]);
+                  c.beginPath(); c.ellipse(ge.sx, ge.sy, ge.rx + 6, ge.ry + 4, 0, 0, Math.PI * 2); c.stroke();
+                  c.restore();
+                }
+              },
+            });
+            hits.push({ unit: null, turret: tr, sx: feet.sx, sy: feet.sy - sprH / 2, hw: sprW / 2, hh: sprH / 2, depth: feet.depth });
+          }
+        }
+        items.sort((a, b) => b.depth - a.depth);
+        for (const it of items) it.draw();
+        povHitsRef.current = hits;
+
+        // --- fx, projected through the same camera -------------------------
+        for (const sc of fx.scorches) {
+          const e = groundEllipse(cam, w, h, fx2w(sc.x), fy2w(sc.y), sc.radius / w);
+          if (!e) continue;
+          c.save();
+          c.globalAlpha = a01(sc.life, sc.maxLife) * 0.5;
+          c.fillStyle = "#14100c";
+          c.beginPath(); c.ellipse(e.sx, e.sy, e.rx, e.ry, 0, 0, Math.PI * 2); c.fill();
+          c.restore();
+        }
+        c.save();
+        c.globalCompositeOperation = "lighter";
+        for (const b of fx.beams) {
+          c.save();
+          c.strokeStyle = b.color;
+          c.globalAlpha = a01(b.life, b.maxLife) * 0.8;
+          c.lineWidth = 1.5;
+          c.setLineDash([6, 5]);
+          c.beginPath();
+          projLine(fx2w(b.x1), fy2w(b.y1), fx2w(b.x2), fy2w(b.y2), 0.012, 4);
+          c.stroke();
+          c.restore();
+        }
+        for (const tr of fx.tracers) {
+          const mid = P((fx2w(tr.x1) + fx2w(tr.x2)) / 2, (fy2w(tr.y1) + fy2w(tr.y2)) / 2, 0.012);
+          const lwF = mid.visible ? Math.max(0.4, 0.35 / Math.max(0.12, mid.depth)) : 1;
+          const a = a01(tr.life, tr.maxLife);
+          c.save();
+          if (tr.kind === "slug") {
+            c.strokeStyle = tr.color;
+            c.globalAlpha = a;
+            c.lineWidth = Math.max(1, tr.width * 1.4 * lwF);
+            c.lineCap = "round";
+            c.beginPath();
+            projLine(fx2w(tr.x1), fy2w(tr.y1), fx2w(tr.x2), fy2w(tr.y2), 0.012, 6);
+            c.stroke();
+          } else {
+            // 3-pass beam: halo, body, white-hot core.
+            for (const [wd, al, col] of [[3.4, 0.25, tr.color], [1.8, 0.75, tr.color], [0.8, 0.95, "#ffffff"]] as const) {
+              c.strokeStyle = col;
+              c.globalAlpha = a * al;
+              c.lineWidth = Math.max(0.6, tr.width * wd * 0.5 * lwF);
+              c.beginPath();
+              projLine(fx2w(tr.x1), fy2w(tr.y1), fx2w(tr.x2), fy2w(tr.y2), 0.012, 6);
+              c.stroke();
+            }
+          }
+          c.restore();
+        }
+        for (const sh of fx.shells) {
+          const gx = sh.x1 + (sh.x2 - sh.x1) * sh.t;
+          const gy = sh.y1 + (sh.y2 - sh.y1) * sh.t;
+          const wz = Math.sin(Math.PI * sh.t) * (sh.arc / h) * 0.55;
+          const p = P(fx2w(gx), fy2w(gy), wz);
+          if (!p.visible) continue;
+          const r = Math.max(1.6, sh.size * 0.006 * p.scale);
+          const g = c.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, r * 3);
+          g.addColorStop(0, "rgba(255,220,160,0.95)");
+          g.addColorStop(0.4, "rgba(255,160,60,0.55)");
+          g.addColorStop(1, "rgba(255,140,40,0)");
+          c.fillStyle = g;
+          c.beginPath(); c.arc(p.sx, p.sy, r * 3, 0, Math.PI * 2); c.fill();
+          c.fillStyle = "#fff3d6";
+          c.beginPath(); c.arc(p.sx, p.sy, r, 0, Math.PI * 2); c.fill();
+        }
+        for (const f of fx.flashes) {
+          const p = P(fx2w(f.x), fy2w(f.y), 0.014);
+          if (!p.visible) continue;
+          const a = a01(f.life, f.maxLife);
+          const rr = (f.radius / w) * p.scale;
+          const g2 = c.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, Math.max(2, rr));
+          g2.addColorStop(0, `rgba(255,240,200,${0.9 * a})`);
+          g2.addColorStop(1, "rgba(255,180,80,0)");
+          c.fillStyle = g2;
+          c.beginPath(); c.arc(p.sx, p.sy, Math.max(2, rr), 0, Math.PI * 2); c.fill();
+        }
+        for (const bl of fx.blooms) {
+          const p = P(fx2w(bl.x), fy2w(bl.y), 0.02);
+          if (!p.visible) continue;
+          const a = a01(bl.life, bl.maxLife);
+          const rr = Math.max(2, (bl.radius / w) * p.scale);
+          const g2 = c.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, rr);
+          g2.addColorStop(0, `rgba(255,200,120,${0.35 * a})`);
+          g2.addColorStop(1, "rgba(255,160,60,0)");
+          c.fillStyle = g2;
+          c.beginPath(); c.arc(p.sx, p.sy, rr, 0, Math.PI * 2); c.fill();
+        }
+        for (const b of fx.booms) {
+          const p = P(fx2w(b.x), fy2w(b.y), 0.01);
+          if (!p.visible) continue;
+          const a = a01(b.life, b.maxLife);
+          const rr = Math.max(3, (b.radius / w) * p.scale);
+          const g2 = c.createRadialGradient(p.sx, p.sy - rr * 0.4, 0, p.sx, p.sy - rr * 0.4, rr * 1.6);
+          g2.addColorStop(0, `rgba(255,236,190,${0.95 * a})`);
+          g2.addColorStop(0.35, `rgba(255,150,60,${0.8 * a})`);
+          g2.addColorStop(1, "rgba(200,60,20,0)");
+          c.fillStyle = g2;
+          c.beginPath(); c.arc(p.sx, p.sy - rr * 0.4, rr * 1.6, 0, Math.PI * 2); c.fill();
+          for (const pt of b.particles) {
+            if (pt.life <= 0) continue;
+            const pp = P(fx2w(pt.x), fy2w(pt.y), 0.01 + (1 - a01(pt.life, pt.maxLife)) * 0.02);
+            if (!pp.visible) continue;
+            c.globalAlpha = a01(pt.life, pt.maxLife);
+            c.fillStyle = pt.color;
+            const pr = Math.max(0.8, (pt.size / w) * pp.scale * 0.5);
+            c.fillRect(pp.sx - pr / 2, pp.sy - pr / 2, pr, pr);
+          }
+          c.globalAlpha = 1;
+        }
+        for (const sp of fx.sparks) {
+          const p = P(fx2w(sp.x), fy2w(sp.y), 0.015 * a01(sp.life, sp.maxLife));
+          if (!p.visible) continue;
+          c.globalAlpha = a01(sp.life, sp.maxLife);
+          c.fillStyle = sp.color;
+          const pr = Math.max(0.8, (sp.size / w) * p.scale * 0.4);
+          c.fillRect(p.sx - pr / 2, p.sy - pr / 2, pr, pr);
+        }
+        c.globalAlpha = 1;
+        for (const e2 of fx.embers) {
+          const p = P(fx2w(e2.x), fy2w(e2.y), 0.01 + (1 - a01(e2.life, e2.maxLife)) * 0.05);
+          if (!p.visible) continue;
+          c.globalAlpha = a01(e2.life, e2.maxLife) * 0.8;
+          c.fillStyle = "#ffb347";
+          c.beginPath(); c.arc(p.sx, p.sy, Math.max(0.7, (e2.size / w) * p.scale * 0.3), 0, Math.PI * 2); c.fill();
+        }
+        c.globalAlpha = 1;
+        c.restore();
+        // Shock/jam/shield rings lie on the ground.
+        for (const rg of fx.rings) {
+          const e = groundEllipse(cam, w, h, fx2w(rg.x), fy2w(rg.y), (rg.maxR * (1 - a01(rg.life, rg.maxLife))) / w);
+          if (!e) continue;
+          c.save();
+          c.strokeStyle = rg.color;
+          c.globalAlpha = a01(rg.life, rg.maxLife);
+          c.lineWidth = rg.width;
+          c.beginPath(); c.ellipse(e.sx, e.sy, e.rx, e.ry, 0, 0, Math.PI * 2); c.stroke();
+          c.restore();
+        }
+        // Smoke + kicked-up dust (normal blend).
+        c.save();
+        for (const b of fx.booms) {
+          for (const sm of b.smoke) {
+            if (sm.life <= 0) continue;
+            const p = P(fx2w(sm.x), fy2w(sm.y), 0.02 + (1 - a01(sm.life, sm.maxLife)) * 0.06);
+            if (!p.visible) continue;
+            c.globalAlpha = a01(sm.life, sm.maxLife) * 0.35;
+            c.fillStyle = "#1c1917";
+            const rr = Math.max(2, (sm.size / w) * p.scale);
+            c.beginPath(); c.arc(p.sx, p.sy, rr, 0, Math.PI * 2); c.fill();
+          }
+        }
+        for (const d of fx.dusts) {
+          const p = P(fx2w(d.x), fy2w(d.y), 0.008);
+          if (!p.visible) continue;
+          const fadeIn = Math.min(1, d.age * 2);
+          c.globalAlpha = a01(d.life, d.maxLife) * fadeIn * 0.28;
+          c.fillStyle = d.lit > 0.05 ? "#c99a68" : "#a08b6d";
+          const rr = Math.max(2, (d.size / w) * p.scale);
+          c.beginPath(); c.arc(p.sx, p.sy, rr, 0, Math.PI * 2); c.fill();
+        }
+        c.restore();
+
+        // --- scout flyby, high across the sky -------------------------------
+        {
+          const sc = scoutRef.current;
+          const t = simTRef.current;
+          if (sc === "flying") {
+            const pr = Math.min(1, Math.max(0, (t - FLYBY_START_S) / (REVEAL_S - FLYBY_START_S)));
+            const sxu = 0.75 + 0.35 * Math.sin(pr * Math.PI * 2);
+            const syu = 1.35 - pr * 1.15;
+            const head = P(sxu, syu, 0.3);
+            const tail = P(sxu - 0.07, syu + 0.05, 0.3);
+            if (head.visible) {
+              c.save();
+              c.strokeStyle = "rgba(165,243,252,0.85)";
+              c.lineWidth = 2.5;
+              c.beginPath();
+              if (tail.visible) c.moveTo(tail.sx, tail.sy);
+              else c.moveTo(head.sx - 46, head.sy + 30);
+              c.lineTo(head.sx, head.sy);
+              c.stroke();
+              c.fillStyle = "#ecfeff";
+              c.beginPath(); c.arc(head.sx, head.sy, 4, 0, Math.PI * 2); c.fill();
+              c.font = "700 10px system-ui, sans-serif";
+              c.textAlign = "left";
+              c.textBaseline = "middle";
+              c.fillText("SCOUT", head.sx + 8, head.sy - 8);
+              c.restore();
+            }
+          } else if (sc === "lost" && t < SHOOTDOWN_S + 4) {
+            const kp = (SHOOTDOWN_S - FLYBY_START_S) / (REVEAL_S - FLYBY_START_S);
+            const kx = 0.75 + 0.35 * Math.sin(kp * Math.PI * 2);
+            const ky = 1.35 - kp * 1.15;
+            const fp = Math.min(1, (t - SHOOTDOWN_S) / 4);
+            const head = P(kx + fp * 0.12, ky + fp * 0.35, 0.3 * (1 - fp));
+            const tail = P(kx, ky, 0.3);
+            if (head.visible) {
+              c.save();
+              c.strokeStyle = `rgba(248,113,113,${1 - fp})`;
+              c.lineWidth = 3;
+              c.beginPath();
+              if (tail.visible) c.moveTo(tail.sx, tail.sy);
+              else c.moveTo(head.sx - 20, head.sy - 14);
+              c.lineTo(head.sx, head.sy);
+              c.stroke();
+              c.fillStyle = `rgba(254,205,211,${1 - fp})`;
+              c.beginPath(); c.arc(head.sx, head.sy, 4, 0, Math.PI * 2); c.fill();
+              c.font = "700 10px system-ui, sans-serif";
+              c.textAlign = "left";
+              c.textBaseline = "middle";
+              c.fillStyle = `rgba(248,113,113,${1 - fp * 0.7})`;
+              c.fillText("SCOUT LOST", head.sx + 8, head.sy - 8);
+              c.restore();
+            }
+          }
+        }
+
+        // --- order ping: the accepted order, on the ground ------------------
+        const ping = orderPingRef.current;
+        if (ping) {
+          const t = simTRef.current;
+          const plotting = t < ping.atS;
+          const age = Math.max(0, t - ping.atS);
+          const plife = Math.max(0, 1 - age / 4);
+          if (plife > 0) {
+            c.save();
+            c.globalAlpha = plotting ? 0.35 : plife;
+            c.strokeStyle = "rgba(255,255,255,0.85)";
+            c.lineWidth = 1.5;
+            c.setLineDash([8, 6]);
+            c.beginPath();
+            projLine(ping.fx, ping.fy, ping.x, ping.y, 0.004, 12);
+            c.stroke();
+            c.setLineDash([]);
+            const e = groundEllipse(cam, w, h, ping.x, ping.y, 0.045 * (1 + 0.25 * Math.sin(tNow / 150)));
+            if (e) {
+              c.strokeStyle = plotting ? "#f59e0b" : "#fbbf24";
+              if (plotting) c.setLineDash([4, 3]);
+              c.lineWidth = 2.5;
+              c.beginPath(); c.ellipse(e.sx, e.sy, e.rx, e.ry, 0, 0, Math.PI * 2); c.stroke();
+            }
+            c.restore();
+          }
+        }
+
+        // --- movement lines: own destinations, enemy direction ticks -------
+        {
+          const own = new Map<string, SceneUnit[]>();
+          const foe = new Map<string, SceneUnit[]>();
+          for (const u of unitsRef.current) {
+            if (u.state !== "advancing") continue;
+            const m = u.side === "attacker" ? own : foe;
+            const arr = m.get(u.squadId) ?? [];
+            arr.push(u);
+            m.set(u.squadId, arr);
+          }
+          for (const [, members] of own) {
+            let cx = 0, cy = 0, tx2 = 0, ty2 = 0;
+            for (const u of members) { cx += u.x; cy += u.y; tx2 += u.tx; ty2 += u.ty; }
+            cx /= members.length; cy /= members.length;
+            tx2 /= members.length; ty2 /= members.length;
+            c.save();
+            c.strokeStyle = "rgba(251,191,36,0.95)";
+            c.lineWidth = 3;
+            c.setLineDash([7, 5]);
+            c.beginPath();
+            projLine(cx, cy, tx2, ty2, 0.004, 12);
+            c.stroke();
+            c.setLineDash([]);
+            const dp = P(tx2, ty2);
+            if (dp.visible) {
+              const dr = Math.max(3, 0.008 * dp.scale);
+              c.fillStyle = "rgba(251,191,36,0.9)";
+              c.beginPath();
+              c.moveTo(dp.sx, dp.sy - dr); c.lineTo(dp.sx + dr, dp.sy);
+              c.lineTo(dp.sx, dp.sy + dr); c.lineTo(dp.sx - dr, dp.sy);
+              c.closePath(); c.fill();
+            }
+            c.restore();
+          }
+          for (const [, members] of foe) {
+            let cx = 0, cy = 0, dx = 0, dy = 0;
+            for (const u of members) {
+              cx += u.x; cy += u.y; dx += u.tx - u.x; dy += u.ty - u.y;
+            }
+            cx /= members.length; cy /= members.length;
+            const l = Math.hypot(dx, dy);
+            if (l < 0.01) continue;
+            dx /= l; dy /= l;
+            const ex = cx + dx * 0.045, ey = cy + dy * 0.045;
+            c.save();
+            c.strokeStyle = "rgba(248,113,113,0.9)";
+            c.lineWidth = 3;
+            c.lineCap = "round";
+            c.beginPath();
+            projLine(cx, cy, ex, ey, 0.004, 3);
+            c.stroke();
+            c.restore();
+          }
+        }
+
+        // --- siege aim targeter on the ground -------------------------------
+        {
+          const aim = ui.siegeAim;
+          if (aim) {
+            const e = groundEllipse(cam, w, h, aim.x, aim.y, SIEGE_SPLASH_R);
+            if (e) {
+              let friendliesInBlast = 0;
+              for (const u of unitsRef.current) {
+                if (u.side !== "attacker" || u.state === "dead" || u.state === "staging") continue;
+                if (Math.hypot(u.x - aim.x, u.y - aim.y) < SIEGE_SPLASH_R) friendliesInBlast++;
+              }
+              const warn = friendliesInBlast > 0;
+              const col = warn ? "248,113,113" : "251,191,36";
+              const pulse = 0.55 + 0.15 * Math.sin(tNow / 300);
+              c.save();
+              c.beginPath();
+              c.ellipse(e.sx, e.sy, e.rx, e.ry, 0, 0, Math.PI * 2);
+              c.fillStyle = `rgba(${col},0.07)`;
+              c.fill();
+              c.lineWidth = 2.5;
+              c.setLineDash([12, 7]);
+              c.strokeStyle = `rgba(${col},${pulse + 0.25})`;
+              c.beginPath();
+              c.ellipse(e.sx, e.sy, e.rx, e.ry, 0, 0, Math.PI * 2);
+              c.stroke();
+              c.setLineDash([]);
+              c.font = `600 ${Math.max(11, Math.min(20, e.rx * 0.22))}px system-ui`;
+              c.textAlign = "center";
+              c.textBaseline = "middle";
+              c.fillText("💥", e.sx, e.sy);
+              if (warn) {
+                c.font = "700 10px system-ui";
+                c.fillStyle = `rgba(248,113,113,${pulse + 0.25})`;
+                c.fillText("⚠ FRIENDLIES IN BLAST", e.sx, e.sy - e.ry - 12);
+              }
+              c.restore();
+            }
+          }
+        }
+
+        // --- Longeye report highlight ----------------------------------------
+        {
+          const t = simTRef.current;
+          const hl = highlightRef.current;
+          if (hl && t < hl.until) {
+            const pulse = 1 + 0.2 * Math.sin(tNow / 180);
+            c.save();
+            c.strokeStyle = "rgba(251,191,36,0.95)";
+            c.lineWidth = 2.5;
+            for (const u of hl.units) {
+              if (u.state === "dead") continue;
+              const e = groundEllipse(cam, w, h, u.x, u.y, 0.032 * pulse);
+              if (!e) continue;
+              c.beginPath(); c.ellipse(e.sx, e.sy, e.rx, e.ry, 0, 0, Math.PI * 2); c.stroke();
+            }
+            c.restore();
+          }
+          const ar = arrowRef.current;
+          if (ar && t < ar.until) {
+            c.save();
+            c.strokeStyle = "rgba(251,191,36,0.95)";
+            c.fillStyle = "rgba(251,191,36,0.95)";
+            c.lineWidth = 3;
+            c.beginPath();
+            projLine(ar.x, ar.y, ar.x + ar.dx, ar.y + ar.dy, 0.004, 4);
+            c.stroke();
+            const bp = P(ar.x + ar.dx, ar.y + ar.dy);
+            if (bp.visible) {
+              const ang = Math.atan2(ar.dy, ar.dx) + cam.heading; // world dir → view dir (approx)
+              const hl2 = Math.max(7, 0.012 * bp.scale);
+              c.beginPath();
+              c.moveTo(bp.sx, bp.sy);
+              c.lineTo(bp.sx - hl2 * Math.cos(ang - 0.4 + Math.PI / 2), bp.sy - hl2 * Math.sin(ang - 0.4 + Math.PI / 2));
+              c.lineTo(bp.sx - hl2 * Math.cos(ang + 0.4 + Math.PI / 2), bp.sy - hl2 * Math.sin(ang + 0.4 + Math.PI / 2));
+              c.closePath(); c.fill();
+            }
+            c.restore();
+          }
+        }
+
+        // --- night tint -------------------------------------------------------
+        if (nightF > 0.02) {
+          c.save();
+          c.fillStyle = `rgba(8,12,40,${0.5 * nightF})`;
+          c.fillRect(0, 0, w, h);
+          c.restore();
+        }
+      };
+
+      // POV labels: projected name pills over the skins (near first, capped).
+      const renderPovLabels = () => {
+        const cam = povRef.current.cam;
+        c.save();
+        c.font = "700 9px system-ui, sans-serif";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        const entries: { u: SceneUnit; feet: ReturnType<typeof projectPoint> }[] = [];
+        for (const u of unitsRef.current) {
+          if (u.state === "dead") continue;
+          if (!ui.vectorsOn[u.vector]) continue;
+          if (u.side === "defender" && scoutRef.current !== "revealed") continue;
+          const feet = projectPoint(cam, w, h, u.x, u.y, 0);
+          if (!feet.visible || feet.depth > 1.9) continue;
+          entries.push({ u, feet });
+        }
+        entries.sort((a, b) => a.feet.depth - b.feet.depth);
+        let drawn = 0;
+        for (const { u, feet } of entries) {
+          if (drawn >= 26) break;
+          const selSquad = ui.selectedSquadId === u.squadId;
+          if (feet.depth > 1.15 && u.state !== "engaged" && !selSquad && drawn > 10) continue;
+          drawn++;
+          const sprH = (POV_UNIT_H[u.kind] ?? 0.04) * feet.scale;
+          const dim = u.state === "staging" ? 0.55 : 1;
+          const label = `${UNIT_KIND_LABEL[u.kind].toUpperCase()} · T${u.tier}`;
+          const tw = c.measureText(label).width;
+          const ly = feet.sy - sprH - 9;
+          if (ly < 8 || feet.sx < -70 || feet.sx > w + 70) continue;
+          const pw = tw + 9;
+          const ph2 = 13;
+          const bx = feet.sx - pw / 2;
+          const by = ly - ph2 / 2;
+          const br = 4;
+          c.globalAlpha = 0.62 * dim;
+          c.fillStyle = "#000";
+          c.beginPath();
+          c.moveTo(bx + br, by);
+          c.arcTo(bx + pw, by, bx + pw, by + ph2, br);
+          c.arcTo(bx + pw, by + ph2, bx, by + ph2, br);
+          c.arcTo(bx, by + ph2, bx, by, br);
+          c.arcTo(bx, by, bx + pw, by, br);
+          c.closePath();
+          c.fill();
+          if (selSquad) {
+            c.globalAlpha = dim;
+            c.strokeStyle = "#ffffff";
+            c.lineWidth = 1;
+            c.stroke();
+          }
+          c.globalAlpha = dim;
+          c.fillStyle = selSquad ? "#ffffff" : SIDE_COLOR[u.side];
+          c.fillText(label, feet.sx, ly + 0.5);
+        }
+        c.restore();
+      };
+
+      if (povMode) {
+        renderPov(phase, night);
+      } else {
       // --- camera ----------------------------------------------------------
       // Tactical: identity (zoom 1, anchor 0.5/0.5, focus 0.5). Ground: the
       // rig glides low over the friendly advance — zoomed, vertically
@@ -1737,9 +2732,6 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       c.translate(w / 2, h * cam.fy);
       c.scale(cam.zoom, cam.zoom * cam.ysq);
       c.translate(-X(cam.ax), -Y(cam.ay));
-
-      // Night factor: auto from battle longitude, or manual override.
-      const night = ui.dayNight === "auto" ? sceneNightFactor(scene.lonDeg, Date.now()) : ui.dayNight === "night" ? 1 : 0;
 
       // --- ground ----------------------------------------------------------
       // Seamless: draw the ground as a repeating pattern from a pre-scaled
@@ -1929,41 +2921,6 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         c.fill();
         c.restore();
       }
-
-      // Per-kind fallback glyph, traced as a path (caller sets paint + fills).
-      // Square = Bulwark, triangle = Reaver, diamond = Longeye,
-      // hexagon = Thunder, dot = Warden/dropship. Wrecks reuse it dimmed so
-      // the fallen keep their identity (owner 2026-10-05: every icon named,
-      // even the wrecks).
-      const traceKindGlyph = (u: SceneUnit, x: number, y: number, rr: number) => {
-        c.beginPath();
-        if (u.kind === "bulwark") {
-          c.rect(x - rr, y - rr, rr * 2, rr * 2);
-        } else if (u.kind === "reaver") {
-          c.moveTo(x, y - rr);
-          c.lineTo(x + rr, y + rr);
-          c.lineTo(x - rr, y + rr);
-          c.closePath();
-        } else if (u.kind === "longeye") {
-          c.moveTo(x, y - rr);
-          c.lineTo(x + rr, y);
-          c.lineTo(x, y + rr);
-          c.lineTo(x - rr, y);
-          c.closePath();
-        } else if (u.kind === "thunder") {
-          for (let i = 0; i < 6; i++) {
-            const a = Math.PI / 6 + (i * Math.PI) / 3;
-            const gx = x + rr * Math.cos(a);
-            const gy = y + rr * Math.sin(a);
-            if (i === 0) c.moveTo(gx, gy);
-            else c.lineTo(gx, gy);
-          }
-          c.closePath();
-        } else {
-          // warden: ring; dropship/turret: dot.
-          c.arc(x, y, rr, 0, Math.PI * 2);
-        }
-      };
 
       const drawUnit = (u: SceneUnit) => {
         if (!ui.vectorsOn[u.vector]) return;
@@ -2496,9 +3453,10 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       }
 
       c.restore(); // camera off — overlays below are screen space
+      } // end top-down block (the POV branch rendered its own world above)
 
       // --- night overlay --------------------------------------------------------
-      if (night > 0.02) {
+      if (night > 0.02 && !povMode) {
         c.save();
         c.fillStyle = `rgba(8,12,40,${0.62 * night})`;
         c.fillRect(-14, -14, w + 28, h + 28);
@@ -2526,7 +3484,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       // their names. Toggleable in the Controls glass (LABELS).
       // Slice 12: labels are Z4 command UI — the Z3 overview stays clean
       // (spec §5: command UI fades in only at Z4).
-      if (ui.labelsOn && !overviewShapes) {
+      if (ui.labelsOn && !overviewShapes && !povMode) {
         c.save();
         c.font = "700 9px system-ui, sans-serif";
         c.textAlign = "center";
@@ -2580,6 +3538,9 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         }
         c.restore();
       }
+
+      // --- POV unit labels: projected pills over the skins ----------------------
+      if (ui.labelsOn && povMode) renderPovLabels();
 
       // --- vignette ---------------------------------------------------------------
       const vg = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.42, w / 2, h / 2, Math.max(w, h) * 0.75);
@@ -2678,7 +3639,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       // --- ground-cam foreground --------------------------------------------------
       // Near-field silhouettes sliding against the camera anchor: the near
       // field moves opposite and faster, which is what reads as LOW.
-      if (cam.zoom > 1.4) {
+      if (cam.zoom > 1.4 && !povMode) {
         const mdx = (cam.ax - cam.gx) * w;
         const mdy = (cam.ay - cam.gy) * h;
         c.save();
@@ -2736,6 +3697,28 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
   };
 
+  /** Screen (canvas-relative CSS px) → world ground point, per camera
+   *  mode. The POV unprojects the perspective ray onto the ground plane —
+   *  a sky tap returns null (no ground there, no order). Other modes use
+   *  the camera-origin frame as before. */
+  const tapToWorld = (pxCss: number, pyCss: number): { x: number; y: number } | null => {
+    const { w, h } = canvasCss();
+    if (sceneUISnapshot().cameraMode === "command") {
+      return unprojectToGround(povRef.current.cam, w, h, pxCss, pyCss);
+    }
+    return screenToWorld(rigCamera(camRef.current), w, h, pxCss, pyCss);
+  };
+
+  /** World → screen (CSS px), per camera mode — siege targeter anchoring. */
+  const worldToScreenCss = (wx: number, wy: number): { sx: number; sy: number } => {
+    const { w, h } = canvasCss();
+    if (sceneUISnapshot().cameraMode === "command") {
+      const p = projectPoint(povRef.current.cam, w, h, wx, wy, 0);
+      return { sx: p.sx, sy: p.sy };
+    }
+    return worldToScreen(rigCamera(camRef.current), w, h, wx, wy);
+  };
+
   /** Drag-scroll the map. The low cams (ground / command hover) pan a tight
    *  offset around the follow-cam; tactical pans the anchor itself. Always
    *  clamped on-field. */
@@ -2744,6 +3727,20 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     const ui = sceneUISnapshot();
     const { w, h } = canvasCss();
     const ez = Math.max(0.2, cam.zoom);
+    if (ui.cameraMode === "command") {
+      // POV phase 2: drag = LOOK AROUND, grab convention (the view
+      // follows the finger, like dragging the map): drag right reveals
+      // the left (heading eases west), drag down reveals the sky (pitch
+      // eases up). The ship stays a forward-looking hover cam — it never
+      // becomes a map. Pinch also routes through panBy; while pinching
+      // the look holds still.
+      if (!pinchRef.current) {
+        const pv = povRef.current;
+        pv.tHeading = Math.max(-0.7, Math.min(0.7, pv.tHeading - dxCss * 0.0032));
+        pv.tPitch = Math.max(-0.09, Math.min(0.13, pv.tPitch - dyCss * 0.0022));
+      }
+      return;
+    }
     if (ui.cameraMode !== "tactical") {
       cam.pox = Math.max(-0.18, Math.min(0.18, cam.pox - dxCss / (ez * w)));
       cam.poy = Math.max(-0.18, Math.min(0.18, cam.poy - dyCss / (ez * cam.ysq * h)));
@@ -2903,18 +3900,11 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     orderPingRef.current = { x: dest.x, y: dest.y, fx: cx, fy: cy, born: simTRef.current, atS: simTRef.current + ORDER_DELAY_S };
   };
 
-  /** Tap: gunner view → click an enemy to target; your turret → take the
-   *  gun; your unit → select its squad; with a squad selected → the tap is
-   *  a move order, judged by the doctrine. (Fractions 0..1 of the canvas.) */
-  const handleTap = (px: number, py: number) => {
-    battleSfx.attach(); // user gesture — wake the war (autoplay-safe)
-    // Invert the camera transform: screen fractions → tactical 0..1 coords,
-    // so turret picks and gunner targeting land in ground mode too.
-    const cam = camRef.current;
-    const { w, h } = canvasCss();
-    // Invert via the camera-origin frame (slice 7): screen → world.
-    const { x: tx, y: ty } = screenToWorld(rigCamera(cam), w, h, px * w, py * h);
-    const ui = sceneUISnapshot();
+  /** Tap resolution once a ground point is known: gunner view → click an
+   *  enemy to target; your turret → take the gun; your unit → select its
+   *  squad; with a squad selected → the tap is a move order, judged by
+   *  the doctrine. */
+  const resolveTap = (ui: ReturnType<typeof sceneUISnapshot>, tx: number, ty: number) => {
     if (ui.gunnerId) {
       // Gunner view: click an enemy unit to target it.
       let best: SceneUnit | null = null;
@@ -2985,6 +3975,45 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     setSelectedSquad(null);
   };
 
+  /** Tap entry (fractions 0..1 of the canvas). Tactical/ground invert the
+   *  camera-origin frame. The POV first hit-tests the projected troop
+   *  PICTURES — near troops are huge, their feet are a poor target — then
+   *  unprojects the ground plane under the tap. A sky tap does nothing. */
+  const handleTap = (px: number, py: number) => {
+    battleSfx.attach(); // user gesture — wake the war (autoplay-safe)
+    const ui = sceneUISnapshot();
+    const { w, h } = canvasCss();
+    if (ui.cameraMode === "command") {
+      const sxPx = px * w;
+      const syPx = py * h;
+      let hit: (typeof povHitsRef.current)[number] | null = null;
+      for (const hb of povHitsRef.current) {
+        if (Math.abs(sxPx - hb.sx) <= hb.hw + 4 && Math.abs(syPx - hb.sy) <= hb.hh + 4) {
+          if (!hit || hb.depth < hit.depth) hit = hb;
+        }
+      }
+      if (hit?.unit && ui.gunnerId && hit.unit.side === "defender" && hit.unit.state !== "dead") {
+        setGunTarget(hit.unit.id);
+        return;
+      }
+      if (hit?.turret && !ui.gunnerId && hit.turret.side === "attacker" && hit.turret.hp01 > 0) {
+        setTurretMode(hit.turret.id, "gunner"); // hands on the weapon ⇒ manual mode
+        return;
+      }
+      if (hit?.unit && !ui.gunnerId && hit.unit.side === "attacker" && hit.unit.state !== "dead" && hit.unit.state !== "staging") {
+        setSelectedSquad(hit.unit.squadId);
+        return;
+      }
+      const gw = unprojectToGround(povRef.current.cam, w, h, sxPx, syPx);
+      if (!gw) return; // sky — no ground under the tap, no order
+      resolveTap(ui, gw.x, gw.y);
+      return;
+    }
+    // Invert via the camera-origin frame (slice 7): screen → world.
+    const { x: tx, y: ty } = screenToWorld(rigCamera(camRef.current), w, h, px * w, py * h);
+    resolveTap(ui, tx, ty);
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     battleSfx.attach(); // user gesture — wake the war (autoplay-safe)
     e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -2996,10 +4025,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       const uiSnap = sceneUISnapshot();
       if (uiSnap.siegeAim) {
         const r = e.currentTarget.getBoundingClientRect();
-        const { sx, sy } = worldToScreen(
-          rigCamera(camRef.current), r.width, r.height,
-          uiSnap.siegeAim.x, uiSnap.siegeAim.y,
-        );
+        const { sx, sy } = worldToScreenCss(uiSnap.siegeAim.x, uiSnap.siegeAim.y);
         if (Math.hypot(e.clientX - r.left - sx, e.clientY - r.top - sy) < 32) {
           siegeDragRef.current = e.pointerId;
           downRef.current = null; // it's a drag, not a tap
@@ -3023,11 +4049,8 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     // Siege targeter drag: walk the aim point under the finger.
     if (siegeDragRef.current === e.pointerId && pts.size === 1) {
       const r = e.currentTarget.getBoundingClientRect();
-      const { x, y } = screenToWorld(
-        rigCamera(camRef.current), r.width, r.height,
-        e.clientX - r.left, e.clientY - r.top,
-      );
-      setSiegeAim({ x: softClampX(x), y: softClampY(y) });
+      const gw = tapToWorld(e.clientX - r.left, e.clientY - r.top);
+      if (gw) setSiegeAim({ x: softClampX(gw.x), y: softClampY(gw.y) });
       return;
     }
     if (pts.size === 2) {

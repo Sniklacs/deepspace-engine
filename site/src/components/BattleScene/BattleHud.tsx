@@ -14,7 +14,7 @@
 //     and Controls windows when closed, plus the fullscreen toggle in the
 //     embedded battle view. The strip is the only chrome on the field.
 
-import { useSyncExternalStore, useState } from "react";
+import { useEffect, useRef, useSyncExternalStore, useState } from "react";
 import {
   subscribeSceneUI,
   sceneUISnapshot,
@@ -79,11 +79,35 @@ export function BattleHud({
   const moveArmed = ui.moveArmedFor !== null;
   const armedSquad = ui.squads.find((s) => s.id === ui.moveArmedFor) ?? null;
 
-  const onRadarTap = (x: number, y: number) => {
+  // Hans 2026-10-12: the radar is the movement instrument — when a squad's
+  // MOVE is armed, the radar OPENS LARGE on its own so the destination tap
+  // is a fat-finger target, not a 148px guess.
+  const prevArmedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (ui.moveArmedFor && !prevArmedRef.current) setRadarBig(true);
+    prevArmedRef.current = ui.moveArmedFor;
+  }, [ui.moveArmedFor]);
+
+  // Small radar tap while armed: enlarge — precision lives in the overlay.
+  const onRadarTap = () => {
+    battleSfx.uiClick();
+    setRadarBig(true);
+  };
+
+  // Overlay tap: the destination. Queue it through the store — the scene
+  // routes it through the order judge, and the receipt (order ping + log +
+  // the judge's toast on a refusal) lands on the field as the panel closes.
+  const onOverlayRadarTap = (x: number, y: number) => {
     if (!ui.moveArmedFor) return;
     battleSfx.uiClick();
     queueRadarMove(ui.moveArmedFor, x, y);
+    setRadarBig(false);
   };
+
+  const bigRadarSize =
+    typeof window !== "undefined"
+      ? Math.max(250, Math.min(430, Math.floor(Math.min(window.innerWidth * 0.84, window.innerHeight * 0.56))))
+      : 320;
 
   return (
     <>
@@ -112,22 +136,22 @@ export function BattleHud({
           <BattleRadar
             interactive={moveArmed}
             onTapWorld={onRadarTap}
-            size={radarBig ? 260 : 148}
+            size={148}
           />
           {moveArmed && armedSquad && (
             <p className="pointer-events-none absolute -top-6 left-0 whitespace-nowrap rounded border border-[var(--cmd-accent)] bg-[#0b0f16] px-1.5 py-0.5 text-[8px] font-bold text-[var(--cmd-accent)]">
-              📍 {armedSquad.name}: tap radar
+              📍 {armedSquad.name}: tap radar to aim
             </p>
           )}
           <button
             type="button"
-            onClick={() => { battleSfx.uiClick(); setRadarBig(!radarBig); }}
+            onClick={() => { battleSfx.uiClick(); setRadarBig(true); }}
             data-testid="hud-radar-expand"
             aria-pressed={radarBig}
-            aria-label={radarBig ? "Shrink the radar" : "Enlarge the radar"}
+            aria-label="Enlarge the radar"
             className="pointer-events-auto absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(255,255,255,0.2)] bg-[#0b0f16] text-[10px] text-[#eef1f6] active:scale-95"
           >
-            {radarBig ? "⤡" : "⤢"}
+            ⤢
           </button>
           {moveArmed && (
             <button
@@ -142,6 +166,70 @@ export function BattleHud({
           )}
         </div>
       </div>
+
+      {/* EXPANDED RADAR (Hans 2026-10-12): the radar opens LARGE — an
+          EVE-style panel over the field. With a squad's MOVE armed, a tap
+          on the big field IS the destination: it queues through the order
+          judge and the receipt lands on the field as this panel closes.
+          Without an armed squad it's a big tactical view. Works the same
+          in POV and Map — the radar is the movement instrument when the
+          view itself can't be tapped for ground positions. */}
+      {radarBig && (
+        <div
+          className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-black/55 p-3"
+          data-testid="battle-radar-overlay"
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) setRadarBig(false);
+          }}
+        >
+          <div
+            className="rounded-xl border border-[rgba(255,255,255,0.18)] bg-[#0b0f16] p-3 shadow-2xl"
+            style={cockpitAccentStyle(cockpitThemeById(ui.cockpitThemeId))}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Expanded battle radar"
+          >
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#eef1f6]">
+                📡 Radar
+                {moveArmed && armedSquad ? (
+                  <span className="ml-2 normal-case tracking-normal text-[var(--cmd-accent)]">
+                    {armedSquad.name} — tap the destination
+                  </span>
+                ) : (
+                  <span className="ml-2 normal-case tracking-normal text-zinc-400">
+                    arm a squad&apos;s MOVE to direct it here
+                  </span>
+                )}
+              </p>
+              <button
+                type="button"
+                onClick={() => { battleSfx.uiClick(); setRadarBig(false); }}
+                data-testid="hud-radar-close"
+                aria-label="Close the expanded radar"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.2)] bg-black/40 text-[10px] text-[#eef1f6] active:scale-95"
+              >
+                ✕
+              </button>
+            </div>
+            <BattleRadar
+              interactive={moveArmed}
+              onTapWorld={onOverlayRadarTap}
+              size={bigRadarSize}
+            />
+            {moveArmed && (
+              <button
+                type="button"
+                onClick={() => { battleSfx.uiClick(); setMoveArmedFor(null); setRadarBig(false); }}
+                data-testid="hud-radar-overlay-cancel-move"
+                className="mt-2 w-full rounded border border-[rgba(255,255,255,0.16)] bg-black/40 px-2 py-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-300 active:scale-[0.98]"
+              >
+                Cancel move
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* window launchers — the only chrome on the field. Each button
           summons its EVE window; when the window is open the button hides
