@@ -122,6 +122,53 @@ async function checkHealth(server: KnownServer): Promise<{ health: ServerHealth;
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* LIVE WAR MAP — system-wide war state                                 */
+/*                                                                     */
+/* TODO(Hans): wire fetchWarState() to the real war feed. Right now no  */
+/* live war endpoint exists, so this returns null (→ "ALL QUIET") and   */
+/* the visuals below run on demo data only when ?wardemo=1 is in the   */
+/* URL. When the feed lands, delete the demo branch and return the     */
+/* real SystemWarState.                                                */
+/* ------------------------------------------------------------------ */
+
+interface PlanetWar {
+  planetId: string; // KnownServer id under attack
+  attackers: string[]; // KnownServer ids raining fire on it
+  reverbDrop?: number; // how much reverb has fallen since the attack began
+}
+
+interface SystemWarState {
+  active: boolean;
+  wars: PlanetWar[];
+}
+
+const WAR_POLL_MS = 15000;
+
+/** Demo war — clearly fake data so Hans can check the fire/tracer graphics
+ *  on his phone before real war exists. Visually tagged DEMO everywhere. */
+const DEMO_WAR: SystemWarState = {
+  active: true,
+  wars: [
+    { planetId: "watchers-beta", attackers: ["draconians-world"], reverbDrop: 320 },
+  ],
+};
+
+function isWarDemo(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get("wardemo") === "1";
+  } catch {
+    return false;
+  }
+}
+
+async function fetchWarState(): Promise<SystemWarState | null> {
+  // TODO(Hans): replace with the real war feed (per-planet attack status +
+  // reverb deltas). Until then: null = all quiet.
+  if (isWarDemo()) return DEMO_WAR;
+  return null;
+}
+
 interface Star {
   x: number; // 0..1 normalized
   y: number;
@@ -186,6 +233,270 @@ function hexToRgb(hex: string): [number, number, number] {
 function rgba(hex: string, a: number): string {
   const [r, g, b] = hexToRgb(hex);
   return `rgba(${r},${g},${b},${a})`;
+}
+
+/** Deterministic pseudo-random from a string seed — stable fire spots per planet. */
+function seededRand(seed: string): () => number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return () => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  };
+}
+
+/** Stable fire-spot positions on a planet's disk (unit circle coords). */
+function fireSpotsFor(planetId: string, n: number): Array<{ x: number; y: number; s: number }> {
+  const rnd = seededRand(`fire:${planetId}`);
+  const spots: Array<{ x: number; y: number; s: number }> = [];
+  for (let i = 0; i < n; i++) {
+    const a = rnd() * Math.PI * 2;
+    const r = 0.15 + rnd() * 0.7;
+    spots.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, s: 0.7 + rnd() * 0.6 });
+  }
+  return spots;
+}
+
+/**
+ * Draw the Jump Gate — a dormant alien ring. Clean silver, strange
+ * hieroglyphic ticks around the rim, a dark portal that shimmers faintly
+ * like it wants to fire up but never does.
+ */
+function drawJumpGate(
+  g: CanvasRenderingContext2D,
+  x: number, y: number, r: number,
+  time: number, dpr: number,
+  selected: boolean, reducedMotion: boolean,
+): void {
+  const shimmer = reducedMotion ? 0.5 : 0.35 + 0.25 * Math.sin(time * 1.7);
+
+  // faint beckoning glow
+  const glow = g.createRadialGradient(x, y, r * 0.4, x, y, r * 2.6);
+  glow.addColorStop(0, `rgba(180,200,230,${0.10 + shimmer * 0.08})`);
+  glow.addColorStop(1, "rgba(180,200,230,0)");
+  g.fillStyle = glow;
+  g.beginPath();
+  g.arc(x, y, r * 2.6, 0, Math.PI * 2);
+  g.fill();
+
+  // outer silver ring
+  const ring = g.createLinearGradient(x - r, y - r, x + r, y + r);
+  ring.addColorStop(0, "#8a94a8");
+  ring.addColorStop(0.35, "#e8edf6");
+  ring.addColorStop(0.6, "#6a7386");
+  ring.addColorStop(1, "#c9d2e4");
+  g.strokeStyle = ring;
+  g.lineWidth = Math.max(2, r * 0.16);
+  g.beginPath();
+  g.arc(x, y, r, 0, Math.PI * 2);
+  g.stroke();
+  // inner rim
+  g.strokeStyle = "rgba(40,46,60,0.9)";
+  g.lineWidth = Math.max(1, r * 0.05);
+  g.beginPath();
+  g.arc(x, y, r * 0.86, 0, Math.PI * 2);
+  g.stroke();
+
+  // hieroglyphic ticks — strange marks no one can read
+  g.save();
+  g.translate(x, y);
+  const ticks = 24;
+  for (let i = 0; i < ticks; i++) {
+    const a = (i / ticks) * Math.PI * 2 + Math.PI / ticks;
+    const kind = i % 4;
+    g.save();
+    g.rotate(a);
+    g.strokeStyle = "rgba(30,36,50,0.95)";
+    g.lineWidth = Math.max(1, r * 0.035);
+    g.beginPath();
+    if (kind === 0) {
+      // chevron
+      g.moveTo(r * 0.62, -r * 0.09);
+      g.lineTo(r * 0.74, 0);
+      g.lineTo(r * 0.62, r * 0.09);
+    } else if (kind === 1) {
+      // bar with dot
+      g.moveTo(r * 0.64, -r * 0.1);
+      g.lineTo(r * 0.64, r * 0.1);
+      g.moveTo(r * 0.74, 0);
+      g.lineTo(r * 0.75, 0);
+    } else if (kind === 2) {
+      // spiral-ish hook
+      g.arc(r * 0.69, 0, r * 0.07, -1.2, 2.4);
+    } else {
+      // double bar
+      g.moveTo(r * 0.62, -r * 0.1);
+      g.lineTo(r * 0.62, r * 0.1);
+      g.moveTo(r * 0.72, -r * 0.1);
+      g.lineTo(r * 0.72, r * 0.1);
+    }
+    g.stroke();
+    g.restore();
+  }
+  g.restore();
+
+  // the portal — dark, dormant, breathing faintly
+  const pg = g.createRadialGradient(x, y, 0, x, y, r * 0.8);
+  pg.addColorStop(0, `rgba(8,10,18,${0.92 - shimmer * 0.15})`);
+  pg.addColorStop(0.7, `rgba(20,28,48,${0.85 - shimmer * 0.1})`);
+  pg.addColorStop(1, "rgba(120,150,200,0.12)");
+  g.fillStyle = pg;
+  g.beginPath();
+  g.arc(x, y, r * 0.8, 0, Math.PI * 2);
+  g.fill();
+  // faint swirl — it wants to wake up
+  if (!reducedMotion) {
+    g.save();
+    g.translate(x, y);
+    g.rotate(time * 0.25);
+    g.strokeStyle = `rgba(170,200,240,${0.18 + shimmer * 0.15})`;
+    g.lineWidth = Math.max(1, r * 0.04);
+    for (let i = 0; i < 3; i++) {
+      g.beginPath();
+      g.arc(0, 0, r * (0.25 + i * 0.18), i * 2.1, i * 2.1 + 3.6);
+      g.stroke();
+    }
+    g.restore();
+  }
+
+  // selection ring
+  if (selected) {
+    g.strokeStyle = "rgba(220,235,255,0.9)";
+    g.lineWidth = 2 * dpr;
+    g.setLineDash([10 * dpr, 7 * dpr]);
+    g.lineDashOffset = -time * 30 * dpr;
+    g.beginPath();
+    g.arc(x, y, r * 1.5, 0, Math.PI * 2);
+    g.stroke();
+    g.setLineDash([]);
+  }
+
+  // label
+  const fs = Math.max(10, 12 * dpr);
+  g.font = `600 ${fs}px system-ui, sans-serif`;
+  g.textAlign = "center";
+  g.shadowColor = "rgba(0,0,0,0.9)";
+  g.shadowBlur = 6 * dpr;
+  g.fillStyle = selected ? "#ffffff" : "rgba(210,225,245,0.85)";
+  g.fillText("Jump Gate", x, y + r + 20 * dpr);
+  g.shadowBlur = 0;
+}
+
+/** Burning fires + rising smoke on a planet under attack. */
+function drawPlanetFires(
+  g: CanvasRenderingContext2D,
+  px: number, py: number, pr: number,
+  spots: Array<{ x: number; y: number; s: number }>,
+  time: number, reducedMotion: boolean,
+): void {
+  g.save();
+  g.beginPath();
+  g.arc(px, py, pr, 0, Math.PI * 2);
+  g.clip();
+  for (let i = 0; i < spots.length; i++) {
+    const sp = spots[i];
+    const fx = px + sp.x * pr;
+    const fy = py + sp.y * pr;
+    const flick = reducedMotion ? 1 : 0.75 + 0.25 * Math.sin(time * 9 + i * 2.4) + 0.1 * Math.sin(time * 23 + i);
+    const fr = pr * 0.22 * sp.s * flick;
+    // outer glow
+    const fg = g.createRadialGradient(fx, fy, 0, fx, fy, fr * 2.4);
+    fg.addColorStop(0, `rgba(255,120,30,${0.55 * flick})`);
+    fg.addColorStop(0.5, `rgba(255,60,10,${0.28 * flick})`);
+    fg.addColorStop(1, "rgba(255,40,0,0)");
+    g.fillStyle = fg;
+    g.beginPath();
+    g.arc(fx, fy, fr * 2.4, 0, Math.PI * 2);
+    g.fill();
+    // hot core
+    const cg = g.createRadialGradient(fx, fy, 0, fx, fy, fr);
+    cg.addColorStop(0, `rgba(255,240,200,${0.95 * flick})`);
+    cg.addColorStop(0.6, `rgba(255,160,60,${0.8 * flick})`);
+    cg.addColorStop(1, "rgba(255,80,20,0)");
+    g.fillStyle = cg;
+    g.beginPath();
+    g.arc(fx, fy, fr, 0, Math.PI * 2);
+    g.fill();
+    // smoke wisp drifting up
+    if (!reducedMotion) {
+      const rise = ((time * 0.35 + i * 0.37) % 1);
+      const sx = fx + Math.sin(time * 1.3 + i * 3) * pr * 0.06;
+      const sy = fy - rise * pr * 0.9;
+      const sa = (1 - rise) * 0.28;
+      const sg = g.createRadialGradient(sx, sy, 0, sx, sy, pr * 0.16 * (0.5 + rise));
+      sg.addColorStop(0, `rgba(60,60,70,${sa})`);
+      sg.addColorStop(1, "rgba(60,60,70,0)");
+      g.fillStyle = sg;
+      g.beginPath();
+      g.arc(sx, sy, pr * 0.16 * (0.5 + rise), 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  g.restore();
+}
+
+/** Animated attack tracers — jump-ship trails converging on the target. */
+function drawWarTracers(
+  g: CanvasRenderingContext2D,
+  wars: PlanetWar[],
+  screenPos: Map<string, { x: number; y: number; r: number }>,
+  time: number, dpr: number, reducedMotion: boolean,
+): void {
+  for (const w of wars) {
+    const target = screenPos.get(w.planetId);
+    if (!target) continue;
+    for (const atkId of w.attackers) {
+      const atk = screenPos.get(atkId);
+      if (!atk) continue;
+      const x0 = atk.x, y0 = atk.y;
+      const x1 = target.x, y1 = target.y;
+      // control point — bow the arc away from the system center
+      const mx = (x0 + x1) / 2;
+      const my = (y0 + y1) / 2;
+      const dx = x1 - x0, dy = y1 - y0;
+      const len = Math.max(1, Math.hypot(dx, dy));
+      const bow = len * 0.18;
+      const cxp = mx - (dy / len) * bow;
+      const cyp = my + (dx / len) * bow;
+      // faint full arc
+      g.strokeStyle = "rgba(255,90,40,0.22)";
+      g.lineWidth = 1.5 * dpr;
+      g.beginPath();
+      g.moveTo(x0, y0);
+      g.quadraticCurveTo(cxp, cyp, x1, y1);
+      g.stroke();
+      // animated dash pulse racing toward the target
+      if (!reducedMotion) {
+        const t = (time * 0.55) % 1;
+        const q0 = 1 - t;
+        // point on quadratic bezier at q0 (near attacker) and at 1 (target)
+        const px = (1 - q0) * (1 - q0) * x0 + 2 * (1 - q0) * q0 * cxp + q0 * q0 * x1;
+        const py = (1 - q0) * (1 - q0) * y0 + 2 * (1 - q0) * q0 * cyp + q0 * q0 * y1;
+        const sg = g.createRadialGradient(px, py, 0, px, py, 7 * dpr);
+        sg.addColorStop(0, "rgba(255,200,120,0.95)");
+        sg.addColorStop(0.4, "rgba(255,110,40,0.6)");
+        sg.addColorStop(1, "rgba(255,80,20,0)");
+        g.fillStyle = sg;
+        g.beginPath();
+        g.arc(px, py, 7 * dpr, 0, Math.PI * 2);
+        g.fill();
+      }
+      // impact flare on the target
+      const fl = reducedMotion ? 0.7 : 0.55 + 0.3 * Math.sin(time * 7 + x1);
+      const ig = g.createRadialGradient(x1, y1, 0, x1, y1, target.r * 0.9);
+      ig.addColorStop(0, `rgba(255,150,60,${0.35 * fl})`);
+      ig.addColorStop(1, "rgba(255,80,20,0)");
+      g.fillStyle = ig;
+      g.beginPath();
+      g.arc(x1, y1, target.r * 0.9, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
 }
 
 const TEX = 256;
@@ -558,9 +869,18 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
   const [hint, setHint] = useState<string | null>(null);
   const [muted, setMuted] = useState(sound.muted);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [war, setWar] = useState<SystemWarState | null>(null);
+  // Demo War toggle — Hans's graphics check. Clearly fake, clearly labeled.
+  const [demoWar, setDemoWar] = useState<boolean>(() => isWarDemo());
+  const effectiveWar = demoWar ? DEMO_WAR : war;
+  const isDemo = demoWar;
 
   // Mutable render state (not React state — updated every frame)
-  const view = useRef({ rotation: 0, scale: 1, targetScale: 1, cx: 0, cy: 0, tScale: 1 });
+  const view = useRef({ rotation: 0, scale: 1, targetScale: 1, cx: 0, cy: 0, tcx: 0, tcy: 0, tScale: 1 });
+  const gateRef = useRef({ angle: Math.PI * 0.75, orbitRadius: 470, size: 26 });
+  const gateScreenRef = useRef<{ x: number; y: number; r: number } | null>(null);
+  const warRef = useRef<SystemWarState | null>(null);
+  warRef.current = effectiveWar;
   const drag = useRef<{ x: number; y: number; startX: number; startY: number; moved: boolean; lastT: number; vel: number } | null>(null);
   const planetsRef = useRef(planets);
   planetsRef.current = planets;
@@ -595,6 +915,22 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
       );
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // War-state polling — the live war map feed (TODO(Hans): real endpoint)
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const w = await fetchWarState();
+        if (!cancelled) setWar(w);
+      } catch {
+        if (!cancelled) setWar(null);
+      }
+    };
+    void poll();
+    const id = window.setInterval(poll, WAR_POLL_MS);
+    return () => { cancelled = true; window.clearInterval(id); };
   }, []);
 
   // Music + grand entrance: start on mount (a user gesture — signup — already
@@ -672,12 +1008,17 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
 
       // smooth zoom
       v.scale += (v.targetScale - v.scale) * Math.min(1, dt * 8);
+      // smooth camera pan (jump-gate focus)
+      v.cx += (v.tcx - v.cx) * Math.min(1, dt * 5);
+      v.cy += (v.tcy - v.cy) * Math.min(1, dt * 5);
 
       // Orbit the planets (unless reduced motion)
       if (!reducedMotion.current) {
         for (const p of planetsRef.current) {
           if (p.server.status !== "soon") p.angle += p.orbitSpeed * dt;
         }
+        // the Jump Gate drifts almost imperceptibly — it has been waiting
+        gateRef.current.angle += dt * 0.008;
         // slow ambient rotation
         if (!drag.current) v.rotation += dt * 0.02;
       }
@@ -1018,6 +1359,36 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
         g.fillText(p.server.raceName, px, labelY + fs * 1.15);
       }
 
+      // --- LIVE WAR — fires on burning worlds, tracers between attackers ---
+      const warState = warRef.current;
+      const attackedIds = new Set((warState?.wars ?? []).map((w) => w.planetId));
+      if (warState?.active) {
+        for (const p of planetsRef.current) {
+          if (!attackedIds.has(p.server.id)) continue;
+          const pos = screenPos.get(p.server.id);
+          if (!pos) continue;
+          drawPlanetFires(g, pos.x, pos.y, pos.r, fireSpotsFor(p.server.id, 5), time, reducedMotion.current);
+        }
+        drawWarTracers(g, warState.wars, screenPos, time, dpr, reducedMotion.current);
+      }
+
+      // --- THE JUMP GATE — dormant, waiting ---
+      const gate = gateRef.current;
+      const ga = gate.angle + v.rotation * 0.3;
+      const gOrbit = gate.orbitRadius * s;
+      const gx = cx + Math.cos(ga) * gOrbit;
+      const gy = cy + Math.sin(ga) * gOrbit * 0.92;
+      const gr = Math.max(12 * dpr, gate.size * s);
+      const gateSel = selectedRef.current === "jump-gate";
+      drawJumpGate(g, gx, gy, gr, time, dpr, gateSel, reducedMotion.current);
+      screenPos.set("jump-gate", { x: gx, y: gy, r: gr * 1.6 });
+      gateScreenRef.current = { x: gx, y: gy, r: gr };
+      // camera: ease toward the gate while it is selected
+      if (gateSel) {
+        v.tcx = -(gx - W / 2 - v.cx);
+        v.tcy = -(gy - H / 2 - v.cy);
+      }
+
       // expose for hit testing
       (canvas as unknown as { __planets: typeof screenPos }).__planets = screenPos;
     };
@@ -1084,6 +1455,23 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
       // tap → select or deselect
       const id = hitTest(e.clientX, e.clientY);
       if (id) {
+        // the Jump Gate is its own selectable mystery
+        if (id === "jump-gate") {
+          if (selectedRef.current === id) {
+            playDeselect();
+            setSelectedId(null);
+            view.current.tcx = 0;
+            view.current.tcy = 0;
+            view.current.targetScale = 1;
+          } else {
+            playSelect();
+            setSelectedId(id);
+            setHint(null);
+            // zoom the camera into the gate (high orbit — never ground)
+            view.current.targetScale = 2.0;
+          }
+          return;
+        }
         const planet = planetsRef.current.find((p) => p.server.id === id);
         if (!planet) return;
         if (planet.server.status === "soon") {
@@ -1099,14 +1487,20 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
         if (selectedRef.current === id) {
           playDeselect();
           setSelectedId(null);
+          view.current.targetScale = 1;
         } else {
           playSelect();
           setSelectedId(id);
+          // zoom in toward the world (high orbit — never ground level)
+          view.current.targetScale = 1.55;
         }
         setHint(null);
       } else if (selectedRef.current) {
         playDeselect();
         setSelectedId(null);
+        view.current.tcx = 0;
+        view.current.tcy = 0;
+        view.current.targetScale = 1;
       }
     } else {
       // fling → whoosh if fast
@@ -1161,10 +1555,38 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
   const closeDetail = useCallback(() => {
     playDeselect();
     setSelectedId(null);
+    view.current.tcx = 0;
+    view.current.tcy = 0;
+    view.current.targetScale = 1;
   }, []);
+
+  const zoomOut = useCallback(() => {
+    playClick();
+    setSelectedId(null);
+    view.current.tcx = 0;
+    view.current.tcy = 0;
+    view.current.targetScale = 1;
+    setHint(null);
+  }, []);
+
+  const toggleDemoWar = useCallback(() => {
+    playClick();
+    setDemoWar((d) => !d);
+  }, []);
+
+  // ---- live war map status ----
+  const warActive = effectiveWar?.active === true;
+  const attackedCount = effectiveWar?.wars.length ?? 0;
+  const attackedIds = new Set((effectiveWar?.wars ?? []).map((w) => w.planetId));
+  const reverbDropFor = (planetId: string): number | undefined =>
+    effectiveWar?.wars.find((w) => w.planetId === planetId)?.reverbDrop;
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100dvh", overflow: "hidden", background: "#04060d" }}>
+      <style>{`
+        @keyframes warPulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
+        @keyframes quietSurge { 0%,100% { opacity: 0.45; } 50% { opacity: 0.95; } }
+      `}</style>
       {/* header */}
       <div
         style={{
@@ -1180,18 +1602,67 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
           <p style={{ margin: "2px 0 0", fontSize: 13, color: "rgba(220,230,245,0.7)" }}>
             {t("starmap.subtitle", "Six worlds, one quarantine. Drag to spin — tap a world to inspect it, then claim your colony.")}
           </p>
+          {/* system war status — alive every login */}
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 8, marginTop: 8,
+              padding: "5px 12px", borderRadius: 999, fontSize: 12, fontWeight: 700,
+              letterSpacing: "0.08em",
+              color: warActive ? "#ffb4a2" : "#a7f3d0",
+              background: warActive ? "rgba(127,29,29,0.55)" : "rgba(6,78,59,0.45)",
+              border: warActive ? "1px solid rgba(248,113,113,0.6)" : "1px solid rgba(52,211,153,0.35)",
+              animation: warActive ? "warPulse 1.6s ease-in-out infinite" : "quietSurge 4s ease-in-out infinite",
+            }}
+          >
+            {warActive ? (
+              <>⚔ {isDemo ? "DEMO WAR" : "WAR"} — {attackedCount} {attackedCount === 1 ? "world" : "worlds"} under attack{isDemo ? " (simulated)" : ""}</>
+            ) : (
+              <>◌ ALL QUIET</>
+            )}
+          </div>
         </div>
-        <button
-          onClick={() => { playClick(); toggleMute(); }}
-          aria-label={muted ? t("starmap.unmute", "Unmute") : t("starmap.mute", "Mute")}
-          style={{
-            pointerEvents: "auto", width: 40, height: 40, borderRadius: "50%",
-            border: "1px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.06)",
-            color: "#fff", fontSize: 18, cursor: "pointer",
-          }}
-        >
-          {muted ? "🔇" : "🔊"}
-        </button>
+        <div style={{ display: "flex", gap: 8, pointerEvents: "auto" }}>
+          {/* Demo War toggle — Hans's graphics check, clearly labeled fake */}
+          <button
+            onClick={toggleDemoWar}
+            aria-pressed={demoWar}
+            title={t("starmap.demoWarHint", "Simulate an attack to check the war graphics — not real war data.")}
+            style={{
+              height: 40, padding: "0 12px", borderRadius: 20,
+              border: demoWar ? "1px solid rgba(251,191,36,0.8)" : "1px solid rgba(255,255,255,0.2)",
+              background: demoWar ? "rgba(120,53,15,0.75)" : "rgba(255,255,255,0.06)",
+              color: demoWar ? "#fde68a" : "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            {demoWar ? "🔥 Demo War: ON" : "Demo War"}
+          </button>
+          {/* zoom out — back to the full system */}
+          <button
+            onClick={zoomOut}
+            aria-label={t("starmap.zoomOut", "Zoom out to full system")}
+            title={t("starmap.zoomOut", "Zoom out to full system")}
+            style={{
+              width: 40, height: 40, borderRadius: "50%",
+              border: "1px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.06)",
+              color: "#fff", fontSize: 18, cursor: "pointer",
+            }}
+          >
+            ⤢
+          </button>
+          <button
+            onClick={() => { playClick(); toggleMute(); }}
+            aria-label={muted ? t("starmap.unmute", "Unmute") : t("starmap.mute", "Mute")}
+            style={{
+              width: 40, height: 40, borderRadius: "50%",
+              border: "1px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.06)",
+              color: "#fff", fontSize: 18, cursor: "pointer",
+            }}
+          >
+            {muted ? "🔇" : "🔊"}
+          </button>
+        </div>
       </div>
 
       {/* canvas */}
@@ -1230,8 +1701,90 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
           planet={selected}
           onClaim={handleClaim}
           onClose={closeDetail}
+          reverbDrop={reverbDropFor(selected.server.id)}
+          underAttack={attackedIds.has(selected.server.id)}
+          isDemo={isDemo}
         />
       )}
+      {/* jump gate panel */}
+      {selectedId === "jump-gate" && (
+        <GatePanel onClose={closeDetail} />
+      )}
+    </div>
+  );
+}
+
+/** The Jump Gate — a dormant mystery. Nobody built it. Nobody can read it. */
+function GatePanel({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  return (
+    <div
+      style={{
+        position: "absolute", zIndex: 7, left: 0, right: 0, bottom: 0,
+        maxHeight: "62dvh", overflowY: "auto",
+        background: "linear-gradient(180deg, rgba(16,20,32,0.96), rgba(8,10,18,0.98))",
+        borderTop: "1px solid rgba(180,200,230,0.35)",
+        borderTopLeftRadius: 18, borderTopRightRadius: 18,
+        padding: "12px 18px 22px",
+        boxShadow: "0 -12px 48px rgba(150,180,230,0.25)",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.25)" }} />
+      </div>
+      <button
+        onClick={onClose}
+        aria-label={t("starmap.close", "Close")}
+        style={{
+          position: "absolute", top: 10, right: 12, width: 32, height: 32,
+          borderRadius: "50%", border: "1px solid rgba(255,255,255,0.2)",
+          background: "rgba(255,255,255,0.06)", color: "#fff", fontSize: 16, cursor: "pointer",
+        }}
+      >
+        ✕
+      </button>
+
+      <h3 style={{ margin: "0 0 2px", fontSize: 19, color: "#fff" }}>
+        {t("starmap.gateTitle", "The Jump Gate")}
+      </h3>
+      <p style={{ margin: "0 0 10px", fontSize: 12, letterSpacing: "0.14em", color: "rgba(180,200,230,0.75)" }}>
+        {t("starmap.gateStatus", "DORMANT — PORTALS DARK")}
+      </p>
+
+      <p style={{ margin: "0 0 10px", fontSize: 14, lineHeight: 1.6, color: "rgba(230,236,248,0.9)", fontStyle: "italic" }}>
+        {t(
+          "starmap.gateLore",
+          "This alloy is not from us — or anyone else here. The markings match nothing in any archive. The portals are dark, but the ring hums when you get close, like it is waiting for something to come through.",
+        )}
+      </p>
+
+      <div
+        style={{
+          display: "flex", gap: 6, justifyContent: "center", margin: "4px 0 14px",
+          fontSize: 22, color: "rgba(180,200,230,0.8)", letterSpacing: "0.2em",
+          userSelect: "none",
+        }}
+        aria-hidden="true"
+      >
+        <span>⌁</span><span>⍟</span><span>⎔</span><span>⌬</span><span>⍉</span><span>⎈</span><span>⌭</span>
+      </div>
+
+      <p style={{ margin: "0 0 14px", fontSize: 13, color: "rgba(200,212,230,0.65)", textAlign: "center" }}>
+        {t("starmap.gateHint", "No ship you own can reach it. Not yet.")}
+      </p>
+
+      <button
+        onClick={onClose}
+        aria-label={t("starmap.backToSolarSystem", "Back to solar system")}
+        style={{
+          width: "100%", padding: 12, borderRadius: 10,
+          border: "1px solid rgba(255,255,255,0.2)",
+          background: "rgba(255,255,255,0.06)",
+          color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer",
+        }}
+      >
+        ← {t("starmap.backToSolarSystem", "Back to Solar System")}
+      </button>
     </div>
   );
 }
@@ -1241,10 +1794,16 @@ function DetailPanel({
   planet,
   onClaim,
   onClose,
+  reverbDrop,
+  underAttack,
+  isDemo,
 }: {
   planet: PlanetDatum;
   onClaim: () => void;
   onClose: () => void;
+  reverbDrop?: number;
+  underAttack?: boolean;
+  isDemo?: boolean;
 }) {
   const t = useT();
   const race = getRace(planet.server.raceId);
@@ -1307,7 +1866,21 @@ function DetailPanel({
               <span>{t("servers.inhabitants", "{count} inhabitants", { count: planet.playerCount.toLocaleString() })}</span>
             )}
             {planet.reverb !== undefined && (
-              <span>{t("servers.reverb", "Reverb {score}", { score: planet.reverb.toLocaleString() })}</span>
+              <span style={underAttack ? { color: "#fca5a5", fontWeight: 700 } : undefined}>
+                {t("servers.reverb", "Reverb {score}", { score: planet.reverb.toLocaleString() })}
+                {underAttack && reverbDrop !== undefined && (
+                  <> <span style={{ color: "#f87171" }}>▼{reverbDrop.toLocaleString()}</span>{isDemo ? " (demo)" : ""}</>
+                )}
+              </span>
+            )}
+            {underAttack && (
+              <span style={{
+                padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 800,
+                letterSpacing: "0.06em", color: "#fecaca",
+                background: "rgba(127,29,29,0.6)", border: "1px solid rgba(248,113,113,0.5)",
+              }}>
+                ⚔ {isDemo ? t("servers.demoAttack", "DEMO ATTACK") : t("servers.underAttack", "UNDER ATTACK")}
+              </span>
             )}
           </div>
         </div>
