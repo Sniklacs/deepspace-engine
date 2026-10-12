@@ -56,6 +56,43 @@ function stopIntroMusic(): void {
   }
 }
 
+/**
+ * The gate title: "THE UNBOUND" rushes from tiny to huge, then BOOM.
+ * The boom fires at ~1.85s when the title slams to full size.
+ */
+function TitleRush({ t }: { t: (k: string, d: string) => string }) {
+  useEffect(() => {
+    const boomTimer = window.setTimeout(() => {
+      try {
+        const boom = new Audio("/audio/intro-boom.m4a");
+        boom.volume = 1.0;
+        void boom.play().catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    }, 1850);
+    return () => window.clearTimeout(boomTimer);
+  }, []);
+
+  return (
+    <div className="title-rush flex flex-col items-center">
+      <p className="text-xs font-semibold uppercase tracking-[0.4em] text-amber-300">
+        {t("intro.kicker", "A saga that feeds itself")}
+      </p>
+      <h1
+        className="mt-3 font-black tracking-wide text-white"
+        style={{
+          fontSize: "clamp(3rem, 12vw, 6rem)",
+          textShadow:
+            "0 0 30px rgba(245,158,11,0.6), 0 0 80px rgba(245,158,11,0.3), 0 4px 24px rgba(0,0,0,0.9)",
+        }}
+      >
+        {t("landing.brand", "The Unbound")}
+      </h1>
+    </div>
+  );
+}
+
 export default function IntroSequence() {
   const t = useT();
   const navigate = useNavigate();
@@ -193,32 +230,36 @@ export default function IntroSequence() {
         <button
           type="button"
           onClick={begin}
-          className="flex min-h-full w-full flex-col items-center justify-center gap-6 px-6 text-center"
+          className="relative flex min-h-full w-full flex-col items-center justify-center overflow-hidden px-6 text-center"
           aria-label={t("intro.enter", "Enter The Unbound")}
         >
-          {/* shattered-ring emblem */}
-          <svg width="72" height="72" viewBox="0 0 26 26" fill="none" aria-hidden="true">
-            <circle
-              cx="13"
-              cy="13"
-              r="10.5"
-              stroke="#f59e0b"
-              strokeWidth="1.4"
-              strokeDasharray="52 14"
-              strokeLinecap="round"
-              transform="rotate(-30 13 13)"
-            />
-            <circle cx="13" cy="13" r="3.2" fill="#f59e0b" />
-          </svg>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.4em] text-amber-300/80">
-              {t("intro.kicker", "A saga that feeds itself")}
-            </p>
-            <h1 className="mt-3 text-4xl font-black tracking-wide text-white sm:text-5xl">
-              {t("landing.brand", "The Unbound")}
-            </h1>
-          </div>
-          <p className="animate-pulse text-sm font-semibold uppercase tracking-[0.3em] text-zinc-400">
+          {/* Rushing title: starts tiny, hurtles toward the viewer, then BOOM. */}
+          <style>{`
+            @keyframes title-rush {
+              0% { transform: scale(0.1); opacity: 0; filter: brightness(0.4); }
+              55% { transform: scale(0.7); opacity: 1; filter: brightness(0.9); }
+              82% { transform: scale(2.6); opacity: 1; filter: brightness(1.6); }
+              100% { transform: scale(2.6); opacity: 1; filter: brightness(1.6); }
+            }
+            @keyframes title-shake {
+              0%, 100% { transform: scale(2.6) translate(0, 0); }
+              20% { transform: scale(2.6) translate(-6px, 3px); }
+              40% { transform: scale(2.6) translate(5px, -4px); }
+              60% { transform: scale(2.6) translate(-4px, -3px); }
+              80% { transform: scale(2.6) translate(4px, 4px); }
+            }
+            @keyframes kicker-fade {
+              0%, 70% { opacity: 0; }
+              100% { opacity: 1; }
+            }
+            .title-rush {
+              animation: title-rush 2.2s cubic-bezier(0.15, 0.85, 0.35, 1) forwards,
+                         title-shake 0.5s ease-in-out 2.2s 3;
+            }
+            .kicker-fade { animation: kicker-fade 3.2s ease-out forwards; }
+          `}</style>
+          <TitleRush t={t} />
+          <p className="kicker-fade absolute bottom-16 animate-pulse text-sm font-semibold uppercase tracking-[0.3em] text-zinc-400">
             {t("intro.tapToEnter", "Tap to enter")}
           </p>
         </button>
