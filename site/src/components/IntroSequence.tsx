@@ -80,8 +80,22 @@ function startIntroMusic(): void {
   }
 }
 
-function stopIntroMusic(): void {
+/** Go FULLSCREEN (Hans, Oct 12 2026): no browser chrome, all game.
+ *  Must be called from a user gesture (the entry taps qualify). */
+function goFullscreen(): void {
   try {
+    const el = document.documentElement;
+    if (el.requestFullscreen && !document.fullscreenElement) {
+      void el.requestFullscreen({ navigationUI: "hide" }).catch(() => {
+        void el.requestFullscreen().catch(() => {});
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function stopIntroMusic(): void {  try {
     if (introMusicEl) {
       introMusicEl.pause();
       introMusicEl.currentTime = 0;
@@ -181,6 +195,7 @@ export default function IntroSequence() {
   // Begin the sequence: this tap is the user gesture that unlocks audio.
   const begin = useCallback(() => {
     sound.prime();
+    goFullscreen();
     setPhase("voice");
     try {
       const a = new Audio(VOICE_SRC);
