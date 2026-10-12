@@ -75,21 +75,31 @@ function TitleRush({ t }: { t: (k: string, d: string) => string }) {
   }, []);
 
   return (
-    <div className="title-rush flex flex-col items-center">
-      <p className="text-xs font-semibold uppercase tracking-[0.4em] text-amber-300">
+    <>
+      {/* Kicker: static, above the title, like the original. */}
+      <p className="absolute top-[28%] text-xs font-semibold uppercase tracking-[0.4em] text-amber-300/80">
         {t("intro.kicker", "A saga that feeds itself")}
       </p>
-      <h1
-        className="mt-3 font-black tracking-wide text-white"
-        style={{
-          fontSize: "clamp(3rem, 12vw, 6rem)",
-          textShadow:
-            "0 0 30px rgba(245,158,11,0.6), 0 0 80px rgba(245,158,11,0.3), 0 4px 24px rgba(0,0,0,0.9)",
-        }}
-      >
-        {t("landing.brand", "The Unbound")}
-      </h1>
-    </div>
+      <div className="title-rush flex flex-col items-center">
+        <h1
+          className="font-black tracking-wide"
+          style={{
+            fontSize: "clamp(2.5rem, 10vw, 4.5rem)",
+            background:
+              "linear-gradient(180deg, #fff7e6 0%, #fcd34d 25%, #f59e0b 45%, #b45309 65%, #451a03 85%, #fbbf24 100%)",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            color: "transparent",
+            WebkitTextStroke: "1px rgba(120, 53, 15, 0.6)",
+            textShadow:
+              "0 0 40px rgba(245,158,11,0.5), 0 0 100px rgba(180,83,9,0.4), 0 6px 30px rgba(0,0,0,0.9)",
+            filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.8))",
+          }}
+        >
+          {t("landing.brand", "The Unbound")}
+        </h1>
+      </div>
+    </>
   );
 }
 
@@ -238,15 +248,15 @@ export default function IntroSequence() {
             @keyframes title-rush {
               0% { transform: scale(0.1); opacity: 0; filter: brightness(0.4); }
               55% { transform: scale(0.7); opacity: 1; filter: brightness(0.9); }
-              82% { transform: scale(1.35); opacity: 1; filter: brightness(1.6); }
-              100% { transform: scale(1.35); opacity: 1; filter: brightness(1.6); }
+              82% { transform: scale(1.12); opacity: 1; filter: brightness(1.6); }
+              100% { transform: scale(1.12); opacity: 1; filter: brightness(1.6); }
             }
             @keyframes title-shake {
-              0%, 100% { transform: scale(1.35) translate(0, 0); }
-              20% { transform: scale(1.35) translate(-6px, 3px); }
-              40% { transform: scale(1.35) translate(5px, -4px); }
-              60% { transform: scale(1.35) translate(-4px, -3px); }
-              80% { transform: scale(1.35) translate(4px, 4px); }
+              0%, 100% { transform: scale(1.12) translate(0, 0); }
+              20% { transform: scale(1.12) translate(-6px, 3px); }
+              40% { transform: scale(1.12) translate(5px, -4px); }
+              60% { transform: scale(1.12) translate(-4px, -3px); }
+              80% { transform: scale(1.12) translate(4px, 4px); }
             }
             @keyframes kicker-fade {
               0%, 88% { opacity: 0; }
