@@ -100,23 +100,12 @@ function TitleRush({ t, onSlamDone }: { t: (k: string, d: string) => string; onS
         {t("intro.kicker", "A saga that feeds itself")}
       </p>
       <div className="title-rush flex flex-col items-center">
-        <h1
-          className="font-black tracking-wide"
-          style={{
-            fontSize: "clamp(2.5rem, 10vw, 4.5rem)",
-            background:
-              "linear-gradient(180deg, #fff7e6 0%, #fcd34d 25%, #f59e0b 45%, #b45309 65%, #451a03 85%, #fbbf24 100%)",
-            WebkitBackgroundClip: "text",
-            backgroundClip: "text",
-            color: "transparent",
-            WebkitTextStroke: "1px rgba(120, 53, 15, 0.6)",
-            textShadow:
-              "0 0 40px rgba(245,158,11,0.5), 0 0 100px rgba(180,83,9,0.4), 0 6px 30px rgba(0,0,0,0.9)",
-            filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.8))",
-          }}
-        >
-          {t("landing.brand", "The Unbound")}
-        </h1>
+        <img
+          src="/art/title-unbound.webp"
+          alt="The Unbound"
+          className="w-[85vw] max-w-[600px]"
+          draggable={false}
+        />
       </div>
     </>
   );
