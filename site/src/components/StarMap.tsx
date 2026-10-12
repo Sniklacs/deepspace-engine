@@ -1349,6 +1349,18 @@ function DetailPanel({
           {t("servers.downHint", "{name} is offline right now — try another server.", { name: planet.server.name })}
         </p>
       )}
+      <button
+        onClick={onClose}
+        aria-label={t("starmap.backToSolarSystem", "Back to solar system")}
+        style={{
+          width: "100%", padding: 12, marginTop: 8, borderRadius: 10,
+          border: "1px solid rgba(255,255,255,0.2)",
+          background: "rgba(255,255,255,0.06)",
+          color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer",
+        }}
+      >
+        ← {t("starmap.backToSolarSystem", "Back to Solar System")}
+      </button>
     </div>
   );
 }
