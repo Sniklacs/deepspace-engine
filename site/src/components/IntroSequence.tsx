@@ -249,14 +249,15 @@ export default function IntroSequence() {
               80% { transform: scale(2.6) translate(4px, 4px); }
             }
             @keyframes kicker-fade {
-              0%, 70% { opacity: 0; }
+              0%, 88% { opacity: 0; }
               100% { opacity: 1; }
             }
             .title-rush {
               animation: title-rush 2.2s cubic-bezier(0.15, 0.85, 0.35, 1) forwards,
                          title-shake 0.5s ease-in-out 2.2s 3;
             }
-            .kicker-fade { animation: kicker-fade 3.2s ease-out forwards; }
+            /* Tap to enter fades in ~2s after the title slams home. Clean. */
+            .kicker-fade { animation: kicker-fade 5.8s ease-out forwards; }
           `}</style>
           <TitleRush t={t} />
           <p className="kicker-fade absolute bottom-16 animate-pulse text-sm font-semibold uppercase tracking-[0.3em] text-zinc-400">
