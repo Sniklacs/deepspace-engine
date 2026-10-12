@@ -24,11 +24,13 @@ import { memorialNodeIds, type MemorialPlaque } from "./memorials";
 import { colonyMarkerName, type KnownColony } from "./worldmap";
 import type { GameState, Zone } from "./types";
 import type { IncomingRaidAlert } from "./raid-protocol";
+import type { Alliance } from "./war/alliances";
 
 /** Every toggleable layer on the globe. */
 export type GlobeLayerId =
   | "home"
   | "colonies"
+  | "alliance"
   | "husks"
   | "sites"
   | "chorus"
@@ -53,6 +55,7 @@ export type GlobeIconId =
   | "monument" // memorial — obelisk plaque
   | "satellite" // orbital watcher — parabolic dish silhouette
   | "beachhead" // beachhead banner — everyone knows where it is
+  | "shield" // alliance standard — your war band's holdings
   | "arena"; // stadium bowl — the arena's legend silhouette; the globe
              // itself renders the full stadium sprite (WorldGlobe.tsx)
 
@@ -84,6 +87,12 @@ export const GLOBE_LAYERS: GlobeLayerMeta[] = [
   // color no other layer uses (shape still carries the meaning).
   { id: "arena", label: "Arena", color: "#e879f9", defaultOn: true, blurb: "Open to everybody — duel & practice", icon: "arena" },
   { id: "colonies", label: "Colonies", color: "#34d399", defaultOn: true, blurb: "Known colonies by owner", icon: "hut" },
+  // GEV HUB PASS (Hans, Oct 12 2026): alliance holdings get their own
+  // toggleable layer — known colonies flown under your war band's banner
+  // (plus your own sub colonies) wear the shield instead of the plain hut,
+  // so your people's ground reads at a glance. Indigo — no other layer
+  // uses it (shape still carries the meaning).
+  { id: "alliance", label: "Alliance holdings", color: "#818cf8", defaultOn: true, blurb: "Your war band's colonies", icon: "shield" },
   { id: "sites", label: "World sites", color: "#7dd3fc", defaultOn: true, blurb: "T1 / T2 / T3 sites", icon: "ember" },
   { id: "husks", label: "Husks", color: "#9ca3af", defaultOn: true, blurb: "Dead colonies, claimable", icon: "husk" },
   { id: "memorials", label: "Memorials", color: "#fde68a", defaultOn: false, blurb: "Battle plaques", icon: "monument" },
@@ -405,6 +414,25 @@ function zoneName(zoneId: string): string {
 }
 
 /**
+ * The player's own alliance, read from the on-state alliance store.
+ * Defensive on purpose: the store is seeded by the engine tick
+ * (ensureAlliances), and this pure builder must never mutate state to
+ * find out — a missing store simply means "no band" (mirrors how
+ * memorials are read in buildGlobeMarkers). Pure.
+ */
+export function playerAlliance(state: GameState): Alliance | null {
+  const store = (state as unknown as { alliances?: Record<string, Alliance> }).alliances;
+  if (!store || !state.gameId) return null;
+  for (const id of Object.keys(store)) {
+    const a = store[id];
+    if (a && Array.isArray(a.members) && a.members.some((m) => m.colonyId === state.gameId)) {
+      return a;
+    }
+  }
+  return null;
+}
+
+/**
  * Build every globe marker from game state. Pure — no clock, no I/O.
  * `now` is only used for raid ETA sublabels.
  */
@@ -492,6 +520,42 @@ export function buildGlobeMarkers(state: GameState, now: number): GlobeMarker[] 
       priority: isHusk ? 45 : 70,
       ref: { kind: "colony", colony: c, key },
     });
+  }
+
+  // Alliance holdings (GEV hub pass, Hans Oct 12 2026): known colonies that
+  // fly the player's own war-band banner wear the shield on their own
+  // toggleable layer. The marker RIDES the colony's position at a higher
+  // declutter priority than the plain hut, so with both layers on your
+  // people's ground reads as shields; toggle Colonies off and only your
+  // band's holdings remain. The ref is the same colony ref — the detail
+  // sheet (raid / glean / claim) works unchanged. The alliance store is
+  // read defensively (same pattern as memorials below): this builder
+  // stays pure and never seeds the store.
+  const myAlliance = playerAlliance(state);
+  if (myAlliance) {
+    const memberIds = new Set(myAlliance.members.map((m) => m.colonyId));
+    for (const c of known) {
+      if (c.status === "husk") continue; // dead ground — the husks layer owns it
+      if (c.id === state.gameId) continue; // home itself — the home layer owns it
+      const mine = !!c.subClaim; // the player's own sub colony, held for the band
+      if (!mine && !memberIds.has(c.id)) continue;
+      const key = `${c.serverId}:${c.id}`;
+      const pos = colonyGlobePosition(key);
+      markers.push({
+        id: `ally:${key}`,
+        layer: "alliance",
+        lat: pos.lat,
+        lon: pos.lon,
+        label: colonyMarkerName(c.ownerName),
+        sublabel: mine
+          ? `Your holding · ⚑ ${myAlliance.name}`
+          : `⚑ ${myAlliance.name}${c.status === "abandoned" ? " · Abandoned" : ""}`,
+        color: GLOBE_LAYER_META.alliance.color,
+        icon: "shield",
+        priority: 72,
+        ref: { kind: "colony", colony: c, key },
+      });
+    }
   }
 
   // World sites — every zone, tiered by risk.

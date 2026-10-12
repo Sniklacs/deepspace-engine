@@ -527,6 +527,20 @@ export function drawGlobeIconGlyph(g: CanvasRenderingContext2D, kind: GlobeIconI
       g.closePath();
       g.fill();
       break;
+    case "shield":
+      // alliance standard — a bold heater shield: flat top, sides
+      // curving down to the bottom point. One filled silhouette with a
+      // chunky inner cross-bar cut in the underlay color pass — reads as
+      // "held ground, defended" at 16px, distinct from hut and banner.
+      g.beginPath();
+      g.moveTo(-h * 0.8, -h * 0.85);
+      g.lineTo(h * 0.8, -h * 0.85);
+      g.lineTo(h * 0.8, -h * 0.05);
+      g.quadraticCurveTo(h * 0.78, h * 0.55, 0, h * 0.95);
+      g.quadraticCurveTo(-h * 0.78, h * 0.55, -h * 0.8, -h * 0.05);
+      g.closePath();
+      g.fill();
+      break;
     case "arena":
       // stadium silhouette for the legend — oval bowl ring + inner field.
       // (The globe itself renders the full stadium sprite, not this glyph.)
@@ -2534,27 +2548,37 @@ export default function WorldGlobe({
       // CRADLE ENTRY (slice 10): tapping the Cradle's home-layer marker
       // starts the tap→focus→hover→descend chain (spec §10). The Z1 detail
       // sheet still opens — it is the fallback path for players who never
-      // spread; the gesture is the fast path. The existing
-      // GlobeFocusTarget/focusViewTarget ease does the centering — reused,
-      // not rewritten.
+      // spread; the gesture is the fast path.
+      // GEV HUB PASS (Hans, Oct 12 2026): the approach is ONE CONTINUOUS
+      // CINEMATIC FLIGHT — orbit → hover pose in a single eased motion
+      // (spin, tilt and zoom arriving together), and the second tap dives
+      // hover → ground in a single flight through Z2→Z3→Z4. The legacy
+      // focusAnim ease + separate targetScale drive are retired here.
       if (id === "home") {
         const ceHome = cradleRef.current.entry;
-        if (ceHome === "FREE" || ceHome === "FOCUSING" || ceHome === "HOVERING") {          const home = markersRef.current.find((m) => m.id === "home");
+        if (ceHome === "FREE" || ceHome === "FOCUSING" || ceHome === "HOVERING") {
+          const home = markersRef.current.find((m) => m.id === "home");
           if (home) {
             const target = focusViewTarget(home.lat, home.lon);
-            focusAnim.current = { ...target, nonce: (focusAnim.current?.nonce ?? 0) + 1 };
-            cradleEaseRef.current = true;
             hoverAnchorRef.current = { spin: target.spin, tilt: target.tilt };
             playSelect();
             setSelectedId("home");
             setLinkHint(null);
-            sendCradleRef.current({ type: "TAP_CRADLE" });
-            // HOVERING → DESCENDING via the marker tap: the tap is the
-            // enter gesture's button-equivalent here — drive z; the
-            // z-guard lands INSIDE when the camera arrives.
-            if (cradleRef.current.entry === "DESCENDING") {
-              view.current.targetScale = BAND_Z4;
-              lastInteract.current = performance.now();
+            if (ceHome === "HOVERING") {
+              // Second tap at the hover pose = the enter gesture: one
+              // continuous dive to the ground. The z-guard walks the
+              // machine DESCENDING → INSIDE as the flight crosses bands;
+              // a grab or pinch cancels the flight (cancelFlight reflex)
+              // and the player's own fingers drive the descent from there.
+              sendCradleRef.current({ type: "TAP_CRADLE" });
+              flyToPose(target.spin, target.tilt, BAND_Z4);
+            } else {
+              // Approach flight: center home AND sink to the Z1/Z2 hover
+              // boundary in one motion. Flight completion fires EASE_DONE
+              // (cradleEaseRef) → HOVERING.
+              cradleEaseRef.current = true;
+              flyToPose(target.spin, target.tilt, BAND_Z2);
+              sendCradleRef.current({ type: "TAP_CRADLE" });
             }
             return;
           }
@@ -2576,6 +2600,22 @@ export default function WorldGlobe({
         } else {
           playSelect();
           setSelectedId(id);
+          // GEV HUB PASS (Hans, Oct 12 2026): tapping a marker at orbit
+          // flies the camera to it — center + sink toward the surface in
+          // ONE continuous flight (orbit → site approach), while the
+          // detail sheet opens below. Only from Z1: deeper bands are
+          // already surface work, so selection alone changes there. The
+          // cradle-entry machine owns the camera unless it's FREE.
+          if (
+            cradleRef.current.entry === "FREE" &&
+            bandForScale(view.current.scale) === "Z1"
+          ) {
+            const m = markersRef.current.find((mk) => mk.id === id);
+            if (m) {
+              const target = focusViewTarget(m.lat, m.lon);
+              flyToPose(target.spin, target.tilt, bandCenter("Z2"));
+            }
+          }
         }
         setLinkHint(null);
       } else if (selectedIdRef.current) {
@@ -2723,9 +2763,12 @@ export default function WorldGlobe({
     if (next === prev) return;
     cradleRef.current = next;
     setCradle(next);
-    // FOCUSING → FREE abandons the centering ease (it belongs to the flow).
-    if (prev.entry === "FOCUSING" && next.entry === "FREE") {
+    // FOCUSING/HOVERING → FREE abandons the approach (its ease/flight
+    // belongs to the flow). GEV hub pass: the approach is a cinematic
+    // flight now — abandon it too, or it would land a stale EASE_DONE.
+    if (next.entry === "FREE" && (prev.entry === "FOCUSING" || prev.entry === "HOVERING")) {
       focusAnim.current = null;
+      flightRef.current = null;
       cradleEaseRef.current = false;
     }
     // The one-time "spread to enter" hint: entering HOVERING, max 3
@@ -2800,7 +2843,8 @@ export default function WorldGlobe({
     const prevEntry = cradleRef.current.entry;
     if (prevEntry === "FREE") {
       // Button-equivalent of tapping the home marker: the home layer must
-      // be visible, then the existing focus ease centers it (not rewritten).
+      // be visible, then ONE cinematic flight centers home and sinks to
+      // the hover pose (GEV hub pass — the legacy focus ease is retired).
       const home = markersRef.current.find((m) => m.id === "home");
       if (!home) return;
       setLayersOn((pl) => {
@@ -2814,32 +2858,35 @@ export default function WorldGlobe({
         return nx;
       });
       const target = focusViewTarget(home.lat, home.lon);
-      focusAnim.current = { ...target, nonce: (focusAnim.current?.nonce ?? 0) + 1 };
       cradleEaseRef.current = true;
       hoverAnchorRef.current = { spin: target.spin, tilt: target.tilt };
       playSelect();
+      flyToPose(target.spin, target.tilt, BAND_Z2);
       sendCradleEvent({ type: "TAP_CRADLE" });
       return;
     }
     playSelect();
     sendCradleEvent({ type: "TAP_CRADLE" });
-    // HOVERING → DESCENDING: drive z; the z-guard lands INSIDE on arrival.
+    // HOVERING → DESCENDING: one continuous flight to the ground; the
+    // z-guard lands INSIDE on arrival. A grab cancels the flight and the
+    // player's fingers take over the descent (cancelFlight reflex).
     if (cradleRef.current.entry === "DESCENDING") {
-      view.current.targetScale = BAND_Z4;
-      lastInteract.current = performance.now();
+      const home = markersRef.current.find((m) => m.id === "home");
+      const target = home ? focusViewTarget(home.lat, home.lon) : view.current;
+      flyToPose(target.spin, target.tilt, BAND_Z4);
     }
-  }, [sendCradleEvent]);
+  }, [sendCradleEvent, flyToPose]);
 
   /** "Leave" — the button-equivalent of pinch-out (spec §10). The camera
-   *  pulls back out; the z-guard walks the machine home to FREE. */
+   *  flies back out to orbit in one motion; the z-guard walks the machine
+   *  home to FREE as the flight crosses the bands. */
   const leaveCradle = useCallback(() => {
     playDeselect();
     sendCradleEvent({ type: "PINCH_OUT" });
     if (cradleRef.current.entry !== "FREE") {
-      view.current.targetScale = 1;
-      lastInteract.current = performance.now();
+      flyToPose(view.current.spin, view.current.tilt, 1);
     }
-  }, [sendCradleEvent]);
+  }, [sendCradleEvent, flyToPose]);
 
   // ---- MODULE OVERLAY (Phase 2, slice 11) ----
   /** Tap a building inside INSIDE → its module opens as an overlay over the
@@ -2934,11 +2981,11 @@ export default function WorldGlobe({
 
         {/* Legend — every layer toggleable (globe furniture; parks in the system view) */}
         {!inSystem && !mapFullscreen && (
-        <div className="absolute left-2 top-2 z-10 max-h-[70%] overflow-y-auto rounded-xl border border-white/10 bg-black/55 p-1.5 backdrop-blur-sm">
+        <div className="absolute left-2 top-2 z-10 max-h-[70%] w-48 max-w-[54vw] overflow-y-auto rounded-xl border border-white/10 bg-black/55 p-1.5 backdrop-blur-sm">
           <button
             type="button"
             onClick={() => setLegendOpen((o) => !o)}
-            className="flex w-full items-center justify-between gap-2 px-1.5 py-1 text-[11px] font-bold uppercase tracking-wider text-gray-200"
+            className="flex min-h-[2.5rem] w-full items-center justify-between gap-2 px-2 py-2 text-[12px] font-bold uppercase tracking-wider text-gray-200"
             aria-expanded={legendOpen}
           >
             {t("worldglobe.legend", "Legend")}
@@ -2953,7 +3000,7 @@ export default function WorldGlobe({
                     onClick={() => (l.id === "home" ? openHomeSheet() : toggleLayer(l.id))}
                     aria-pressed={layersOn[l.id]}
                     title={l.blurb}
-                    className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-[12px] transition-opacity ${
+                    className={`flex min-h-[2.75rem] w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] transition-opacity ${
                       layersOn[l.id] ? "text-gray-100" : "text-gray-500 opacity-60"
                     }`}
                   >
@@ -2963,7 +3010,7 @@ export default function WorldGlobe({
                       src={globeIconURL(l.icon, l.color)}
                       alt=""
                       aria-hidden
-                      className="h-4 w-4 shrink-0"
+                      className="h-5 w-5 shrink-0"
                       style={{ filter: layersOn[l.id] ? `drop-shadow(0 0 4px ${l.color})` : "none" }}
                     />
                     <span className="flex-1">{t(`worldglobe.layer.${l.id}`, l.label)}</span>
@@ -2980,7 +3027,7 @@ export default function WorldGlobe({
                           onClick={() => toggleTier(tier)}
                           aria-pressed={filters.siteTiers[tier]}
                           title={t(`worldglobe.tier.${tier}`, tier === 3 ? "T3 — hard sites (chipsets)" : `T${tier} sites`)}
-                          className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${
+                          className={`flex min-h-[2rem] items-center gap-1 rounded-md border px-2 py-1.5 text-[11px] font-bold ${
                             filters.siteTiers[tier]
                               ? "border-white/20 bg-white/10 text-gray-100"
                               : "border-white/5 bg-transparent text-gray-500 opacity-50"

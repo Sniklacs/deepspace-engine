@@ -16,6 +16,7 @@ import {
   GLOBE_LAYERS,
   GLOBE_SITE_TIER_COLOR,
   hash2i,
+  playerAlliance,
   projectGlobe,
   ridgeAxisAngle,
   satelliteWatchPosition,
@@ -246,6 +247,78 @@ describe("buildGlobeMarkers", () => {
     for (const l of GLOBE_LAYERS) {
       expect(typeof counts[l.id]).toBe("number");
     }
+  });
+
+  test("alliance layer: member colonies wear the shield, others don't", () => {
+    const st = baseState({
+      alliances: {
+        a1: {
+          id: "a1",
+          name: "Ashen Band",
+          members: [{ colonyId: "g1" }, { colonyId: "c2" }],
+        },
+      },
+      worldMap: {
+        known: {
+          "s1:c2": { id: "c2", serverId: "s1", ownerName: "Friend", race: "grays", status: "active", lastScouted: NOW },
+          "s1:c3": { id: "c3", serverId: "s1", ownerName: "Stranger", race: "grays", status: "active", lastScouted: NOW },
+          "s1:c4": { id: "c4", serverId: "s1", ownerName: "Dead Ally", race: "grays", status: "husk", lastScouted: NOW },
+        },
+        raids: [],
+        raidWarnings: [],
+        incomingRaids: [],
+        reports: {},
+        probes: [],
+        lastActive: NOW,
+      },
+    });
+    const ms = buildGlobeMarkers(st, NOW);
+    const ally = ms.filter((m) => m.layer === "alliance");
+    // Only the living member colony — not the stranger, not the husk.
+    expect(ally).toHaveLength(1);
+    expect(ally[0].id).toBe("ally:s1:c2");
+    expect(ally[0].icon).toBe("shield");
+    expect(ally[0].sublabel.includes("Ashen Band")).toBe(true);
+    expect(ally[0].ref.kind).toBe("colony");
+    // The shield outranks the plain hut at the same position.
+    const hut = ms.find((m) => m.id === "colony:s1:c2");
+    expect(hut).toBeDefined();
+    expect(ally[0].priority).toBeGreaterThan(hut!.priority);
+    expect(ally[0].lat).toBe(hut!.lat);
+    expect(ally[0].lon).toBe(hut!.lon);
+  });
+
+  test("alliance layer: own sub colonies count as holdings", () => {
+    const st = baseState({
+      alliances: {
+        a1: { id: "a1", name: "Ashen Band", members: [{ colonyId: "g1" }] },
+      },
+      worldMap: {
+        known: {
+          "s1:c9": {
+            id: "c9", serverId: "s1", ownerName: "Hans", race: "draconians",
+            status: "sub_colony", lastScouted: NOW,
+            subClaim: { claimedAt: NOW },
+          },
+        },
+        raids: [],
+        raidWarnings: [],
+        incomingRaids: [],
+        reports: {},
+        probes: [],
+        lastActive: NOW,
+      },
+    });
+    const ms = buildGlobeMarkers(st, NOW);
+    const ally = ms.filter((m) => m.layer === "alliance");
+    expect(ally).toHaveLength(1);
+    expect(ally[0].sublabel.includes("Your holding")).toBe(true);
+  });
+
+  test("alliance layer: no alliance → no shield markers, never throws", () => {
+    const ms = buildGlobeMarkers(baseState(), NOW);
+    expect(ms.filter((m) => m.layer === "alliance")).toHaveLength(0);
+    expect(playerAlliance(baseState())).toBeNull();
   });
 });
 
@@ -858,6 +931,15 @@ describe("WS3 zero-dots audit (Hans, Oct 4 2026)", () => {
     return {
       gameId: "g1",
       playerName: "Hans",
+      // The audit player flies a war-band banner and "Friend" (active1) is
+      // a member — so the alliance shield rides a marker in this fixture.
+      alliances: {
+        a1: {
+          id: "a1",
+          name: "Audit Band",
+          members: [{ colonyId: "g1" }, { colonyId: "active1" }],
+        },
+      },
       worldMap: {
         known: {
           "s1:active1": {
@@ -930,6 +1012,7 @@ describe("WS3 zero-dots audit (Hans, Oct 4 2026)", () => {
     "monument",
     "satellite",
     "beachhead",
+    "shield",
     "arena",
   ];
 
@@ -1260,6 +1343,7 @@ describe("WS3 visual-QA: globe icon glyph paths — every case draws a distinct 
     "monument",
     "satellite",
     "beachhead",
+    "shield",
     "arena",
   ];
 
