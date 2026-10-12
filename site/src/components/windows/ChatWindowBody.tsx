@@ -1,33 +1,23 @@
 // ChatWindowBody — the chat surface as a window's content (owner 2026-10-01).
 //
-// Refactored from ChatSheet: the same tabs + thread + composer + keyboard
-// clamp, but the WindowFrame owns the chrome (title bar, minimize, close) so
-// there is no Sheet, no backdrop, no swipe-down close, no auto-close. The
-// window stays open until the player closes or minimizes it.
+// The WindowFrame owns the chrome (title bar, minimize, close); this body is
+// the surface tabs plus `ChatSurfaceBody` (chat/SurfacePanels.tsx), which
+// renders every surface — World, Covenant, Rooms, Personal, Mail — and the
+// composer as the column's last flex child. Slice A2 (2026-10-12) made all
+// five surfaces live; A1's world-only body is history.
 //
 // Bigger by default (owner: "bigger window so you can see chats better") —
 // the frame is near-full-screen on phones.
-import { useEffect, useSyncExternalStore, useCallback, useState } from "react";
-import { EmptyRow } from "../ui/RowButton";
+import { useEffect, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18n";
 import { ChatSurfaceTabs, surfaceLabel } from "../chat/ChatSurfaceTabs";
-import { Composer } from "../chat/Composer";
-import { MessageList } from "../chat/MessageList";
-import { MemberProfile } from "../alliance/MemberProfile";
+import { ChatSurfaceBody } from "../chat/SurfacePanels";
 import {
   chatServerSnapshot,
   chatSnapshot,
-  refreshChat,
   setChatSurface,
   subscribeChat,
 } from "../../game/chat/chat-store";
-import {
-  chatMemberServerSnapshot,
-  chatMemberSnapshot,
-  resolveChatMember,
-  subscribeChatMembers,
-} from "../../game/chat/chat-members";
-import type { GameResult } from "../../game/api";
 import { patchWindow } from "../../game/windows/window-store";
 
 /** Height of the visual viewport, in px. Set only while the keyboard can matter. */
@@ -66,18 +56,7 @@ function useKeyboardClamp(active: boolean): void {
 export function ChatWindowBody({ windowId }: { windowId: string }) {
   const t = useT();
   const chat = useSyncExternalStore(subscribeChat, chatSnapshot, chatServerSnapshot);
-  // Alliance directory (owner 2026-10-11): sender avatars + tap-to-profile.
-  const memberCtx = useSyncExternalStore(subscribeChatMembers, chatMemberSnapshot, chatMemberServerSnapshot);
-  const [profileId, setProfileId] = useState<string | null>(null);
   useKeyboardClamp(chat.open);
-
-  const act = useCallback((fn: () => Promise<GameResult>, _label: string) => {
-    void fn().catch(() => {});
-  }, []);
-
-  const profileMember = profileId && memberCtx
-    ? memberCtx.alliance.members.find((m) => m.colonyId === profileId) ?? null
-    : null;
 
   const title = surfaceLabel(t, chat.surface);
   const sub =
@@ -92,56 +71,11 @@ export function ChatWindowBody({ windowId }: { windowId: string }) {
     patchWindow(windowId, { titleFallback: title });
   }, [windowId, title]);
 
-  const body = chat.signedOut ? (
-    <EmptyRow icon="chat" text={t("chat.loggedOut", "Sign in to talk with your world.")} />
-  ) : chat.surface === "world" ? (
-    <MessageList
-      messages={chat.messages}
-      me={chat.me}
-      phase={chat.phase}
-      errorText={chat.errorKey === "chat.loadFailed" ? t("chat.loadFailed", "The channel did not load.") : null}
-      retryText={t("chat.retry", "Try again")}
-      openingText={t("chat.opening", "Opening the channel…")}
-      onRetry={() => void refreshChat()}
-      emptyText={t("chat.world.empty", "The world channel is quiet. Say the first thing.")}
-      resolveMember={resolveChatMember}
-      memberToken={memberCtx?.token}
-      onMemberTap={(m) => setProfileId(m.colonyId)}
-    />
-  ) : chat.surface === "covenant" ? (
-    <EmptyRow icon="users" text={t("chat.covenant.none", "You are not in a Covenant yet. This channel opens the day you join one.")} />
-  ) : (
-    <EmptyRow icon="hash" text={t("chat.locked", "Opens later")} />
-  );
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       {sub && <p className="flex-none px-4 pt-2 text-xs text-text-3">{sub}</p>}
       <ChatSurfaceTabs value={chat.surface} onChange={setChatSurface} />
-      <div
-        id={`chat-panel-${chat.surface}`}
-        role="tabpanel"
-        aria-labelledby={`chat-tab-${chat.surface}`}
-        className="flex min-h-0 flex-1 flex-col gap-3 px-4 py-3"
-      >
-        {body}
-      </div>
-      {/* The composer is the LAST flex child and exists only where a player may
-          write. No fixed bar, no floating input. */}
-      {chat.surface === "world" && !chat.signedOut ? <Composer /> : null}
-      {/* Tap a member in chat → their info panel (owner 2026-10-11). */}
-      {profileMember && memberCtx && (
-        <MemberProfile
-          member={profileMember}
-          alliance={memberCtx.alliance}
-          me={memberCtx.me}
-          isLeader={memberCtx.isLeader}
-          isOfficer={memberCtx.isOfficer}
-          token={memberCtx.token}
-          onAction={act}
-          onClose={() => setProfileId(null)}
-        />
-      )}
+      <ChatSurfaceBody />
     </div>
   );
 }

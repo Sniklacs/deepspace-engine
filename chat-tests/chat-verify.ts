@@ -385,8 +385,18 @@ void g1; void g2;
 section("9 · THE API DOORS ARE ZOD-VALIDATED AND THE RULES LIVE SERVER-SIDE");
 const apiChatSrc = readFileSync(`${SITE}/src/game/chat/chat-api.ts`, "utf8");
 check("all three chat server functions exist", ["worldFeedFn", "sendWorldFn", "chatSyncFn"].every((n) => apiChatSrc.includes(`export const ${n} = createServerFn`)));
-check("each one is zod-validated before it reaches a rule (3 of 3)", (apiChatSrc.match(/\.validator\(/g) ?? []).length === 3);
-check("each one is a POST (a message is never a cacheable GET)", (apiChatSrc.match(/createServerFn\(\{ method: "POST" \}\)/g) ?? []).length === 3);
+// Slice A2 widened the door count (channels, lists, threads, rooms, letters), so
+// the property is asserted, not the A1 count: EVERY exported server function is
+// a zod-validated POST — the two counts must equal the function count.
+const chatFnCount = (apiChatSrc.match(/export const \w+Fn = createServerFn/g) ?? []).length;
+check(
+  `every chat server function is zod-validated before it reaches a rule (${chatFnCount} of ${chatFnCount})`,
+  chatFnCount > 3 && (apiChatSrc.match(/\.validator\(/g) ?? []).length === chatFnCount
+);
+check(
+  "every one is a POST (a message is never a cacheable GET)",
+  (apiChatSrc.match(/createServerFn\(\{ method: "POST" \}\)/g) ?? []).length === chatFnCount
+);
 check("the limits are not re-implemented in the API layer — it calls chat-server's functions", apiChatSrc.includes("sendWorldMessage({") && apiChatSrc.includes("chatSync({") && !apiChatSrc.includes("CHAT_MIN_GAP_MS"));
 check("the chat module imports nothing from the DEVICE record (chat UI state is not stored there)", !/dse\.device/.test(readFileSync(`${SITE}/src/game/chat/chat-types.ts`, "utf8") + readFileSync(`${SITE}/src/game/chat/chat-server.ts`, "utf8")));
 const chatCodeNoComments = stripComments(

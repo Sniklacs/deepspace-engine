@@ -30,7 +30,21 @@
 //     them. That is honest and accepted (chat-mail-spec §3.4) — nothing here
 //     promises otherwise.
 
-import { chatSyncFn, sendWorldFn } from "./chat-api";
+import {
+  channelFeedFn,
+  chatListsFn,
+  chatSyncFn,
+  closeThreadFn,
+  createRoomFn,
+  joinRoomFn,
+  leaveRoomFn,
+  markLetterReadFn,
+  markReadFn,
+  openThreadFn,
+  sendChannelFn,
+  sendLetterFn,
+  sendWorldFn,
+} from "./chat-api";
 import { sound } from "../sound";
 import { deviceSnapshot } from "../i18n/device";
 import {
@@ -40,10 +54,16 @@ import {
   subscribeWindows,
 } from "../windows/window-store";
 import {
+  channelKind,
   CHAT_SURFACES,
+  personalChannel,
   unreadChip,
+  type ChatCovenant,
   type ChatMessage,
+  type ChatRoomView,
   type ChatSurface,
+  type ChatThreadView,
+  type MailLetter,
 } from "./chat-types";
 
 export interface ChatState {
@@ -65,6 +85,21 @@ export interface ChatState {
   sending: boolean;
   /** the signed-in account id — my own lines read "You" and sit at the logical end */
   me: string | null;
+  // ── slice A2 ────────────────────────────────────────────────────────────
+  /** my Covenant (alliance), or null when bandless — from the server's answer */
+  covenant: ChatCovenant | null;
+  /** the open non-world channel (`covenant:…` / `room:…` / `personal:…`), or null = the surface's list */
+  activeChannel: string | null;
+  /** the active channel's feed, oldest first */
+  channelMessages: ChatMessage[];
+  /** my personal threads, newest conversation first */
+  threads: ChatThreadView[];
+  /** the room directory */
+  rooms: ChatRoomView[];
+  /** letters addressed to me, oldest first (the panel renders newest first) */
+  letters: MailLetter[];
+  /** true once one lists answer has landed */
+  listsLoaded: boolean;
 }
 
 const ZERO_UNREAD = (): Record<ChatSurface, number> =>
@@ -82,6 +117,13 @@ function initialState(): ChatState {
     signedOut: false,
     sending: false,
     me: null,
+    covenant: null,
+    activeChannel: null,
+    channelMessages: [],
+    threads: [],
+    rooms: [],
+    letters: [],
+    listsLoaded: false,
   };
 }
 
@@ -239,9 +281,12 @@ subscribeWindows(() => {
   }
 });
 
-/** Switch tabs. The bar follows the player's last choice when nothing is unread. */
+/** Switch tabs. The bar follows the player's last choice when nothing is unread.
+ *  A channel view belongs to its surface — switching tabs returns to the list. */
 export function setChatSurface(surface: ChatSurface): void {
-  set({ surface, lastSurface: surface });
+  set({ surface, lastSurface: surface, activeChannel: null, channelMessages: [] });
+  if (surface === "rooms" || surface === "personal" || surface === "mail") void refreshLists();
+  if (surface === "covenant" && state.covenant) openChannel(state.covenant.channel);
 }
 
 // ── the poll ────────────────────────────────────────────────────────────────
@@ -288,7 +333,15 @@ export async function refreshChat(): Promise<void> {
       phase: "ready",
       errorKey: null,
       signedOut: false,
+      covenant: res.covenant !== undefined ? res.covenant : state.covenant,
     });
+    // Slice A2: while the window is open, the open channel and the lists ride
+    // the same beat — a room or a DM updates live, not on the next visit.
+    if (state.open) {
+      if (state.activeChannel) void refreshChannel();
+      else if (state.surface === "covenant" && res.covenant) openChannel(res.covenant.channel);
+      else if (state.surface === "rooms" || state.surface === "personal" || state.surface === "mail") void refreshLists();
+    }
   } catch {
     set({ phase: "error", errorKey: "chat.loadFailed" });
   }
@@ -324,5 +377,187 @@ export async function sendChatMessage(body: string, lang: string): Promise<SendO
   } catch {
     set({ sending: false });
     return { ok: false, errorKey: "chat.sendFailed" };
+  }
+}
+
+// ── slice A2: channels, lists, letters ──────────────────────────────────────
+
+/** Open a non-world channel: fetch its feed and clear its unread count. */
+export function openChannel(channel: string): void {
+  if (state.activeChannel === channel) {
+    void refreshChannel();
+    return;
+  }
+  set({ activeChannel: channel, channelMessages: [] });
+  void refreshChannel();
+  if (token) {
+    void markReadFn({ data: { token, channel } })
+      .then(() => void refreshChat())
+      .catch(() => {});
+  }
+}
+
+/** Back to the surface's list (rooms directory / thread list). */
+export function closeChannelView(): void {
+  set({ activeChannel: null, channelMessages: [] });
+  void refreshLists();
+}
+
+/** One feed fetch for the open channel. A failure keeps the lines on screen. */
+export async function refreshChannel(): Promise<void> {
+  const channel = state.activeChannel;
+  if (!token || !channel) return;
+  try {
+    const res = await channelFeedFn({ data: { token, channel } });
+    if (res.ok && state.activeChannel === channel) {
+      set({ channelMessages: res.messages ?? state.channelMessages });
+    }
+  } catch {
+    /* stale-while-error: the last feed stays */
+  }
+}
+
+/** The lists answer: threads, the room directory, my letters, my covenant. */
+export async function refreshLists(): Promise<void> {
+  if (!token) return;
+  try {
+    const res = await chatListsFn({ data: { token } });
+    if (!res.ok) return;
+    set({
+      threads: res.threads ?? state.threads,
+      rooms: res.rooms ?? state.rooms,
+      letters: res.letters ?? state.letters,
+      covenant: res.covenant !== undefined ? res.covenant : state.covenant,
+      listsLoaded: true,
+    });
+  } catch {
+    /* the last lists stay on screen */
+  }
+}
+
+/** Post one line to the OPEN channel. Same contract as the world's send. */
+export async function sendChannelChatMessage(body: string, lang: string): Promise<SendOutcome> {
+  const channel = state.activeChannel;
+  if (!token) return { ok: false, errorKey: "chat.loggedOut" };
+  if (!channel) return { ok: false, errorKey: "chat.sendFailed" };
+  set({ sending: true });
+  try {
+    const res = await sendChannelFn({ data: { token, channel, body, lang } });
+    if (res.signedOut) {
+      set({ sending: false, signedOut: true });
+      return { ok: false, errorKey: "chat.loggedOut" };
+    }
+    if (!res.ok || !res.message) {
+      set({ sending: false });
+      return { ok: false, errorKey: res.errorKey ?? "chat.sendFailed" };
+    }
+    set({
+      channelMessages: state.activeChannel === channel ? [...state.channelMessages, res.message] : state.channelMessages,
+      sending: false,
+    });
+    return { ok: true };
+  } catch {
+    set({ sending: false });
+    return { ok: false, errorKey: "chat.sendFailed" };
+  }
+}
+
+/** Open (or start) a personal thread with a colony, by exact name. */
+export async function startThread(colonyName: string): Promise<SendOutcome> {
+  if (!token) return { ok: false, errorKey: "chat.loggedOut" };
+  try {
+    const res = await openThreadFn({ data: { token, colonyName } });
+    if (res.signedOut) return { ok: false, errorKey: "chat.loggedOut" };
+    if (!res.ok || !res.channel) return { ok: false, errorKey: res.errorKey ?? "chat.noSuchColony" };
+    set({ surface: "personal", lastSurface: "personal" });
+    await refreshLists();
+    openChannel(res.channel);
+    return { ok: true };
+  } catch {
+    return { ok: false, errorKey: "chat.sendFailed" };
+  }
+}
+
+/** Close the personal thread behind the open channel (either side may). */
+export async function closeActiveThread(): Promise<void> {
+  const channel = state.activeChannel;
+  if (!token || !channel || channelKind(channel) !== "personal") return;
+  const threadId = channel.slice(personalChannel("").length);
+  try {
+    await closeThreadFn({ data: { token, threadId } });
+  } catch {
+    /* the list refresh below shows the truth either way */
+  }
+  await refreshLists();
+  void refreshChannel();
+}
+
+/** Create a room and step inside it. */
+export async function createChatRoom(name: string): Promise<SendOutcome> {
+  if (!token) return { ok: false, errorKey: "chat.loggedOut" };
+  try {
+    const res = await createRoomFn({ data: { token, name } });
+    if (res.signedOut) return { ok: false, errorKey: "chat.loggedOut" };
+    if (!res.ok || !res.channel) return { ok: false, errorKey: res.errorKey ?? "chat.roomName" };
+    set({ surface: "rooms", lastSurface: "rooms" });
+    await refreshLists();
+    openChannel(res.channel);
+    return { ok: true };
+  } catch {
+    return { ok: false, errorKey: "chat.sendFailed" };
+  }
+}
+
+/** Join a room from the directory, then open it. */
+export async function joinChatRoom(roomId: string, channel: string): Promise<SendOutcome> {
+  if (!token) return { ok: false, errorKey: "chat.loggedOut" };
+  try {
+    const res = await joinRoomFn({ data: { token, roomId } });
+    if (!res.ok) return { ok: false, errorKey: res.errorKey ?? "chat.noSuchRoom" };
+    await refreshLists();
+    openChannel(channel);
+    return { ok: true };
+  } catch {
+    return { ok: false, errorKey: "chat.sendFailed" };
+  }
+}
+
+/** Leave a room; if I am standing in it, step back to the directory. */
+export async function leaveChatRoom(roomId: string): Promise<void> {
+  if (!token) return;
+  try {
+    await leaveRoomFn({ data: { token, roomId } });
+  } catch {
+    /* the refresh shows the truth */
+  }
+  if (state.activeChannel === `room:${roomId}`) set({ activeChannel: null, channelMessages: [] });
+  await refreshLists();
+}
+
+/** Write a letter to a colony, by exact name. */
+export async function sendChatLetter(colonyName: string, subject: string, body: string, lang: string): Promise<SendOutcome> {
+  if (!token) return { ok: false, errorKey: "chat.loggedOut" };
+  try {
+    const res = await sendLetterFn({ data: { token, colonyName, subject, body, lang } });
+    if (res.signedOut) return { ok: false, errorKey: "chat.loggedOut" };
+    if (!res.ok) return { ok: false, errorKey: res.errorKey ?? "chat.sendFailed" };
+    return { ok: true };
+  } catch {
+    return { ok: false, errorKey: "chat.sendFailed" };
+  }
+}
+
+/** Open a letter: stamp it read on the server and in the local list at once. */
+export async function readChatLetter(letterId: string): Promise<void> {
+  // Optimistic local stamp: the badge clears the moment the letter opens.
+  set({
+    letters: state.letters.map((l) => (l.id === letterId && l.readAt === null ? { ...l, readAt: Date.now() } : l)),
+  });
+  if (!token) return;
+  try {
+    await markLetterReadFn({ data: { token, letterId } });
+    void refreshChat();
+  } catch {
+    /* the next lists refresh shows the truth */
   }
 }

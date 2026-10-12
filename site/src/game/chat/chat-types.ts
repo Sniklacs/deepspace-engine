@@ -26,8 +26,15 @@ export type ChatChannelKind = "world" | "covenant" | "room" | "personal";
 
 /** The one world channel. Every colony on the world reads and writes it. */
 export const WORLD_CHANNEL = "world";
-/** The Covenant channel. No Covenant entity exists yet — the tab is honestly locked. */
+/** The Covenant channel prefix. The Covenant IS the player's alliance (the war
+ *  band): its channel is keyed per alliance (`covenant:<allianceId>`) so one
+ *  band can never read another's floor. The bare key stays as the kind marker. */
 export const COVENANT_CHANNEL = "covenant";
+
+/** `covenant:<allianceId>` — one alliance's private floor. */
+export function covenantChannel(allianceId: string): string {
+  return `covenant:${allianceId}`;
+}
 
 /** `room:<roomId>` — a joined room's channel. */
 export function roomChannel(roomId: string): string {
@@ -40,7 +47,7 @@ export function personalChannel(threadId: string): string {
 /** Which kind a flattened channel key belongs to (unknown keys read as a room). */
 export function channelKind(channel: string): ChatChannelKind {
   if (channel === WORLD_CHANNEL) return "world";
-  if (channel === COVENANT_CHANNEL) return "covenant";
+  if (channel === COVENANT_CHANNEL || channel.startsWith("covenant:")) return "covenant";
   if (channel.startsWith("personal:")) return "personal";
   return "room";
 }
@@ -116,6 +123,35 @@ export interface ChatRead {
   accountId: string;
   channel: string;
   lastReadAt: number;
+}
+
+/** One thread as the Personal list renders it (slice A2): the other party named
+ *  as their colony stands NOW, the tail of the conversation, and the count. */
+export interface ChatThreadView {
+  thread: ChatThread;
+  /** the OTHER participant's account id */
+  otherAccount: string;
+  /** the other participant's colony name (their account id if unnamed) */
+  otherName: string;
+  lastBody: string | null;
+  lastAt: number | null;
+  unread: number;
+}
+
+/** One room as the Rooms directory renders it (slice A2). */
+export interface ChatRoomView {
+  room: ChatRoom;
+  joined: boolean;
+  memberCount: number;
+  unread: number;
+}
+
+/** The player's Covenant (alliance) as chat knows it, or null when bandless. */
+export interface ChatCovenant {
+  allianceId: string;
+  name: string;
+  /** the flattened channel key: `covenant:<allianceId>` */
+  channel: string;
 }
 
 /** A letter: server-stored, player-to-player, and it survives being offline (D14). */

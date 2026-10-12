@@ -1,34 +1,23 @@
-// ChatSheet — the chat surface (chat-mail-spec §3.2, D3).
+// ChatSheet — the chat surface as a sheet (chat-mail-spec §3.2, D3).
 //
-// A 85vh `Sheet` (the SHIPPED primitive — not a second modal, and not the 300px
-// push-panel the shell spec once proposed: five tabs + a thread + a composer +
-// a keyboard do not fit in 300px). This file owns the VIEW STATE and nothing
-// else: it reads the chat store, says which surface is on screen, and hands the
-// scrolling region to `MessageList` and the input line to `Composer`. There is no
-// message data here, no fetch here and no rule here.
+// The window (ChatWindowBody) is the surface the shell actually opens; this
+// sheet renders the SAME body (`ChatSurfaceBody`, SurfacePanels.tsx) inside
+// the shipped `Sheet` primitive for any surface that still mounts it, so the
+// two can never drift apart. Slice A2 (2026-10-12) made all five surfaces
+// live in that shared body.
 //
-// THE KEYBOARD RULE (§3.2) is the most likely defect on the phones this beta
-// targets, so it is structural rather than hopeful:
-//   • nothing inside the sheet is `position: fixed` — the composer is the LAST
-//     FLEX CHILD, so it rides the panel's own box;
-//   • the panel is clamped from `window.visualViewport`, guarded — where the API
-//     is absent (or there is no keyboard) nothing is set and the CSS falls back
-//     to the shipped 85vh/bottom:0;
-//   • the lift (`--chat-vk`) is the part of the layout viewport the keyboard
-//     covers. Both variables exist only while this sheet is open, so no other
-//     sheet inherits them.
+// THE KEYBOARD RULE (§3.2) is structural: nothing inside the sheet is
+// `position: fixed` — the composer is the panel column's LAST FLEX CHILD —
+// and the panel is clamped from `window.visualViewport` while open.
 import { useEffect, useSyncExternalStore } from "react";
 import { Sheet, SheetHeader } from "../Sheet";
-import { EmptyRow } from "../ui/RowButton";
 import { useT } from "../i18n/I18n";
 import { ChatSurfaceTabs, surfaceLabel } from "./ChatSurfaceTabs";
-import { Composer } from "./Composer";
-import { MessageList } from "./MessageList";
+import { ChatSurfaceBody } from "./SurfacePanels";
 import {
   chatServerSnapshot,
   chatSnapshot,
   closeChat,
-  refreshChat,
   setChatSurface,
   subscribeChat,
 } from "../../game/chat/chat-store";
@@ -79,29 +68,6 @@ export function ChatSheet() {
         ? t("chat.covenant.sub", "Your Covenant's channel")
         : undefined;
 
-  // The World surface is the ONE live channel in A1 (the store says so plainly).
-  // The other four render an honest state, never a fake channel: Covenant is a
-  // lock that waits for a Covenant SYSTEM to exist (D1), and Rooms, Personal and
-  // Mail are the surfaces slice A2 mounts. "Opens later" is the whole truth.
-  const body = chat.signedOut ? (
-    <EmptyRow icon="chat" text={t("chat.loggedOut", "Sign in to talk with your world.")} />
-  ) : chat.surface === "world" ? (
-    <MessageList
-      messages={chat.messages}
-      me={chat.me}
-      phase={chat.phase}
-      errorText={chat.errorKey === "chat.loadFailed" ? t("chat.loadFailed", "The channel did not load.") : null}
-      retryText={t("chat.retry", "Try again")}
-      openingText={t("chat.opening", "Opening the channel…")}
-      onRetry={() => void refreshChat()}
-      emptyText={t("chat.world.empty", "The world channel is quiet. Say the first thing.")}
-    />
-  ) : chat.surface === "covenant" ? (
-    <EmptyRow icon="users" text={t("chat.covenant.none", "You are not in a Covenant yet. This channel opens the day you join one.")} />
-  ) : (
-    <EmptyRow icon="hash" text={t("chat.locked", "Opens later")} />
-  );
-
   return (
     <Sheet
       open={chat.open}
@@ -112,17 +78,7 @@ export function ChatSheet() {
     >
       <SheetHeader id="chat-sheet-title" title={title} subtitle={sub} onClose={closeChat} />
       <ChatSurfaceTabs value={chat.surface} onChange={setChatSurface} />
-      <div
-        id={`chat-panel-${chat.surface}`}
-        role="tabpanel"
-        aria-labelledby={`chat-tab-${chat.surface}`}
-        className="sheet-body flex min-h-0 flex-col gap-3 px-4 py-3"
-      >
-        {body}
-      </div>
-      {/* The composer is the LAST flex child and exists only where a player may
-          write (§3.2). No fixed bar, no floating input. */}
-      {chat.surface === "world" && !chat.signedOut ? <Composer /> : null}
+      <ChatSurfaceBody />
     </Sheet>
   );
 }

@@ -953,3 +953,94 @@ export async function appendMailLetter(l: MailLetter): Promise<void> {
   if (!f.letters.some((x) => x.id === l.id)) f.letters.push(l);
   writeChatFile(f);
 }
+
+/** Stamp a letter read. Only the first read lands — a later stamp never moves it. */
+export async function markMailLetterRead(letterId: string, readAt: number): Promise<void> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      await db().query("UPDATE mail_letters SET read_at = $2 WHERE id = $1 AND read_at IS NULL", [letterId, readAt]);
+    } catch (e) {
+      console.error("Failed to mark mail read (db):", e);
+    }
+    return;
+  }
+  const f = readChatFile();
+  const letter = f.letters.find((x) => x.id === letterId);
+  if (letter && letter.readAt === null) {
+    letter.readAt = readAt;
+    writeChatFile(f);
+  }
+}
+
+// ---- chat_rooms writes (slice A2) -----------------------------------------
+
+export async function appendChatRoom(r: ChatRoom): Promise<void> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      await db().query(
+        "INSERT INTO chat_rooms (id, name, created_by, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
+        [r.id, r.name, r.createdBy, r.createdAt]
+      );
+    } catch (e) {
+      console.error("Failed to append chat room (db):", e);
+    }
+    return;
+  }
+  const f = readChatFile();
+  if (!f.rooms.some((x) => x.id === r.id)) f.rooms.push(r);
+  writeChatFile(f);
+}
+
+export async function appendRoomMember(m: RoomMember): Promise<void> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      await db().query(
+        "INSERT INTO chat_room_members (room_id, account_id, joined_at) VALUES ($1, $2, $3) ON CONFLICT (room_id, account_id) DO NOTHING",
+        [m.roomId, m.accountId, m.joinedAt]
+      );
+    } catch (e) {
+      console.error("Failed to append room member (db):", e);
+    }
+    return;
+  }
+  const f = readChatFile();
+  if (!f.members.some((x) => x.roomId === m.roomId && x.accountId === m.accountId)) f.members.push(m);
+  writeChatFile(f);
+}
+
+export async function removeRoomMember(roomId: string, accountId: string): Promise<void> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      await db().query("DELETE FROM chat_room_members WHERE room_id = $1 AND account_id = $2", [roomId, accountId]);
+    } catch (e) {
+      console.error("Failed to remove room member (db):", e);
+    }
+    return;
+  }
+  const f = readChatFile();
+  f.members = f.members.filter((x) => !(x.roomId === roomId && x.accountId === accountId));
+  writeChatFile(f);
+}
+
+/** Close a thread (D13's shape): the first close wins; a closed thread keeps its lines. */
+export async function closeChatThread(threadId: string, closedAt: number): Promise<void> {
+  if (USE_DB) {
+    try {
+      await ensureTables();
+      await db().query("UPDATE chat_threads SET closed_at = $2 WHERE id = $1 AND closed_at IS NULL", [threadId, closedAt]);
+    } catch (e) {
+      console.error("Failed to close chat thread (db):", e);
+    }
+    return;
+  }
+  const f = readChatFile();
+  const thread = f.threads.find((x) => x.id === threadId);
+  if (thread && thread.closedAt === null) {
+    thread.closedAt = closedAt;
+    writeChatFile(f);
+  }
+}

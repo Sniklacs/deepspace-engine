@@ -27,6 +27,11 @@ import { accountForToken } from "../auth";
 import type { AccountSaves } from "../store";
 import {
   appendChatMessage,
+  appendChatRoom,
+  appendChatThread,
+  appendMailLetter,
+  appendRoomMember,
+  closeChatThread,
   countChatMessagesSince,
   evictChatMessages,
   lastChatMessageAt,
@@ -34,20 +39,33 @@ import {
   loadAllSaves,
   loadChatMessages,
   loadChatReads,
+  loadChatRooms,
   loadChatThreadsFor,
   loadMailFor,
   loadMyRoomMemberships,
+  markMailLetterRead,
+  removeRoomMember,
+  saveChatRead,
 } from "../store";
 import { isShippedLang, SOURCE_LANG } from "../i18n/languages";
 import {
+  channelKind,
   CHAT_MAX_MESSAGE,
   CHAT_MAX_PER_MINUTE,
+  CHAT_MAX_SUBJECT,
   CHAT_MIN_GAP_MS,
   CHAT_RETENTION,
+  covenantChannel,
+  personalChannel,
+  roomChannel,
   unreadBySurface,
   WORLD_CHANNEL,
+  type ChatCovenant,
   type ChatMessage,
+  type ChatRoomView,
   type ChatSurface,
+  type ChatThreadView,
+  type MailLetter,
 } from "./chat-types";
 
 // ── ids ─────────────────────────────────────────────────────────────────────
@@ -171,6 +189,22 @@ export interface ChatResult {
   me?: string;
   /** server time at the moment of the answer */
   stamp?: number;
+  /** the player's Covenant (slice A2), when the answer carries it */
+  covenant?: ChatCovenant | null;
+}
+
+/** The lists answer (slice A2): everything the Rooms/Personal/Mail tabs render. */
+export interface ChatListsResult extends ChatResult {
+  threads?: ChatThreadView[];
+  rooms?: ChatRoomView[];
+  letters?: MailLetter[];
+}
+
+/** The open-thread answer: which channel the composer should now write to. */
+export interface ChatOpenThreadResult extends ChatResult {
+  threadId?: string;
+  channel?: string;
+  otherName?: string;
 }
 
 export interface ChatSendResult extends ChatResult {
@@ -267,11 +301,317 @@ export async function chatSync(input: { token: string }): Promise<ChatResult> {
     roomIds: memberships.map((m) => m.roomId),
     me: accountId,
   });
-  return { ok: true, messages: world, unread, me: accountId, stamp: Date.now() };
+  const covenant = await covenantFor(accountId);
+  return { ok: true, messages: world, unread, me: accountId, stamp: Date.now(), covenant };
 }
 
 // ── the mark that clears a count ────────────────────────────────────────────
 /** The moment a channel was read up to (0 when never). Used by the UI's markRead. */
 export function readAtFor(reads: readonly { channel: string; lastReadAt: number }[], channel: string): number {
   return reads.find((r) => r.channel === channel)?.lastReadAt ?? 0;
+}
+
+// ══ SLICE A2 — every other surface, live ════════════════════════════════════
+//
+// The same rule chain as the world, widened honestly: a channel is visible
+// ONLY to the accounts its kind admits (covenant = band members, room =
+// joined members, personal = the two participants), and every read and write
+// passes `canSeeChannel` before it touches a row. A channel a player cannot
+// see answers exactly like one that does not exist.
+
+const SIGNED_OUT: ChatResult = { ok: false, signedOut: true, error: "Not signed in.", errorKey: "chat.loggedOut" };
+
+/**
+ * The player's Covenant: their alliance (the war band), resolved from their
+ * own saves. Membership is by colonyId === the game's id — the same identity
+ * the alliance roster itself uses. The active game wins; any game is proof.
+ */
+export async function covenantFor(accountId: string): Promise<ChatCovenant | null> {
+  const saves = await loadAccountSaves(accountId);
+  if (!saves) return null;
+  const ids = Object.keys(saves.games);
+  const ordered =
+    saves.activeGameId && saves.games[saves.activeGameId]
+      ? [saves.activeGameId, ...ids.filter((g) => g !== saves.activeGameId)]
+      : ids;
+  for (const gid of ordered) {
+    const game = saves.games[gid];
+    const colonyId = game.gameId ?? gid;
+    for (const alliance of Object.values(game.alliances ?? {})) {
+      if (alliance.members.some((m) => m.colonyId === colonyId)) {
+        return { allianceId: alliance.id, name: alliance.name, channel: covenantChannel(alliance.id) };
+      }
+    }
+  }
+  return null;
+}
+
+/** May this account see (and therefore write to) this channel at all? */
+export async function canSeeChannel(accountId: string, channel: string): Promise<boolean> {
+  const kind = channelKind(channel);
+  if (kind === "world") return true;
+  if (kind === "covenant") {
+    const cov = await covenantFor(accountId);
+    return !!cov && cov.channel === channel;
+  }
+  if (kind === "personal") {
+    const threadId = channel.slice(personalChannel("").length);
+    const threads = await loadChatThreadsFor(accountId);
+    return threads.some((t) => t.id === threadId);
+  }
+  const roomId = channel.slice(roomChannel("").length);
+  const memberships = await loadMyRoomMemberships(accountId);
+  return memberships.some((m) => m.roomId === roomId);
+}
+
+/** One non-world channel's feed, visibility-checked. */
+export async function channelFeed(input: { token: string; channel: string }): Promise<ChatResult> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+  if (!(await canSeeChannel(accountId, input.channel))) {
+    return { ok: false, error: "Channel not available.", errorKey: "chat.loadFailed" };
+  }
+  const messages = await loadChatMessages(input.channel, CHAT_RETENTION);
+  return { ok: true, messages, me: accountId, stamp: Date.now() };
+}
+
+/**
+ * Post one line to any visible channel. The world's rule chain, unchanged —
+ * body, guards, name, stamp, append, retention — plus the two channel rules:
+ * an unseen channel refuses like a missing one, and a CLOSED personal thread
+ * is not written to (D13).
+ */
+export async function sendChannelMessage(input: {
+  token: string;
+  channel: string;
+  body: unknown;
+  lang?: unknown;
+}): Promise<ChatSendResult> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+
+  const valid = validateBody(input.body);
+  if (!valid.ok) {
+    return valid.code === "tooLong"
+      ? { ok: false, error: "Message is too long.", errorKey: "chat.tooLong" }
+      : { ok: false, error: "A message cannot be empty.", errorKey: "chat.sendFailed" };
+  }
+
+  const now = Date.now();
+  const refusal = rateRefusal(now, await lastChatMessageAt(accountId), await countChatMessagesSince(accountId, now - 60_000));
+  if (refusal) {
+    return { ok: false, error: refusal === "tooFast" ? "Too soon." : "Too many in a minute.", errorKey: "chat.tooFast" };
+  }
+
+  if (!(await canSeeChannel(accountId, input.channel))) {
+    return { ok: false, error: "Channel not available.", errorKey: "chat.sendFailed" };
+  }
+  if (channelKind(input.channel) === "personal") {
+    const threadId = input.channel.slice(personalChannel("").length);
+    const threads = await loadChatThreadsFor(accountId);
+    const thread = threads.find((t) => t.id === threadId);
+    if (!thread) return { ok: false, error: "Channel not available.", errorKey: "chat.sendFailed" };
+    if (thread.closedAt !== null) {
+      return { ok: false, error: "This conversation is closed.", errorKey: "chat.threadClosed" };
+    }
+  }
+
+  const message: ChatMessage = {
+    id: chatId("m"),
+    channel: input.channel,
+    accountId,
+    colonyName: (await colonyNameFor(accountId)) ?? accountId,
+    lang: stampLang(input.lang),
+    body: valid.body,
+    createdAt: now,
+  };
+  await appendChatMessage(message);
+  const evicted = await evictChatMessages(input.channel, CHAT_RETENTION);
+  return { ok: true, message, evicted, stamp: now };
+}
+
+/** Mark a visible channel read up to now — the only way a count clears (D11). */
+export async function markChannelRead(input: { token: string; channel: string }): Promise<ChatResult> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+  if (channelKind(input.channel) === "world") return { ok: true, me: accountId, stamp: Date.now() };
+  if (!(await canSeeChannel(accountId, input.channel))) {
+    return { ok: false, error: "Channel not available.", errorKey: "chat.loadFailed" };
+  }
+  await saveChatRead(accountId, input.channel, Date.now());
+  return { ok: true, me: accountId, stamp: Date.now() };
+}
+
+/** Unread lines in one channel for one account, from the real read mark. */
+async function channelUnread(accountId: string, channel: string, reads: { channel: string; lastReadAt: number }[]): Promise<number> {
+  const since = readAtFor(reads, channel);
+  const messages = await loadChatMessages(channel, CHAT_RETENTION);
+  return messages.filter((m) => m.accountId !== accountId && m.createdAt > since).length;
+}
+
+/** Everything the Rooms, Personal and Mail tabs render, in one answer. */
+export async function chatLists(input: { token: string }): Promise<ChatListsResult> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+  const [threads, rooms, allMembers, myMemberships, reads, letters, covenant] = await Promise.all([
+    loadChatThreadsFor(accountId),
+    loadChatRooms(),
+    loadMyRoomMemberships(null),
+    loadMyRoomMemberships(accountId),
+    loadChatReads(accountId),
+    loadMailFor(accountId),
+    covenantFor(accountId),
+  ]);
+  const joined = new Set(myMemberships.map((m) => m.roomId));
+  const threadViews: ChatThreadView[] = await Promise.all(
+    threads.map(async (thread) => {
+      const otherAccount = thread.a === accountId ? thread.b : thread.a;
+      const channel = personalChannel(thread.id);
+      const messages = await loadChatMessages(channel, CHAT_RETENTION);
+      const last = messages[messages.length - 1];
+      const since = readAtFor(reads, channel);
+      return {
+        thread,
+        otherAccount,
+        otherName: (await colonyNameFor(otherAccount)) ?? otherAccount,
+        lastBody: last?.body ?? null,
+        lastAt: last?.createdAt ?? null,
+        unread: messages.filter((m) => m.accountId !== accountId && m.createdAt > since).length,
+      };
+    })
+  );
+  // Newest conversation first; a thread nobody has written in sits by its birth.
+  threadViews.sort((x, y) => (y.lastAt ?? y.thread.createdAt) - (x.lastAt ?? x.thread.createdAt));
+  const roomViews: ChatRoomView[] = await Promise.all(
+    rooms.map(async (room) => ({
+      room,
+      joined: joined.has(room.id),
+      memberCount: allMembers.filter((m) => m.roomId === room.id).length,
+      unread: joined.has(room.id) ? await channelUnread(accountId, roomChannel(room.id), reads) : 0,
+    }))
+  );
+  return { ok: true, threads: threadViews, rooms: roomViews, letters, covenant, me: accountId, stamp: Date.now() };
+}
+
+/**
+ * Open (or resume) a personal thread with a colony, by EXACT name (D10). A
+ * closed thread is never resurrected — a fresh one is born, and the closed
+ * one stays in the list as read-only history (D13).
+ */
+export async function openThread(input: { token: string; colonyName: unknown }): Promise<ChatOpenThreadResult> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+  const hit = await resolveColonyName(input.colonyName);
+  if (!hit) return { ok: false, error: "No colony by that name.", errorKey: "chat.noSuchColony" };
+  if (hit.accountId === accountId) {
+    return { ok: false, error: "That is your own colony.", errorKey: "chat.selfThread" };
+  }
+  const mine = await loadChatThreadsFor(accountId);
+  const existing = mine.find(
+    (t) => t.closedAt === null && ((t.a === accountId && t.b === hit.accountId) || (t.b === accountId && t.a === hit.accountId))
+  );
+  if (existing) {
+    return { ok: true, threadId: existing.id, channel: personalChannel(existing.id), otherName: hit.colonyName, me: accountId };
+  }
+  const thread = { id: chatId("t"), a: accountId, b: hit.accountId, createdAt: Date.now(), closedAt: null };
+  await appendChatThread(thread);
+  return { ok: true, threadId: thread.id, channel: personalChannel(thread.id), otherName: hit.colonyName, me: accountId };
+}
+
+/** Close a thread I take part in. Either side may close; the lines stay (D13). */
+export async function closeThread(input: { token: string; threadId: string }): Promise<ChatResult> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+  const mine = await loadChatThreadsFor(accountId);
+  const thread = mine.find((t) => t.id === input.threadId);
+  if (!thread) return { ok: false, error: "No such conversation.", errorKey: "chat.loadFailed" };
+  if (thread.closedAt === null) await closeChatThread(thread.id, Date.now());
+  return { ok: true, me: accountId, stamp: Date.now() };
+}
+
+const ROOM_NAME_MAX = 40;
+
+/** Create a room and stand inside it — the creator is its first member. */
+export async function createRoom(input: { token: string; name: unknown }): Promise<ChatResult & { roomId?: string; channel?: string }> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name || [...name].length > ROOM_NAME_MAX) {
+    return { ok: false, error: "A room needs a name.", errorKey: "chat.roomName" };
+  }
+  const room = { id: chatId("r"), name, createdBy: accountId, createdAt: Date.now() };
+  await appendChatRoom(room);
+  await appendRoomMember({ roomId: room.id, accountId, joinedAt: room.createdAt });
+  return { ok: true, roomId: room.id, channel: roomChannel(room.id), me: accountId, stamp: room.createdAt };
+}
+
+/** Join a room in the directory. Joining is what makes its channel visible. */
+export async function joinRoom(input: { token: string; roomId: string }): Promise<ChatResult> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+  const rooms = await loadChatRooms();
+  if (!rooms.some((r) => r.id === input.roomId)) {
+    return { ok: false, error: "No such room.", errorKey: "chat.noSuchRoom" };
+  }
+  await appendRoomMember({ roomId: input.roomId, accountId, joinedAt: Date.now() });
+  return { ok: true, me: accountId, stamp: Date.now() };
+}
+
+/** Leave a room. Its channel closes to me; its history stays for its members. */
+export async function leaveRoom(input: { token: string; roomId: string }): Promise<ChatResult> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+  await removeRoomMember(input.roomId, accountId);
+  return { ok: true, me: accountId, stamp: Date.now() };
+}
+
+/** Send a letter to a colony by EXACT name (D10/D14). It waits for them, offline or not. */
+export async function sendLetter(input: {
+  token: string;
+  colonyName: unknown;
+  subject: unknown;
+  body: unknown;
+  lang?: unknown;
+}): Promise<ChatResult> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+  const hit = await resolveColonyName(input.colonyName);
+  if (!hit) return { ok: false, error: "No colony by that name.", errorKey: "chat.noSuchColony" };
+  if (hit.accountId === accountId) {
+    return { ok: false, error: "That is your own colony.", errorKey: "chat.selfThread" };
+  }
+  const subject = typeof input.subject === "string" ? input.subject.trim() : "";
+  if (!subject || [...subject].length > CHAT_MAX_SUBJECT) {
+    return { ok: false, error: "A letter needs a subject.", errorKey: "chat.letterSubject" };
+  }
+  const valid = validateBody(input.body);
+  if (!valid.ok) {
+    return valid.code === "tooLong"
+      ? { ok: false, error: "Letter is too long.", errorKey: "chat.tooLong" }
+      : { ok: false, error: "A letter cannot be empty.", errorKey: "chat.sendFailed" };
+  }
+  await appendMailLetter({
+    id: chatId("L"),
+    fromAccount: accountId,
+    fromName: (await colonyNameFor(accountId)) ?? accountId,
+    toAccount: hit.accountId,
+    subject,
+    body: valid.body,
+    lang: stampLang(input.lang),
+    createdAt: Date.now(),
+    readAt: null,
+  });
+  return { ok: true, me: accountId, stamp: Date.now() };
+}
+
+/** Mark one of MY received letters read. A letter that is not mine does not move. */
+export async function markLetterRead(input: { token: string; letterId: string }): Promise<ChatResult> {
+  const accountId = await accountForToken(input.token);
+  if (!accountId) return SIGNED_OUT;
+  const letters = await loadMailFor(accountId);
+  if (!letters.some((l) => l.id === input.letterId)) {
+    return { ok: false, error: "No such letter.", errorKey: "chat.loadFailed" };
+  }
+  await markMailLetterRead(input.letterId, Date.now());
+  return { ok: true, me: accountId, stamp: Date.now() };
 }

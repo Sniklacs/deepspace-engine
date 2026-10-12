@@ -17,7 +17,7 @@ import { useLang, useT } from "../i18n/I18n";
 import { Bdi } from "../ui/Bdi";
 import { formatNumber } from "../../game/i18n/format";
 import { CHAT_MAX_MESSAGE } from "../../game/chat/chat-types";
-import { sendChatMessage } from "../../game/chat/chat-store";
+import { sendChatMessage, type SendOutcome } from "../../game/chat/chat-store";
 
 /**
  * The refusal line, keyed. Every arm is a real `t()` call with the catalogue's
@@ -39,12 +39,19 @@ function refusalText(
       return t("chat.loggedOut", "Sign in to talk with your world.");
     case "chat.sendFailed":
       return t("chat.sendFailed", "That did not send. Try again.");
+    case "chat.threadClosed":
+      return t("chat.threadClosed", "This conversation is closed.");
     default:
       return null;
   }
 }
 
-export function Composer() {
+export function Composer({
+  sendFn,
+}: {
+  /** where a line goes; the world channel when absent (slice A2: any channel) */
+  sendFn?: (body: string, lang: string) => Promise<SendOutcome>;
+} = {}) {
   const t = useT();
   const lang = useLang();
   const [text, setText] = useState("");
@@ -62,7 +69,7 @@ export function Composer() {
     }
     setBusy(true);
     setNoticeKey(null);
-    const outcome = await sendChatMessage(body, lang);
+    const outcome = await (sendFn ?? sendChatMessage)(body, lang);
     setBusy(false);
     if (outcome.ok) {
       setText("");

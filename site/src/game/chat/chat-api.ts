@@ -21,10 +21,29 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { CHAT_MAX_MESSAGE } from "./chat-types";
-import { chatSync, sendWorldMessage, worldFeed, type ChatResult, type ChatSendResult } from "./chat-server";
+import { CHAT_MAX_MESSAGE, CHAT_MAX_SUBJECT } from "./chat-types";
+import {
+  channelFeed,
+  chatLists,
+  chatSync,
+  closeThread,
+  createRoom,
+  joinRoom,
+  leaveRoom,
+  markChannelRead,
+  markLetterRead,
+  openThread,
+  sendChannelMessage,
+  sendLetter,
+  sendWorldMessage,
+  worldFeed,
+  type ChatListsResult,
+  type ChatOpenThreadResult,
+  type ChatResult,
+  type ChatSendResult,
+} from "./chat-server";
 
-export type { ChatResult, ChatSendResult } from "./chat-server";
+export type { ChatListsResult, ChatOpenThreadResult, ChatResult, ChatSendResult } from "./chat-server";
 
 /** zod's own cap is a backstop; the real refusal is `validateBody`'s, and it names
  *  a catalogue key. A body longer than the limit is REFUSED, never truncated: a
@@ -51,3 +70,71 @@ export const sendWorldFn = createServerFn({ method: "POST" })
 export const chatSyncFn = createServerFn({ method: "POST" })
   .validator(z.object({ token: z.string() }))
   .handler(async ({ data }): Promise<ChatResult> => chatSync({ token: data.token }));
+
+// ── slice A2: every other surface ───────────────────────────────────────────
+// Same posture as A1: zod at the door, every rule in chat-server.ts.
+
+export const channelFeedFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), channel: z.string().max(128) }))
+  .handler(async ({ data }): Promise<ChatResult> => channelFeed({ token: data.token, channel: data.channel }));
+
+export const sendChannelFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      channel: z.string().max(128),
+      body: bodyValidator,
+      lang: z.string().optional(),
+    })
+  )
+  .handler(async ({ data }): Promise<ChatSendResult> =>
+    sendChannelMessage({ token: data.token, channel: data.channel, body: data.body, lang: data.lang })
+  );
+
+export const markReadFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), channel: z.string().max(128) }))
+  .handler(async ({ data }): Promise<ChatResult> => markChannelRead({ token: data.token, channel: data.channel }));
+
+export const chatListsFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string() }))
+  .handler(async ({ data }): Promise<ChatListsResult> => chatLists({ token: data.token }));
+
+export const openThreadFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), colonyName: z.string().max(64) }))
+  .handler(async ({ data }): Promise<ChatOpenThreadResult> => openThread({ token: data.token, colonyName: data.colonyName }));
+
+export const closeThreadFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), threadId: z.string().max(128) }))
+  .handler(async ({ data }): Promise<ChatResult> => closeThread({ token: data.token, threadId: data.threadId }));
+
+export const createRoomFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), name: z.string().max(160) }))
+  .handler(async ({ data }): Promise<ChatResult & { roomId?: string; channel?: string }> =>
+    createRoom({ token: data.token, name: data.name })
+  );
+
+export const joinRoomFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), roomId: z.string().max(128) }))
+  .handler(async ({ data }): Promise<ChatResult> => joinRoom({ token: data.token, roomId: data.roomId }));
+
+export const leaveRoomFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), roomId: z.string().max(128) }))
+  .handler(async ({ data }): Promise<ChatResult> => leaveRoom({ token: data.token, roomId: data.roomId }));
+
+export const sendLetterFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      token: z.string(),
+      colonyName: z.string().max(64),
+      subject: z.string().max(CHAT_MAX_SUBJECT * 4),
+      body: bodyValidator,
+      lang: z.string().optional(),
+    })
+  )
+  .handler(async ({ data }): Promise<ChatResult> =>
+    sendLetter({ token: data.token, colonyName: data.colonyName, subject: data.subject, body: data.body, lang: data.lang })
+  );
+
+export const markLetterReadFn = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string(), letterId: z.string().max(128) }))
+  .handler(async ({ data }): Promise<ChatResult> => markLetterRead({ token: data.token, letterId: data.letterId }));
