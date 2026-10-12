@@ -5,15 +5,25 @@
 // five troop types, plus the friend/foe side colors. Collapsed by default
 // so the clean screen stays clean.
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { TROOP_KINDS, UNIT_KIND_LABEL } from "../../game/war/battle-scene-model";
+import {
+  subscribeSceneUI,
+  sceneUISnapshot,
+  sceneUIServerSnapshot,
+} from "../../game/war/battle-scene-ui-store";
 
 const ART = "/art/battle/units";
 
 export function BattleLegend() {
   const [open, setOpen] = useState(false);
+  const ui = useSyncExternalStore(subscribeSceneUI, sceneUISnapshot, sceneUIServerSnapshot);
   return (
-    <div className="absolute bottom-4 left-3 z-10" data-testid="battle-legend">
+    <div
+      className="absolute left-3 z-10"
+      style={{ bottom: ui.cockpitOn ? "5.9rem" : "1rem" }}
+      data-testid="battle-legend"
+    >
       {!open ? (
         <button
           type="button"

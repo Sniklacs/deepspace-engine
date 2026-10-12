@@ -63,14 +63,18 @@ export function BattleHud({
   const commsStyle = fs
     ? { top: "calc(env(safe-area-inset-top) + 6.75rem)" }
     : undefined;
-  const stripBottom = fs
-    ? "calc(env(safe-area-inset-bottom) + 4.25rem)"
-    : "0.5rem";
 
   const squadsOpen = isWindowOpen("battle-squads");
   const controlsOpen = isWindowOpen("battle-controls");
   const enemyForcesOpen = isWindowOpen("battle-enemy-forces");
   const ui = useSyncExternalStore(subscribeSceneUI, sceneUISnapshot, sceneUIServerSnapshot);
+  // The cockpit deck (owner 2026-10-12) owns the bottom edge — the strip
+  // and radar ride above it while the frame is up.
+  const stripBottom = fs
+    ? `calc(env(safe-area-inset-bottom) + ${ui.cockpitOn ? "8.5rem" : "4.25rem"})`
+    : ui.cockpitOn
+      ? "4.9rem"
+      : "0.5rem";
   const [radarBig, setRadarBig] = useState(false);
   const moveArmed = ui.moveArmedFor !== null;
   const armedSquad = ui.squads.find((s) => s.id === ui.moveArmedFor) ?? null;

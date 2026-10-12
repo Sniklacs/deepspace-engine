@@ -19,8 +19,24 @@ import {
 
 export type DayNightMode = "auto" | "day" | "night";
 
-/** Battle scene camera: the overhead tactical map, or down in the dirt. */
-export type CameraMode = "tactical" | "ground";
+/**
+ * Battle scene camera: the overhead tactical map, down in the dirt, or the
+ * command-ship POV (owner 2026-10-12): first-person from the hovering
+ * command ship, ~50ft up, looking forward over the field. The cockpit
+ * redesign makes "command" the battle's home view; "tactical" is the
+ * holomap the commander flips to, "ground" is down with the troops.
+ */
+export type CameraMode = "tactical" | "ground" | "command";
+
+/** One bridge crew member for the cockpit (owner 2026-10-12): the player's
+ *  heroes ride the command ship — the appointed one as ADJUTANT at the
+ *  commander's side, the rest as officers at their stations. */
+export interface CrewMember {
+  id: string;
+  name: string;
+  /** hero role (Herald, Warden, …) when known — shown on the nameplate */
+  role?: string;
+}
 
 /**
  * Battle-sim speed (owner 2026-10-06): SLOW ↔ REALTIME, capped at 1x.
@@ -137,6 +153,45 @@ export function selectionBannerText(sq: SquadSummary): string {
 
 const MAX_ORDER_LOG = 8;
 
+const ADJUTANT_STORAGE_KEY = "unbound-adjutant-id";
+
+function loadAdjutantId(): string | null {
+  try {
+    return window.localStorage.getItem(ADJUTANT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveAdjutantId(id: string | null): void {
+  try {
+    if (id) window.localStorage.setItem(ADJUTANT_STORAGE_KEY, id);
+    else window.localStorage.removeItem(ADJUTANT_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Adapt game-state heroes (prologue roster) into cockpit crew members. */
+export function crewFromHeroes(
+  heroes: readonly { id: string; name: string; role?: string }[] | null | undefined,
+): CrewMember[] {
+  if (!heroes) return [];
+  return heroes
+    .filter((h) => h && typeof h.id === "string" && typeof h.name === "string")
+    .map((h) => ({ id: h.id, name: h.name, ...(h.role ? { role: h.role } : {}) }));
+}
+
+/**
+ * The adjutant on duty (pure): the appointed hero when they're aboard,
+ * otherwise the first crew member — someone always stands at the
+ * commander's side. Null only when the ship carries no heroes at all.
+ */
+export function adjutantOf(s: { crew: CrewMember[]; adjutantId: string | null }): CrewMember | null {
+  if (s.crew.length === 0) return null;
+  return s.crew.find((c) => c.id === s.adjutantId) ?? s.crew[0];
+}
+
 export interface SceneUIState {
   vectorsOn: Record<ManeuverVector, boolean>;
   turretsOn: boolean;
@@ -221,6 +276,17 @@ export interface SceneUIState {
    * command UI now and the cockpit visuals later. Persisted.
    */
   cockpitThemeId: string;
+  // --- command-ship cockpit (owner 2026-10-12) ---------------------------
+  /** The cockpit frame is up (canopy, instrument deck, crew stations). */
+  cockpitOn: boolean;
+  /** The player's heroes riding the command ship this battle. */
+  crew: CrewMember[];
+  /**
+   * The appointed adjutant's hero id — the commander picks any hero;
+   * the hero stands at the commander's side in the cockpit. Persisted.
+   * Null (or an id not in the crew) = the first hero stands as adjutant.
+   */
+  adjutantId: string | null;
 }
 
 const INITIAL: SceneUIState = {
@@ -258,6 +324,9 @@ const INITIAL: SceneUIState = {
   pendingTargetId: null,
   pendingMoveDest: null,
   cockpitThemeId: loadCockpitThemeId(),
+  cockpitOn: true,
+  crew: [],
+  adjutantId: loadAdjutantId(),
 };
 
 let state: SceneUIState = INITIAL;
@@ -633,6 +702,38 @@ export function setCockpitThemeId(id: string): void {
   if (state.cockpitThemeId === id) return;
   saveCockpitThemeId(id);
   set({ cockpitThemeId: id });
+}
+
+// --- command-ship cockpit (owner 2026-10-12) ------------------------------
+
+/** Cockpit frame up/down. A player preference — survives scene resets. */
+export function setCockpitOn(on: boolean): void {
+  if (state.cockpitOn === on) return;
+  set({ cockpitOn: on });
+}
+
+/**
+ * Register the player's heroes as bridge crew for this battle. Called by
+ * the scene's parent (which owns the game state) on mount / roster change.
+ * The crew survives scene resets — it's the player's roster, not the
+ * battle's. No-op when the roster is unchanged (id list identical).
+ */
+export function registerCrew(crew: CrewMember[]): void {
+  const cur = state.crew;
+  if (
+    cur.length === crew.length &&
+    cur.every((c, i) => c.id === crew[i].id && c.name === crew[i].name)
+  ) {
+    return;
+  }
+  set({ crew });
+}
+
+/** Appoint the adjutant — any hero aboard. Persisted across battles. */
+export function setAdjutantId(id: string | null): void {
+  if (state.adjutantId === id) return;
+  saveAdjutantId(id);
+  set({ adjutantId: id });
 }
 
 /** Test/utility: reset the whole store. */

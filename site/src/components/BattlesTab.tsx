@@ -23,6 +23,7 @@ import BattleReplay from "./BattleReplay";
 import { BattleScene } from "./BattleScene/BattleScene";
 import { BattleSceneFullscreen } from "./BattleScene/BattleSceneFullscreen";
 import { buildDemoScene, sceneFromBattle } from "../game/war/battle-scene-model";
+import { crewFromHeroes } from "../game/war/battle-scene-ui-store";
 import type { SceneBattle } from "../game/war/battle-scene-model";
 import { availableWeight } from "../game/war/troops";
 import { battleIssueFn, battleRespondFn, battleScreenFn } from "../game/api";
@@ -402,7 +403,7 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
             </button>
           </div>
         </div>
-        {demoScene && <BattleScene scene={buildDemoScene(Date.now())} />}
+        {demoScene && <BattleScene scene={buildDemoScene(Date.now())} crew={crewFromHeroes(state.prologue?.heroes)} />}
       </div>
     );
   }
@@ -467,6 +468,7 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
               scene={sceneFromBattle(selected)}
               liveCasualties={battleMoment(selected, now).casualties}
               onRequestFullscreen={() => setSceneFullscreen(sceneFromBattle(selected))}
+              crew={crewFromHeroes(state.prologue?.heroes)}
             />
           )}
         </div>
@@ -475,6 +477,7 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
         <BattleSceneFullscreen
           scene={sceneFullscreen}
           onClose={() => setSceneFullscreen(null)}
+          crew={crewFromHeroes(state.prologue?.heroes)}
         />
       )}
     </div>

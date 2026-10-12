@@ -29,6 +29,7 @@ import { Icon } from "./icons";
 import { BattleSceneFullscreen } from "./BattleScene/BattleSceneFullscreen";
 import { WarRoom, writeLastRun } from "./BattleScene/WarRoom";
 import { buildDemoScene, type SceneBattle } from "../game/war/battle-scene-model";
+import { crewFromHeroes } from "../game/war/battle-scene-ui-store";
 import { buildFormationScene, clampLoadsToRoster, emptyWarRoomState, formationCount, type SavedFormation } from "../game/war/playbook";
 import { warRoomDeleteFormationFn, warRoomSaveFormationFn, warRoomSetLockFn, allianceSaveDoctrineFn } from "../game/api";
 import { allianceOf } from "../game/war/alliances";
@@ -604,6 +605,7 @@ export default function ArenaPanel({ state, token, onAction }: {
           return (
           <BattleSceneFullscreen
             scene={deployScene}
+            crew={crewFromHeroes(state.prologue?.heroes)}
             onClose={() => { setDeployScene(null); }}
             onSaveFormation={(draft) =>
               onAction(
@@ -648,7 +650,7 @@ export default function ArenaPanel({ state, token, onAction }: {
           );
         })()}
         {showScene && (
-          <BattleSceneFullscreen scene={buildDemoScene(Date.now())} onClose={() => setShowScene(false)} />
+          <BattleSceneFullscreen scene={buildDemoScene(Date.now())} onClose={() => setShowScene(false)} crew={crewFromHeroes(state.prologue?.heroes)} />
         )}
       </div>
 

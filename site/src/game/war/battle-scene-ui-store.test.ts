@@ -41,6 +41,11 @@ import {
   resetSceneUIStore,
   BATTLE_SPEED_MUL,
   BATTLE_SPEEDS,
+  registerCrew,
+  setAdjutantId,
+  adjutantOf,
+  setCockpitOn,
+  crewFromHeroes,
 } from "./battle-scene-ui-store";
 
 beforeEach(() => {
@@ -440,5 +445,79 @@ describe("reserve chip copy + order receipts (QA 2026-10-06)", () => {
     const latest = sceneUISnapshot().orderLog[0];
     expect(latest.kind).toBe("hotdrop");
     expect(orderReceipt(latest).text).toBe("Squad 5 — Reserve hot-dropped → MAIN");
+  });
+});
+
+describe("command-ship cockpit — crew + adjutant (owner 2026-10-12)", () => {
+  const CREW = [
+    { id: "h1", name: "Azazel-3", role: "Herald" },
+    { id: "h2", name: "Vesper Syllabus", role: "Warden" },
+    { id: "h3", name: "Keeper Mend" },
+  ];
+
+  test("cockpit starts up; folds and restores", () => {
+    expect(sceneUISnapshot().cockpitOn).toBe(true);
+    setCockpitOn(false);
+    expect(sceneUISnapshot().cockpitOn).toBe(false);
+    setCockpitOn(true);
+    expect(sceneUISnapshot().cockpitOn).toBe(true);
+  });
+
+  test("no crew — no adjutant stands", () => {
+    expect(adjutantOf(sceneUISnapshot())).toBeNull();
+  });
+
+  test("first hero stands as adjutant by default", () => {
+    registerCrew(CREW);
+    expect(adjutantOf(sceneUISnapshot())?.id).toBe("h1");
+  });
+
+  test("the commander appoints any hero as adjutant", () => {
+    registerCrew(CREW);
+    setAdjutantId("h3");
+    expect(adjutantOf(sceneUISnapshot())?.name).toBe("Keeper Mend");
+  });
+
+  test("an appointed adjutant who isn't aboard falls back to the first hero", () => {
+    registerCrew(CREW);
+    setAdjutantId("ghost-hero");
+    expect(adjutantOf(sceneUISnapshot())?.id).toBe("h1");
+  });
+
+  test("re-registering the same roster is a no-op; a new roster replaces", () => {
+    registerCrew(CREW);
+    const before = sceneUISnapshot();
+    registerCrew(CREW.map((c) => ({ ...c })));
+    expect(sceneUISnapshot()).toBe(before);
+    registerCrew([{ id: "h9", name: "Semira" }]);
+    expect(sceneUISnapshot().crew).toHaveLength(1);
+    expect(adjutantOf(sceneUISnapshot())?.id).toBe("h9");
+  });
+
+  test("crew survives a scene reset — it's the player's roster, not the battle's", () => {
+    registerCrew(CREW);
+    resetSceneUI();
+    expect(sceneUISnapshot().crew).toHaveLength(3);
+  });
+
+  test("crewFromHeroes adapts the prologue roster and drops malformed rows", () => {
+    expect(crewFromHeroes(null)).toEqual([]);
+    expect(crewFromHeroes(undefined)).toEqual([]);
+    const crew = crewFromHeroes([
+      { id: "a", name: "A" },
+      { id: "b", name: "B", role: "Seer" },
+      { id: 7 as unknown as string, name: "bad" },
+    ]);
+    expect(crew).toEqual([
+      { id: "a", name: "A" },
+      { id: "b", name: "B", role: "Seer" },
+    ]);
+  });
+
+  test("camera takes the command-ship POV mode", () => {
+    setCameraMode("command");
+    expect(sceneUISnapshot().cameraMode).toBe("command");
+    setCameraMode("tactical");
+    expect(sceneUISnapshot().cameraMode).toBe("tactical");
   });
 });

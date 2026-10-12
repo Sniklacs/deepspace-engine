@@ -97,6 +97,9 @@ import {
   setScoutIntel,
   setMoveArmedFor,
   takePendingMoveDest,
+  // command-ship cockpit (owner 2026-10-12): bridge crew registration
+  registerCrew,
+  type CrewMember,
 } from "../../game/war/battle-scene-ui-store";
 import {
   buildEnemyIntel,
@@ -204,6 +207,7 @@ import {
 } from "../../game/world/terrain-overlays";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { BattleHud } from "./BattleHud";
+import { CockpitFrame } from "./CockpitFrame";
 import { BattleClock } from "./BattleClock";
 import { BattleLegend } from "./BattleLegend";
 import { SceneHeader } from "../SceneHeader";
@@ -269,6 +273,9 @@ const CAM_HOME: CameraRig = { zoom: 1, ax: WORLD_CX, ay: WORLD_CY, ysq: 1, fy: 0
 const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 4;
 const GROUND_ZOOM_MAX = 1.6;
+/** Command-ship POV zoom cap — the hover sits higher than the ground cam,
+ *  so the commander may pull a little wider before the rig refuses. */
+const COMMAND_ZOOM_MAX = 2.4;
 // The frame may roam a padded battlefield, never void.
 const FIELD_PAD = 0.12;
 
@@ -346,6 +353,13 @@ interface Props {
    * Z4 ground detail + full audio, exactly today's behavior.
    */
   continuumScale?: number | null;
+  /**
+   * The player's heroes riding the command ship (owner 2026-10-12): the
+   * cockpit's bridge crew — the appointed one stands as adjutant, the rest
+   * at their stations. Absent = no heroes aboard; the squad leads stand
+   * the watch in the cockpit instead.
+   */
+  crew?: CrewMember[];
 }
 
 interface SpriteSet { [k: string]: HTMLImageElement | null; ground: HTMLImageElement | null }
@@ -402,7 +416,7 @@ function snapshotFormation(scene: SceneBattle): {
   return { squads, units };
 }
 
-export function BattleScene({ scene: sceneProp, liveCasualties = null, variant = "embedded", onClose, onRequestFullscreen, onSaveFormation, onSaveDoctrine, continuumScale = null }: Props) {
+export function BattleScene({ scene: sceneProp, liveCasualties = null, variant = "embedded", onClose, onRequestFullscreen, onSaveFormation, onSaveDoctrine, continuumScale = null, crew }: Props) {
   // Retry / re-challenge (owner 2026-10-11): the battle can restart on the
   // same field (retry — same seed) or as a fresh challenge (same forces,
   // new seed). `scene` below is the ACTIVE scene — every downstream read
@@ -455,6 +469,23 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     return () => {
       closeWindowsOfKind("battle-squads");
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Command-ship cockpit (owner 2026-10-12): the player's heroes ride the
+  // ship as bridge crew. Registration is roster-keyed — the store keeps
+  // the crew across scene resets (it's the player's, not the battle's).
+  const crewKey = (crew ?? []).map((c) => `${c.id}:${c.name}`).join("|");
+  useEffect(() => {
+    if (crew) registerCrew(crew);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crewKey]);
+
+  // The fullscreen battle OPENS in the command-ship POV (owner 2026-10-12):
+  // the commander watches from the hover, not the holomap. The deck's MAP
+  // button flips to tactical; the Controls window keeps ground cam.
+  useEffect(() => {
+    if (fullscreen && sceneUISnapshot().cockpitOn) setCameraMode("command");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -603,7 +634,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       x: cam.ax,
       y: cam.ay,
       radius: 0.55 / Math.max(0.2, cam.zoom),
-      ground: sceneUISnapshot().cameraMode === "ground",
+      ground: sceneUISnapshot().cameraMode !== "tactical",
     };
   });
 
@@ -1480,24 +1511,30 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       fx.sweepOn = phase === "contact";
       fx.update(sdt); // fx runs on sim time — tracers/explosions slow with the battle
 
-      // --- camera: tactical overhead ↔ ground-level follow cam --------------
+      // --- camera: tactical overhead ↔ low follow cams ---------------------
       // The mode lives in the shared store; the rig eases toward its target
-      // (~1s exponential glide — no jarring cuts). Ground follows the
-      // friendly advance: the centroid of attackers on the move.
-      // Player zoom (pinch/wheel/±) multiplies the mode zoom; drag pans.
+      // (~1s exponential glide — no jarring cuts). The low cams follow the
+      // friendly advance: the centroid of attackers on the move. "ground"
+      // rides in the dirt with the troops; "command" is the command-ship
+      // POV (owner 2026-10-12) — a low hover ~50ft up looking forward:
+      // wider framing than ground, a stronger forward tilt (more squash),
+      // same follow heart. Player zoom (pinch/wheel/±) multiplies the mode
+      // zoom; drag pans.
       const cam = camRef.current;
       const ground = ui.cameraMode === "ground";
-      if (ground && !cam.wasGround) {
+      const hover = ui.cameraMode === "command";
+      const lowCam = ground || hover;
+      if (lowCam && !cam.wasGround) {
         cam.gx = cam.ax;
         cam.gy = cam.ay;
       }
-      if (!ground && cam.wasGround) {
+      if (!lowCam && cam.wasGround) {
         // Coming back up: the tactical anchor starts where the follow-cam
         // left off — no jump, and the player pans from there.
         cam.uax = cam.ax;
         cam.uay = cam.ay;
       }
-      cam.wasGround = ground;
+      cam.wasGround = lowCam;
       // Recenter token (double-tap / Recenter button): reset pan + zoom.
       if (ui.mapNonce !== cam.reNonce) {
         cam.reNonce = ui.mapNonce;
@@ -1507,13 +1544,23 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         cam.poy = 0;
         if (ui.zoomLevel !== 1) setZoomLevel(1);
       }
-      // User zoom multiplies the mode zoom; ground clamps tighter so the
-      // follow-cam still reads. Tactical fit zoom frames the whole 1.5×1.5 field.
-      const uz = ground ? Math.min(ui.zoomLevel, GROUND_ZOOM_MAX) : ui.zoomLevel;
-      const modeZoom = ground ? WORLD_FIT_ZOOM * (W() > H() ? 3.2 : 2.6) : WORLD_FIT_ZOOM;
+      // User zoom multiplies the mode zoom; the low cams clamp tighter so
+      // the follow-cam still reads. Tactical fit zoom frames the whole field.
+      const wide = W() > H();
+      const uz = ground
+        ? Math.min(ui.zoomLevel, GROUND_ZOOM_MAX)
+        : hover
+          ? Math.min(ui.zoomLevel, COMMAND_ZOOM_MAX)
+          : ui.zoomLevel;
+      const modeZoom = ground
+        ? WORLD_FIT_ZOOM * (wide ? 3.2 : 2.6)
+        : hover
+          ? WORLD_FIT_ZOOM * (wide ? 2.35 : 1.95)
+          : WORLD_FIT_ZOOM;
       const targetZoom = modeZoom * uz;
-      const targetYsq = ground ? 0.78 : 1; // low grazing angle, not a magnifier
-      const targetFy = ground ? (W() > H() ? 0.62 : 0.55) : 0.5;
+      // Grazing angles: ground 0.78; the hover looks FORWARD — more squash.
+      const targetYsq = ground ? 0.78 : hover ? 0.68 : 1;
+      const targetFy = ground ? (wide ? 0.62 : 0.55) : hover ? (wide ? 0.6 : 0.55) : 0.5;
       // Ground follows the southern advance: the attacker's centroid.
       let anx = WORLD_CX;
       let any = 1.0;
@@ -1528,7 +1575,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       const halfH = WORLD_H / 2 / (targetZoom * targetYsq);
       let tax: number;
       let tay: number;
-      if (ground) {
+      if (lowCam) {
         // Follow the advance, plus the player's pan offset — clamped tight
         // so a pan never leaves the fighting.
         tax = clampAnchor(anx + cam.pox, halfW, WORLD_W, WORLD_CX);
@@ -1549,8 +1596,10 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       // Standalone scenes sit at Z4, so the soundscape is unchanged there.
       battleSfx.setZoomAudioLevel(audioBandFor(bandForContinuumScale(continuumScaleRef.current)));
 
-      // --- ground-mode texture: dust under the advance, near-miss tracers --
-      if (ground) {
+      // --- low-cam texture: dust under the advance, near-miss tracers -----
+      // From the command ship the same tracers rip PAST THE CANOPY — the
+      // near-camera streak is what sells the hover.
+      if (lowCam) {
         for (const u of unitsRef.current) {
           if (u.side === "attacker" && u.state === "advancing" && Math.random() < sdt * 7) {
             fx.dust(X(u.x), Y(u.y));
@@ -1665,7 +1714,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     const render = (c: CanvasRenderingContext2D, phase: ScenePhase) => {
       const ui = sceneUISnapshot();
       const cam = camRef.current;
-      const ground = ui.cameraMode === "ground";
+      const ground = ui.cameraMode !== "tactical"; // any low cam (ground / command hover)
       // Slice 12 — Z3 battle overview: below Z4 the battle renders unit
       // shapes + tracers, never full models. Standalone scenes stay Z4
       // (full detail), so today's look is unchanged outside the continuum.
@@ -2687,14 +2736,15 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
   };
 
-  /** Drag-scroll the map. Ground mode pans a tight offset around the
-   *  follow-cam; tactical pans the anchor itself. Always clamped on-field. */
+  /** Drag-scroll the map. The low cams (ground / command hover) pan a tight
+   *  offset around the follow-cam; tactical pans the anchor itself. Always
+   *  clamped on-field. */
   const panBy = (dxCss: number, dyCss: number) => {
     const cam = camRef.current;
     const ui = sceneUISnapshot();
     const { w, h } = canvasCss();
     const ez = Math.max(0.2, cam.zoom);
-    if (ui.cameraMode === "ground") {
+    if (ui.cameraMode !== "tactical") {
       cam.pox = Math.max(-0.18, Math.min(0.18, cam.pox - dxCss / (ez * w)));
       cam.poy = Math.max(-0.18, Math.min(0.18, cam.poy - dyCss / (ez * cam.ysq * h)));
     } else {
@@ -2711,8 +2761,9 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
   const zoomBy = (factor: number, fxCss: number, fyCss: number) => {
     const cam = camRef.current;
     const ui = sceneUISnapshot();
-    const ground = ui.cameraMode === "ground";
-    const newUz = Math.max(ZOOM_MIN, Math.min(ground ? GROUND_ZOOM_MAX : ZOOM_MAX, ui.zoomLevel * factor));
+    const mode = ui.cameraMode;
+    const zMax = mode === "ground" ? GROUND_ZOOM_MAX : mode === "command" ? COMMAND_ZOOM_MAX : ZOOM_MAX;
+    const newUz = Math.max(ZOOM_MIN, Math.min(zMax, ui.zoomLevel * factor));
     if (newUz === ui.zoomLevel) return;
     const { w, h } = canvasCss();
     const oldEz = Math.max(0.2, cam.zoom);
@@ -2720,7 +2771,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     const wxx = cam.ax + (fxCss - w / 2) / (oldEz * w);
     const wyy = cam.ay + (fyCss - h * cam.fy) / (oldEz * cam.ysq * h);
     setZoomLevel(newUz);
-    if (!ground) {
+    if (mode === "tactical") {
       // Keep the focal world point under the cursor — no drift while zooming.
       const newEz = newUz; // tactical modeZoom = WORLD_FIT_ZOOM
       const halfW = WORLD_W / 2 / newEz;
@@ -3177,6 +3228,11 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           {gunnerOverlay}
         </div>
 
+        {/* the command-ship cockpit (owner 2026-10-12): canopy frame,
+            theme-lit instrument deck, adjutant + officers. Chrome over the
+            field — the battle is watched from the hover now. */}
+        <CockpitFrame variant="fullscreen" commanderName={scene.attackerName} />
+
         {/* slim header overlay — where you're standing + tier + BATTLE CLOCK.
             Mid-fight the doctrine timeline is what matters, not the world UTC
             clock. The floating Battle controls window keeps its own clock copy. */}
@@ -3214,7 +3270,11 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
               ? "border-cyan-300/50 bg-cyan-950/60 text-cyan-200"
               : "border-white/20 bg-black/55 text-zinc-200 hover:bg-black/80"
           }`}
-          style={{ bottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}
+          style={{
+            bottom: ui.cockpitOn
+              ? "calc(env(safe-area-inset-bottom) + 5.4rem)"
+              : "calc(env(safe-area-inset-bottom) + 1rem)",
+          }}
         >
           ⚙ Controls
         </button>
@@ -3238,7 +3298,11 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         {resolvedSide && (
           <div
             className="absolute inset-x-0 bottom-0 z-30 flex justify-center px-4"
-            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4.5rem)" }}
+            style={{
+              paddingBottom: ui.cockpitOn
+                ? "calc(env(safe-area-inset-bottom) + 8.6rem)"
+                : "calc(env(safe-area-inset-bottom) + 4.5rem)",
+            }}
           >
             <div
               className="w-full max-w-[420px] rounded-2xl border border-white/15 bg-black/80 p-4 shadow-2xl backdrop-blur-md"
@@ -3571,6 +3635,9 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           onRequestFullscreen={onRequestFullscreen}
         />
         <BattleLegend />
+        {/* the cockpit rides the embedded canvas too (owner 2026-10-12) —
+            slimmer here, the tab deck below keeps its own toggles */}
+        <CockpitFrame variant="embedded" commanderName={scene.attackerName} />
       </div>
 
       {/* control deck */}

@@ -11,6 +11,7 @@
 import { useEffect } from "react";
 import { BattleScene } from "./BattleScene";
 import { closeWindowsOfKind } from "../../game/windows/window-store";
+import type { CrewMember } from "../../game/war/battle-scene-ui-store";
 import type { SceneBattle } from "../../game/war/battle-scene-model";
 import type { SavedFormation, SlotLoads } from "../../game/war/playbook";
 import type { CompactReplay } from "../../game/war/battle-replays";
@@ -41,11 +42,14 @@ export function BattleSceneFullscreen({
   onClose,
   onSaveFormation,
   onSaveDoctrine,
+  crew,
 }: {
   scene: SceneBattle;
   onClose: () => void;
   onSaveFormation?: (draft: FormationDraft) => void;
   onSaveDoctrine?: (draft: DoctrineDraft) => void;
+  /** the player's heroes — the cockpit's bridge crew (owner 2026-10-12) */
+  crew?: CrewMember[];
 }) {
   useEffect(() => {
     // BattleScene itself opens the squads window on mount and closes it on
@@ -56,5 +60,5 @@ export function BattleSceneFullscreen({
     };
   }, []);
 
-  return <BattleScene scene={scene} variant="fullscreen" onClose={onClose} onSaveFormation={onSaveFormation} onSaveDoctrine={onSaveDoctrine} />;
+  return <BattleScene scene={scene} variant="fullscreen" onClose={onClose} onSaveFormation={onSaveFormation} onSaveDoctrine={onSaveDoctrine} crew={crew} />;
 }
