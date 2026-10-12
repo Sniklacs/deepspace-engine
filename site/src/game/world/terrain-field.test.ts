@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bakeTerrainRegion,
   bakeWorldTexture,
+  createRegionBaker,
   elevationAt,
   elevationDetailAt,
   greatCircleDeg,
@@ -140,6 +141,52 @@ describe("bakeTerrainRegion — each zoom level renders its own layer", () => {
     for (let k = 0; k < 3; k++) {
       expect(Math.abs(coarse.data[cc + k] - fine.data[fc + k])).toBeLessThan(48);
     }
+  });
+});
+
+describe("createRegionBaker — the same bake, spread across steps", () => {
+  test("pixel-identical to bakeTerrainRegion, fine detail included", () => {
+    for (const fine of [false, true]) {
+      const whole = bakeTerrainRegion(48, 48, 10, 20, 4, HEART, fine);
+      const baker = createRegionBaker(48, 48, 10, 20, 4, HEART, fine);
+      baker.step(Number.POSITIVE_INFINITY);
+      const inc = baker.result();
+      expect(inc.width).toBe(whole.width);
+      expect(inc.height).toBe(whole.height);
+      for (let i = 0; i < whole.data.length; i++) {
+        expect(inc.data[i]).toBe(whole.data[i]);
+      }
+    }
+  });
+
+  test("a small budget yields mid-bake — progress climbs, never jumps done", () => {
+    const baker = createRegionBaker(64, 64, 10, 20, 4, HEART);
+    let t = 0;
+    const now = () => (t += 0.4); // fake clock: 0.4ms per now() poll
+    expect(baker.done).toBe(false);
+    const done = baker.step(1, now);
+    expect(done).toBe(false);
+    expect(baker.progress).toBeGreaterThan(0);
+    expect(baker.progress).toBeLessThan(1);
+    // …but even a starved budget makes progress, so it always finishes.
+    let guard = 0;
+    while (!baker.step(0, now)) {
+      guard += 1;
+      if (guard > 100000) throw new Error("baker livelocked on a 0 budget");
+    }
+    expect(baker.done).toBe(true);
+    expect(baker.progress).toBe(1);
+  });
+
+  test("result() before done throws instead of serving a half-baked layer", () => {
+    const baker = createRegionBaker(32, 32, 10, 20, 4, HEART);
+    let threw = false;
+    try {
+      baker.result();
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
   });
 });
 

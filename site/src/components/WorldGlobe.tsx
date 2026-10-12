@@ -34,7 +34,7 @@ import {
   type GlobeMarker,
   type ScreenMarker,
 } from "../game/globe-layers";
-import { bakeTerrainRegion, bakeWorldTexture } from "../game/world/terrain-field";
+import { bakeWorldTexture, createRegionBaker, type RegionBaker } from "../game/world/terrain-field";
 import { globeSkinFor } from "../game/globe-skins";
 import {
   alliedKnownColonies,
@@ -839,8 +839,11 @@ function roundRectPath(g: CanvasRenderingContext2D, x: number, y: number, w: num
 // globe blits (the baked-terrain pattern from game/globe-layers.ts) —
 // composited equirectangularly around a quantized focus cell. The frame loop
 // crossfades the globe group out and this tile in over morphT (zoom-bands).
-// Tiles bake synchronously on first need (a few drawImages of already-baked
-// sprites — no elevation resampling); slice 4 moves streaming off-thread.
+// Tiles bake INCREMENTALLY (createRegionBaker + pumpBakeQueue below): a few
+// ms of field math per frame, never one synchronous ~1s chunk — the chunked
+// bake WAS the mid-dive chop on phones (Hans, Oct 12 2026). While a tile
+// bakes, the coarser layer (or the globe itself) keeps drawing, and when the
+// finer tile lands it CROSSFADES in over LOD_FADE_MS — no pop, no hole.
 // Fallback: bake failure → null → the globe keeps drawing. ALWAYS something
 // on screen, never a black frame.
 // ---------------------------------------------------------------------------
@@ -863,6 +866,10 @@ const TILE_LEVELS: TileLevel[] = [
 ];
 /** Deep-zoom detail tiles take over at LOW ALT and deeper. */
 export const TILE_DETAIL_SCALE = 6;
+/** The LOD level the frame loop currently requests — sticky across the
+ *  TILE_DETAIL_SCALE boundary (hysteresis in the frame loop) so a pinch
+ *  hovering at the threshold can't flap levels frame-to-frame. */
+let stickyTileLevel = 0;
 
 interface RegionTile {
   key: string;
@@ -897,18 +904,11 @@ function regionTileKey(lat: number, lon: number, level: number): { key: string; 
   return { key: `L${level}:${qLat}:${qLon}`, qLat, qLon };
 }
 
-function bakeRegionTile(qLat: number, qLon: number, level: number): HTMLCanvasElement {
-  const L = TILE_LEVELS[level];
-  const ppd = L.tilePx / (L.halfDeg * 2);
-  // One continuous landmass: bake this layer fresh from the terrain field
-  // at the level's own px/deg — the JPEG-within-a-JPEG. No ocean, no
-  // sprites; the corruption field colors the land around the Chorus heart.
-  const baked = bakeTerrainRegion(
-    L.tilePx, L.tilePx, qLat, qLon, ppd, chorusHeartGlobePosition(),
-    level >= 1, // deep layers resolve the fine-grain relief
-  );
+/** Turn a finished incremental bake into a drawable tile canvas. */
+function finishBakedTile(baker: RegionBaker): HTMLCanvasElement {
+  const baked = baker.result();
   const c = document.createElement("canvas");
-  c.width = c.height = L.tilePx;
+  c.width = c.height = baker.width;
   c.getContext("2d")!.putImageData(new ImageData(baked.data, baked.width, baked.height), 0, 0);
   return c;
 }
@@ -953,22 +953,135 @@ export const tileDebugStatus = {
   texture: "baking",
 };
 
-const tileBakeQueued = new Set<string>();
+// ---------------------------------------------------------------------------
+// BAKE SCHEDULER (Hans, Oct 12 2026 — the chop fix). One bake job at a time,
+// advanced a few ms per frame by pumpBakeQueue (called from the frame loop).
+// Jobs are cheap until activated (the baker's buffers allocate on first
+// step), so requests can queue freely; priorities decide who bakes first:
+//   0 = the tile the camera needs NOW (ensureRegionTile miss)
+//   1 = a flight's destination (pre-baked mid-flight, ready on landing)
+//   2 = neighbor prefetch (fills the pan path while the camera is calm)
+// Nothing ever bakes synchronously inside the frame loop beyond the pump's
+// budget — while a tile bakes, the coarser layer keeps drawing.
+// ---------------------------------------------------------------------------
+
+type BakePriority = 0 | 1 | 2;
+
+interface BakeJob {
+  key: string;
+  qLat: number;
+  qLon: number;
+  level: number;
+  priority: BakePriority;
+  /** Created lazily when the job becomes active — allocation off the request path. */
+  baker: RegionBaker | null;
+}
+
+const bakeJobs = new Map<string, BakeJob>();
+let activeBake: BakeJob | null = null;
+/** Pending + active jobs are capped: fast pans must not stack up seconds of
+ *  field math for cells the camera already left behind. */
+const MAX_BAKE_JOBS = 6;
+/** Per-frame bake budgets: tight while the camera moves (frames are spoken
+ *  for), looser when it sits still (tiles land fast, nothing else to do). */
+export const TILE_BAKE_BUSY_MS = 3;
+export const TILE_BAKE_IDLE_MS = 8;
 
 /**
- * Prefetch the 4 cardinal neighbors of a served tile, so scrolling finds
- * sharp tiles instead of waiting on bakes. Queued at low priority — the
- * bake queue is FIFO and these go to the back. Bounded: skips if the cache
- * is already full or the bake queue is deep.
+ * Queue a tile bake at a priority. Returns true if the tile is cached,
+ * already queued, or now queued; false only when the queue is saturated
+ * with strictly-more-urgent work (caller serves the coarser layer / globe).
+ */
+function requestTileBake(lat: number, lon: number, level: number, priority: BakePriority): boolean {
+  const { key, qLat, qLon } = regionTileKey(lat, lon, level);
+  if (regionTileCache.some((t) => t.key === key)) return true;
+  const existing = bakeJobs.get(key);
+  if (existing) {
+    if (priority < existing.priority) existing.priority = priority;
+    return true;
+  }
+  if (bakeJobs.size >= MAX_BAKE_JOBS) {
+    // Evict the least-urgent PENDING job (never the active one) if the new
+    // request is at least as urgent; otherwise decline to queue.
+    let worst: BakeJob | null = null;
+    for (const j of bakeJobs.values()) {
+      if (j === activeBake) continue;
+      if (!worst || j.priority >= worst.priority) worst = j;
+    }
+    if (!worst || worst.priority < priority) return false;
+    bakeJobs.delete(worst.key);
+  }
+  bakeJobs.set(key, { key, qLat, qLon, level, priority, baker: null });
+  tileDebugStatus.queued = bakeJobs.size;
+  return true;
+}
+
+/**
+ * Advance the bake queue by at most ~budgetMs. Called once per frame from
+ * the render loop — this is the ONLY place tile pixels are made, so the
+ * frame budget is a hard guarantee: no multi-tile bakes, no big chunks.
+ * A finished tile enters the cache and (via the frame loop's served-tile
+ * tracking) crossfades in over the coarser layer it replaces.
+ */
+export function pumpBakeQueue(budgetMs: number): void {
+  if (!activeBake) {
+    // Highest priority first (lowest number); FIFO within a priority —
+    // Map iteration is insertion-ordered, so the first minimum wins.
+    let next: BakeJob | null = null;
+    for (const j of bakeJobs.values()) {
+      if (!next || j.priority < next.priority) next = j;
+    }
+    if (!next) return;
+    activeBake = next;
+    try {
+      const L = TILE_LEVELS[next.level];
+      const ppd = L.tilePx / (L.halfDeg * 2);
+      // One continuous landmass: bake this layer fresh from the terrain
+      // field at the level's own px/deg — the JPEG-within-a-JPEG. No
+      // ocean, no sprites; the corruption field colors the land around
+      // the Chorus heart. Deep layers resolve the fine-grain relief.
+      next.baker = createRegionBaker(
+        L.tilePx, L.tilePx, next.qLat, next.qLon, ppd,
+        chorusHeartGlobePosition(), next.level >= 1,
+      );
+    } catch (err) {
+      tileDebugStatus.lastError = `bake-init L${next.level} ${next.key}: ${String(err)}`.slice(0, 160);
+      bakeJobs.delete(next.key);
+      activeBake = null;
+      tileDebugStatus.queued = bakeJobs.size;
+      return;
+    }
+  }
+  const job = activeBake;
+  try {
+    if (!job.baker!.step(budgetMs)) return; // still baking — more next frame
+    const L = TILE_LEVELS[job.level];
+    const tile: RegionTile = {
+      key: job.key, canvas: finishBakedTile(job.baker!), qLat: job.qLat, qLon: job.qLon,
+      ppd: L.tilePx / (L.halfDeg * 2), tilePx: L.tilePx,
+    };
+    regionTileCache = [tile, ...regionTileCache.filter((t) => t.key !== tile.key)].slice(0, L.cacheMax + 6);
+    tileDebugStatus.cacheKeys = regionTileCache.map((t) => t.key);
+  } catch (err) {
+    // Keep serving the coarser layer; retry on the next visit.
+    tileDebugStatus.lastError = `L${job.level} ${job.key}: ${String(err)}`.slice(0, 160);
+  }
+  bakeJobs.delete(job.key);
+  activeBake = null;
+  tileDebugStatus.queued = bakeJobs.size;
+}
+
+/**
+ * Prefetch the 4 cardinal neighbors of a served tile, so panning finds
+ * sharp tiles instead of waiting on bakes. Lowest priority, and only when
+ * no urgent (visible / flight) bake is queued — the camera always wins.
+ * Safe to run again now that bakes are chunked (the Oct 11 freeze was the
+ * synchronous bake, not the prefetch itself).
  */
 function prefetchNeighbors(qLat: number, qLon: number, level: number): void {
-  // DISABLED (Hans Oct 11 2026): background bakes blocked the main thread and
-  // froze the UI on phones. Re-enable only with a Web Worker or chunked bake.
-  return;
+  for (const j of bakeJobs.values()) if (j.priority <= 1) return;
   const L = TILE_LEVELS[level];
   if (regionTileCache.length >= L.cacheMax + 6) return;
-  // Only prefetch when nothing urgent is waiting — on-demand tiles always win.
-  if (tileBakeQueued.size >= 2) return;
   const cell = L.cellDeg;
   const neighbors: Array<[number, number]> = [
     [qLat + cell, qLon],
@@ -977,35 +1090,15 @@ function prefetchNeighbors(qLat: number, qLon: number, level: number): void {
     [qLat, qLon - cell],
   ];
   for (const [nLat, nLon] of neighbors) {
-    const { key, qLat: pqLat, qLon: pqLon } = regionTileKey(nLat, nLon, level);
-    if (regionTileCache.some((t) => t.key === key)) continue;
-    if (tileBakeQueued.has(key)) continue;
-    tileBakeQueued.add(key);
-    tileDebugStatus.queued = tileBakeQueued.size;
-    setTimeout(() => {
-      try {
-        const canvas = bakeRegionTile(pqLat, pqLon, level);
-        const tile: RegionTile = {
-          key, canvas, qLat: pqLat, qLon: pqLon,
-          ppd: L.tilePx / (L.halfDeg * 2), tilePx: L.tilePx,
-        };
-        regionTileCache = [tile, ...regionTileCache.filter((t) => t.key !== key)].slice(0, L.cacheMax + 6);
-        tileDebugStatus.cacheKeys = regionTileCache.map((t) => t.key);
-      } catch (err) {
-        tileDebugStatus.lastError = `prefetch L${level} ${key}: ${String(err)}`.slice(0, 160);
-      }
-      tileBakeQueued.delete(key);
-      tileDebugStatus.queued = tileBakeQueued.size;
-    }, 0);
+    requestTileBake(nLat, nLon, level, 2);
   }
 }
 /** The region tile for the focus point — or the best coarser layer while the
- *  requested one bakes. Bakes run off the frame loop (a detail tile is real
- *  field math, ~1s); the globe reads the SAME field, so the screen never
- *  blacks out or pops — the ground just resolves, layer by layer, as you
- *  descend. Small per-level LRU. */
+ *  requested one bakes. Bakes run incrementally via pumpBakeQueue (a detail
+ *  tile is real field math, ~1s of it, spread a few ms per frame); the globe
+ *  reads the SAME field, so the screen never blacks out or pops — the ground
+ *  just resolves, layer by layer, as you descend. Small per-level LRU. */
 function ensureRegionTile(lat: number, lon: number, level: number): RegionTile | null {
-  const L = TILE_LEVELS[level];
   const { key, qLat, qLon } = regionTileKey(lat, lon, level);
   const hit = regionTileCache.find((t) => t.key === key);
   if (hit) {
@@ -1015,39 +1108,59 @@ function ensureRegionTile(lat: number, lon: number, level: number): RegionTile |
     prefetchNeighbors(qLat, qLon, level);
     return hit;
   }
-  if (!tileBakeQueued.has(key)) {
-    // Bound the bake queue — scrolling fast across many tiles must not stack
-    // up seconds of main-thread work and freeze the UI. If we're already
-    // baking, the coarser layer holds until the queue drains.
-    if (tileBakeQueued.size >= 2) {
-      tileDebugStatus.served = `L${level}-wait`;
-      tileDebugStatus.servedKey = key;
-      if (level > 0) return ensureRegionTile(lat, lon, level - 1);
-      return null;
-    }
-    tileBakeQueued.add(key);
-    tileDebugStatus.queued = tileBakeQueued.size;
-    setTimeout(() => {
-      try {
-        const canvas = bakeRegionTile(qLat, qLon, level);
-        const tile: RegionTile = {
-          key, canvas, qLat, qLon,
-          ppd: L.tilePx / (L.halfDeg * 2), tilePx: L.tilePx,
-        };
-        regionTileCache = [tile, ...regionTileCache.filter((t) => t.key !== key)].slice(0, L.cacheMax + 6);
-        tileDebugStatus.cacheKeys = regionTileCache.map((t) => t.key);
-      } catch (err) {
-        // Keep serving the coarser layer; retry on the next visit.
-        tileDebugStatus.lastError = `L${level} ${key}: ${String(err)}`.slice(0, 160);
-      }
-      tileBakeQueued.delete(key);
-      tileDebugStatus.queued = tileBakeQueued.size;
-    }, 0);
+  // Miss: queue the bake at top priority. Even when the queue is saturated
+  // the coarser layer holds — scrolling fast across many tiles never stacks
+  // up seconds of main-thread work.
+  if (!requestTileBake(lat, lon, level, 0)) {
+    tileDebugStatus.served = `L${level}-wait`;
+    tileDebugStatus.servedKey = key;
   }
   // Progressive: serve the coarser layer stretched while this one bakes.
   // Level 0 → null: the globe (same field) keeps drawing. Never a black frame.
   if (level > 0) return ensureRegionTile(lat, lon, level - 1);
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// LOD CROSSFADE (Hans, Oct 12 2026): when the served tile changes — a finer
+// layer landing, or a pan crossing into a fresh cell — the new tile fades in
+// over the old one across LOD_FADE_MS instead of hard-cutting. Both tiles
+// draw positioned by their own cell centers at the same ppdDraw, so they
+// align geographically and the blend reads as the ground SHARPENING.
+// ---------------------------------------------------------------------------
+
+export const LOD_FADE_MS = 240;
+let lodFadeFrom: RegionTile | null = null;
+let lodFadeStartMs = 0;
+let lodServedTile: RegionTile | null = null;
+
+/** Frame-loop bookkeeping: call once per frame with the tile about to be
+ *  drawn (or null). Starts/continues/completes the LOD crossfade. */
+function trackServedTile(tile: RegionTile | null, ms: number): void {
+  if (!tile) {
+    lodServedTile = null;
+    lodFadeFrom = null;
+    return;
+  }
+  if (lodServedTile && tile.key !== lodServedTile.key) {
+    // The freshest complete tile besides the new one becomes the underlay
+    // (mid-fade switch: the tile that was fading IN takes over as the base).
+    lodFadeFrom = lodServedTile;
+    lodFadeStartMs = ms;
+  }
+  lodServedTile = tile;
+  if (lodFadeFrom && ms - lodFadeStartMs >= LOD_FADE_MS) lodFadeFrom = null;
+}
+
+/** The tile fading in under `tile`, and its blend factor 0..1, if a
+ *  crossfade is in flight; otherwise null. */
+function lodFadeUnderlay(
+  tile: RegionTile,
+  ms: number,
+): { under: RegionTile; fadeT: number } | null {
+  if (!lodFadeFrom || lodFadeFrom.key === tile.key) return null;
+  const fadeT = Math.min(1, Math.max(0, (ms - lodFadeStartMs) / LOD_FADE_MS));
+  return fadeT < 1 ? { under: lodFadeFrom, fadeT } : null;
 }
 
 // Offscreen canvas for the morph composite: while 0 < morphT < 1 the globe
@@ -1200,6 +1313,17 @@ export default function WorldGlobe({
         opts,
       );
       focusAnim.current = null;
+      // PRE-BAKE THE DESTINATION (Oct 12 2026): while the flight is
+      // airborne, the bake pump works the destination's tiles at flight
+      // priority, so the ground is already sharp when the camera lands
+      // instead of baking on arrival (the old on-arrival bake WAS the
+      // hitch at the bottom of every dive). L0 always (it carries the
+      // morph); L1 too when the flight ends at LOW ALT or deeper.
+      if (scale >= BAND_Z2) {
+        const dest = focusLatLon(spin, tilt);
+        requestTileBake(dest.lat, dest.lon, 0, 1);
+        if (scale >= TILE_DETAIL_SCALE) requestTileBake(dest.lat, dest.lon, 1, 1);
+      }
     },
     [],
   );
@@ -1645,14 +1769,31 @@ export default function WorldGlobe({
       // Fallback: tile bake failure → null → today's direct path at full
       // alpha. ALWAYS something on screen — never a cut, never a black
       // frame.
+      // BAKE PUMP (Oct 12 2026): advance the tile bake queue BEFORE the
+      // tile need below is evaluated, so a tile requested last frame has
+      // had a frame of baking already. Budget is small while the camera
+      // moves (flight/drag/easing — frames are spoken for) and larger
+      // when it sits still. This pump is the only bake work in the frame:
+      // ≤ budgetMs, one tile at a time — never a synchronous chunk.
+      const camBusy =
+        flightRef.current !== null ||
+        drag.current !== null ||
+        Math.abs(v.targetScale - v.scale) > 0.002;
+      pumpBakeQueue(camBusy ? TILE_BAKE_BUSY_MS : TILE_BAKE_IDLE_MS);
+
       const morphT = morphTFromScale(v.scale);
       const focusLL = focusLatLon(v.spin, v.tilt);
       let regionTile: RegionTile | null = null;
       if (morphT > 0) {
         // LOD: the detail tile level takes over at LOW ALT and deeper, so
         // the ground keeps resolving as you descend instead of stretching
-        // the morph tile forever.
-        const tileLevel = v.scale >= TILE_DETAIL_SCALE ? 1 : 0;
+        // the morph tile forever. HYSTERESIS (Oct 12 2026): the level is
+        // sticky — it rises at TILE_DETAIL_SCALE but only falls back at
+        // 0.9× — so a pinch hovering on the boundary can't flap L0↔L1
+        // (and restart the crossfade) every frame.
+        if (stickyTileLevel === 0 && v.scale >= TILE_DETAIL_SCALE) stickyTileLevel = 1;
+        else if (stickyTileLevel === 1 && v.scale < TILE_DETAIL_SCALE * 0.9) stickyTileLevel = 0;
+        const tileLevel = stickyTileLevel;
         tileDebugStatus.scale = v.scale;
         tileDebugStatus.tileLevel = tileLevel;
         try {
@@ -1665,6 +1806,7 @@ export default function WorldGlobe({
           tileDebugStatus.servedKey = "";
         }
       }
+      trackServedTile(regionTile, ms);
       morphTRef.current = morphT;
       const pastMorph = morphT >= 1 && regionTile !== null;
       const morphing = morphT > 0 && morphT < 1 && regionTile !== null;
@@ -1983,17 +2125,31 @@ export default function WorldGlobe({
       // at (1 − morphT) over it. At morphT = 0 regionTile is null and this
       // block never runs — today's path is untouched. The starfield behind
       // stays put, so there is never an empty or black frame.
+      // LOD CROSSFADE (Oct 12 2026): while a fresher tile is still fading
+      // in, the previous tile draws UNDER it at full base alpha — the
+      // screen never shows a hole, a half-baked tile, or a hard cut; it
+      // shows the ground sharpening.
       if (regionTile) {
-        const ppdDraw = R / 90; // screen px per degree at the focus point
-        const s = ppdDraw / regionTile.ppd;
-        const size = regionTile.tilePx * s;
-        const cosLat = Math.cos((focusLL.lat * Math.PI) / 180);
-        const dLon = wrapLon180(regionTile.qLon - focusLL.lon);
-        const tcx = cx + dLon * cosLat * ppdDraw;
-        const tcy = cy + (regionTile.qLat - focusLL.lat) * ppdDraw;
+        const baseAlpha = morphT >= 1 ? 1 : morphT;
+        const drawTile = (tile: RegionTile, alpha: number) => {
+          const ppdDraw = R / 90; // screen px per degree at the focus point
+          const s = ppdDraw / tile.ppd;
+          const size = tile.tilePx * s;
+          const cosLat = Math.cos((focusLL.lat * Math.PI) / 180);
+          const dLon = wrapLon180(tile.qLon - focusLL.lon);
+          const tcx = cx + dLon * cosLat * ppdDraw;
+          const tcy = cy + (tile.qLat - focusLL.lat) * ppdDraw;
+          ctx.globalAlpha = alpha;
+          ctx.drawImage(tile.canvas, tcx - size / 2, tcy - size / 2, size, size);
+        };
         ctx.save();
-        ctx.globalAlpha = morphT >= 1 ? 1 : morphT;
-        ctx.drawImage(regionTile.canvas, tcx - size / 2, tcy - size / 2, size, size);
+        const fade = lodFadeUnderlay(regionTile, ms);
+        if (fade) {
+          drawTile(fade.under, baseAlpha);
+          drawTile(regionTile, baseAlpha * fade.fadeT);
+        } else {
+          drawTile(regionTile, baseAlpha);
+        }
         ctx.restore();
         if (morphing && morphCanvas) {
           ctx.save();

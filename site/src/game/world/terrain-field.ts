@@ -230,14 +230,66 @@ export function bakeTerrainRegion(
   heart: { lat: number; lon: number },
   fineDetail = false,
 ): BakedLayer {
-  const data = new Uint8ClampedArray(new ArrayBuffer(w * h * 4));
-  const px = data;
-  const elev = new Float32Array(w * h);
-  const cosLat = Math.max(0.2, Math.cos((qLat * Math.PI) / 180));
-  // Pass 1 — the field, sampled at this layer's own density. Deep layers
-  // add the fine-grain relief their pixels can actually show.
-  for (let j = 0; j < h; j++) {
-    const lat = qLat - (j - h / 2) / ppd;
+  const baker = createRegionBaker(w, h, qLat, qLon, ppd, heart, fineDetail);
+  baker.step(Number.POSITIVE_INFINITY);
+  return baker.result();
+}
+
+// ---- incremental region bake: the same bake, spread across frames ---------
+//
+// A full L1 bake is ~1s of field math. Run in one synchronous chunk (the old
+// setTimeout path) it eats ~60 frames whole — on a phone mid-dive that IS
+// the chop Hans felt (Oct 12 2026). The baker below runs the IDENTICAL two
+// passes row-by-row under a wall-clock budget, so a caller can feed it a few
+// ms per frame and the bake lands over ~a second of smooth frames instead
+// of one frozen second. Output is pixel-identical to bakeTerrainRegion.
+
+interface RegionBakeState {
+  w: number;
+  h: number;
+  qLat: number;
+  qLon: number;
+  ppd: number;
+  heart: { lat: number; lon: number };
+  fineDetail: boolean;
+  data: Uint8ClampedArray<ArrayBuffer>;
+  elev: Float32Array;
+  cosLat: number;
+  /** 1 = elevation pass, 2 = hillshade + color pass. */
+  pass: 1 | 2;
+  /** Next row to bake within the current pass. */
+  row: number;
+  done: boolean;
+}
+
+function makeRegionBakeState(
+  w: number,
+  h: number,
+  qLat: number,
+  qLon: number,
+  ppd: number,
+  heart: { lat: number; lon: number },
+  fineDetail: boolean,
+): RegionBakeState {
+  return {
+    w, h, qLat, qLon, ppd, heart, fineDetail,
+    data: new Uint8ClampedArray(new ArrayBuffer(w * h * 4)),
+    elev: new Float32Array(w * h),
+    cosLat: Math.max(0.2, Math.cos((qLat * Math.PI) / 180)),
+    pass: 1,
+    row: 0,
+    done: false,
+  };
+}
+
+/** Bake ONE row of the current pass; advance the state. */
+function bakeRegionRow(s: RegionBakeState): void {
+  const { w, h, qLat, qLon, ppd, heart, fineDetail, elev, cosLat } = s;
+  const j = s.row;
+  const lat = qLat - (j - h / 2) / ppd;
+  if (s.pass === 1) {
+    // Pass 1 — the field, sampled at this layer's own density. Deep layers
+    // add the fine-grain relief their pixels can actually show.
     for (let i = 0; i < w; i++) {
       const lon = qLon + (i - w / 2) / (cosLat * ppd);
       const e = elevationAt(lat, lon);
@@ -245,10 +297,9 @@ export function bakeTerrainRegion(
         ? Math.min(1, Math.max(0, e + elevationDetailAt(lat, lon)))
         : e;
     }
-  }
-  // Pass 2 — hillshade + color.
-  for (let j = 0; j < h; j++) {
-    const lat = qLat - (j - h / 2) / ppd;
+  } else {
+    // Pass 2 — hillshade + color.
+    const px = s.data;
     for (let i = 0; i < w; i++) {
       const lon = qLon + (i - w / 2) / (cosLat * ppd);
       const e = elev[j * w + i];
@@ -268,7 +319,72 @@ export function bakeTerrainRegion(
       px[o + 3] = 255;
     }
   }
-  return { width: w, height: h, data };
+  s.row += 1;
+  if (s.row >= h) {
+    if (s.pass === 1) {
+      s.pass = 2;
+      s.row = 0;
+    } else {
+      s.done = true;
+    }
+  }
+}
+
+export interface RegionBaker {
+  readonly width: number;
+  readonly height: number;
+  /** True once both passes are complete. */
+  readonly done: boolean;
+  /** 0..1 across both passes (pass 1 = first half, pass 2 = second). */
+  readonly progress: number;
+  /**
+   * Bake until roughly `budgetMs` of wall time is spent, then yield.
+   * Always bakes at least one row, so even a 0 budget makes progress.
+   * Returns `done`. Pass Infinity to run to completion synchronously.
+   */
+  step(budgetMs: number, now?: () => number): boolean;
+  /** The finished layer. Throws if called before `done`. */
+  result(): BakedLayer;
+}
+
+const defaultBakeNow = (): number =>
+  typeof performance !== "undefined" ? performance.now() : Date.now();
+
+/** Create an incremental baker for one region tile. No pixels are baked
+ *  until `step` is called — creating one is just two buffer allocations. */
+export function createRegionBaker(
+  w: number,
+  h: number,
+  qLat: number,
+  qLon: number,
+  ppd: number,
+  heart: { lat: number; lon: number },
+  fineDetail = false,
+): RegionBaker {
+  const s = makeRegionBakeState(w, h, qLat, qLon, ppd, heart, fineDetail);
+  return {
+    width: w,
+    height: h,
+    get done() {
+      return s.done;
+    },
+    get progress() {
+      const rowsDone = (s.pass - 1) * s.h + s.row;
+      return s.h > 0 ? rowsDone / (2 * s.h) : 1;
+    },
+    step(budgetMs: number, now: () => number = defaultBakeNow): boolean {
+      if (s.done) return true;
+      const start = now();
+      // At least one row per call — a starved budget must never livelock.
+      bakeRegionRow(s);
+      while (!s.done && now() - start < budgetMs) bakeRegionRow(s);
+      return s.done;
+    },
+    result(): BakedLayer {
+      if (!s.done) throw new Error("region baker: result() before done");
+      return { width: s.w, height: s.h, data: s.data };
+    },
+  };
 }
 
 /**
