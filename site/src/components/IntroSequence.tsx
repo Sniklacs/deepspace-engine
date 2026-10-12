@@ -21,7 +21,7 @@ type Phase = "gate" | "gate-armed" | "voice" | "dark" | "reveal" | "done";
 
 const VOICE_SRC = "/audio/intro-hell.m4a";
 const DARK_PAUSE_MS = 4000; // Hans: 3–5s of darkness after the clip
-const MUSIC_LEAD_MS = 2000; // music starts 2s before the solar system fades in
+const MUSIC_LEAD_MS = 5000; // music starts 5s before the solar system fades in — let it breathe
 const VOICE_TIMEOUT_MS = 14000; // safety if the clip can't play / onended never fires
 const FADE_MS = 1600;
 
@@ -37,9 +37,22 @@ function startIntroMusic(): void {
     if (!introMusicEl) {
       introMusicEl = new Audio(INTRO_MUSIC_SRC);
       introMusicEl.loop = true;
-      introMusicEl.volume = 0.7;
+      introMusicEl.volume = 0;
     }
-    void introMusicEl.play().catch(() => {});
+    // Fade in slowly — let the entrance breathe.
+    const el = introMusicEl;
+    void el.play().then(() => {
+      let v = 0;
+      const fade = window.setInterval(() => {
+        v += 0.05;
+        if (v >= 0.8) {
+          el.volume = 0.8;
+          window.clearInterval(fade);
+        } else {
+          el.volume = v;
+        }
+      }, 200);
+    }).catch(() => {});
   } catch {
     /* ignore */
   }
