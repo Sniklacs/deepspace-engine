@@ -35,6 +35,7 @@ import {
   type ScreenMarker,
 } from "../game/globe-layers";
 import { bakeTerrainRegion, bakeWorldTexture } from "../game/world/terrain-field";
+import { globeSkinFor } from "../game/globe-skins";
 import {
   alliedKnownColonies,
   clampHiveCandidate,
@@ -265,26 +266,67 @@ function ensureDiscCtx(diameterPx: number): CanvasRenderingContext2D | null {
 
 let worldTexture: HTMLCanvasElement | null = null;
 let worldTextureBaking = false;
+let worldTextureSkinKey = "";
 /** The world texture, baked off the frame loop on first need. Null until
- *  the bake lands — the render loop holds a land-colored disc meanwhile. */
-function ensureWorldTexture(): HTMLCanvasElement | null {
-  if (worldTexture) return worldTexture;
-  if (!worldTextureBaking) {
-    worldTextureBaking = true;
-    setTimeout(() => {
-      try {
-        const baked = bakeWorldTexture(WORLD_TEX_W, WORLD_TEX_H, chorusHeartGlobePosition());
-        const c = document.createElement("canvas");
-        c.width = WORLD_TEX_W;
-        c.height = WORLD_TEX_H;
-        c.getContext("2d")!.putImageData(new ImageData(baked.data, baked.width, baked.height), 0, 0);
+ *  the bake lands — the render loop holds a land-colored disc meanwhile.
+ *
+ *  RACE SKIN (Hans, Oct 11 2026): when a race globe skin is available
+ *  (`/art/globe/{raceId}-globe.webp`), it composites UNDER the procedural
+ *  bake — the skin owns the planet's color (Ashen Wastes volcanic for
+ *  Draconians), the procedural bake adds elevation hillshade + corruption
+ *  tinting on top at reduced alpha. Races without a skin file get the pure
+ *  procedural bake, as before. Keyed by skin URL so a race switch rebakes.
+ */
+function ensureWorldTexture(skinUrl: string | null): HTMLCanvasElement | null {
+  const key = skinUrl ?? "";
+  if (worldTexture && worldTextureSkinKey === key) return worldTexture;
+  if (worldTextureBaking && worldTextureSkinKey === key) return worldTexture;
+  worldTexture = null;
+  worldTextureSkinKey = key;
+  worldTextureBaking = true;
+  setTimeout(() => {
+    try {
+      const baked = bakeWorldTexture(WORLD_TEX_W, WORLD_TEX_H, chorusHeartGlobePosition());
+      const c = document.createElement("canvas");
+      c.width = WORLD_TEX_W;
+      c.height = WORLD_TEX_H;
+      const g = c.getContext("2d")!;
+      const finish = () => {
+        g.putImageData(new ImageData(baked.data, baked.width, baked.height), 0, 0);
         worldTexture = c;
         tileDebugStatus.texture = "ready";
-      } catch {
-        worldTextureBaking = false; // retry next call
+      };
+      if (key) {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            // Skin first (equirectangular stretch), procedural bake over it
+            // at reduced alpha so the skin's color dominates and the bake
+            // contributes relief + corruption shading. (putImageData ignores
+            // globalAlpha, so the bake goes through a temp canvas.)
+            g.drawImage(img, 0, 0, WORLD_TEX_W, WORLD_TEX_H);
+            const tmp = document.createElement("canvas");
+            tmp.width = WORLD_TEX_W;
+            tmp.height = WORLD_TEX_H;
+            tmp.getContext("2d")!.putImageData(new ImageData(baked.data, baked.width, baked.height), 0, 0);
+            g.globalAlpha = 0.45;
+            g.drawImage(tmp, 0, 0);
+            g.globalAlpha = 1;
+            worldTexture = c;
+            tileDebugStatus.texture = "ready";
+          } catch {
+            finish();
+          }
+        };
+        img.onerror = () => finish(); // no skin file yet — procedural only
+        img.src = key;
+      } else {
+        finish();
       }
-    }, 0);
-  }
+    } catch {
+      worldTextureBaking = false; // retry next call
+    }
+  }, 0);
   return worldTexture;
 }
 
@@ -1353,7 +1395,9 @@ export default function WorldGlobe({
 
     // Start baking the single world texture — the frame loop draws patches
     // of it (one land map); it lands a beat after mount, off the frame loop.
-    ensureWorldTexture();
+    // Race skin: the globe wears the race's homeworld skin (Draconians =
+    // the Ashen Wastes volcanic). Null = pure procedural bake.
+    ensureWorldTexture(globeSkinFor(state.race));
 
     // WS5 — the server's first real clock: refresh the player-anchored
     // subsolar point every 60s and whenever the tab regains visibility
@@ -1576,7 +1620,7 @@ export default function WorldGlobe({
       // projected patches into an offscreen disc at alpha 1 (same-texture
       // overdraw is invisible), then limb-masked and blitted. Per-patch
       // alpha telegraphed the patch grid as block seams — never again.
-      const tex = ensureWorldTexture();
+      const tex = ensureWorldTexture(globeSkinFor(state.race));
       if (tex) {
         const D = Math.ceil(R * 2);
         const dg = ensureDiscCtx(D);
