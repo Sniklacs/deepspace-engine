@@ -96,6 +96,7 @@ export default function CradleScreen({
   supplyGrant,
   onDeploy,
   onOpenCodex,
+  onOpenStore,
   onForgeRoll,
   onForgeMelt,
   forgeBusy,
@@ -121,6 +122,8 @@ export default function CradleScreen({
   supplyGrant?: number | null;
   onDeploy: (d: DomainId) => void;
   onOpenCodex: () => void;
+  /** open the Store (war market) from the colony scene hotspot */
+  onOpenStore?: () => void;
   /** THE FORGE (owner 2026-09-26): the roll is a server operation — the room
    *  hands up a recipe id and a fresh request id and nothing else. */
   onForgeRoll: (recipeId: string, requestId: string) => void;
@@ -159,6 +162,7 @@ export default function CradleScreen({
           raceId={state.race}
           onNavigate={onNavigate}
           onOpenForge={() => { setSheet({ kind: "forge", id: "forge" }); sound.tab(); }}
+          onOpenStore={onOpenStore}
         />
       </div>
       <div className="home-columns space-y-3">

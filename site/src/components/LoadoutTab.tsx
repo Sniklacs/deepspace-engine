@@ -8,7 +8,7 @@
 // worn state. Battle snapshots carry resolved deltas (engine.resolveHeroEquipment)
 // stamped at pledge/commit time — the page shows the same deltas for the
 // selected bearer so what you see is what marches.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { GameState } from "../game/types";
 import type { ForgeItem, LoadoutSlot } from "../game/forge";
 import { forgeGrade } from "../game/forge";
@@ -65,6 +65,13 @@ const SLOTS: { id: LoadoutSlot; fits: "assault" | "defence" | null; lockedKey: s
 export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
   const t = useT();
   const playerRace = state.race ?? null;
+  // Armory scene skin — per-race convention /art/armory/{race}-skin.webp,
+  // generic armory banner as fallback (the CradleScene ab19b97 pattern).
+  const armorySkin = playerRace ? `/art/armory/${playerRace.trim().toLowerCase()}-skin.webp` : null;
+  const [armorySrc, setArmorySrc] = useState(armorySkin ?? "/art/loadout/armory-banner.webp");
+  useEffect(() => {
+    setArmorySrc(armorySkin ?? "/art/loadout/armory-banner.webp");
+  }, [armorySkin]);
   const heroes = useMemo(
     () =>
       (state.prologue?.heroes ?? []).map((h) => ({
@@ -144,7 +151,11 @@ export default function LoadoutTab({ state, busy, onEquip, onUnequip }: Props) {
       {/* armory banner */}
       <div className="relative h-32 overflow-hidden rounded-xl border border-white/10 md:h-40">
         <img
-          src="/art/loadout/armory-banner.webp"
+          src={armorySrc}
+          onError={() => {
+            // Race skin missing? Fall back to the generic armory banner.
+            if (armorySrc !== "/art/loadout/armory-banner.webp") setArmorySrc("/art/loadout/armory-banner.webp");
+          }}
           alt=""
           aria-hidden
           className="h-full w-full object-cover"

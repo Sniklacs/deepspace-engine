@@ -41,7 +41,7 @@ export interface SceneHotspot {
   labelKey: string;
   defaultLabel: string;
   /** tab to open, or a scene-local action */
-  target: Tab | "forge" | "business" | "shipyard";
+  target: Tab | "forge" | "business" | "shipyard" | "store";
 }
 
 /**
@@ -59,6 +59,7 @@ export const CRADLE_HOTSPOTS: readonly SceneHotspot[] = [
   { id: "barracks", x: 59, y: 66, labelKey: "cradle.scene.barracks", defaultLabel: "Barracks", target: "troops" },
   { id: "alliance", x: 72, y: 49, labelKey: "cradle.scene.alliance", defaultLabel: "Alliance Hall", target: "alliance" },
   { id: "depot", x: 83, y: 85, labelKey: "cradle.scene.depot", defaultLabel: "Exploration Depot", target: "expeditions" },
+  { id: "store", x: 70, y: 86, labelKey: "cradle.scene.store", defaultLabel: "War Market", target: "store" },
   { id: "shipyard", x: 93, y: 62, labelKey: "cradle.scene.shipyard", defaultLabel: "Shipyard", target: "shipyard" },
 ];
 
@@ -99,12 +100,15 @@ function scrollToTestid(testid: string) {
 export default function CradleScene({
   onNavigate,
   onOpenForge,
+  onOpenStore,
   raceId,
 }: {
   /** open a nav tab (Lab, Barracks, Alliance, Formations, Exploration…) */
   onNavigate: (tab: Tab) => void;
   /** open the Forge room sheet */
   onOpenForge: () => void;
+  /** open the Store (war market) — the storefront ledger */
+  onOpenStore?: () => void;
   /** player's race — uses /art/cradle/{raceId}-skin.webp when it exists */
   raceId?: string | null;
 }) {
@@ -260,6 +264,9 @@ export default function CradleScene({
       onOpenForge();
     } else if (h.target === "business") {
       scrollToTestid("cradle-overview");
+    } else if (h.target === "store") {
+      sound.tab();
+      onOpenStore?.();
     } else if (h.target === "shipyard") {
       scrollToTestid("cradle-shipyard");
     } else {

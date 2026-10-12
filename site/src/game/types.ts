@@ -427,6 +427,12 @@ export interface GameState {
     bands: MercenaryBand[];
     history: CasualtyRecord[];
   };
+  /** STORE OFFERS (game/store-offers.ts; owner 2026-10-12) — held extraction
+   *  contracts + recovery expedites bought from the store, and the per-day
+   *  record of claimed daily specials. Goods and contracts only: no hero, no
+   *  leader and no troop is ever sold (owner doctrine). Optional for
+   *  migration: initialized by ensureStoreOffers on first advance/purchase. */
+  storeOffers?: import("./store-offers").StoreOffersState;
   /** FORWARD BASES (design/forward-base.md) — beachheads on foreign servers.
    *  Optional for migration: pre-beachhead saves initialize empty on first
    *  advance (ensureForwardBases). Keyed by foreign serverId — max one base

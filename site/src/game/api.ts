@@ -33,6 +33,12 @@ import {
   purchaseWithVotives,
   createPaymentProvider,
 } from "./monetization";
+import {
+  purchaseDailySpecial,
+  purchaseWarBundle,
+  purchaseExtractionPass,
+  purchaseRecoveryExpedite,
+} from "./store-offers";
 import { isSellable, xsollaCatalogRow, xsollaReturnUrlFor } from "./payments/xsolla-catalog";
 import { dailyPublicView } from "./daily";
 import { timeTokensPublicView } from "./time-tokens";
@@ -2292,6 +2298,43 @@ const purchaseWithVotivesFn = createServerFn({ method: "POST" }).validator(
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
 });
 
+/** STORE OFFERS (owner 2026-10-12) — spend ALREADY-OWNED Votives on a daily
+ *  special, a war bundle, an Extraction Contract or a Recovery Expedite
+ *  (game/store-offers.ts). One door for all four kinds; the catalog module
+ *  owns prices, contents and rules — including resolving the daily rotation
+ *  against the SERVER clock, so a client can never buy off-board. Idempotent
+ *  by the caller's eventId. Store gated like every purchase route. */
+const purchaseStoreOfferFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    kind: z.enum(["special", "bundle", "extraction", "expedite"]),
+    offerId: z.string().optional(),
+    eventId: z.string().min(4),
+  })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  if (!MONETIZATION_CONFIG.storefrontEnabled) {
+    return { ok: false, error: "The Cradle Market isn't open yet — purchases are disabled during beta (§8.6)." };
+  }
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const now = Date.now();
+  const res =
+    data.kind === "special"
+      ? purchaseDailySpecial(st, data.offerId ?? "", data.eventId, now)
+      : data.kind === "bundle"
+        ? purchaseWarBundle(st, data.offerId ?? "", data.eventId, now)
+        : data.kind === "extraction"
+          ? purchaseExtractionPass(st, data.eventId, now)
+          : purchaseRecoveryExpedite(st, data.eventId, now);
+  if (res.ok && res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
 /** THE Xsolla checkout seam: mints a Pay Station token server-side for the
  *  SIGNED-IN account and returns the URL the client navigates to.
  *
@@ -3522,6 +3565,7 @@ export {
   claimDailyRewardFn,
   applyTimeTokenFn,
   purchaseWithVotivesFn,
+  purchaseStoreOfferFn,
   xsollaCheckoutFn,
   submitFeedbackFn,
   listMyFeedbackFn,

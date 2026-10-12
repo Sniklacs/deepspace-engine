@@ -46,7 +46,7 @@ describe("clampPan", () => {
 describe("CRADLE_HOTSPOTS", () => {
   test("every module Hans named has a building", () => {
     const ids = CRADLE_HOTSPOTS.map((h) => h.id);
-    for (const id of ["lab", "forge", "barracks", "alliance", "formations", "shipyard"]) {
+    for (const id of ["lab", "forge", "barracks", "alliance", "formations", "shipyard", "store"]) {
       expect(ids.indexOf(id) !== -1).toBe(true);
     }
   });
@@ -56,6 +56,7 @@ describe("CRADLE_HOTSPOTS", () => {
       const ok =
         tabs.includes(h.target) ||
         h.target === "forge" ||
+        h.target === "store" ||
         h.target === "business" ||
         h.target === "shipyard";
       expect(ok).toBe(true);

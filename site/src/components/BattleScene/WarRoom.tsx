@@ -16,7 +16,7 @@
 // war room page later. (War-room art — chalkboards, X's and O's, doctrine
 // on the walls — is queued after the functional build.)
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   PLAYBOOK,
   autoloadSuggested,
@@ -92,6 +92,8 @@ export interface WarRoomProps {
   warRoom: WarRoomState;
   leaderLevel: number;
   gameId: string;
+  /** player's race — the room wears its race skin: /art/warroom/{raceId}-skin.webp */
+  raceId?: string | null;
   onSaveFormation: (draft: { id?: string; name: string; playId: string; loads: SlotLoads; slotMeta?: SavedFormation["slotMeta"]; replayId?: string; locked: boolean }) => void;
   onDeleteFormation: (id: string) => void;
   onToggleLock: (id: string, locked: boolean) => void;
@@ -139,7 +141,7 @@ function GradeDial({ grade, setGrade, myReverb, foeReverb }: { grade: ChorusGrad
   );
 }
 
-export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation, onDeleteFormation, onToggleLock, onDeployFormation, onClose }: WarRoomProps) {
+export function WarRoom({ roster, warRoom, leaderLevel, gameId, raceId, onSaveFormation, onDeleteFormation, onToggleLock, onDeployFormation, onClose }: WarRoomProps) {
   const [tab, setTab] = useState<Tab>("Deploy");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [suggestedPickId, setSuggestedPickId] = useState<string | null>(null);
@@ -201,6 +203,15 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
     setLastRun(lr);
   };
 
+  // Scene skin — the war room wears its race (per-race convention:
+  // /art/warroom/{raceId}-skin.webp). No skin file for the race yet → the
+  // band quietly removes itself, exactly like CradleSkin.
+  const warSkin = raceId ? `/art/warroom/${raceId.trim().toLowerCase()}-skin.webp` : null;
+  const [warSkinOk, setWarSkinOk] = useState(true);
+  useEffect(() => {
+    setWarSkinOk(true);
+  }, [warSkin]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col bg-[#0b0e14]/98 backdrop-blur"
@@ -225,6 +236,24 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, onSaveFormation,
           ✕
         </button>
       </div>
+
+      {/* scene band — the hallway of chalkboards, in the race's skin */}
+      {warSkin && warSkinOk && (
+        <div className="relative h-28 shrink-0 overflow-hidden border-b border-white/10 sm:h-40">
+          <img
+            src={warSkin}
+            alt=""
+            aria-hidden="true"
+            onError={() => setWarSkinOk(false)}
+            className="h-full w-full object-cover"
+            style={{ objectPosition: "center 45%" }}
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0b0e14] via-transparent to-black/25"
+          />
+        </div>
+      )}
 
       {/* tabs */}
       <div className="flex gap-1 border-b border-white/10 px-3 pt-2" role="tablist" aria-label="War room sections">

@@ -773,6 +773,7 @@ function PlayPage() {
           }}
           onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")}
           onOpenCodex={() => { setCodexOpen(true); sound.tab(); }}
+          onOpenStore={() => { setLedgerOpen(true); sound.click(); }}
           onForgeRoll={(recipeId, requestId) => act(() => forgeRollFn({ data: { token: token!, recipeId, requestId } }), "build")}
           onForgeMelt={(itemId) => act(() => forgeMeltFn({ data: { token: token!, itemId } }), "success")}
           forgeBusy={busy}
@@ -1786,6 +1787,8 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft, onDeploy }: {
           gets a background picture) */}
       <PageBanner
         image="/art/pages/exploration-banner.webp"
+        raceId={state?.race}
+        skinDir="exploration"
         title={t("exp.title")}
         focal="center 60%"
         className="mt-6 rounded-xl"

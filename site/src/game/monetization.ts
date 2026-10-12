@@ -1271,6 +1271,14 @@ function hitsForbidden(text: string): string | null {
   }
   return null;
 }
+
+/** The purchasable-vocabulary tripwire, exported for sibling catalog modules
+ *  (game/store-offers.ts runs its own fairness assert over the daily-special /
+ *  war-bundle / extraction catalogues with the exact same list — one list, one
+ *  meaning of "power content", wherever a price is attached). */
+export function catalogForbiddenHit(text: string): string | null {
+  return hitsForbidden(text);
+}
 /** Validates the ENTIRE catalog against the fairness rules and throws with a
  *  precise message on the first violation. Tests call this; the build's CI
  *  would too — power content cannot enter the catalog silently. */

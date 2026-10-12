@@ -164,6 +164,8 @@ export default function FormationsTab({ state, busy, token, onAction, onGoToWorl
     <div className="panel p-4">
       <PageBanner
         image="/art/pages/formations-banner.webp"
+        raceId={state.race}
+        skinDir="formations"
         title={t("formations.title", "Formations")}
         sub={t("formations.sub", "Pre-built battle groups — ships reserved and loaded, a hero in command. Grab one and roll.")}
         className="mb-3 rounded-xl"

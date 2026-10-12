@@ -512,7 +512,7 @@ export function StorefrontOverlay({
         {/* market vault art behind the ledger (owner 2026-10-01: every page
             gets a background picture) */}
         <div className="-mx-4 md:-mx-5">
-          <PageBanner image="/art/pages/store-banner.webp" className="rounded-none" focal="center 40%" />
+          <PageBanner image="/art/pages/store-banner.webp" raceId={state.race} skinDir="store" className="rounded-none" focal="center 40%" />
         </div>
         {/* ---- Wallet (server state only; .num everywhere) ---- */}
         <div className="flex flex-wrap items-center gap-2 pt-4">

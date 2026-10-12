@@ -34,6 +34,7 @@ import {
   recordSeasonEvent,
   awardDeedCosmetic,
 } from "./monetization";
+import { ensureStoreOffers } from "./store-offers";
 import {
   ARMORY_CONFIG,
   ARMORY_BUILD_SLOTS,
@@ -1899,6 +1900,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureKnowledge(state);
   ensureRevelation(state);
   ensureMonetization(state);
+  ensureStoreOffers(state); // STORE OFFERS (owner 2026-10-12): held extraction contracts + expedites, daily-special claims (additive)
   ensureArmory(state);
   ensureForge(state);
   ensureDaily(state);

@@ -572,6 +572,7 @@ export default function ArenaPanel({ state, token, onAction }: {
             warRoom={warRoom}
             leaderLevel={myLeaderLevel}
             gameId={state.gameId ?? me}
+            raceId={state.race}
             onClose={() => setShowWarRoom(false)}
             onSaveFormation={(draft) =>
               onAction(

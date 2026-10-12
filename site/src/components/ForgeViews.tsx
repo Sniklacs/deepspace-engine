@@ -230,6 +230,8 @@ export function ForgeRoom({
     <div className="space-y-3">
       <PageBanner
         image="/art/pages/forge-banner.webp"
+        raceId={state.race}
+        skinDir="forge"
         title={t("forge.title")}
         sub={t("forge.sub")}
         className="rounded-xl"

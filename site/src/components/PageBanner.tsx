@@ -17,6 +17,7 @@ export default function PageBanner({
   sub,
   raceId,
   raceArtDir,
+  skinDir,
   focal = "center 35%",
   titleClassName = "text-2xl font-bold text-white drop-shadow",
   className = "rounded-xl",
@@ -30,6 +31,9 @@ export default function PageBanner({
   raceId?: string | null;
   /** art dir holding optional per-race files, e.g. "pages" for /art/pages/{raceId}.webp */
   raceArtDir?: string;
+  /** module skin dir, e.g. "forge" for /art/forge/{raceId}-skin.webp — the
+   *  per-race module scene convention; takes precedence over raceArtDir */
+  skinDir?: string;
   /** object-position focal point for phone crops */
   focal?: string;
   titleClassName?: string;
@@ -37,19 +41,19 @@ export default function PageBanner({
   className?: string;
 }) {
   const raceSrc =
-    raceArtDir && raceId && raceId.trim()
-      ? `/art/${raceArtDir}/${raceId.trim().toLowerCase()}.webp`
+    raceId && raceId.trim()
+      ? skinDir
+        ? `/art/${skinDir}/${raceId.trim().toLowerCase()}-skin.webp`
+        : raceArtDir
+          ? `/art/${raceArtDir}/${raceId.trim().toLowerCase()}.webp`
+          : null
       : null;
   const wanted = raceSrc ?? image;
   const [src, setSrc] = useState(wanted);
   // Re-arm when the art changes (race/account switch).
   useEffect(() => {
-    const r =
-      raceArtDir && raceId && raceId.trim()
-        ? `/art/${raceArtDir}/${raceId.trim().toLowerCase()}.webp`
-        : null;
-    setSrc(r ?? image);
-  }, [image, raceArtDir, raceId]);
+    setSrc(raceSrc ?? image);
+  }, [image, raceSrc]);
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
