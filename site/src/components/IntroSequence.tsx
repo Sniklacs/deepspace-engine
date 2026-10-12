@@ -238,15 +238,15 @@ export default function IntroSequence() {
             @keyframes title-rush {
               0% { transform: scale(0.1); opacity: 0; filter: brightness(0.4); }
               55% { transform: scale(0.7); opacity: 1; filter: brightness(0.9); }
-              82% { transform: scale(2.6); opacity: 1; filter: brightness(1.6); }
-              100% { transform: scale(2.6); opacity: 1; filter: brightness(1.6); }
+              82% { transform: scale(1.35); opacity: 1; filter: brightness(1.6); }
+              100% { transform: scale(1.35); opacity: 1; filter: brightness(1.6); }
             }
             @keyframes title-shake {
-              0%, 100% { transform: scale(2.6) translate(0, 0); }
-              20% { transform: scale(2.6) translate(-6px, 3px); }
-              40% { transform: scale(2.6) translate(5px, -4px); }
-              60% { transform: scale(2.6) translate(-4px, -3px); }
-              80% { transform: scale(2.6) translate(4px, 4px); }
+              0%, 100% { transform: scale(1.35) translate(0, 0); }
+              20% { transform: scale(1.35) translate(-6px, 3px); }
+              40% { transform: scale(1.35) translate(5px, -4px); }
+              60% { transform: scale(1.35) translate(-4px, -3px); }
+              80% { transform: scale(1.35) translate(4px, 4px); }
             }
             @keyframes kicker-fade {
               0%, 88% { opacity: 0; }
