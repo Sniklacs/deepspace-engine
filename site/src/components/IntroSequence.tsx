@@ -17,7 +17,7 @@ import type { KnownServer } from "~/game/servers";
  * Skippable at every step (tap anywhere / Skip button). Plays once per session.
  */
 
-type Phase = "gate" | "voice" | "dark" | "reveal" | "done";
+type Phase = "gate" | "gate-armed" | "voice" | "dark" | "reveal" | "done";
 
 const VOICE_SRC = "/audio/intro-hell.m4a";
 const DARK_PAUSE_MS = 4000; // Hans: 3–5s of darkness after the clip
@@ -60,8 +60,9 @@ function stopIntroMusic(): void {
  * The gate title: "THE UNBOUND" rushes from tiny to huge, then BOOM.
  * The boom fires at ~1.85s when the title slams to full size.
  */
-function TitleRush({ t }: { t: (k: string, d: string) => string }) {
+function TitleRush({ t, onSlamDone }: { t: (k: string, d: string) => string; onSlamDone: () => void }) {
   useEffect(() => {
+    // This component only mounts after a user tap — audio is unlocked, the boom WILL play.
     const boomTimer = window.setTimeout(() => {
       try {
         const boom = new Audio("/audio/intro-boom.m4a");
@@ -71,8 +72,13 @@ function TitleRush({ t }: { t: (k: string, d: string) => string }) {
         /* ignore */
       }
     }, 1850);
-    return () => window.clearTimeout(boomTimer);
-  }, []);
+    // After slam + shake + 2s clean impact, reveal "tap to enter".
+    const doneTimer = window.setTimeout(onSlamDone, 5800);
+    return () => {
+      window.clearTimeout(boomTimer);
+      window.clearTimeout(doneTimer);
+    };
+  }, [onSlamDone]);
 
   return (
     <>
@@ -109,6 +115,7 @@ export default function IntroSequence() {
   // Hans: the intro plays EVERY time the game opens. No session skip.
   const [phase, setPhase] = useState<Phase>("gate");
   const [fadedIn, setFadedIn] = useState(false);
+  const [slamDone, setSlamDone] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timersRef = useRef<number[]>([]);
 
@@ -233,14 +240,26 @@ export default function IntroSequence() {
       className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black text-zinc-100"
       onPointerDown={() => {
         // Any tap during the sequence skips it — never trap the player.
-        if (phase !== "gate") finish();
+        // (gate and gate-armed are the entry; taps there advance, not skip.)
+        if (phase !== "gate" && phase !== "gate-armed") finish();
       }}
     >
       {phase === "gate" ? (
         <button
           type="button"
+          onClick={() => setPhase("gate-armed")}
+          className="flex min-h-full w-full flex-col items-center justify-center bg-black px-6"
+          aria-label="Begin"
+        >
+          <span className="animate-pulse text-xs font-semibold uppercase tracking-[0.4em] text-zinc-600">
+            Tap
+          </span>
+        </button>
+      ) : phase === "gate-armed" ? (
+        <button
+          type="button"
           onClick={begin}
-          className="relative flex min-h-full w-full flex-col items-center justify-center overflow-hidden px-6 text-center"
+          className="relative flex min-h-full w-full flex-col items-center justify-center overflow-hidden bg-black px-6 text-center"
           aria-label={t("intro.enter", "Enter The Unbound")}
         >
           {/* Rushing title: starts tiny, hurtles toward the viewer, then BOOM. */}
@@ -258,21 +277,17 @@ export default function IntroSequence() {
               60% { transform: scale(1.12) translate(-4px, -3px); }
               80% { transform: scale(1.12) translate(4px, 4px); }
             }
-            @keyframes kicker-fade {
-              0%, 88% { opacity: 0; }
-              100% { opacity: 1; }
-            }
             .title-rush {
               animation: title-rush 2.2s cubic-bezier(0.15, 0.85, 0.35, 1) forwards,
                          title-shake 0.5s ease-in-out 2.2s 3;
             }
-            /* Tap to enter fades in ~2s after the title slams home. Clean. */
-            .kicker-fade { animation: kicker-fade 5.8s ease-out forwards; }
           `}</style>
-          <TitleRush t={t} />
-          <p className="kicker-fade absolute bottom-16 animate-pulse text-sm font-semibold uppercase tracking-[0.3em] text-zinc-400">
-            {t("intro.tapToEnter", "Tap to enter")}
-          </p>
+          <TitleRush t={t} onSlamDone={() => setSlamDone(true)} />
+          {slamDone && (
+            <p className="absolute bottom-16 animate-pulse text-sm font-semibold uppercase tracking-[0.3em] text-zinc-400">
+              {t("intro.tapToEnter", "Tap to enter")}
+            </p>
+          )}
         </button>
       ) : (
         <>
