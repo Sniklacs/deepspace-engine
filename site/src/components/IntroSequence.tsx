@@ -29,29 +29,51 @@ const FADE_MS = 1600;
  * Hans's own intro music track. Plays with a 2-second lead before the
  * solar system fades in.
  */
-const INTRO_MUSIC_SRC = "/audio/intro-music.m4a";
+const INTRO_MUSIC_SRC = "/audio/intro-main-loop.m4a";
+const INTRO_BG_SRC = "/audio/intro-bg-layer.m4a";
 let introMusicEl: HTMLAudioElement | null = null;
+let introBgEl: HTMLAudioElement | null = null;
 
 function startIntroMusic(): void {
   try {
+    // Main loop: Hans's track, 1:27, fades in slowly.
     if (!introMusicEl) {
       introMusicEl = new Audio(INTRO_MUSIC_SRC);
       introMusicEl.loop = true;
       introMusicEl.volume = 0;
     }
-    // Fade in slowly — let the entrance breathe.
-    const el = introMusicEl;
-    void el.play().then(() => {
+    // Background layer: the remainder of his track, half volume, underneath.
+    if (!introBgEl) {
+      introBgEl = new Audio(INTRO_BG_SRC);
+      introBgEl.loop = true;
+      introBgEl.volume = 0;
+    }
+    const main = introMusicEl;
+    const bg = introBgEl;
+    void main.play().then(() => {
       let v = 0;
       const fade = window.setInterval(() => {
         v += 0.05;
         if (v >= 0.8) {
-          el.volume = 0.8;
+          main.volume = 0.8;
           window.clearInterval(fade);
         } else {
-          el.volume = v;
+          main.volume = v;
         }
       }, 200);
+    }).catch(() => {});
+    // Background comes in softer and slower, vibing underneath.
+    void bg.play().then(() => {
+      let v = 0;
+      const fade = window.setInterval(() => {
+        v += 0.02;
+        if (v >= 0.35) {
+          bg.volume = 0.35;
+          window.clearInterval(fade);
+        } else {
+          bg.volume = v;
+        }
+      }, 300);
     }).catch(() => {});
   } catch {
     /* ignore */
@@ -63,6 +85,10 @@ function stopIntroMusic(): void {
     if (introMusicEl) {
       introMusicEl.pause();
       introMusicEl.currentTime = 0;
+    }
+    if (introBgEl) {
+      introBgEl.pause();
+      introBgEl.currentTime = 0;
     }
   } catch {
     /* ignore */
