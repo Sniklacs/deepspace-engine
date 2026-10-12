@@ -9,6 +9,7 @@
 
 import type { ManeuverVector } from "./war-types";
 import type { SceneUnitKind } from "./battle-scene-model";
+import type { SquadFireMode, EnemySquadIntel } from "./squad-command";
 
 export type DayNightMode = "auto" | "day" | "night";
 
@@ -185,6 +186,29 @@ export interface SceneUIState {
    * for future per-gun control; either one silences the gun.
    */
   siegeHoldAll: boolean;
+  // --- squad command: the commander's quick-pick (owner 2026-10-12) -------
+  /** Fire discipline per squad id. Missing = "free" (weapons live). */
+  squadFireMode: Record<string, SquadFireMode>;
+  /** Cover assignments: squad id → the squad id it is covering. */
+  squadCover: Record<string, string | null>;
+  /** Target links: squad id → enemy intel ids it is pressuring/targeting. */
+  squadTargets: Record<string, string[]>;
+  /** Enemy composition per squad, revealed by the scout flyby. */
+  enemyIntel: EnemySquadIntel[];
+  /** True once the scout has returned (or the demo intel was loaded). */
+  scoutIntelReady: boolean;
+  /** "setup" = pre-battle target assignment; "live" = the battle is running. */
+  battlePhase: "setup" | "live";
+  /** Squad id with map-tap MOVE armed — the next map/radar tap is its destination. */
+  moveArmedFor: string | null;
+  /** Enemy intel id with the squad picker open (target assignment flow). */
+  pendingTargetId: string | null;
+  /**
+   * Radar/map tap destination (owner 2026-10-12): set by the HUD radar when
+   * a squad's MOVE is armed. BattleScene's loop consumes it via
+   * takePendingMoveDest() and routes it through the normal order judge.
+   */
+  pendingMoveDest: { squadId: string; x: number; y: number } | null;
 }
 
 const INITIAL: SceneUIState = {
@@ -212,6 +236,15 @@ const INITIAL: SceneUIState = {
   siegeAimArmed: false,
   squadStance: {},
   siegeHoldAll: false,
+  squadFireMode: {},
+  squadCover: {},
+  squadTargets: {},
+  enemyIntel: [],
+  scoutIntelReady: false,
+  battlePhase: "setup",
+  moveArmedFor: null,
+  pendingTargetId: null,
+  pendingMoveDest: null,
 };
 
 let state: SceneUIState = INITIAL;
@@ -466,6 +499,113 @@ export function setSiegeAim(p: { x: number; y: number } | null): void {
 export function setSiegeAimArmed(armed: boolean): void {
   if (state.siegeAimArmed === armed) return;
   set({ siegeAimArmed: armed });
+}
+
+// --- squad command: the commander's quick-pick (owner 2026-10-12) --------
+
+/** Fire discipline of a squad. Missing = "free" (weapons live). */
+export function squadFireModeOf(id: string): SquadFireMode {
+  return state.squadFireMode[id] ?? "free";
+}
+
+/** Set a squad's fire discipline. */
+export function setSquadFireMode(id: string, mode: SquadFireMode): void {
+  if ((state.squadFireMode[id] ?? "free") === mode) return;
+  set({ squadFireMode: { ...state.squadFireMode, [id]: mode } });
+}
+
+/** Which squad this squad is covering, or null. */
+export function squadCoverOf(id: string): string | null {
+  return state.squadCover[id] ?? null;
+}
+
+/** Assign (or clear) a cover order: squad `id` covers `coveredId`. */
+export function setSquadCover(id: string, coveredId: string | null): void {
+  if ((state.squadCover[id] ?? null) === coveredId) return;
+  set({ squadCover: { ...state.squadCover, [id]: coveredId } });
+}
+
+/** Enemy intel ids this squad is pressuring/targeting. */
+export function squadTargetIdsOf(id: string): string[] {
+  return state.squadTargets[id] ?? [];
+}
+
+/** True when the squad has at least one target link (bullseye marker). */
+export function isSquadLinked(id: string): boolean {
+  return (state.squadTargets[id] ?? []).length > 0;
+}
+
+/** Link a squad to an enemy target. Idempotent. */
+export function linkSquadTarget(squadId: string, enemyId: string): void {
+  const cur = state.squadTargets[squadId] ?? [];
+  if (cur.includes(enemyId)) return;
+  const intel = state.enemyIntel.map((e) =>
+    e.id === enemyId && !e.targetedBy.includes(squadId)
+      ? { ...e, targetedBy: [...e.targetedBy, squadId] }
+      : e,
+  );
+  set({
+    squadTargets: { ...state.squadTargets, [squadId]: [...cur, enemyId] },
+    enemyIntel: intel,
+  });
+}
+
+/** Unlink a squad from an enemy target. */
+export function unlinkSquadTarget(squadId: string, enemyId: string): void {
+  const cur = state.squadTargets[squadId] ?? [];
+  if (!cur.includes(enemyId)) return;
+  const intel = state.enemyIntel.map((e) =>
+    e.id === enemyId
+      ? { ...e, targetedBy: e.targetedBy.filter((s) => s !== squadId) }
+      : e,
+  );
+  set({
+    squadTargets: { ...state.squadTargets, [squadId]: cur.filter((e) => e !== enemyId) },
+    enemyIntel: intel,
+  });
+}
+
+/**
+ * Load scout intel — called when the scout flyby reveals the enemy
+ * disposition. Opens the door to the Enemy Forces window.
+ */
+export function setScoutIntel(intel: EnemySquadIntel[]): void {
+  set({ enemyIntel: intel, scoutIntelReady: true });
+}
+
+/** Setup (target assignment) vs live battle. */
+export function setBattlePhase(phase: "setup" | "live"): void {
+  if (state.battlePhase === phase) return;
+  set({ battlePhase: phase });
+}
+
+/** Arm map-tap MOVE for a squad — the next map/radar tap is its destination. */
+export function setMoveArmedFor(id: string | null): void {
+  if (state.moveArmedFor === id) return;
+  set({ moveArmedFor: id, siegeAimArmed: false });
+}
+
+/** Open/close the squad picker for an enemy target (target assignment flow). */
+export function setPendingTargetId(id: string | null): void {
+  if (state.pendingTargetId === id) return;
+  set({ pendingTargetId: id });
+}
+
+/**
+ * Queue a radar-tap destination for an armed squad. BattleScene consumes it
+ * through takePendingMoveDest() and routes it through the normal order
+ * judge (hold-position, jump-drop rules, etc. all still apply).
+ */
+export function queueRadarMove(squadId: string, x: number, y: number): void {
+  set({ pendingMoveDest: { squadId, x, y }, moveArmedFor: null });
+}
+
+/** Consume the queued radar destination, if any. Single-shot. */
+export function takePendingMoveDest(): { squadId: string; x: number; y: number } | null {
+  const d = state.pendingMoveDest;
+  if (!d) return null;
+  set({ pendingMoveDest: null });
+  return d;
 }
 
 /** Test/utility: reset the whole store. */

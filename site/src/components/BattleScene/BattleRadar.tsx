@@ -15,14 +15,27 @@ import {
 } from "../../game/war/battle-radar-feed";
 import { WORLD_W, WORLD_H } from "../../game/war/battle-scene-model";
 
-const CSS = 148; // css px square
 const PAD = 10; // panel padding around the field
 
 const FRIEND = "#34d399";
 const FOE = "#f87171";
 
-export function BattleRadar() {
+/**
+ * Hans 2026-10-12: the radar is a command surface, not just a picture.
+ * Pass `interactive` + `onTapWorld` to let taps direct troop movements
+ * (e.g. when a squad's MOVE is armed). `size` scales the canvas.
+ */
+export function BattleRadar({
+  interactive = false,
+  onTapWorld,
+  size = 148,
+}: {
+  interactive?: boolean;
+  onTapWorld?: (x: number, y: number) => void;
+  size?: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const CSS = size;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -133,15 +146,35 @@ export function BattleRadar() {
 
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [CSS]);
+
+  // Tap → world coords → the commander's destination.
+  const handleTap = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!interactive || !onTapWorld) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width;
+    const py = (e.clientY - rect.top) / rect.height;
+    const fw = CSS - PAD * 2;
+    const fh = CSS - PAD * 2 - 14;
+    const wx = ((px * CSS - PAD) / fw) * WORLD_W;
+    const wy = ((py * CSS - PAD) / fh) * WORLD_H;
+    if (wx < 0 || wy < 0 || wx > WORLD_W || wy > WORLD_H) return;
+    onTapWorld(wx, wy);
+  };
 
   return (
     <canvas
       ref={canvasRef}
       style={{ width: CSS, height: CSS }}
-      className="pointer-events-none block"
+      onPointerDown={interactive ? handleTap : undefined}
+      className={`block ${interactive ? "cursor-crosshair touch-manipulation" : "pointer-events-none"}`}
       data-testid="battle-radar"
-      aria-label="Battle radar: whole-field minimap"
+      data-interactive={interactive ? "true" : undefined}
+      aria-label={
+        interactive
+          ? "Battle radar: tap to set the armed squad's destination"
+          : "Battle radar: whole-field minimap"
+      }
     />
   );
 }

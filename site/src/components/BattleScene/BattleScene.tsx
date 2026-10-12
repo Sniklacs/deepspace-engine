@@ -93,7 +93,15 @@ import {
   setZoomLevel,
   recenterMap,
   BATTLE_SPEED_MUL,
+  // squad command (owner 2026-10-12): scout intel, move-armed taps, radar destinations
+  setScoutIntel,
+  setMoveArmedFor,
+  takePendingMoveDest,
 } from "../../game/war/battle-scene-ui-store";
+import {
+  buildEnemyIntel,
+  DEMO_ENEMY_INTEL,
+} from "../../game/war/squad-command";
 import {
   buildSquads,
   enemyLineY,
@@ -1392,6 +1400,19 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           rosterPushRef.current(true);
           setRevealed(true);
           postComms("scout-ok", "");
+          // Hans 2026-10-12: the scout's intel feeds the ENEMY FORCES
+          // window — per-squad composition for target assignment.
+          try {
+            const intel = buildEnemyIntel(
+              unitsRef.current
+                .filter((u) => u.side === "defender")
+                .map((u) => ({ squadId: u.squadId, kind: u.kind, alive: u.state !== "dead" })),
+            );
+            setScoutIntel(intel.length > 0 ? intel : DEMO_ENEMY_INTEL);
+            openWindow("battle-enemy-forces", { titleFallback: "Enemy Forces" });
+          } catch {
+            /* intel is best-effort — the battle runs without it */
+          }
         } else if (scoutNow === "lost") {
           postComms("scout-lost", "");
           // Flak kill at the shoot-down point — the sweep visual dies here.
@@ -1624,6 +1645,13 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         }
         // Radar snapshot — the minimap reads the same field.
         pushRadarFrame(unitsRef.current, turretsRef.current);
+        // Radar-tap destination (owner 2026-10-12): the HUD radar queues a
+        // move for an armed squad — route it through the normal order judge.
+        const pendingDest = takePendingMoveDest();
+        if (pendingDest) {
+          setSelectedSquad(pendingDest.squadId);
+          issueOrder(pendingDest.squadId, pendingDest.x, pendingDest.y);
+        }
         // Rejection toast + order ping expire on their own.
         const nowMs = performance.now();
         if (toastRef.current && nowMs - toastRef.current.born > 8000) toastRef.current = null;
@@ -2889,6 +2917,15 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       setSiegeAimArmed(false);
     }
     // With a squad selected, the tap is a destination — judge the order.
+    // Hans 2026-10-12: an armed MOVE (from the quick-pick) takes priority —
+    // the tap is that squad's destination even if another squad is selected.
+    const armedFor = ui.moveArmedFor;
+    if (armedFor) {
+      setMoveArmedFor(null);
+      setSelectedSquad(armedFor);
+      issueOrder(armedFor, tx, ty);
+      return;
+    }
     if (ui.selectedSquadId) {
       issueOrder(ui.selectedSquadId, tx, ty);
       return;

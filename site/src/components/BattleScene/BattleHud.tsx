@@ -14,11 +14,13 @@
 //     and Controls windows when closed, plus the fullscreen toggle in the
 //     embedded battle view. The strip is the only chrome on the field.
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore, useState } from "react";
 import {
   subscribeSceneUI,
   sceneUISnapshot,
   sceneUIServerSnapshot,
+  setMoveArmedFor,
+  queueRadarMove,
 } from "../../game/war/battle-scene-ui-store";
 import {
   subscribeWindows,
@@ -63,6 +65,17 @@ export function BattleHud({
 
   const squadsOpen = isWindowOpen("battle-squads");
   const controlsOpen = isWindowOpen("battle-controls");
+  const enemyForcesOpen = isWindowOpen("battle-enemy-forces");
+  const ui = useSyncExternalStore(subscribeSceneUI, sceneUISnapshot, sceneUIServerSnapshot);
+  const [radarBig, setRadarBig] = useState(false);
+  const moveArmed = ui.moveArmedFor !== null;
+  const armedSquad = ui.squads.find((s) => s.id === ui.moveArmedFor) ?? null;
+
+  const onRadarTap = (x: number, y: number) => {
+    if (!ui.moveArmedFor) return;
+    battleSfx.uiClick();
+    queueRadarMove(ui.moveArmedFor, x, y);
+  };
 
   return (
     <>
@@ -76,13 +89,47 @@ export function BattleHud({
 
       {/* radar — bottom-left, above the Legend chip. The whole field in one
           glance: friend/foe dots, turret diamonds, event pings, scale bar.
-          (owner 2026-10-11) */}
+          (owner 2026-10-11). Hans 2026-10-12: the radar is a command surface —
+          when a squad's MOVE is armed, tap it for the destination; the ⤢
+          button opens it large. */}
       <div
-        className="pointer-events-none absolute left-2 z-30"
+        className="absolute left-2 z-30"
         style={{ bottom: `calc(${stripBottom} + 3rem)` }}
         data-testid="battle-hud-radar"
       >
-        <BattleRadar />
+        <div className={`relative ${moveArmed ? "pointer-events-auto" : "pointer-events-none"}`}>
+          <BattleRadar
+            interactive={moveArmed}
+            onTapWorld={onRadarTap}
+            size={radarBig ? 260 : 148}
+          />
+          {moveArmed && armedSquad && (
+            <p className="pointer-events-none absolute -top-7 left-0 whitespace-nowrap rounded-md border border-sky-300/50 bg-sky-950/80 px-2 py-1 text-[10px] font-bold text-sky-200">
+              📍 {armedSquad.name}: tap radar
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => { battleSfx.uiClick(); setRadarBig(!radarBig); }}
+            data-testid="hud-radar-expand"
+            aria-pressed={radarBig}
+            aria-label={radarBig ? "Shrink the radar" : "Enlarge the radar"}
+            className="pointer-events-auto absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-black/70 text-[12px] text-zinc-200 backdrop-blur-md active:scale-95"
+          >
+            {radarBig ? "⤡" : "⤢"}
+          </button>
+          {moveArmed && (
+            <button
+              type="button"
+              onClick={() => { battleSfx.uiClick(); setMoveArmedFor(null); }}
+              data-testid="hud-radar-cancel-move"
+              aria-label="Cancel the armed move"
+              className="pointer-events-auto absolute -bottom-2 -right-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-black/70 text-[12px] text-zinc-200 backdrop-blur-md active:scale-95"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* window launchers — the only chrome on the field. Each button
@@ -113,6 +160,36 @@ export function BattleHud({
             className={LAUNCHER}
           >
             ⚙ Controls
+          </button>
+        )}
+        {/* Hans 2026-10-12: the Enemy Forces window — scout intel per enemy
+            squad, tap to assign Pressure/Target. Always rendered (UI rule);
+            tapping before the scout returns says what's missing. */}
+        {!enemyForcesOpen && (
+          <button
+            type="button"
+            onClick={() => {
+              battleSfx.uiClick();
+              if (ui.scoutIntelReady) {
+                openWindow("battle-enemy-forces", { titleFallback: "Enemy Forces" });
+              } else {
+                battleSfx.orderRejected();
+              }
+            }}
+            data-testid="hud-launch-enemy-forces"
+            aria-label={
+              ui.scoutIntelReady
+                ? "Open the enemy forces intel window"
+                : "Enemy forces: scout hasn't returned yet"
+            }
+            title={
+              ui.scoutIntelReady
+                ? "Enemy forces intel"
+                : "Scout hasn't completed its flyby yet"
+            }
+            className={LAUNCHER}
+          >
+            🎯 Enemy Forces{ui.scoutIntelReady ? "" : "…"}
           </button>
         )}
         {!fs && onRequestFullscreen && (

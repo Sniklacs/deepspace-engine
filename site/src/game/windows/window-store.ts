@@ -25,7 +25,7 @@
 // This store owns chrome state ONLY (open/minimized/z-order/size). Window
 // CONTENT data (chat messages, research state) stays in its own store.
 
-export type WindowKind = "chat" | "satellite-research" | "battle-controls" | "battle-squads";
+export type WindowKind = "chat" | "satellite-research" | "battle-controls" | "battle-squads" | "battle-enemy-forces";
 
 export interface WindowProps {
   /** satellite-research: the covered node id, e.g. "rim-3" */
@@ -267,6 +267,8 @@ function defaultTitle(kind: WindowKind): { titleKey: string; titleFallback: stri
       return { titleKey: "windows.battleControlsTitle", titleFallback: "Battle controls" };
     case "battle-squads":
       return { titleKey: "windows.battleSquadsTitle", titleFallback: "Squads" };
+    case "battle-enemy-forces":
+      return { titleKey: "windows.battleEnemyForcesTitle", titleFallback: "Enemy Forces" };
   }
 }
 

@@ -9,15 +9,17 @@ import {
   sceneUISnapshot,
   sceneUIServerSnapshot,
   setSelectedSquad,
-  setSquadWeaponsHold,
-  setSquadHoldPosition,
-  setSiegeAimArmed,
   orderReceipt,
   selectionBannerText,
   squadStanceOf,
+  isSquadLinked,
+  squadCoverOf,
+  squadFireModeOf,
 } from "../../game/war/battle-scene-ui-store";
+import { fireModeGlyph } from "../../game/war/squad-command";
 import { battleSfx } from "../../game/war/battle-sfx";
 import { useSyncExternalStore } from "react";
+import { SquadQuickPick } from "./SquadQuickPick";
 
 export const CHIP =
   "rounded-full border px-3 py-2 text-[11px] font-semibold backdrop-blur-md transition active:scale-[0.97]";
@@ -44,6 +46,12 @@ export function SquadChip({ sq }: { sq: SceneSquad }) {
   // bleeds. That's the number Hans watches.
   const dead = Math.max(0, sq.total - sq.alive);
   const stance = squadStanceOf(ui, sq.id, sq.hasThunders ?? false);
+  // Command markers (owner 2026-10-12): bullseye = linked to a target,
+  // shield = covering another squad, fire glyph = current fire discipline.
+  const linked = isSquadLinked(sq.id);
+  const covering = squadCoverOf(sq.id);
+  const fireGlyph = fireModeGlyph(squadFireModeOf(sq.id));
+  const linkedCount = (ui.squadTargets[sq.id] ?? []).length;
   return (
     <button
       key={sq.id}
@@ -55,21 +63,28 @@ export function SquadChip({ sq }: { sq: SceneSquad }) {
       aria-label={
         sq.onCallReserve
           ? `${sq.name}, on-call reserve, ${sq.alive} of ${sq.total}, ${dead} lost. Tap the map to hot-drop it.`
-          : `${sq.name}, ${sq.alive} of ${sq.total}, ${dead} casualties.`
+          : `${sq.name}, ${sq.alive} of ${sq.total}, ${dead} casualties${linked ? `, targeting ${linkedCount}` : ""}${covering ? ", covering" : ""}.`
       }
       className={`${CHIP} pointer-events-auto min-h-[22px] w-full touch-manipulation items-center justify-between !rounded-md !px-1.5 !py-0.5 !text-[9px] ${
         selected
           ? "border-white/70 bg-white/15 text-white"
-          : sq.onCallReserve
-            ? "border-sky-400/60 bg-sky-950/60 font-bold text-sky-100"
-            : "border-white/15 bg-black/55 text-zinc-200"
+          : linked
+            ? "border-orange-400/50 bg-orange-950/40 text-orange-100"
+            : sq.onCallReserve
+              ? "border-sky-400/60 bg-sky-950/60 font-bold text-sky-100"
+              : "border-white/15 bg-black/55 text-zinc-200"
       }`}
     >
       <span className="flex items-center">
+        {linked && <span aria-hidden="true" className="mr-1" title={`Targeting ${linkedCount}`}>🎯</span>}
+        {covering && <span aria-hidden="true" className="mr-1" title="Covering another squad">🛡️</span>}
         {sq.onCallReserve && <span aria-hidden="true" className="mr-1">🪂</span>}
         {sq.eyes && <span aria-hidden="true" className="mr-1">👁</span>}
         {stance.weaponsHold && <span aria-hidden="true" className="mr-1" title="Weapons hold">🔇</span>}
         {stance.holdPosition && <span aria-hidden="true" className="mr-1" title="Holding position">⚓</span>}
+        {!stance.weaponsHold && squadFireModeOf(sq.id) !== "free" && (
+          <span aria-hidden="true" className="mr-1" title="Fire discipline">{fireGlyph}</span>
+        )}
         {sq.name}
       </span>
       <span className="tabular-nums text-zinc-400">
@@ -122,62 +137,9 @@ export function SelectedSquadPanel() {
           {selectionBannerText(selectedSquad)}
         </p>
       )}
-      {selectedSquad &&
-        (() => {
-          const stance = squadStanceOf(ui, selectedSquad.id, selectedSquad.hasThunders ?? false);
-          return (
-            <div className="flex flex-wrap items-center gap-1.5" data-testid="hud-stance-cluster">
-              <button
-                type="button"
-                onClick={() => { battleSfx.uiClick(); setSquadWeaponsHold(selectedSquad.id, !stance.weaponsHold); }}
-                data-testid="hud-stance-weapons"
-                aria-pressed={stance.weaponsHold}
-                aria-label={`${selectedSquad.name}: weapons ${stance.weaponsHold ? "holding" : "live"}. Tap to ${stance.weaponsHold ? "go live" : "hold fire"}.`}
-                className={`${CHIP} pointer-events-auto min-h-[40px] touch-manipulation ${
-                  stance.weaponsHold
-                    ? "border-amber-300/50 bg-amber-950/60 text-amber-200"
-                    : "border-white/15 bg-black/55 text-zinc-200"
-                }`}
-              >
-                {stance.weaponsHold ? "🔇 HOLD" : "🔥 LIVE"}
-              </button>
-              <button
-                type="button"
-                onClick={() => { battleSfx.uiClick(); setSquadHoldPosition(selectedSquad.id, !stance.holdPosition); }}
-                data-testid="hud-stance-move"
-                aria-pressed={stance.holdPosition}
-                aria-label={`${selectedSquad.name}: ${stance.holdPosition ? "holding position" : "free to move"}. Tap to ${stance.holdPosition ? "allow movement" : "hold position"}.`}
-                className={`${CHIP} pointer-events-auto min-h-[40px] touch-manipulation ${
-                  stance.holdPosition
-                    ? "border-sky-300/50 bg-sky-950/60 text-sky-200"
-                    : "border-white/15 bg-black/55 text-zinc-200"
-                }`}
-              >
-                {stance.holdPosition ? "⚓ HOLD" : "➤ MOVE"}
-              </button>
-              {selectedSquad.hasThunders && (
-                <button
-                  type="button"
-                  onClick={() => { battleSfx.uiClick(); setSiegeAimArmed(!ui.siegeAimArmed); }}
-                  data-testid="hud-stance-aim"
-                  aria-pressed={ui.siegeAimArmed}
-                  aria-label={
-                    ui.siegeAimArmed
-                      ? "Siege aim armed — tap the map to place the targeter"
-                      : "Arm the siege aim — tap the map to drop the targeter"
-                  }
-                  className={`${CHIP} pointer-events-auto min-h-[40px] touch-manipulation ${
-                    ui.siegeAimArmed
-                      ? "border-orange-300/60 bg-orange-950/60 text-orange-200"
-                      : "border-white/15 bg-black/55 text-zinc-200"
-                  }`}
-                >
-                  {ui.siegeAimArmed ? "✥ Aiming…" : "✥ Aim"}
-                </button>
-              )}
-            </div>
-          );
-        })()}
+      {/* Hans 2026-10-12: the commander's quick-pick replaces the old stance
+          cluster — fire control, move, cover, hold, all in one menu. */}
+      {selectedSquad && <SquadQuickPick squad={selectedSquad} />}
       {lastOrder &&
         (() => {
           const r = orderReceipt(lastOrder);
