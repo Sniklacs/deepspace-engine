@@ -26,11 +26,34 @@ const VOICE_TIMEOUT_MS = 14000; // safety if the clip can't play / onended never
 const FADE_MS = 1600;
 
 /**
- * PLACEHOLDER — Hans is supplying his own music tracks. Wire the real intro
- * track here; the 2-second lead-in timing below is already built around it.
+ * Hans's own intro music track. Plays with a 2-second lead before the
+ * solar system fades in.
  */
+const INTRO_MUSIC_SRC = "/audio/intro-music.m4a";
+let introMusicEl: HTMLAudioElement | null = null;
+
 function startIntroMusic(): void {
-  // TODO(Hans): play the supplied intro track here.
+  try {
+    if (!introMusicEl) {
+      introMusicEl = new Audio(INTRO_MUSIC_SRC);
+      introMusicEl.loop = true;
+      introMusicEl.volume = 0.7;
+    }
+    void introMusicEl.play().catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}
+
+function stopIntroMusic(): void {
+  try {
+    if (introMusicEl) {
+      introMusicEl.pause();
+      introMusicEl.currentTime = 0;
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 export default function IntroSequence() {
@@ -69,6 +92,7 @@ export default function IntroSequence() {
   const finish = useCallback(() => {
     clearTimers();
     stopVoice();
+    stopIntroMusic();
     setPhase("done");
   }, [clearTimers, stopVoice]);
 
