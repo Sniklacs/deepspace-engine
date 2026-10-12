@@ -900,6 +900,7 @@ function PlayPage() {
           token={token}
           purchaseReturn={purchaseReturnView}
           onError={flash}
+          onPurchaseState={(s) => applyState(s)}
         />
       )}
       {feedbackOpen && <FeedbackModal token={token!} colonyName={state.playerName} onClose={() => setFeedbackOpen(false)} flash={flash} />}

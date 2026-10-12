@@ -520,13 +520,13 @@ export function purchaseDailySpecial(
   eventId: string,
   now = Date.now(),
 ): StorePurchaseResult {
-  ensureStoreOffers(state);
+  const offersState = ensureStoreOffers(state);
   const { dayKey, offers } = dailySpecials(now);
   const offer = offers.find((o) => o.specialId === specialId);
   if (!offer) {
     return { ok: false, error: "That special isn't on today's board — the board turns at the dawn.", state };
   }
-  const claimed = state.storeOffers.dailyBuys[dayKey] ?? [];
+  const claimed = offersState.dailyBuys[dayKey] ?? [];
   // A retry of the SAME purchase event stays idempotent even though the
   // day-record would otherwise read as "already claimed".
   const mark = `store-buy:${eventId}`;

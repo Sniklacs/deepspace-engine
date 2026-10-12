@@ -33,3 +33,20 @@ The hero is OUT OF SERVICE until recovered and healed.
 - If a rival claims the hero (not just the gear): captured, ransomed, or recruited?
 - Does a Chorus-killed hero still drop gear for extraction, given artifacts worn vs the Chorus are destroyed (Sep 30 rule)?
 - Extraction crew composition: minimum size? Can the crew itself be attacked en route / on site?
+
+## Implementation hooks (built 2026-10-12 — store side)
+The STORE side of this system is built (`site/src/game/store-offers.ts`, owner
+direction 2026-10-12). The gameplay above is not built yet; when it lands, it
+reads and spends store ownership through exactly these functions:
+- `extractionPassesHeld(state)` — Extraction Contracts the player holds
+  (450 Votives each, `state.storeOffers.extractionPasses`). At extraction
+  launch, offer the contract crew alongside the player's own garrison crew
+  iff this is > 0; launching on the contract calls
+  `consumeExtractionPass(state, eventId, now)` — one pass per launch,
+  idempotent by eventId.
+- `recoveryExpeditesHeld(state)` — Recovery Expedites held (300 Votives
+  each, `state.storeOffers.expediteCredits`). While a recovered hero's
+  24-hour recovery timer runs, the expedite action applies
+  `consumeRecoveryExpedite(state, eventId, now)` and completes the recovery.
+Doctrine reminder (owner, locked): the store sells the contract and the care
+— never the hero. Heroes are earned (signature deeds / Oracle vouching).

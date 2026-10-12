@@ -33,7 +33,7 @@ import { useLang, useT } from "./i18n/I18n";
 import { formatNumber, formatUsd } from "../game/i18n/format";
 import { SplitValue } from "./i18n/SplitValue";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   MONETIZATION_CONFIG,
   HEAD_START_PACKS,
@@ -47,7 +47,16 @@ import {
   type VotivePackDef,
 } from "../game/monetization";
 import { isSellable } from "../game/payments/xsolla-catalog";
-import { xsollaCheckoutFn } from "../game/api";
+import { purchaseStoreOfferFn, xsollaCheckoutFn } from "../game/api";
+import {
+  EXTRACTION_CONTRACT,
+  RECOVERY_EXPEDITE,
+  WAR_BUNDLES,
+  bundleSeparateVotives,
+  dailySpecials,
+  type DailySpecialOffer,
+  type WarBundleDef,
+} from "../game/store-offers";
 import { savePurchaseIntent, walletSignature } from "../game/payments/purchase-intent";
 import type { GameState, CosmeticSlot } from "../game/types";
 
@@ -392,6 +401,280 @@ export interface PurchaseReturnView {
   onDismiss: () => void;
 }
 
+/** h:mm:ss for the daily-specials rotation line. */
+function formatCountdown(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
+
+/** One content line of a store offer (bundle / special) — the packs'
+ *  GrantLine with the offer's own i18n note base (`store.bundle.<id>` or
+ *  `store.special.<id>`); the English note stays the catalog literal. */
+function OfferGrantLine({ g, noteKeyBase }: { g: PackGrant; noteKeyBase: string }) {
+  const t = useT();
+  const icon: IconName =
+    (g.kind === "resource" && PACK_GRANT_ICON[g.key]) ||
+    (g.kind === "currency" ? "coin" : g.kind === "cosmetic" ? "emblem" : "cart");
+  const what =
+    g.kind === "resource" ? g.key
+    : g.kind === "currency" ? g.currency
+    : g.kind === "cosmetic" ? g.itemId
+    : g.vehicleId;
+  return (
+    <li className="flex items-start gap-2 text-xs text-text-2">
+      <Icon name={icon} size={14} className="mt-px shrink-0 text-text-3" />
+      <span>{t(`${noteKeyBase}.g.${g.kind}.${what}`, g.note)}</span>
+    </li>
+  );
+}
+
+/** "−25%" against the buy-separately sum — a plain fact, no urgency theater. */
+function DiscountChip({ price, separate }: { price: number; separate: number }) {
+  const lang = useLang();
+  const t = useT();
+  const pct = separate > price ? Math.round((1 - price / separate) * 100) : 0;
+  if (pct <= 0) return null;
+  return (
+    <span className="chip shrink-0 bg-surf-4 text-xs font-bold text-ember-soft">
+      {t("store.bundles.off", "−{pct}%", { pct: formatNumber(lang, pct) })}
+    </span>
+  );
+}
+
+function VotivePrice({ amount }: { amount: number }) {
+  const lang = useLang();
+  const t = useT();
+  return (
+    <span className="chip shrink-0 bg-surf-4 text-xs font-bold text-text-1">
+      <Bdi dir="ltr" className="num">{formatNumber(lang, amount)}</Bdi>
+      <span className="ml-1 font-medium text-text-3">{t("store.votivesName", "Votives")}</span>
+    </span>
+  );
+}
+
+/** The buy control shared by every in-game (Votives) offer card: the packs'
+ *  lock discipline — never presented as buyable while the ledger is shut or
+ *  the player is signed out. */
+function OfferBuyButton({
+  buyable,
+  storeOpen,
+  signedIn,
+  busy,
+  price,
+  onBuy,
+}: {
+  buyable: boolean;
+  storeOpen: boolean;
+  signedIn: boolean;
+  busy: boolean;
+  price: number;
+  onBuy: () => void;
+}) {
+  const t = useT();
+  const lang = useLang();
+  if (buyable) {
+    return (
+      <button
+        type="button"
+        onClick={onBuy}
+        disabled={busy}
+        aria-disabled={busy}
+        data-testid={busy ? "store-buy-busy" : "store-buy"}
+        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-semibold text-text-1 disabled:opacity-70"
+      >
+        <Icon name="coin" size={14} className="shrink-0 text-ember-soft" />
+        {busy
+          ? t("store.buyOpening", "Opening checkout…")
+          : t("store.offer.buyFor", "Buy · {n} Votives", { n: formatNumber(lang, price) })}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled
+      aria-disabled="true"
+      className="storef-disabled mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-medium text-text-2"
+    >
+      <Icon name="lock" size={14} className="shrink-0" />
+      {!storeOpen
+        ? t("store.ledgerOpens", "The ledger opens when the world is ready")
+        : !signedIn
+          ? t("store.signInToBuy", "Sign in to purchase")
+          : t("store.notForSale", "Not for sale yet")}
+    </button>
+  );
+}
+
+function DailySpecialCard({
+  offer,
+  claimed,
+  storeOpen,
+  signedIn,
+  busy,
+  onBuy,
+}: {
+  offer: DailySpecialOffer;
+  claimed: boolean;
+  storeOpen: boolean;
+  signedIn: boolean;
+  busy: boolean;
+  onBuy: () => void;
+}) {
+  const t = useT();
+  const buyable = storeOpen && signedIn && !claimed;
+  return (
+    <article className="rounded-lg border border-ember/50 bg-surf-2 p-3">
+      <div className="flex items-center gap-2.5">
+        <Icon name="star" size={24} className="shrink-0 text-ember-soft" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-text-1">
+            {t(`${offer.noteKeyBase}.name`, offer.name)}
+          </div>
+          <div className="mt-0.5 text-[11px] leading-snug text-text-3">
+            {t(`${offer.noteKeyBase}.blurb`, offer.blurb)}
+          </div>
+        </div>
+        <DiscountChip price={offer.priceVotives} separate={offer.separateVotives} />
+        <VotivePrice amount={offer.priceVotives} />
+      </div>
+      <ul className="mt-2 space-y-1">
+        {offer.grants.map((g, i) => (
+          <OfferGrantLine key={i} g={g} noteKeyBase={offer.noteKeyBase} />
+        ))}
+      </ul>
+      {claimed ? (
+        <div className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-purity">
+          <Icon name="check" size={13} className="shrink-0" />
+          {t("store.specials.claimed", "Claimed today")}
+        </div>
+      ) : (
+        <OfferBuyButton
+          buyable={buyable}
+          storeOpen={storeOpen}
+          signedIn={signedIn}
+          busy={busy}
+          price={offer.priceVotives}
+          onBuy={onBuy}
+        />
+      )}
+    </article>
+  );
+}
+
+function WarBundleCard({
+  bundle,
+  storeOpen,
+  signedIn,
+  busy,
+  onBuy,
+}: {
+  bundle: WarBundleDef;
+  storeOpen: boolean;
+  signedIn: boolean;
+  busy: boolean;
+  onBuy: () => void;
+}) {
+  const t = useT();
+  const lang = useLang();
+  const separate = bundleSeparateVotives(bundle);
+  const buyable = storeOpen && signedIn;
+  return (
+    <article className="rounded-lg border border-line bg-surf-2 p-3">
+      <div className="flex items-center gap-2.5">
+        <Icon name="crate" size={24} className="shrink-0 text-ember-soft" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-text-1">
+            {t(`store.bundle.${bundle.id}.name`, bundle.name)}
+          </div>
+          <div className="mt-0.5 text-[11px] leading-snug text-text-3">
+            {t(`store.bundle.${bundle.id}.blurb`, bundle.blurb)}
+          </div>
+        </div>
+        <DiscountChip price={bundle.priceVotives} separate={separate} />
+        <VotivePrice amount={bundle.priceVotives} />
+      </div>
+      <ul className="mt-2 space-y-1">
+        {bundle.grants.map((g, i) => (
+          <OfferGrantLine key={i} g={g} noteKeyBase={`store.bundle.${bundle.id}`} />
+        ))}
+      </ul>
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-3">
+        <span>
+          {t("store.bundles.separate", "Separately {n} Votives", { n: formatNumber(lang, separate) })}
+        </span>
+        <span className="text-ember-soft">{t(`store.bundle.${bundle.id}.play`, bundle.playEquivalent)}</span>
+      </div>
+      <OfferBuyButton
+        buyable={buyable}
+        storeOpen={storeOpen}
+        signedIn={signedIn}
+        busy={busy}
+        price={bundle.priceVotives}
+        onBuy={onBuy}
+      />
+    </article>
+  );
+}
+
+/** A standing store service item (the extraction deal): the card shows how
+ *  many the player already holds — the count the recovery system reads. */
+function ServiceItemCard({
+  itemId,
+  name,
+  blurb,
+  price,
+  held,
+  icon,
+  storeOpen,
+  signedIn,
+  busy,
+  onBuy,
+}: {
+  itemId: string;
+  name: string;
+  blurb: string;
+  price: number;
+  held: number;
+  icon: IconName;
+  storeOpen: boolean;
+  signedIn: boolean;
+  busy: boolean;
+  onBuy: () => void;
+}) {
+  const t = useT();
+  const lang = useLang();
+  const buyable = storeOpen && signedIn;
+  return (
+    <article className="rounded-lg border border-line bg-surf-2 p-3">
+      <div className="flex items-center gap-2.5">
+        <Icon name={icon} size={24} className="shrink-0 text-ember-soft" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-text-1">{t(`store.item.${itemId}.name`, name)}</div>
+          <div className="mt-0.5 text-[11px] leading-snug text-text-3">
+            {t(`store.item.${itemId}.blurb`, blurb)}
+          </div>
+        </div>
+        <VotivePrice amount={price} />
+      </div>
+      <div className="mt-2 text-[11px] text-text-3">
+        {t("store.extraction.held", "Held: {n}", { n: formatNumber(lang, held) })}
+      </div>
+      <OfferBuyButton
+        buyable={buyable}
+        storeOpen={storeOpen}
+        signedIn={signedIn}
+        busy={busy}
+        price={price}
+        onBuy={onBuy}
+      />
+    </article>
+  );
+}
+
 export function StorefrontOverlay({
   state,
   open,
@@ -400,6 +683,7 @@ export function StorefrontOverlay({
   token = null,
   purchaseReturn = null,
   onError,
+  onPurchaseState,
 }: {
   state: GameState;
   open: boolean;
@@ -418,6 +702,12 @@ export function StorefrontOverlay({
    * Buy and nothing happened. Every refusal now surfaces here.
    */
   onError?: (msg: string) => void;
+  /**
+   * Called with the fresh server state after an in-game (Votives) offer
+   * purchase lands — the play route applies it so the wallet, stores and held
+   * contract counts the player sees are the server's, never a local guess.
+   */
+  onPurchaseState?: (state: GameState) => void;
 }) {
   const t = useT();
   const lang = useLang();
@@ -500,6 +790,62 @@ export function StorefrontOverlay({
     }
   };
 
+  // ---- Store offers (owner 2026-10-12): daily specials, war bundles, the
+  // extraction deal. All spend Votives the player already holds through
+  // purchaseStoreOfferFn; the server resolves prices, contents and the daily
+  // rotation — the client only names the offer. The returned server state is
+  // handed up via onPurchaseState so every number on screen stays the
+  // server's.
+  const [buyingOffer, setBuyingOffer] = useState<string | null>(null);
+  const [offerNotice, setOfferNotice] = useState<string | null>(null);
+  const buyOffer = async (kind: "special" | "bundle" | "extraction" | "expedite", offerId?: string) => {
+    const fail = (msg: string) => {
+      console.warn(`[storefront] offer purchase failed (${kind}/${offerId ?? "-"}): ${msg}`);
+      setBuyError(msg);
+      onError?.(msg);
+    };
+    if (buyingOffer) return;
+    if (!token) {
+      fail(t("store.buySignIn", "Sign in to purchase."));
+      return;
+    }
+    setBuyingOffer(offerId ?? kind);
+    setBuyError(null);
+    setOfferNotice(null);
+    const eventId = `store-${kind}-${offerId ?? "x"}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      const res = await purchaseStoreOfferFn({ data: { token, kind, offerId, eventId } });
+      if (res.ok && res.state) {
+        onPurchaseState?.(res.state);
+        setOfferNotice(t("store.offer.purchased", "Done — it's in your stores."));
+      } else if (res.signedOut) {
+        fail(t("store.buySignedOut", "Your session expired — sign in again to purchase."));
+      } else {
+        fail(res.error ?? t("store.buyFailed", "Checkout failed — try again in a moment."));
+      }
+    } catch (err) {
+      fail(`${t("store.buyFailed", "Checkout failed — try again in a moment.")} (${(err as Error)?.message ?? err})`);
+    } finally {
+      setBuyingOffer(null);
+    }
+  };
+
+  // The specials board + its rotation clock. Recomputed from the pure
+  // rotation on a 1s tick while the sheet is open; the server re-resolves
+  // the same board at purchase time, so a stale render can never buy
+  // yesterday's price.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    setNowMs(Date.now());
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [open ]);
+  const specials = dailySpecials(nowMs);
+  const claimedToday = new Set(state.storeOffers?.dailyBuys?.[specials.dayKey] ?? []);
+  const passesHeld = state.storeOffers?.extractionPasses ?? 0;
+  const expeditesHeld = state.storeOffers?.expediteCredits ?? 0;
+
   return (
     <Sheet open={open} onClose={onClose} labelledBy="ledger-title" title={t("store.title", "The Cradle Ledger")}>
       <SheetHeader
@@ -554,6 +900,120 @@ export function StorefrontOverlay({
             </button>
           </div>
         )}
+
+        {/* ---- Store-offer purchase confirmation (in-game Votives buys) ---- */}
+        {offerNotice && (
+          <div
+            role="status"
+            data-testid="store-offer-notice"
+            className="mt-3 flex items-start gap-2 rounded-lg border border-purity/50 bg-surf-2 px-3 py-2.5"
+          >
+            <Icon name="check" size={16} className="mt-0.5 shrink-0 text-purity" aria-hidden="true" />
+            <p className="min-w-0 flex-1 text-[13px] leading-snug text-text-1">{offerNotice}</p>
+            <button
+              type="button"
+              onClick={() => setOfferNotice(null)}
+              aria-label={t("store.dismissError", "Dismiss")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-3 hover:bg-surf-3"
+            >
+              <Icon name="x" size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* ---- Daily Specials (owner 2026-10-12): three offers, the same for
+            every colony on the world, turning at the UTC dawn. The rotation
+            clock is a plain fact line — when the board turns, not a hurry. ---- */}
+        <div className="pt-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <SectionHeading>{t("store.specials.heading", "Daily Specials")}</SectionHeading>
+            <span className="ml-auto text-[11px] text-text-3">
+              {t("store.specials.rotatesIn", "New specials in {time}", { time: formatCountdown(specials.msLeft) })}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-text-2">
+            {t(
+              "store.specials.sub",
+              "Three offers a day, the same for every colony on the world. Each may be claimed once a day.",
+            )}
+          </p>
+          <div className="mt-2 space-y-2">
+            {specials.offers.map((offer) => (
+              <DailySpecialCard
+                key={offer.specialId}
+                offer={offer}
+                claimed={claimedToday.has(offer.specialId)}
+                storeOpen={enabled}
+                signedIn={signedIn && !!token}
+                busy={buyingOffer === offer.specialId}
+                onBuy={() => void buyOffer("special", offer.specialId)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* ---- War Bundles (owner 2026-10-12): crates of war goods at a
+            bundle price, contents listed, discount against the parts. ---- */}
+        <div className="pt-5">
+          <SectionHeading>{t("store.bundles.heading", "War Bundles")}</SectionHeading>
+          <p className="mt-1 text-xs text-text-2">
+            {t(
+              "store.bundles.sub",
+              "Crates of war goods priced below the sum of their parts. Buy one and everything in it lands in your stores.",
+            )}
+          </p>
+          <div className="mt-2 space-y-2">
+            {WAR_BUNDLES.map((b) => (
+              <WarBundleCard
+                key={b.id}
+                bundle={b}
+                storeOpen={enabled}
+                signedIn={signedIn && !!token}
+                busy={buyingOffer === b.id}
+                onBuy={() => void buyOffer("bundle", b.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* ---- The Extraction Deal (owner 2026-10-12): standing contracts
+            for the fallen-hero recovery system — a hired extraction crew on
+            call, and contracted care that completes a 24-hour recovery. ---- */}
+        <div className="pt-5">
+          <SectionHeading>{t("store.extraction.heading", "Extraction & Recovery")}</SectionHeading>
+          <p className="mt-1 text-xs text-text-2">
+            {t(
+              "store.extraction.sub",
+              "Contracts held at the Cradle, ready before the day they are needed.",
+            )}
+          </p>
+          <div className="mt-2 space-y-2">
+            <ServiceItemCard
+              itemId={EXTRACTION_CONTRACT.id}
+              name={EXTRACTION_CONTRACT.name}
+              blurb={EXTRACTION_CONTRACT.blurb}
+              price={EXTRACTION_CONTRACT.priceVotives}
+              held={passesHeld}
+              icon="aegis"
+              storeOpen={enabled}
+              signedIn={signedIn && !!token}
+              busy={buyingOffer === "extraction"}
+              onBuy={() => void buyOffer("extraction")}
+            />
+            <ServiceItemCard
+              itemId={RECOVERY_EXPEDITE.id}
+              name={RECOVERY_EXPEDITE.name}
+              blurb={RECOVERY_EXPEDITE.blurb}
+              price={RECOVERY_EXPEDITE.priceVotives}
+              held={expeditesHeld}
+              icon="shield"
+              storeOpen={enabled}
+              signedIn={signedIn && !!token}
+              busy={buyingOffer === "expedite"}
+              onBuy={() => void buyOffer("expedite")}
+            />
+          </div>
+        </div>
 
         {/* ---- Votives (real money, Xsolla Pay Station) ---- */}
         <div className="pt-5">
