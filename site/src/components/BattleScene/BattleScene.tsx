@@ -3011,7 +3011,17 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     pts.delete(e.pointerId);
     if (pts.size < 2) pinchRef.current = null;
     if (cancelled || !wasDown || wasDown.id !== e.pointerId) {
-      if (pts.size === 0) downRef.current = null;
+      if (pts.size === 0) {
+        downRef.current = null;
+      } else if (pts.size === 1 && !cancelled) {
+        // Pinch just ended (owner 2026-10-12): the second finger nulled
+        // downRef on landing, so the still-down finger can never pan —
+        // pinch-zoom in, keep dragging, nothing moves. Re-arm it as
+        // drag-only: the stale timestamp keeps tap selection off
+        // (two fingers touched, so this gesture is pan, not tap).
+        const [[id, pos]] = [...pts.entries()];
+        downRef.current = { x: pos.x, y: pos.y, t: performance.now() - 1000, id };
+      }
       return;
     }
     const moved = Math.hypot(e.clientX - wasDown.x, e.clientY - wasDown.y);
