@@ -19,7 +19,6 @@ import type { KnownServer } from "~/game/servers";
 
 type Phase = "gate" | "voice" | "dark" | "reveal" | "done";
 
-const INTRO_FLAG = "unbound-intro-played";
 const VOICE_SRC = "/audio/intro-hell.m4a";
 const DARK_PAUSE_MS = 4000; // Hans: 3–5s of darkness after the clip
 const MUSIC_LEAD_MS = 2000; // music starts 2s before the solar system fades in
@@ -34,26 +33,11 @@ function startIntroMusic(): void {
   // TODO(Hans): play the supplied intro track here.
 }
 
-function introAlreadyPlayed(): boolean {
-  try {
-    return window.sessionStorage.getItem(INTRO_FLAG) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function markIntroPlayed(): void {
-  try {
-    window.sessionStorage.setItem(INTRO_FLAG, "1");
-  } catch {
-    /* ignore */
-  }
-}
-
 export default function IntroSequence() {
   const t = useT();
   const navigate = useNavigate();
-  const [phase, setPhase] = useState<Phase>(() => (introAlreadyPlayed() ? "done" : "gate"));
+  // Hans: the intro plays EVERY time the game opens. No session skip.
+  const [phase, setPhase] = useState<Phase>("gate");
   const [fadedIn, setFadedIn] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timersRef = useRef<number[]>([]);
@@ -85,7 +69,6 @@ export default function IntroSequence() {
   const finish = useCallback(() => {
     clearTimers();
     stopVoice();
-    markIntroPlayed();
     setPhase("done");
   }, [clearTimers, stopVoice]);
 
@@ -124,7 +107,6 @@ export default function IntroSequence() {
     } else if (phase === "reveal") {
       startIntroMusic();
       later(MUSIC_LEAD_MS, () => {
-        markIntroPlayed();
         setPhase("done");
       });
     } else if (phase === "done") {
