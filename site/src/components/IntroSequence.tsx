@@ -84,9 +84,9 @@ function TitleRush({ t, onSlamDone }: { t: (k: string, d: string) => string; onS
       } catch {
         /* ignore */
       }
-    }, 1850);
+    }, 3340);
     // After slam + shake + 2s clean impact, reveal "tap to enter".
-    const doneTimer = window.setTimeout(onSlamDone, 5800);
+    const doneTimer = window.setTimeout(onSlamDone, 7300);
     return () => {
       window.clearTimeout(boomTimer);
       window.clearTimeout(doneTimer);
@@ -278,10 +278,11 @@ export default function IntroSequence() {
           {/* Rushing title: starts tiny, hurtles toward the viewer, then BOOM. */}
           <style>{`
             @keyframes title-rush {
-              0% { transform: scale(0.1); opacity: 0; filter: brightness(0.4); }
-              55% { transform: scale(0.7); opacity: 1; filter: brightness(0.9); }
-              82% { transform: scale(1.12); opacity: 1; filter: brightness(1.6); }
-              100% { transform: scale(1.12); opacity: 1; filter: brightness(1.6); }
+              0% { transform: scale(0.08); opacity: 0; filter: brightness(0.3); }
+              45% { transform: scale(0.25); opacity: 0.7; filter: brightness(0.6); }
+              70% { transform: scale(0.55); opacity: 1; filter: brightness(0.9); }
+              88% { transform: scale(1.12); opacity: 1; filter: brightness(1.7); }
+              100% { transform: scale(1.12); opacity: 1; filter: brightness(1.7); }
             }
             @keyframes title-shake {
               0%, 100% { transform: scale(1.12) translate(0, 0); }
@@ -291,8 +292,8 @@ export default function IntroSequence() {
               80% { transform: scale(1.12) translate(4px, 4px); }
             }
             .title-rush {
-              animation: title-rush 2.2s cubic-bezier(0.15, 0.85, 0.35, 1) forwards,
-                         title-shake 0.5s ease-in-out 2.2s 3;
+              animation: title-rush 3.8s cubic-bezier(0.55, 0, 0.85, 0.4) forwards,
+                         title-shake 0.5s ease-in-out 3.8s 3;
             }
           `}</style>
           <TitleRush t={t} onSlamDone={() => setSlamDone(true)} />
