@@ -14,6 +14,10 @@ import {
 } from "../game/audio/ui-sounds";
 import { startMusic, stopMusic } from "../game/audio/starmap-music";
 import { sound } from "../game/sound";
+// RACE SKINS (Hans, Oct 12 2026): solar-system planets wear the same globe
+// textures as the zoomed world globe — `/art/globe/{raceId}-globe.webp`.
+// The system view and the globe feel like the same planet.
+import { globeSkinFor } from "../game/globe-skins";
 
 type ServerHealth = "checking" | "up" | "down";
 
@@ -506,7 +510,7 @@ const TEX = 256;
  * clouds, bands. Drawn every frame as a cheap drawImage with a lighting
  * overlay, so per-frame cost stays tiny.
  */
-function makePlanetTexture(v: PlanetVisual): HTMLCanvasElement {
+function makePlanetTexture(v: PlanetVisual, skin: HTMLImageElement | null): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = TEX;
   c.height = TEX;
@@ -515,6 +519,27 @@ function makePlanetTexture(v: PlanetVisual): HTMLCanvasElement {
   const S = TEX;
   const R = S / 2;
 
+  // RACE SKIN: Hans's artwork is the surface. Center-crop the 2:1
+  // equirectangular skin to a square "planet face". Bright and beautiful —
+  // no procedural muddying on top of the real art.
+  if (skin && skin.naturalWidth > 0) {
+    const sw = skin.naturalWidth, sh = skin.naturalHeight;
+    const side = Math.min(sw, sh);
+    const sx = (sw - side) / 2, sy = (sh - side) / 2;
+    g.save();
+    g.beginPath();
+    g.arc(R, R, R, 0, Math.PI * 2);
+    g.clip();
+    g.drawImage(skin, sx, sy, side, side, 0, 0, S, S);
+    // gentle top-light so the disc reads as a sphere under the star
+    const sheen = g.createRadialGradient(S * 0.38, S * 0.32, S * 0.05, R, R, R);
+    sheen.addColorStop(0, "rgba(255,255,255,0.14)");
+    sheen.addColorStop(0.6, "rgba(255,255,255,0)");
+    sheen.addColorStop(1, "rgba(0,0,0,0.22)");
+    g.fillStyle = sheen;
+    g.fillRect(0, 0, S, S);
+    g.restore();
+  } else {
   // base sphere
   const base = g.createRadialGradient(S * 0.38, S * 0.34, S * 0.04, S * 0.5, S * 0.5, S * 0.62);
   base.addColorStop(0, v.light);
@@ -710,6 +735,7 @@ function makePlanetTexture(v: PlanetVisual): HTMLCanvasElement {
   }
 
   g.restore();
+  } // end procedural fallback (skin path returns its own clipped disc above)
 
   // limb darkening — round the texture into a sphere edge
   const limb = g.createRadialGradient(R, R, R * 0.72, R, R, R);
@@ -949,15 +975,51 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
     };
   }, []);
 
-  // Pre-render planet surface textures + city lights once
+  // Pre-render planet surface textures + city lights once.
+  // Race skins load async — when each arrives, re-bake that planet's
+  // texture with Hans's artwork as the surface.
+  const skinImgs = useRef(new Map<string, HTMLImageElement>());
   useEffect(() => {
     setPlanets((prev) =>
       prev.map((p) =>
         p.texture
           ? p
-          : { ...p, texture: makePlanetTexture(p.visual), lights: makeCityLights() },
+          : {
+              ...p,
+              texture: makePlanetTexture(p.visual, skinImgs.current.get(p.server.raceId) ?? null),
+              lights: makeCityLights(),
+            },
       ),
     );
+    // Load race skins; re-bake the planet texture when each lands.
+    let cancelled = false;
+    for (const p of planetsRef.current) {
+      const raceId = p.server.raceId;
+      if (skinImgs.current.has(raceId)) continue;
+      const url = globeSkinFor(raceId);
+      if (!url) continue;
+      const img = new Image();
+      img.onload = () => {
+        if (cancelled) return;
+        skinImgs.current.set(raceId, img);
+        setPlanets((prev) =>
+          prev.map((q) =>
+            q.server.raceId === raceId
+              ? { ...q, texture: makePlanetTexture(q.visual, img) }
+              : q,
+          ),
+        );
+      };
+      img.onerror = () => {
+        /* procedural fallback stays — no skin for this race yet */
+      };
+      img.src = url;
+      // Mark loading so we don't double-fetch in StrictMode remounts.
+      skinImgs.current.set(raceId, img);
+    }
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const toggleMute = useCallback(() => {

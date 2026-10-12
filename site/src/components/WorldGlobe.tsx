@@ -81,6 +81,15 @@ import {
   ZOOM_BAND_LABEL,
   type ZoomBand,
 } from "../game/world/zoom-bands";
+// CINEMATIC FLIGHTS (GEV techniques, Oct 12 2026): eased camera flights
+// between poses — slow start, fast middle, gentle landing — instead of the
+// old exponential mush. One flight at a time; any manual input cancels it
+// (GEV's cancelFlight reflex). Pure kernel in game/world/camera-flights.
+import {
+  startFlight,
+  stepFlight,
+  type CameraFlight,
+} from "../game/world/camera-flights";
 // FRAME-TIME TELEMETRY (Phase 2, slice 14, spec §9): the world frame loop
 // feeds the rolling-window sampler AUTO's rung decisions are driven from.
 import { recordFrameTime } from "../game/graphics-quality-telemetry";
@@ -1160,6 +1169,27 @@ export default function WorldGlobe({
     focusAnim.current = { ...target, nonce: focusTarget.nonce };
   }
 
+  // ---- CINEMATIC FLIGHTS (GEV) ----
+  // Active eased camera flight. One at a time; manual input cancels it.
+  const flightRef = useRef<CameraFlight | null>(null);
+  /**
+   * Begin a cinematic flight to a pose. The flight owns the camera until
+   * it lands or the player grabs it. Replaces any in-progress flight and
+   * clears the legacy focusAnim ease (the flight IS the ease now).
+   */
+  const flyToPose = useCallback(
+    (spin: number, tilt: number, scale: number, opts?: { durationS?: number }) => {
+      const v = view.current;
+      flightRef.current = startFlight(
+        { spin: v.spin, tilt: v.tilt, scale: v.scale },
+        { spin, tilt, scale },
+        opts,
+      );
+      focusAnim.current = null;
+    },
+    [],
+  );
+
   const [layersOn, setLayersOn] = useState<Record<GlobeLayerId, boolean>>(() => {
     const init = Object.fromEntries(GLOBE_LAYERS.map((l) => [l.id, l.defaultOn])) as Record<GlobeLayerId, boolean>;
     try {
@@ -1377,6 +1407,8 @@ export default function WorldGlobe({
     const wheelHandler = (e: WheelEvent) => {
       e.preventDefault();
       lastInteract.current = performance.now();
+      // GEV cancelFlight reflex: wheeling kills any cinematic flight.
+      flightRef.current = null;
       const v = view.current;
       const zoomingIn = e.deltaY < 0;
       // CRADLE ENTRY: wheel direction feeds the machine like a pinch
@@ -1436,9 +1468,32 @@ export default function WorldGlobe({
         v.spin += dt * 1.6;
       }
 
+      // CINEMATIC FLIGHT (GEV): an active flight drives the camera with
+      // proper easing — slow start, fast middle, gentle landing. It owns
+      // spin, tilt AND scale together (one motion). Never fights a grab:
+      // pointerdown/wheel cancels the flight (cancelFlight reflex).
+      const flight = flightRef.current;
+      if (flight && !drag.current) {
+        const step = stepFlight(flight, dt);
+        v.spin = step.pose.spin;
+        v.tilt = step.pose.tilt;
+        v.scale = step.pose.scale;
+        v.targetScale = step.pose.scale;
+        lastInteract.current = ms; // keep ambient drift from fighting the flight
+        if (step.done) {
+          flightRef.current = null;
+          // Same completion contract as the legacy focusAnim ease.
+          if (cradleEaseRef.current) {
+            cradleEaseRef.current = false;
+            sendCradleRef.current({ type: "EASE_DONE" });
+          }
+        }
+      }
+
       // snap-to-site: ease rotation to the focused target (shortest spin
       // path). Never fights a grab — pan/spin/zoom always win.
-      const f = focusAnim.current;
+      // (Skipped while a cinematic flight owns the camera.)
+      const f = !flightRef.current ? focusAnim.current : null;
       if (f && !drag.current) {
         const k = Math.min(1, dt * 4);
         v.spin += shortestSpinDelta(v.spin, f.spin) * k;
@@ -2317,6 +2372,8 @@ export default function WorldGlobe({
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     lastInteract.current = performance.now();
+    // GEV cancelFlight reflex: grabbing the camera kills any cinematic flight.
+    flightRef.current = null;
     drag.current = {
       x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY,
       moved: false, lastT: performance.now(), velSpin: 0, velTilt: 0,
@@ -2448,10 +2505,10 @@ export default function WorldGlobe({
             sendCradleRef.current({ type: "TAP_ELSEWHERE" });
           }
           playSelect();
-          const v = view.current;
           const target = focusViewTarget(cloud.lat, cloud.lon);
-          focusAnim.current = { ...target, nonce: (focusAnim.current?.nonce ?? 0) + 1 };
-          v.targetScale = clampZoomScale(bandCenter("Z3"));
+          // CINEMATIC FLIGHT: dive to the battle in one eased motion —
+          // spin, tilt, and zoom arrive together (GEV flyTo feel).
+          flyToPose(target.spin, target.tilt, bandCenter("Z3"));
           return;
         }
       }
@@ -2639,9 +2696,10 @@ export default function WorldGlobe({
     const home = markersRef.current.find((m) => m.id === "home");
     if (!home) return;
     const target = focusViewTarget(home.lat, home.lon);
-    focusAnim.current = { ...target, nonce: (focusAnim.current?.nonce ?? 0) + 1 };
+    // CINEMATIC FLIGHT: eased glide home (GEV flyTo feel).
+    flyToPose(target.spin, target.tilt, view.current.scale);
     playSelect();
-  }, []);
+  }, [flyToPose]);
 
   const closeSheet = useCallback(() => {
     setSelectedId(null);
