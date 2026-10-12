@@ -12,11 +12,11 @@ import { SquadList, SelectedSquadPanel } from "../BattleScene/SquadControls";
 export function BattleSquadsBody() {
   return (
     <div
-      className="flex flex-col gap-1.5 overflow-y-auto p-2.5"
+      className="flex flex-col gap-1 overflow-y-auto p-1.5"
       data-testid="battle-squads-body"
     >
       <SelectedSquadPanel />
-      <div className="flex flex-col items-stretch gap-1.5" data-testid="battle-squads-list">
+      <div className="flex flex-col items-stretch gap-1" data-testid="battle-squads-list">
         <SquadList />
       </div>
     </div>

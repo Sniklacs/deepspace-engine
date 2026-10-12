@@ -8,6 +8,9 @@
 //   HOLD: hold position — only fire when the enemy enters weapon range
 // Every weapon shows its range. Buttons always render; tapping when the
 // action can't run says what needs to happen (Hans's UI rule).
+//
+// Styling: command-console compact (owner 2026-10-12) — small, delicate,
+// dense. Tight command-console feel.
 
 import { useSyncExternalStore } from "react";
 import {
@@ -32,13 +35,39 @@ import {
   type SquadFireMode,
 } from "../../game/war/squad-command";
 import type { SceneSquad } from "./SquadControls";
-import { CHIP } from "./SquadControls";
+import { CMD, CMD_THEME } from "./command-console";
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <p className={CMD.section}>{children}</p>;
+}
+
+function PickBtn({
+  active,
+  onClick,
+  testid,
+  label,
+  title,
+  ariaLabel,
+}: {
+  active: boolean;
+  onClick: () => void;
+  testid: string;
+  label: React.ReactNode;
+  title?: string;
+  ariaLabel?: string;
+}) {
   return (
-    <p className="mt-1 text-[9px] font-bold uppercase tracking-[0.25em] text-zinc-500">
-      {children}
-    </p>
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={testid}
+      aria-pressed={active}
+      aria-label={ariaLabel}
+      title={title}
+      className={`${CMD.btn} ${CMD.btnH} ${active ? CMD.btnActive : ""}`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -64,31 +93,31 @@ export function SquadQuickPick({ squad }: { squad: SceneSquad }) {
 
   return (
     <div
-      className="flex flex-col gap-1 rounded-lg border border-white/15 bg-black/70 p-2 backdrop-blur-md"
+      className={`flex flex-col ${CMD.panel} ${CMD_THEME}`}
       data-testid={`squad-quickpick-${squad.id}`}
     >
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-bold text-zinc-100">
+        <span className={CMD.title}>
           {targets.length > 0 && <span aria-hidden="true" className="mr-1">🎯</span>}
           {squad.name} — orders
         </span>
-        <span className="text-[10px] tabular-nums text-zinc-400" title="Longest weapon reach">
+        <span className={CMD.meta} title="Longest weapon reach">
           📏 {rangeM}m
         </span>
       </div>
       {targets.length > 0 && (
-        <p className="text-[10px] text-orange-300/90" data-testid={`quickpick-targets-${squad.id}`}>
+        <p className={`${CMD.body} text-[var(--cmd-brass)]`} data-testid={`quickpick-targets-${squad.id}`}>
           🎯 Targeting {targets.length} {targets.length === 1 ? "unit" : "units"}
         </p>
       )}
       {cover && (
-        <p className="text-[10px] text-sky-300/90" data-testid={`quickpick-cover-${squad.id}`}>
+        <p className={CMD.body} data-testid={`quickpick-cover-${squad.id}`}>
           🛡️ Covering {ui.squads.find((s) => s.id === cover)?.name ?? cover}
           <button
             type="button"
             onClick={() => { battleSfx.uiClick(); setSquadCover(squad.id, null); }}
-            className="ml-2 underline"
-            aria-label={`Stop covering`}
+            className="ml-1.5 underline"
+            aria-label="Stop covering"
           >
             release
           </button>
@@ -96,117 +125,84 @@ export function SquadQuickPick({ squad }: { squad: SceneSquad }) {
       )}
 
       <SectionLabel>Fire control</SectionLabel>
-      <div className="grid grid-cols-2 gap-1">
+      <div className={CMD.grid}>
         {FIRE_MODES.map((m) => (
-          <button
+          <PickBtn
             key={m.id}
-            type="button"
+            active={fireMode === m.id}
             onClick={() => setFire(m.id)}
-            data-testid={`quickpick-fire-${m.id}`}
-            aria-pressed={fireMode === m.id}
+            testid={`quickpick-fire-${m.id}`}
             title={m.desc}
-            aria-label={`${squad.name}: ${m.label}. ${m.desc}`}
-            className={`${CHIP} pointer-events-auto min-h-[40px] touch-manipulation ${
-              fireMode === m.id
-                ? "border-amber-300/60 bg-amber-950/60 text-amber-200"
-                : "border-white/15 bg-black/55 text-zinc-200"
-            }`}
-          >
-            {m.glyph} {m.label}
-          </button>
+            ariaLabel={`${squad.name}: ${m.label}. ${m.desc}`}
+            label={<>{m.glyph} {m.label}</>}
+          />
         ))}
       </div>
 
       <SectionLabel>Move</SectionLabel>
-      <button
-        type="button"
+      <PickBtn
+        active={moveArmed}
         onClick={() => {
           battleSfx.uiClick();
           setMoveArmedFor(moveArmed ? null : squad.id);
         }}
-        data-testid="quickpick-move"
-        aria-pressed={moveArmed}
-        aria-label={
+        testid="quickpick-move"
+        ariaLabel={
           moveArmed
             ? `${squad.name}: move armed — tap the map or radar for the destination`
             : `${squad.name}: arm move — then tap the map or radar`
         }
-        className={`${CHIP} pointer-events-auto min-h-[40px] touch-manipulation ${
-          moveArmed
-            ? "border-sky-300/60 bg-sky-950/60 text-sky-200"
-            : "border-white/15 bg-black/55 text-zinc-200"
-        }`}
-      >
-        {moveArmed ? "📍 Tap map / radar…" : "➤ Move…"}
-      </button>
+        label={moveArmed ? "📍 Tap map / radar…" : "➤ Move…"}
+      />
 
       <SectionLabel>Cover</SectionLabel>
-      <div className="grid grid-cols-2 gap-1">
+      <div className={CMD.grid}>
         {ui.squads
           .filter((s) => s.id !== squad.id)
-          .map((s) => {
-            const active = cover === s.id;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => {
-                  battleSfx.uiClick();
-                  setSquadCover(squad.id, active ? null : s.id);
-                }}
-                data-testid={`quickpick-cover-${s.id}`}
-                aria-pressed={active}
-                aria-label={`${squad.name}: ${active ? "stop covering" : "cover"} ${s.name}`}
-                className={`${CHIP} pointer-events-auto min-h-[40px] touch-manipulation ${
-                  active
-                    ? "border-sky-300/60 bg-sky-950/60 text-sky-200"
-                    : "border-white/15 bg-black/55 text-zinc-200"
-                }`}
-              >
-                🛡️ {s.name}
-              </button>
-            );
-          })}
+          .map((s) => (
+            <PickBtn
+              key={s.id}
+              active={cover === s.id}
+              onClick={() => {
+                battleSfx.uiClick();
+                setSquadCover(squad.id, cover === s.id ? null : s.id);
+              }}
+              testid={`quickpick-cover-${s.id}`}
+              ariaLabel={`${squad.name}: ${cover === s.id ? "stop covering" : "cover"} ${s.name}`}
+              label={<>🛡️ {s.name}</>}
+            />
+          ))}
       </div>
 
       <SectionLabel>Hold</SectionLabel>
-      <button
-        type="button"
+      <PickBtn
+        active={stance.holdPosition}
         onClick={() => {
           battleSfx.uiClick();
           setSquadHoldPosition(squad.id, !stance.holdPosition);
         }}
-        data-testid="quickpick-hold"
-        aria-pressed={stance.holdPosition}
-        aria-label={
+        testid="quickpick-hold"
+        title={`Hold position — weapons stay silent until the enemy is inside ${rangeM}m`}
+        ariaLabel={
           stance.holdPosition
             ? `${squad.name}: holding position, fires only inside ${rangeM}m. Tap to release.`
             : `${squad.name}: hold position — move here and hold, fire only inside ${rangeM}m`
         }
-        title={`Hold position — weapons stay silent until the enemy is inside ${rangeM}m`}
-        className={`${CHIP} pointer-events-auto min-h-[40px] touch-manipulation ${
-          stance.holdPosition
-            ? "border-emerald-300/60 bg-emerald-950/60 text-emerald-200"
-            : "border-white/15 bg-black/55 text-zinc-200"
-        }`}
-      >
-        {stance.holdPosition ? `⚓ Holding (${rangeM}m)` : "⚓ Hold position"}
-      </button>
+        label={stance.holdPosition ? `⚓ Holding (${rangeM}m)` : "⚓ Hold position"}
+      />
 
       {squad.hasThunders && (
-        <button
-          type="button"
+        <PickBtn
+          active={ui.siegeAimArmed}
           onClick={() => { battleSfx.uiClick(); setSiegeAimArmed(!ui.siegeAimArmed); }}
-          data-testid="quickpick-siege-aim"
-          aria-pressed={ui.siegeAimArmed}
-          className={`${CHIP} pointer-events-auto min-h-[40px] touch-manipulation ${
+          testid="quickpick-siege-aim"
+          ariaLabel={
             ui.siegeAimArmed
-              ? "border-orange-300/60 bg-orange-950/60 text-orange-200"
-              : "border-white/15 bg-black/55 text-zinc-200"
-          }`}
-        >
-          {ui.siegeAimArmed ? "✥ Aiming… tap map" : "✥ Siege aim"}
-        </button>
+              ? "Siege aim armed — tap the map to place the targeter"
+              : "Arm the siege aim — tap the map to drop the targeter"
+          }
+          label={ui.siegeAimArmed ? "✥ Aiming… tap map" : "✥ Siege aim"}
+        />
       )}
     </div>
   );

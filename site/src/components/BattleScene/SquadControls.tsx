@@ -20,6 +20,7 @@ import { fireModeGlyph } from "../../game/war/squad-command";
 import { battleSfx } from "../../game/war/battle-sfx";
 import { useSyncExternalStore } from "react";
 import { SquadQuickPick } from "./SquadQuickPick";
+import { CMD_THEME } from "./command-console";
 
 export const CHIP =
   "rounded-full border px-3 py-2 text-[11px] font-semibold backdrop-blur-md transition active:scale-[0.97]";
@@ -65,14 +66,12 @@ export function SquadChip({ sq }: { sq: SceneSquad }) {
           ? `${sq.name}, on-call reserve, ${sq.alive} of ${sq.total}, ${dead} lost. Tap the map to hot-drop it.`
           : `${sq.name}, ${sq.alive} of ${sq.total}, ${dead} casualties${linked ? `, targeting ${linkedCount}` : ""}${covering ? ", covering" : ""}.`
       }
-      className={`${CHIP} pointer-events-auto min-h-[22px] w-full touch-manipulation items-center justify-between !rounded-md !px-1.5 !py-0.5 !text-[9px] ${
-        selected
-          ? "border-white/70 bg-white/15 text-white"
-          : linked
-            ? "border-orange-400/50 bg-orange-950/40 text-orange-100"
-            : sq.onCallReserve
-              ? "border-sky-400/60 bg-sky-950/60 font-bold text-sky-100"
-              : "border-white/15 bg-black/55 text-zinc-200"
+      className={`pointer-events-auto flex min-h-[22px] w-full touch-manipulation items-center justify-between rounded border px-1.5 py-0.5 text-[9px] font-semibold transition active:scale-[0.97] ${CMD_THEME} ${
+        selected || linked
+          ? "border-[var(--cmd-brass)] bg-[var(--cmd-panel)] text-[var(--cmd-brass)]"
+          : sq.onCallReserve
+            ? "border-sky-400/60 bg-[var(--cmd-panel)] text-sky-200"
+            : "border-[var(--cmd-line)] bg-[var(--cmd-panel)] text-[var(--cmd-text)]"
       }`}
     >
       <span className="flex items-center">
@@ -126,10 +125,10 @@ export function SelectedSquadPanel() {
   const lastOrder = ui.orderLog[0] ?? null;
   const reserves = ui.squads.filter((s) => s.onCallReserve);
   return (
-    <>
+    <div className={CMD_THEME}>
       {selectedSquad && (
         <p
-          className="rounded-lg border border-white/15 bg-black/70 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-100 backdrop-blur-md"
+          className="rounded border border-[var(--cmd-line)] bg-[var(--cmd-panel)] px-2 py-1 text-[9px] font-semibold text-[var(--cmd-text)]"
           data-testid="hud-selection-banner"
           data-kind={selectedSquad.onCallReserve ? "hotdrop" : "order"}
           aria-live="polite"
@@ -145,12 +144,12 @@ export function SelectedSquadPanel() {
           const r = orderReceipt(lastOrder);
           return (
             <p
-              className={`max-w-full truncate rounded-lg border px-2.5 py-1 text-[10px] backdrop-blur-md ${
+              className={`mt-1 max-w-full truncate rounded border px-2 py-0.5 text-[9px] ${
                 r.tone === "bad"
-                  ? "border-red-400/30 bg-red-950/50 text-red-200"
+                  ? "border-red-400/40 bg-[var(--cmd-panel)] text-red-300"
                   : r.tone === "ok"
-                    ? "border-emerald-400/25 bg-emerald-950/45 text-emerald-200"
-                    : "border-white/10 bg-black/55 text-zinc-400"
+                    ? "border-emerald-400/30 bg-[var(--cmd-panel)] text-emerald-300"
+                    : "border-[var(--cmd-line)] bg-[var(--cmd-panel)] text-[var(--cmd-dim)]"
               }`}
               data-testid="hud-last-order"
               data-kind={lastOrder.kind ?? "move"}
@@ -159,25 +158,25 @@ export function SelectedSquadPanel() {
             </p>
           );
         })()}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400 backdrop-blur-md">
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        <span className="rounded-full border border-[var(--cmd-line)] bg-[var(--cmd-panel)] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.15em] text-[var(--cmd-faint)]">
           Squads
         </span>
         <span
-          className="rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[10px] tabular-nums text-zinc-400 backdrop-blur-md"
+          className="rounded-full border border-[var(--cmd-line)] bg-[var(--cmd-panel)] px-1.5 py-0.5 text-[8px] tabular-nums text-[var(--cmd-faint)]"
           data-testid="hud-kill-tally"
           aria-label={`Confirmed down: ${ui.kills.attacker} of theirs, ${ui.kills.defender} of yours`}
         >
           <span className="text-amber-400/90">{ui.kills.attacker}✕</span>
-          <span className="mx-1">·</span>
+          <span className="mx-0.5">·</span>
           <span className="text-rose-400/90">{ui.kills.defender}✕</span> down
         </span>
       </div>
       {reserves.length > 0 && (
-        <p className="text-[10px] font-semibold text-sky-300/90">
+        <p className="mt-1 text-[9px] font-semibold text-sky-300/90">
           🪂 {reserves.map((r) => r.name).join(", ")} on call — tap, then tap the map
         </p>
       )}
-    </>
+    </div>
   );
 }

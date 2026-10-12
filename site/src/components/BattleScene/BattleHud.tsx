@@ -104,7 +104,7 @@ export function BattleHud({
             size={radarBig ? 260 : 148}
           />
           {moveArmed && armedSquad && (
-            <p className="pointer-events-none absolute -top-7 left-0 whitespace-nowrap rounded-md border border-sky-300/50 bg-sky-950/80 px-2 py-1 text-[10px] font-bold text-sky-200">
+            <p className="pointer-events-none absolute -top-6 left-0 whitespace-nowrap rounded border border-sky-400/50 bg-[#0b0f16] px-1.5 py-0.5 text-[8px] font-bold text-sky-300">
               📍 {armedSquad.name}: tap radar
             </p>
           )}
@@ -114,7 +114,7 @@ export function BattleHud({
             data-testid="hud-radar-expand"
             aria-pressed={radarBig}
             aria-label={radarBig ? "Shrink the radar" : "Enlarge the radar"}
-            className="pointer-events-auto absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-black/70 text-[12px] text-zinc-200 backdrop-blur-md active:scale-95"
+            className="pointer-events-auto absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(255,255,255,0.2)] bg-[#0b0f16] text-[10px] text-[#eef1f6] active:scale-95"
           >
             {radarBig ? "⤡" : "⤢"}
           </button>
@@ -124,7 +124,7 @@ export function BattleHud({
               onClick={() => { battleSfx.uiClick(); setMoveArmedFor(null); }}
               data-testid="hud-radar-cancel-move"
               aria-label="Cancel the armed move"
-              className="pointer-events-auto absolute -bottom-2 -right-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-black/70 text-[12px] text-zinc-200 backdrop-blur-md active:scale-95"
+              className="pointer-events-auto absolute -bottom-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(255,255,255,0.2)] bg-[#0b0f16] text-[10px] text-[#eef1f6] active:scale-95"
             >
               ✕
             </button>
