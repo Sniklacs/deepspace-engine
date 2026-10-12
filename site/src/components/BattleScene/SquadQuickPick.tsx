@@ -34,6 +34,10 @@ import {
   squadWeaponRangeM,
   type SquadFireMode,
 } from "../../game/war/squad-command";
+import {
+  cockpitThemeById,
+  cockpitAccentStyle,
+} from "../../game/war/cockpit-theme";
 import type { SceneSquad } from "./SquadControls";
 import { CMD, CMD_THEME } from "./command-console";
 
@@ -94,6 +98,7 @@ export function SquadQuickPick({ squad }: { squad: SceneSquad }) {
   return (
     <div
       className={`flex flex-col ${CMD.panel} ${CMD_THEME}`}
+      style={cockpitAccentStyle(cockpitThemeById(ui.cockpitThemeId))}
       data-testid={`squad-quickpick-${squad.id}`}
     >
       <div className="flex items-center justify-between">
@@ -106,7 +111,7 @@ export function SquadQuickPick({ squad }: { squad: SceneSquad }) {
         </span>
       </div>
       {targets.length > 0 && (
-        <p className={`${CMD.body} text-[var(--cmd-brass)]`} data-testid={`quickpick-targets-${squad.id}`}>
+        <p className={`${CMD.body} text-[var(--cmd-accent)]`} data-testid={`quickpick-targets-${squad.id}`}>
           🎯 Targeting {targets.length} {targets.length === 1 ? "unit" : "units"}
         </p>
       )}

@@ -33,6 +33,10 @@ import { battleSfx } from "../../game/war/battle-sfx";
 import type { CommsBubble } from "../../game/war/battle-comms";
 import { CommsBubbles } from "./CommsBubbles";
 import { BattleRadar } from "./BattleRadar";
+import {
+  cockpitThemeById,
+  cockpitAccentStyle,
+} from "../../game/war/cockpit-theme";
 
 const LAUNCHER =
   "pointer-events-auto flex items-center gap-1.5 rounded-full border border-white/15 bg-black/60 px-3 py-2 text-[11px] font-semibold text-zinc-200 backdrop-blur-md transition active:scale-[0.97]";
@@ -94,7 +98,10 @@ export function BattleHud({
           button opens it large. */}
       <div
         className="absolute left-2 z-30"
-        style={{ bottom: `calc(${stripBottom} + 3rem)` }}
+        style={{
+          bottom: `calc(${stripBottom} + 3rem)`,
+          ...cockpitAccentStyle(cockpitThemeById(ui.cockpitThemeId)),
+        }}
         data-testid="battle-hud-radar"
       >
         <div className={`relative ${moveArmed ? "pointer-events-auto" : "pointer-events-none"}`}>
@@ -104,7 +111,7 @@ export function BattleHud({
             size={radarBig ? 260 : 148}
           />
           {moveArmed && armedSquad && (
-            <p className="pointer-events-none absolute -top-6 left-0 whitespace-nowrap rounded border border-sky-400/50 bg-[#0b0f16] px-1.5 py-0.5 text-[8px] font-bold text-sky-300">
+            <p className="pointer-events-none absolute -top-6 left-0 whitespace-nowrap rounded border border-[var(--cmd-accent)] bg-[#0b0f16] px-1.5 py-0.5 text-[8px] font-bold text-[var(--cmd-accent)]">
               📍 {armedSquad.name}: tap radar
             </p>
           )}

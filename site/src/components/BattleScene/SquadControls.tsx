@@ -21,6 +21,10 @@ import { battleSfx } from "../../game/war/battle-sfx";
 import { useSyncExternalStore } from "react";
 import { SquadQuickPick } from "./SquadQuickPick";
 import { CMD_THEME } from "./command-console";
+import {
+  cockpitThemeById,
+  cockpitAccentStyle,
+} from "../../game/war/cockpit-theme";
 
 export const CHIP =
   "rounded-full border px-3 py-2 text-[11px] font-semibold backdrop-blur-md transition active:scale-[0.97]";
@@ -68,7 +72,7 @@ export function SquadChip({ sq }: { sq: SceneSquad }) {
       }
       className={`pointer-events-auto flex min-h-[22px] w-full touch-manipulation items-center justify-between rounded border px-1.5 py-0.5 text-[9px] font-semibold transition active:scale-[0.97] ${CMD_THEME} ${
         selected || linked
-          ? "border-[var(--cmd-brass)] bg-[var(--cmd-panel)] text-[var(--cmd-brass)]"
+          ? "border-[var(--cmd-accent)] bg-[var(--cmd-panel)] text-[var(--cmd-accent)]"
           : sq.onCallReserve
             ? "border-sky-400/60 bg-[var(--cmd-panel)] text-sky-200"
             : "border-[var(--cmd-line)] bg-[var(--cmd-panel)] text-[var(--cmd-text)]"
@@ -125,8 +129,10 @@ export function SelectedSquadPanel() {
   const lastOrder = ui.orderLog[0] ?? null;
   const reserves = ui.squads.filter((s) => s.onCallReserve);
   return (
-    <div className={CMD_THEME}>
-      {selectedSquad && (
+    <div
+      className={CMD_THEME}
+      style={cockpitAccentStyle(cockpitThemeById(ui.cockpitThemeId))}
+    >  {selectedSquad && (
         <p
           className="rounded border border-[var(--cmd-line)] bg-[var(--cmd-panel)] px-2 py-1 text-[9px] font-semibold text-[var(--cmd-text)]"
           data-testid="hud-selection-banner"

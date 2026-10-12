@@ -19,6 +19,10 @@ import {
 } from "../../game/war/battle-scene-ui-store";
 import { battleSfx } from "../../game/war/battle-sfx";
 import { CMD, CMD_THEME } from "../BattleScene/command-console";
+import {
+  cockpitThemeById,
+  cockpitAccentStyle,
+} from "../../game/war/cockpit-theme";
 
 function MoraleChip({ morale }: { morale: number }) {
   const color = morale > 60 ? "text-emerald-300" : morale > 35 ? "text-amber-300" : "text-red-300";
@@ -31,7 +35,7 @@ export function EnemyForcesBody() {
 
   if (!ui.scoutIntelReady || ui.enemyIntel.length === 0) {
     return (
-      <div className={`flex flex-col ${CMD.panel} ${CMD_THEME}`} data-testid="enemy-forces-empty">
+      <div className={`flex flex-col ${CMD.panel} ${CMD_THEME}`} style={cockpitAccentStyle(cockpitThemeById(ui.cockpitThemeId))} data-testid="enemy-forces-empty">
         <p className={CMD.section}>Enemy Forces</p>
         <p className={`${CMD.body} text-[var(--cmd-text)]`}>No scout intel yet.</p>
         <p className={CMD.body}>
@@ -47,7 +51,7 @@ export function EnemyForcesBody() {
     : null;
 
   return (
-    <div className={`flex flex-col overflow-y-auto ${CMD.panel} ${CMD_THEME}`} data-testid="enemy-forces-body">
+    <div className={`flex flex-col overflow-y-auto ${CMD.panel} ${CMD_THEME}`} style={cockpitAccentStyle(cockpitThemeById(ui.cockpitThemeId))} data-testid="enemy-forces-body">
       <p className={CMD.section}>
         Enemy Forces — scout intel
       </p>
@@ -61,7 +65,7 @@ export function EnemyForcesBody() {
           className={CMD.surface}
           data-testid="enemy-forces-picker"
         >
-          <p className={`${CMD.title} mb-1 text-[var(--cmd-brass)]`}>
+          <p className={`${CMD.title} mb-1 text-[var(--cmd-accent)]`}>
             Assign squads → {pending.name}
           </p>
           <div className="flex flex-col gap-0.5">
@@ -117,7 +121,7 @@ export function EnemyForcesBody() {
           </div>
           <p className={`${CMD.body} mt-0.5`}>{e.composition}</p>
           {e.targetedBy.length > 0 && (
-            <p className={`${CMD.body} mt-0.5 text-[var(--cmd-brass)]`}>
+            <p className={`${CMD.body} mt-0.5 text-[var(--cmd-accent)]`}>
               🎯 {e.targetedBy.map((id) => squadNames.get(id) ?? id).join(", ")}
             </p>
           )}

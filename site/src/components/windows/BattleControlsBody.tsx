@@ -36,6 +36,7 @@ import {
 import { TROOP_KINDS, UNIT_KIND_LABEL } from "../../game/war/battle-scene-model";
 import type { ManeuverVector } from "../../game/war/war-types";
 import { BattleClock } from "../BattleScene/BattleClock";
+import { CockpitThemePicker } from "../BattleScene/CockpitThemePicker";
 import { ToggleSwitch } from "../BattleScene/ToggleSwitch";
 
 const ART = "/art/battle/units";
@@ -448,6 +449,9 @@ export function BattleControlsBody() {
           <ToggleSwitch label="Labels" on={ui.labelsOn} onChange={tapped(setLabelsOn)} accent="#fbbf24" />
         </div>
       </section>
+
+      {/* cockpit theme — player-changeable glow, race presets */}
+      <CockpitThemePicker />
 
       {/* gunner cam */}
       <section aria-label="Gunner cam">

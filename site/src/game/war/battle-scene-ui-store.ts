@@ -10,6 +10,12 @@
 import type { ManeuverVector } from "./war-types";
 import type { SceneUnitKind } from "./battle-scene-model";
 import type { SquadFireMode, EnemySquadIntel } from "./squad-command";
+import {
+  loadCockpitThemeId,
+  saveCockpitThemeId,
+  cockpitThemeById,
+  type CockpitTheme,
+} from "./cockpit-theme";
 
 export type DayNightMode = "auto" | "day" | "night";
 
@@ -209,6 +215,12 @@ export interface SceneUIState {
    * takePendingMoveDest() and routes it through the normal order judge.
    */
   pendingMoveDest: { squadId: string; x: number; y: number } | null;
+  /**
+   * Cockpit theme id (owner 2026-10-12): Halo green default, player-
+   * changeable, race presets. Drives accent/glow colors across the
+   * command UI now and the cockpit visuals later. Persisted.
+   */
+  cockpitThemeId: string;
 }
 
 const INITIAL: SceneUIState = {
@@ -245,6 +257,7 @@ const INITIAL: SceneUIState = {
   moveArmedFor: null,
   pendingTargetId: null,
   pendingMoveDest: null,
+  cockpitThemeId: loadCockpitThemeId(),
 };
 
 let state: SceneUIState = INITIAL;
@@ -606,6 +619,20 @@ export function takePendingMoveDest(): { squadId: string; x: number; y: number }
   if (!d) return null;
   set({ pendingMoveDest: null });
   return d;
+}
+
+// --- cockpit theme (owner 2026-10-12) ------------------------------------
+
+/** The active cockpit theme object (accent/glow colors). */
+export function cockpitThemeOf(): CockpitTheme {
+  return cockpitThemeById(state.cockpitThemeId);
+}
+
+/** Set the cockpit theme — player-changeable, persisted. */
+export function setCockpitThemeId(id: string): void {
+  if (state.cockpitThemeId === id) return;
+  saveCockpitThemeId(id);
+  set({ cockpitThemeId: id });
 }
 
 /** Test/utility: reset the whole store. */

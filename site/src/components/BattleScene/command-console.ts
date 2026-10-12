@@ -2,8 +2,9 @@
 //
 // Hans: think EVE Online. ALL text stays small and compact — headers are
 // bold but the SAME size as body text, no size changes anywhere. Sharp,
-// clean, tight, compact. The "bright bold brassy" is the GRAPHICS: rich
-// golds, bright accents, striking visuals in the colors and effects.
+// clean, tight, compact. Accent COLOR comes from the cockpit theme
+// (Halo green default, player-changeable, race presets) —
+// cockpit-theme.ts owns the palette; this file owns the density.
 //
 // These are OPAQUE windows (solid backgrounds). Text color is themeable:
 // tweak the hex values in CMD_THEME to retune readability — every surface
@@ -23,7 +24,7 @@ export const CMD_THEME =
   " [--cmd-text:#eef1f6]" + // primary text — near-white, high contrast
   " [--cmd-dim:#a9b2c2]" + // secondary text — cool gray, readable
   " [--cmd-faint:#7c8595]" + // metadata — muted but legible
-  " [--cmd-brass:#f2b23e]" + // brassy accent — rich gold for headers/highlights
+  " [--cmd-accent:#3dff73]" + // cockpit accent — overridden by cockpitAccentStyle(); default Halo green
   " [--cmd-line:rgba(255,255,255,0.14)]"; // hairline borders
 
 export const CMD = {
@@ -32,7 +33,7 @@ export const CMD = {
   /** inner panel surface — opaque, solid */
   surface: "rounded border border-[var(--cmd-line)] bg-[var(--cmd-panel)] p-1.5",
   /** section headers: FIRE CONTROL / MOVE / COVER / HOLD — brassy, bold, SAME size as body */
-  section: "mt-0.5 text-[9px] font-bold uppercase tracking-[0.22em] text-[var(--cmd-brass)] [text-shadow:0_0_12px_rgba(242,178,62,0.35)]",
+  section: "mt-0.5 text-[9px] font-bold uppercase tracking-[0.22em] text-[var(--cmd-accent)] [text-shadow:var(--cmd-accent-glow)]",
   /** row titles: squad names, enemy unit names — bold, body size */
   title: "text-[9px] font-bold text-[var(--cmd-text)]",
   /** body copy: composition, hints — small, tight, dense */
@@ -42,7 +43,7 @@ export const CMD = {
   /** command buttons — small, dense, opaque */
   btn: "rounded border border-[var(--cmd-line)] bg-[var(--cmd-panel)] px-2 py-1 text-[9px] font-semibold text-[var(--cmd-text)] transition active:scale-[0.97]",
   /** active button state — brassy highlight */
-  btnActive: "border-[var(--cmd-brass)] bg-[#2a2113] text-[var(--cmd-brass)]",
+  btnActive: "border-[var(--cmd-accent)] bg-[var(--cmd-accent-dim)] text-[var(--cmd-accent)]",
   /** touch target floor — small, but still tappable */
   btnH: "min-h-[30px] touch-manipulation",
   /** grid gaps inside menus */
