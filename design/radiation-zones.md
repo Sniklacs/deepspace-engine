@@ -27,7 +27,7 @@ deep baseMaxLoss = min(45, rad*0.45);  mild baseMaxLoss = rad*0.15
 lossPct = round(baseMaxLoss*(1-coverage));  successPct = 100-lossPct
 ```
 On completion roll once; if loss triggered: scientistsLost = min(max(round(sci*lossFraction*0.8),(sci>1?1:0)), sci-1) (never wipe below 1); loot reduced ~lossFraction; corruption += round(lossPct/100*10); log event.
-Recommend race-neutral for MVP (Nephilim/Asart hooks later).
+Recommend race-neutral for MVP (Nephilim/Ashtar hooks later).
 
 ## Pre-launch risk pop-up (Expeditions tab, deep zones, on "Commit Supplies")
 1. Header ☢️ "High radiation: <Zone>"

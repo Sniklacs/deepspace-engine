@@ -81,7 +81,7 @@ export const RACES: Race[] = [
   },
   {
     id: "ashtar",
-    name: "The Asart Command / Pleiadians",
+    name: "The Ashtar Command / Pleiadians",
     title: "The Wardens from the Far Stars · The Light",
     blurb: "Benevolent star-folk who hold the dark back.",
     lore: "A benevolent, luminous people who came from beyond — not to take the world but to keep it from being taken. They are the conscience of the Shatterlands: the strongest shield and the best resistance to corruption. They did not win the old war by force — they held the moral high ground and let it break against them, trading their own safety for time. But a conscience is not always quick, comfortable, or rich.",
@@ -95,7 +95,7 @@ export const RACES: Race[] = [
       { label: "Peace-time inefficiency — systems idle without a breach to seal", kind: "weakness" },
     ],
     mods: { studySpeed: 1.1, emberGain: 0.9, chipsetChance: 0.9, suppliesEfficiency: 1.1, corruptionResist: 0.35, chorusResist: 0.5, yieldSupply: 1.0 },
-    accent: "#ffd166", // canon fill/tint (A.3) — Asart gold ≡ purity gold, disambiguated by shape (adopted decision 1)
+    accent: "#ffd166", // canon fill/tint (A.3) — Ashtar gold ≡ purity gold, disambiguated by shape (adopted decision 1)
     accentText: "#ffd166", // 12.6:1
   },
   {

@@ -68,8 +68,8 @@ export const KNOWN_SERVERS: KnownServer[] = [
     name: "The Accord",
     url: "https://the-unbound-ashtar.vercel.app",
     raceId: "ashtar",
-    raceName: "Astar",
-    description: "The Astar's world.",
+    raceName: "Ashtar",
+    description: "The Ashtar's world.",
     status: "live",
   },
 ];

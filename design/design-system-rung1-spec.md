@@ -1,7 +1,7 @@
 # Design System — Rung 1 Spec (designer grounding pass → engineer build)
 
 > Filed by lead 2026-09-12 from designer grounding session 4d3e9fec. **Lead decisions ADOPTED (delegated creative authority):**
-> 1. **Asart primary stays gold** `#ffd166` (≡ purity gold) — disambiguation via Circuit shape channels (55%-alpha fill + flag chip vs white-gold radiating sigil + PURIFIED label). Cheaper than a palette fork; revisit if live war data shows confusion.
+> 1. **Ashtar primary stays gold** `#ffd166` (≡ purity gold) — disambiguation via Circuit shape channels (55%-alpha fill + flag chip vs white-gold radiating sigil + PURIFIED label). Cheaper than a palette fork; revisit if live war data shows confusion.
 > 2. **Success/positive = ember family** — emerald-300 is RETIRED from semantic duty (may survive as Draconian flavor only). Radiation/Chorus = hazard teal. One accent family per meaning.
 > 3. **Battles-as-Circuit-segment** (Map | Battles | World) — interpretation of war-spec B2's "war-phase Battles tab": a third segment inside the Circuit tab, visible only during war phases, keeping 5 tabs forever. Same surface/scope as the ratified spec; recorded here as adopted.
 > Nav target corrected: live client has **7 tabs** → consolidate to **5**: `Cradle · Expeditions · Lab · Armory · Circuit` (Codex folds into Cradle; Contribution becomes Circuit "World" segment).
@@ -57,12 +57,12 @@ Migration: CTAs amber-400→ember; **Devotion panel indigo-400→purity gold**; 
 | Nephilim | `#c96f3f`@10–16% | `#dc8f5f` (6.7:1) | bone `#cfc4b0` |
 | Draconians | `#3ad29b`@8–14% | `#58e0ab` (9.4:1) | serpent-gold `#d4b64c` |
 | Anunnaki | `#e8d9b2`@8–14% | `#e8d9b2` (12.9:1) | bronze `#d9a441`; terracotta `#a3472b` for over-extension |
-| Asart | `#ffd166`@8–14% | `#ffd166` (12.6:1) | seafoam `#7fd8c8`, dusk-violet `#8b7bd8` |
+| Ashtar | `#ffd166`@8–14% | `#ffd166` (12.6:1) | seafoam `#7fd8c8`, dusk-violet `#8b7bd8` |
 | Watchers | `#b48cff`@8–14% | `#c9a4ff` (7.0:1) | razor-cyan `#5fd4e6`; grade-gold = functional purity |
 
 Per-race tokens: `--race-<id>-tint` / `-accent` / `-text` / `-glow`. **Single source of truth:** update `RACES[].accent` in `game/races.ts` to canon fill hexes + add `accentText` (Armory sigil alpha math survives).
 
-Adjacency guards: (1) Asart gold ≡ purity gold — shape channels (decided above); (2) Draconian green vs hazard teal — identity green never adjacent to radiation semantics; (3) Nephilim rust vs ember — rust text ≥13px, ember never on Nephilim chrome.
+Adjacency guards: (1) Ashtar gold ≡ purity gold — shape channels (decided above); (2) Draconian green vs hazard teal — identity green never adjacent to radiation semantics; (3) Nephilim rust vs ember — rust text ≥13px, ember never on Nephilim chrome.
 
 ### A.4 Type scale (system fonts, rem, tabular numerals)
 `--font-sans`: system-ui stack · `--font-mono`: ui-monospace stack. No webfont purchases. `.num` utility = mono + `font-variant-numeric: tabular-nums` — **every** timer/currency/%/score/cost/count renders through it ("cheapest premium upgrade").

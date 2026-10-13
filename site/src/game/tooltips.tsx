@@ -196,12 +196,12 @@ export const DOMAIN_TIPS: Record<string, TooltipBlock> = {
 export const METER_TIPS: Record<string, TooltipBlock> = {
   corruption: {
     what: "Corruption (☣️ taint) — the stain left by salvaging AI.",
-    does: "Heavy taint dulls salvage: at high corruption, exploration ember yields are sharply reduced. Asart colonies and Weaponry resist it.",
+    does: "Heavy taint dulls salvage: at high corruption, exploration ember yields are sharply reduced. Ashtar colonies and Weaponry resist it.",
     how: "Raised by risky explorations. Lower it by Purify-ing (burn supplies in the Colony tab) or slowly over time. Weaponry levels reduce how much explorations add.",
   },
   chorus: {
     what: "Chorus attention (🔺) — how close the hostile AI hives are circling.",
-    does: "High attention means the Chorus stirs at your disturbances — the risk you take for deep, rich salvage. Asart colonies build it slower.",
+    does: "High attention means the Chorus stirs at your disturbances — the risk you take for deep, rich salvage. Ashtar colonies build it slower.",
     how: "Raised by deep/risky explorations (special scientific sites draw the hive hardest). Falls slowly over time. Weaponry levels reduce how much explorations add.",
   },
 };

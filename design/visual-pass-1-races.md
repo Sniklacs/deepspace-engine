@@ -23,10 +23,10 @@ Accent hexes are taken verbatim from `site/src/game/races.ts` (`RACES[].accent` 
 | The Nephilim | `nephilim.svg` | The stone that stands (broken peaks, uncracked standing stone) | `#c96f3f` / `#dc8f5f` | 7.04:1 (PASS) |
 | The Draconians | `draconians.svg` | The serpent in the ledger (deep S-coil under the account rule) | `#3ad29b` / `#58e0ab` | 10.95:1 (PASS) |
 | The Anunnaki | `anunnaki.svg` | The ziggurat under the sun (stepped tiers + builder's sun) | `#e8d9b2` / `#e8d9b2` | 12.97:1 (PASS) |
-| The Asart Command | `asart.svg` | The lit lantern (upright lantern + flame, held against the dark) | `#ffd166` / `#ffd166` | 12.59:1 (PASS) |
+| The Ashtar Command | `asart.svg` | The lit lantern (upright lantern + flame, held against the dark) | `#ffd166` / `#ffd166` | 12.59:1 (PASS) |
 | The Watchers | `watchers.svg` | The eye over the open book (the teacher who taught it anyway) | `#b48cff` / `#c9a4ff` | 8.85:1 (PASS) |
 
-Also verified on surf-0 `#070910`: Grays 12.54 · Nephilim 7.71 · Draconians 12.00 · Anunnaki 14.21 · Asart 13.80 · Watchers 9.70 — all PASS ≥ 4.5:1. Full table in the contrast appendix (design/visual-pass-1-circuit.md §5 has the same method).
+Also verified on surf-0 `#070910`: Grays 12.54 · Nephilim 7.71 · Draconians 12.00 · Anunnaki 14.21 · Ashtar 13.80 · Watchers 9.70 — all PASS ≥ 4.5:1. Full table in the contrast appendix (design/visual-pass-1-circuit.md §5 has the same method).
 
 ### 2.1 Where the accent may appear (one rule per race — apply to ALL six)
 
@@ -36,7 +36,7 @@ Also verified on surf-0 `#070910`: Grays 12.54 · Nephilim 7.71 · Draconians 12
 
 ### 2.2 Adjacency guards (from design-system-rung1-spec §A.3)
 
-1. Asart gold ≡ purity gold by design — disambiguate with shape channels (lantern sigil, 55% fill + flag chip on the map), never by forking the hex.
+1. Ashtar gold ≡ purity gold by design — disambiguate with shape channels (lantern sigil, 55% fill + flag chip on the map), never by forking the hex.
 2. Draconian green never sits adjacent to hazard-teal radiation semantics on the same surface.
 3. Nephilim rust-text ≥13px in text runs; ember never on Nephilim chrome.
 4. Grays owl-eye amber is RESERVED for attention blinks (Chorus stirs, study complete) — do not use amber as Grays chrome.

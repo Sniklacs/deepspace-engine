@@ -4567,7 +4567,7 @@ export function chooseSpecialization(
 }
 
 export function discipline(state: GameState, spend: number, now = Date.now()): { ok: boolean; error?: string; state: GameState } {
-  // Asart-style purity action: burn supplies to cleanse corruption.
+  // Ashtar-style purity action: burn supplies to cleanse corruption.
   advance(state, now);
   const cost = 10 * spend;
   if (state.resources.supplies < cost) return fail(`Need ${cost} supplies to purify.`);

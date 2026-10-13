@@ -31,7 +31,7 @@ never be bought, only become.
 
 ## §1 The gate — unanimous trust (OWNER-LOCKED 2026-09-30)
 
-Six race-Oracles gate ascension (Draconian, Gray, Grigori, Astar, Annunaki,
+Six race-Oracles gate ascension (Draconian, Gray, Grigori, Ashtar, Annunaki,
 Nephilim). Each holds a **trust meter**, earned exactly the way
 oracles-purity-layer.md §4 demands — purity, not power:
 
@@ -67,7 +67,7 @@ weighting (§5) and the race canon:
 | **Draconian** | *The dent of arms* — a war record: victories commanded, beachheads held. Warriors respect the proven. |
 | **Gray** | *The dent of knowing* — Codices carried, research completed, clean recoveries. The fragile honor the mind. |
 | **Grigori (Watcher)** | *The dent of purity* — zero-corruption survival, cleansings performed, rites kept. Soul-weighting. |
-| **Astar (Palladian)** | *The dent of peace* — allies shielded, aid answered, truces honored. Peacekeepers count the saved. |
+| **Ashtar (Palladian)** | *The dent of peace* — allies shielded, aid answered, truces honored. Peacekeepers count the saved. |
 | **Annunaki** | *The dent of dominion* — contribution, monuments raised, an economy that feeds thousands. Kings respect builders. |
 | **Nephilim** | *The dent of strength* — great deeds of arms, champions fielded, the heavy work done. Giants respect the strong. |
 

@@ -96,7 +96,7 @@ Not a race and not pickable. Their "weapons" are a **Rite-frame** of 5 anti-weap
 - Stat base numbers, tier multipliers (×1.5/×2.2/×3.2), cost/time table, plasma ratio (25 embers → 1 plasma) — all constants, one config object.
 - Whether the 5-role frame (Frontline/Assault/Precision/Siege/Engine) is the right taxonomy vs a different spread.
 - Watchers family names/identities above (data-swappable before publish).
-- "Palladians" naming note: the plan's fifth race is **Asart Command / Pleiadians**; if the owner wants a rename toward "Palladians," flag it — cheap now, costly later.
+- "Palladians" naming note: the plan's fifth race is **Ashtar Command / Pleiadians**; if the owner wants a rename toward "Palladians," flag it — cheap now, costly later.
 - Unbound Rite-frames: deferred to ascension phases (recommend).
 - Deed-adds-contribution (+10 per weapon deed): confirm per heroes O10 precedent.
 

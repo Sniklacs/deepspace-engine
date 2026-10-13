@@ -99,7 +99,7 @@ War-week snapshot of a Watchers world, built at map.ts geometry (base positions 
 | Nephilim | `#c96f3f` → `#72412a` | `#dc8f5f` | 7.04:1 PASS |
 | Draconians | `#3ad29b` → `#23785c` | `#58e0ab` | 10.95:1 PASS |
 | Anunnaki | `#e8d9b2` → `#837b69` | `#e8d9b2` | 12.97:1 PASS |
-| Asart | `#ffd166` → `#8f773f` | `#ffd166` | 12.59:1 PASS |
+| Ashtar | `#ffd166` → `#8f773f` | `#ffd166` | 12.59:1 PASS |
 | Watchers | `#b48cff` → `#665193` | `#c9a4ff` | 8.85:1 PASS |
 
 ⚠ Engineer note: do NOT put dark or white text INSIDE the 55% contested fill — contrast varies by accent (white on Anunnaki fill is 4.20:1, black is worse). Labels live OUTSIDE the node on surf-0; chips use the dark chip recipe (surf-2 bg) listed in §2.3.

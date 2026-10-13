@@ -19,7 +19,7 @@ Generated portrait of the roster's flagship hero. It demonstrates the full treat
 - One **identity object** visible and legible (Azazel's glowing sigil pin; each hero's gizmo/pin/wound-garment per heroes-design-brief §2 identities).
 
 **Background treatment:**
-- Always world-flavored, always dark, never busy at card size. Watcher rule: ruled-paper + marginalia + one warm dot. Each race's rule (from ui-benchmark §6): Grays = archive shelves/hairlines, Nephilim = monumental stone, Draconians = recessed vault/ledger, Anunnaki = over-grand architecture, Asart = lit sanctuary, Watchers = the examination sheet.
+- Always world-flavored, always dark, never busy at card size. Watcher rule: ruled-paper + marginalia + one warm dot. Each race's rule (from ui-benchmark §6): Grays = archive shelves/hairlines, Nephilim = monumental stone, Draconians = recessed vault/ledger, Anunnaki = over-grand architecture, Ashtar = lit sanctuary, Watchers = the examination sheet.
 - Background color family = race accent tint (8–14%) over surf-0 `#070910`; the accent never dominates the face.
 
 **Lighting & color:**

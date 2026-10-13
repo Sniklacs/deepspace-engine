@@ -196,7 +196,7 @@ When a jump ship is destroyed, its crew is **stranded**. They wait for rescue.
   - Grays: **Warden Lattice** — interlocking tech, precise coverage
   - Draconians: **Ashen Bulwark** — heavy armor, built to take punishment
   - Watchers: **Threshold Bastion** — celestial geometry, holds the line
-  - Astar: **Accord Aegis** — peacekeeper design, defense-first
+  - Ashtar: **Accord Aegis** — peacekeeper design, defense-first
   - Annunaki: **Gilded Rampart** — gold-trimmed, built like a palace wall
   - Nephilim: **Stoneshield** — massive, blunt, unmovable
   - Unbound: **Radiant Bulwark** — light-wrought, transcendent design
@@ -216,7 +216,7 @@ When a jump ship is destroyed, its crew is **stranded**. They wait for rescue.
   - Grays: **Calculus Vanguard** — cold math, optimal coverage
   - Draconians: **Ashen Vanguard** — burns bright, hits hard
   - Watchers: **Seraph Vanguard** — wings spread, unbroken line
-  - Astar: **Accord Vanguard** — peace through superior firepower
+  - Ashtar: **Accord Vanguard** — peace through superior firepower
   - Annunaki: **Gilded Vanguard** — gold and thunder
   - Nephilim: **Stone Vanguard** — the mountain moves
   - Unbound: **Radiant Vanguard** — dawn's iron fist
@@ -237,7 +237,7 @@ When a jump ship is destroyed, its crew is **stranded**. They wait for rescue.
   - Grays: **Ledger Hauler** — every gram accounted for
   - Draconians: **Hoard Drake** — dragons hoard, it's what they do
   - Watchers: **Tithe Bearer** — heaven's quartermaster
-  - Astar: **Compact Hauler** — the Accord's purse
+  - Ashtar: **Compact Hauler** — the Accord's purse
   - Annunaki: **Golden Belly** — fat with the king's gold
   - Nephilim: **Mountain's Maw** — swallows whole
   - Unbound: **Cornucopia** — abundance, radiant and heavy
@@ -258,7 +258,7 @@ When a jump ship is destroyed, its crew is **stranded**. They wait for rescue.
   - Grays: **Array Herald** — the mind that sees all
   - Draconians: **War-Drum** — the beat the army marches to
   - Watchers: **Trumpet Herald** — the last bell, rung early
-  - Astar: **Concord Herald** — harmony of fire
+  - Ashtar: **Concord Herald** — harmony of fire
   - Annunaki: **Royal Signal** — the king's voice, carried on light
   - Nephilim: **Thunder Call** — the mountain speaks, the army listens
   - Unbound: **Dawn Herald** — radiance that organizes

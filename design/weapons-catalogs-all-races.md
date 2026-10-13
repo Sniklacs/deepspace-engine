@@ -112,7 +112,7 @@ type ArmoryCatalog = {
 `model` can be derived at runtime from familyName + tierLanguage — store names once, generate the 20 designations per race so the catalog table and the Armory UI never drift.
 
 ## §9 Consistency flags for the lead (observations only)
-1. **Race-id vs display-name drift (pre-existing):** engine `RaceId` is `"ashtar"`, `races.ts` writes "The Asart Command / Pleiadians", while the weapons doc and business plan use **"Asart Command"**; the owner also floated "Palladians". Both alignments are cheap while the rename is still cheap — decision needed before the six-world launch.
+1. **Race-id vs display-name drift (pre-existing):** engine `RaceId` is `"ashtar"`, `races.ts` writes "The Ashtar Command / Pleiadians", while the weapons doc and business plan use **"Ashtar Command"**; the owner also floated "Palladians". Both alignments are cheap while the rename is still cheap — decision needed before the six-world launch.
 2. All doc §5 family names and core images preserved; changes are expansions only.
 3. Unbound Rite-forms and non-Watcher war-side consumption wait on the battle layer — this file is pure data, safe to build ahead (same sequencing as heroes §9).
 

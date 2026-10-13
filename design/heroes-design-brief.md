@@ -38,7 +38,7 @@ Nothing else. No loot boxes, no hero shards/artifacts, no random drops, no "recr
 
 ## §2 Roster design — 12-hero archetypes per race
 
-**Role taxonomy (uniform ids, race-flavored display):** `tank` · `damage` · `support` · `utility` · `econwar`. Race identity biases personality, skill flavor, and internal role skew (Nephilim carry 3 tanks; Asart carry 4 supports), but every race covers all five roles so squads (§5) can always be composed.
+**Role taxonomy (uniform ids, race-flavored display):** `tank` · `damage` · `support` · `utility` · `econwar`. Race identity biases personality, skill flavor, and internal role skew (Nephilim carry 3 tanks; Ashtar carry 4 supports), but every race covers all five roles so squads (§5) can always be composed.
 
 Heroes join at **level 1** (XP 0) regardless of deed tier; the deed buys the seat, the war buys the power.
 

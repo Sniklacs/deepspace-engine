@@ -299,7 +299,7 @@ A 40px `surf-1` strip pinned above the DOCK, **always rendered** (never behind a
 | Focus ring | `--focus` | `#ffd166` | 2px outline + 2px offset | — |
 
 **Adjacency discipline (no changes):**
-- Asart accent ≡ purity gold → identity via shape channels only (rung-1 §A.3 decision 1) — contested uses the double ring + flag chip; purified uses the star. Never the two colors alone.
+- Ashtar accent ≡ purity gold → identity via shape channels only (rung-1 §A.3 decision 1) — contested uses the double ring + flag chip; purified uses the star. Never the two colors alone.
 - Draconian accent vs hazard teal / Nephilim rust vs ember: identity green/rust never sits beside radiation/Chorus semantics (rung-1 §A.3 guards). The legend swatches render canon colors as identity-free **kind/tier** entries — no race swatches in this legend (race accents are world chrome, not map meaning).
 - Tier colors are **game-global functional** (same on all six worlds) — they are depth/risk meaning, not identity.
 

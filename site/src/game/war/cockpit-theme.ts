@@ -3,7 +3,7 @@
 // Hans: the default look is Halo-style green glow (cockpit green) — text
 // accents, glows, UI highlights all start green. BUT everything is
 // changeable by the player, including the cockpit lighting color itself.
-// Race-themed presets: red for Draconians, blue for Palladians/Astar, etc.
+// Race-themed presets: red for Draconians, blue for Palladians/Ashtar, etc.
 //
 // This system drives the command windows now and will carry into the
 // cockpit visual phase later — one theme variable, whole UI follows.

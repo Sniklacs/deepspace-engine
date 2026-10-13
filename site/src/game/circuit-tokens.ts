@@ -8,7 +8,7 @@
 // Race accents are NOT here — identity comes from races.ts
 // (--race-<id>-accent/-text tokens); functional meaning from app.css tokens.
 // Tier colors are game-global functional (same on all six worlds): depth/risk,
-// not identity. Asart gold / Draconian green / Nephilim rust never appear in
+// not identity. Ashtar gold / Draconian green / Nephilim rust never appear in
 // this module (rung-1 §A.3 adjacency guards).
 // ============================================================================
 

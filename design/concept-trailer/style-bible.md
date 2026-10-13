@@ -40,7 +40,7 @@ This is the canon mood system (ui-benchmark-notes §4 — **Blacksite Terminal b
 
 **Circuit map canon (circuit-tokens.ts, unchanged):** T1 `#4d7cc7` · T2 `#a78bfa` · T3 `#fb923c` · heart `#7f1d1d` ringed `#fb923c` · cradle `#14532d` ringed `#fbbf24` · near `#18181b` · road `#8f9bb3` · ruin-pass `#b45309` dashed · severed `#7f1d1d`.
 
-**Rule that never bends:** functional colors color *meaning*; race accents color *identity*. The two never cross. Purity gold never becomes a leader accent; Asart shares gold by shape only (canon decision 1) — shape + label always second the color.
+**Rule that never bends:** functional colors color *meaning*; race accents color *identity*. The two never cross. Purity gold never becomes a leader accent; Ashtar shares gold by shape only (canon decision 1) — shape + label always second the color.
 
 ## 3. Lighting — "motivated light in a dead world"
 
