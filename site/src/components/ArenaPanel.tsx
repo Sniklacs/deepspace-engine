@@ -651,7 +651,7 @@ export default function ArenaPanel({ state, token, onAction }: {
           );
         })()}
         {showScene && (
-          <BattleSceneFullscreen scene={buildDemoScene(Date.now())} onClose={() => setShowScene(false)} crew={crewFromHeroes(state.prologue?.heroes)} />
+          <BattleSceneFullscreen scene={buildDemoScene(Date.now())} onClose={() => setShowScene(false)} crew={crewFromHeroes(state.prologue?.heroes)} attackerRace={state.race} defenderRace="watchers" />
         )}
       </div>
 

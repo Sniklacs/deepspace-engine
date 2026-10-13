@@ -349,6 +349,21 @@ function ForceBlock({ state, force, power, tag, focusTarget }: { state: GameStat
   );
 }
 
+/**
+ * The two sides' races for the battle scene's per-race directional
+ * sprites (owner 2026-10-12): the player's own side (matched by
+ * state.gameId against the battle's colonyIds) wears state.race; the
+ * opposing colony's race comes from scouted world-map intel
+ * (worldMap.known, keyed by colony id) — unknown opponent, no race art.
+ */
+function battleRaces(state: GameState, battle: Battle): { attackerRace: string | null; defenderRace: string | null } {
+  const me = state.gameId ?? "";
+  const known = Object.values(state.worldMap?.known ?? {});
+  const raceOf = (colonyId: string): string | null =>
+    colonyId === me ? (state.race ?? null) : (known.find((k) => k.id === colonyId)?.race ?? null);
+  return { attackerRace: raceOf(battle.attacker.colonyId), defenderRace: raceOf(battle.defender.colonyId) };
+}
+
 /** The live list + detail for ongoing battles. */
 function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted = false }: {
   state: GameState;
@@ -364,7 +379,7 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
   const [demoScene, setDemoScene] = useState(false);
   // Fullscreen battle (owner 2026-10-11): Hans's fullscreen toggle on the
   // embedded scene jumps the live battle into the viewport-filling scene.
-  const [sceneFullscreen, setSceneFullscreen] = useState<SceneBattle | null>(null);
+  const [sceneFullscreen, setSceneFullscreen] = useState<{ scene: SceneBattle; battle: Battle } | null>(null);
   const active = (state.battles ?? []).filter((b) => b.status === "active").sort((a, b) => a.startedAt - b.startedAt);
   const selected = active.find((b) => b.id === selectedId) ?? active[0] ?? null;
   // Reset the detail/scene toggle + demo when the selection changes.
@@ -403,7 +418,7 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
             </button>
           </div>
         </div>
-        {demoScene && <BattleScene scene={buildDemoScene(Date.now())} crew={crewFromHeroes(state.prologue?.heroes)} />}
+        {demoScene && <BattleScene scene={buildDemoScene(Date.now())} crew={crewFromHeroes(state.prologue?.heroes)} attackerRace={state.race} defenderRace="watchers" />}
       </div>
     );
   }
@@ -467,17 +482,19 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
             <BattleScene
               scene={sceneFromBattle(selected)}
               liveCasualties={battleMoment(selected, now).casualties}
-              onRequestFullscreen={() => setSceneFullscreen(sceneFromBattle(selected))}
+              onRequestFullscreen={() => setSceneFullscreen({ scene: sceneFromBattle(selected), battle: selected })}
               crew={crewFromHeroes(state.prologue?.heroes)}
+              {...battleRaces(state, selected)}
             />
           )}
         </div>
       )}
       {sceneFullscreen && (
         <BattleSceneFullscreen
-          scene={sceneFullscreen}
+          scene={sceneFullscreen.scene}
           onClose={() => setSceneFullscreen(null)}
           crew={crewFromHeroes(state.prologue?.heroes)}
+          {...battleRaces(state, sceneFullscreen.battle)}
         />
       )}
     </div>

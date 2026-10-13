@@ -43,6 +43,8 @@ export function BattleSceneFullscreen({
   onSaveFormation,
   onSaveDoctrine,
   crew,
+  attackerRace,
+  defenderRace,
 }: {
   scene: SceneBattle;
   onClose: () => void;
@@ -50,6 +52,9 @@ export function BattleSceneFullscreen({
   onSaveDoctrine?: (draft: DoctrineDraft) => void;
   /** the player's heroes — the cockpit's bridge crew (owner 2026-10-12) */
   crew?: CrewMember[];
+  /** the two sides' races — per-race directional unit sprites (owner 2026-10-12) */
+  attackerRace?: string | null;
+  defenderRace?: string | null;
 }) {
   useEffect(() => {
     // BattleScene itself opens the squads window on mount and closes it on
@@ -60,5 +65,5 @@ export function BattleSceneFullscreen({
     };
   }, []);
 
-  return <BattleScene scene={scene} variant="fullscreen" onClose={onClose} onSaveFormation={onSaveFormation} onSaveDoctrine={onSaveDoctrine} crew={crew} />;
+  return <BattleScene scene={scene} variant="fullscreen" onClose={onClose} onSaveFormation={onSaveFormation} onSaveDoctrine={onSaveDoctrine} crew={crew} attackerRace={attackerRace} defenderRace={defenderRace} />;
 }

@@ -193,6 +193,18 @@ import {
   projectPoint,
   unprojectToGround,
 } from "../../game/war/pov-projection";
+// Per-race directional unit sprites (owner 2026-10-12): {race}/{kind}-{dir}
+// art chosen by each unit's heading vs the viewer, with hysteresis and a
+// fallback chain down to the shared skins (game/war/unit-sprites.ts).
+import {
+  facingFor,
+  nextFacing,
+  raceSpriteKey,
+  resolveSprite,
+  spritePath,
+  type Facing,
+  type SpriteDir,
+} from "../../game/war/unit-sprites";
 // SEAMLESS-WORLD §9 (slice 9): the rendered explosion/dust draw paths.
 import {
   drawBloom,
@@ -373,6 +385,15 @@ interface Props {
    * the watch in the cockpit instead.
    */
   crew?: CrewMember[];
+  /**
+   * The two sides' races (owner 2026-10-12): selects the per-race
+   * directional sprite sets ({race}/{kind}-{dir}.webp). Null/absent =
+   * shared art only, exactly the pre-race behavior. Sprite race keys are
+   * plain strings — a race with art but no host passing it yet (e.g.
+   * "unbound") simply never gets requested.
+   */
+  attackerRace?: string | null;
+  defenderRace?: string | null;
 }
 
 interface SpriteSet { [k: string]: HTMLImageElement | null; ground: HTMLImageElement | null }
@@ -429,7 +450,7 @@ function snapshotFormation(scene: SceneBattle): {
   return { squads, units };
 }
 
-export function BattleScene({ scene: sceneProp, liveCasualties = null, variant = "embedded", onClose, onRequestFullscreen, onSaveFormation, onSaveDoctrine, continuumScale = null, crew }: Props) {
+export function BattleScene({ scene: sceneProp, liveCasualties = null, variant = "embedded", onClose, onRequestFullscreen, onSaveFormation, onSaveDoctrine, continuumScale = null, crew, attackerRace = null, defenderRace = null }: Props) {
   // Retry / re-challenge (owner 2026-10-11): the battle can restart on the
   // same field (retry — same seed) or as a fresh challenge (same forces,
   // new seed). `scene` below is the ACTIVE scene — every downstream read
@@ -445,6 +466,130 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
   const wrapRef = useRef<HTMLDivElement>(null);
   const sprites = useMemo(loadSprites, []);
   const fx = useMemo(() => new Fx(), []);
+
+  // --- per-race directional sprites (owner 2026-10-12) --------------------
+  // Lazily-populated store over the shared SpriteSet above (which stays
+  // untouched as the fallback). Keyed `${race}|${kind}|${dir}`; a failed
+  // load marks the key "dead" so the fallback chain settles on the best
+  // art that exists instead of retrying a 404 every frame. Images load
+  // async by nature — draws fall back until `complete && naturalWidth > 0`.
+  const raceSpritesRef = useRef<Map<string, HTMLImageElement | "dead">>(new Map());
+  // Race props mirrored into refs — the frame-loop effect re-runs only on
+  // scene.id, so it reads races through these (same pattern as
+  // continuumScaleRef below).
+  const attackerRaceRef = useRef(attackerRace);
+  attackerRaceRef.current = attackerRace;
+  const defenderRaceRef = useRef(defenderRace);
+  defenderRaceRef.current = defenderRace;
+  const sideRace = (side: "attacker" | "defender"): string | null =>
+    (side === "attacker" ? attackerRaceRef.current : defenderRaceRef.current) ?? null;
+  const getRaceSprite = (race: string, kind: string, dir: SpriteDir): HTMLImageElement | null => {
+    const key = raceSpriteKey(race, kind, dir);
+    const hit = raceSpritesRef.current.get(key);
+    if (hit === "dead") return null;
+    if (hit) return hit;
+    const img = new Image();
+    img.onerror = () => {
+      raceSpritesRef.current.set(key, "dead");
+    };
+    img.src = spritePath(race, kind, dir);
+    raceSpritesRef.current.set(key, img);
+    return img;
+  };
+  const imgReady = (img: HTMLImageElement | null | undefined): img is HTMLImageElement =>
+    !!img && img.complete && img.naturalWidth > 0;
+  // Availability predicate for the fallback chain. Asking after a race
+  // sprite here is also what starts its lazy load.
+  const spriteAvailable = (key: string): boolean => {
+    if (key.startsWith("shared|")) return imgReady(sprites[key.slice("shared|".length)]);
+    const [race, kind, dir] = key.split("|");
+    if (!race || !kind || !dir) return false;
+    return imgReady(getRaceSprite(race, kind, dir as SpriteDir));
+  };
+  const resolveUnitSprite = (
+    race: string | null,
+    kind: string,
+    dir: SpriteDir,
+  ): { img: HTMLImageElement; raceArt: boolean; dir: SpriteDir } | null => {
+    const res = resolveSprite(spriteAvailable, race, kind, dir);
+    if (!res) return null;
+    if (res.raceArt) {
+      const img = raceSpritesRef.current.get(res.key);
+      return img && img !== "dead" ? { img, raceArt: true, dir: res.dir } : null;
+    }
+    const img = sprites[kind];
+    return img ? { img, raceArt: false, dir: res.dir } : null;
+  };
+  // Preload both sides' directional sets when the races are known:
+  // 2 races × 7 kinds × 3 dirs = 42 images max, plain lazy Image() loads.
+  useEffect(() => {
+    for (const race of [attackerRace, defenderRace]) {
+      if (!race) continue;
+      for (const kind of Object.keys(UNIT_ART)) {
+        for (const dir of ["front", "back", "side"] as const) getRaceSprite(race, kind, dir);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attackerRace, defenderRace]);
+
+  // --- heading tracking for directional sprites ---------------------------
+  // prevPosRef: last frame's position per unit id (velocity source).
+  // facingRef: per unit/turret id, the current heading (world atan2(dy,dx))
+  // plus the hysteresis-kept facing bucket. Initial default heading:
+  // attacker −π/2 (marching north), defender +π/2 (south).
+  const prevPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const facingRef = useRef<Map<string, { heading: number; facing: Facing }>>(new Map());
+  const facingEntry = (id: string, side: "attacker" | "defender") => {
+    let e = facingRef.current.get(id);
+    if (!e) {
+      e = {
+        heading: side === "attacker" ? -Math.PI / 2 : Math.PI / 2,
+        facing: { dir: "front", flip: false, absRel: 0 },
+      };
+      facingRef.current.set(id, e);
+    }
+    return e;
+  };
+  // Once per frame, before drawing: units take their heading from their
+  // velocity (a unit that barely moves keeps its last heading); turrets
+  // take theirs from their aim.
+  const updateFacings = () => {
+    for (const u of unitsRef.current) {
+      const entry = facingEntry(u.id, u.side);
+      const prev = prevPosRef.current.get(u.id);
+      if (prev) {
+        const vx = u.x - prev.x;
+        const vy = u.y - prev.y;
+        if (Math.hypot(vx, vy) > 0.0005) entry.heading = Math.atan2(vy, vx);
+      }
+      prevPosRef.current.set(u.id, { x: u.x, y: u.y });
+    }
+    for (const tr of turretsRef.current) {
+      // TURRET AIM FINDING: tr.aim is assigned in the sim step as
+      // atan2(Y(target.y) − Y(tr.y), X(target.x) − X(tr.x)), where X/Y are
+      // the world→canvas scalers X(x)=x·W(), Y(y)=y·H() — positive
+      // multiples of world coords, and canvas y-down matches world
+      // y-south — so tr.aim IS a world-frame atan2(dy, dx) heading,
+      // usable directly as the turret's heading. (The map renderer's
+      // rotate(aim + 0.75π) only compensates for the shared sprite's
+      // barrel pointing ≈ −135° in source space.)
+      facingEntry(tr.id, tr.side).heading = tr.aim;
+    }
+  };
+  // The facing bucket for one viewer, hysteresis-kept across frames.
+  // viewerAngle: direction from the unit TOWARD the viewer (world atan2);
+  // screenRightAngle: the world direction that reads as screen-right.
+  const facingForViewer = (
+    id: string,
+    side: "attacker" | "defender",
+    viewerAngle: number,
+    screenRightAngle: number,
+  ): Facing => {
+    const entry = facingEntry(id, side);
+    const next = nextFacing(entry.facing, facingFor(entry.heading, viewerAngle, screenRightAngle));
+    entry.facing = next;
+    return next;
+  };
   // SEAMLESS-WORLD §8 (slice 13): terrain detail overlays — the corruption
   // field recenters on the Chorus stronghold (north edge), not the map
   // center (spec §7). The spec is built once per battle at CINEMATIC
@@ -694,6 +839,10 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       warn1Ref.current = false;
       clockFailRef.current = false;
       reserveAnnouncedRef.current = new Set();
+      // Directional-sprite tracking restarts with the battle (positions
+      // teleport on retry/re-challenge — stale velocities would spin units).
+      prevPosRef.current.clear();
+      facingRef.current.clear();
       battleSfx.reset();
       resetSceneUI();
       // Fresh battle: freeze the ORIGINAL squad headcounts (casualty counts
@@ -1779,6 +1928,8 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       const w = W();
       const h = H();
       const s = S();
+      // Directional sprites: refresh headings/buckets before anything draws.
+      updateFacings();
       c.save();
       c.scale(dpr(), dpr());
       // Explosions hit harder down at ground level.
@@ -2099,7 +2250,17 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           const wz = dropWz(u);
           const feet = P(u.x, u.y, wz);
           if (!feet.visible || feet.depth > POV_MAX_DEPTH + 0.4) return;
-          const img = sprites[u.kind];
+          // Directional race art (owner 2026-10-12): bucket the unit's
+          // heading against the camera (viewer = direction unit→camera;
+          // screen-right = the camera heading in world atan2 terms), then
+          // resolve race dir → race front → shared skin. Flip mirrors SIDE
+          // art only, when the unit moves toward screen-left.
+          const race = sideRace(u.side);
+          const facing = facingForViewer(u.id, u.side, Math.atan2(cam.y - u.y, cam.x - u.x), cam.heading);
+          if (race) getRaceSprite(race, u.kind, facing.dir); // kick the lazy load
+          const resolved = resolveUnitSprite(race, u.kind, facing.dir);
+          const img = resolved?.img ?? null;
+          const flip = !!resolved && resolved.dir === "side" && facing.flip;
           const kindH = POV_UNIT_H[u.kind] ?? 0.04;
           const sprH = kindH * feet.scale;
           const aspect = img && img.naturalWidth > 0 ? img.naturalWidth / img.naturalHeight : 1;
@@ -2127,7 +2288,16 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
               if (img && img.complete && img.naturalWidth > 0) {
                 c.save();
                 c.globalAlpha = (staging ? 0.35 : 1) * (1 - hzF * 0.3);
-                c.drawImage(img, feet.sx - sprW / 2, topY, sprW, sprH);
+                if (flip) {
+                  // Mirror about the sprite's own center line — the feet
+                  // anchor (centered on feet.sx, bottom at topY + sprH)
+                  // is exactly preserved.
+                  c.translate(feet.sx, 0);
+                  c.scale(-1, 1);
+                  c.drawImage(img, -sprW / 2, topY, sprW, sprH);
+                } else {
+                  c.drawImage(img, feet.sx - sprW / 2, topY, sprW, sprH);
+                }
                 c.restore();
               } else {
                 // Pre-art fallback — only until the skin loads.
@@ -2228,7 +2398,14 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
             if (tr.side === "defender" && scoutRef.current !== "revealed") continue;
             const feet = P(tr.x, tr.y);
             if (!feet.visible || feet.depth > POV_MAX_DEPTH + 0.4) continue;
-            const img = sprites.turret;
+            // Directional race art, same treatment as units — the
+            // turret's heading is its aim (see updateFacings).
+            const race = sideRace(tr.side);
+            const facing = facingForViewer(tr.id, tr.side, Math.atan2(cam.y - tr.y, cam.x - tr.x), cam.heading);
+            if (race) getRaceSprite(race, "turret", facing.dir); // kick the lazy load
+            const resolved = resolveUnitSprite(race, "turret", facing.dir);
+            const img = resolved?.img ?? null;
+            const flip = !!resolved && resolved.dir === "side" && facing.flip;
             const sprH = POV_UNIT_H.turret * feet.scale;
             const sprW = sprH * (img && img.naturalWidth > 0 ? img.naturalWidth / img.naturalHeight : 1);
             items.push({
@@ -2245,7 +2422,13 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
                 if (img && img.complete && img.naturalWidth > 0) {
                   c.save();
                   c.globalAlpha = 1 - hzF * 0.3;
-                  c.drawImage(img, feet.sx - sprW / 2, feet.sy - sprH, sprW, sprH);
+                  if (flip) {
+                    c.translate(feet.sx, 0);
+                    c.scale(-1, 1);
+                    c.drawImage(img, -sprW / 2, feet.sy - sprH, sprW, sprH);
+                  } else {
+                    c.drawImage(img, feet.sx - sprW / 2, feet.sy - sprH, sprW, sprH);
+                  }
                   c.restore();
                 } else {
                   c.save();
@@ -2965,6 +3148,23 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         }
         if (u.state === "dead") return;
         const img = sprites[u.kind];
+        // Directional race art (owner 2026-10-12): the map viewer sits
+        // south of the field looking north — viewerAngle +π/2, screen-
+        // right = +x east (0). NO-REGRESSION RULE: when the chain
+        // resolves to the SHARED skin, the draw below is exactly the old
+        // square draw, unflipped; only race-dir art gets flip + aspect.
+        let raceDraw: { img: HTMLImageElement; flip: boolean } | null = null;
+        if (!overviewShapes) {
+          const race = sideRace(u.side);
+          if (race) {
+            const facing = facingForViewer(u.id, u.side, Math.PI / 2, 0);
+            getRaceSprite(race, u.kind, facing.dir); // kick the lazy load
+            const resolved = resolveUnitSprite(race, u.kind, facing.dir);
+            if (resolved?.raceArt) {
+              raceDraw = { img: resolved.img, flip: resolved.dir === "side" && facing.flip };
+            }
+          }
+        }
         c.save();
         // Target-painted enemies get a red diamond.
         if (u.painted && phase === "weapons-free") {
@@ -2985,7 +3185,26 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         }
         // Z3 overview (slice 12): shapes, not models — the kind glyph reads
         // at altitude; the sprite returns at Z4. (Also the pre-art fallback.)
-        if (!overviewShapes && img && img.complete && img.naturalWidth > 0) {
+        if (!overviewShapes && raceDraw) {
+          // Aspect-correct, centered on (x, y): height 2r, width by the
+          // art's natural aspect, capped at 3.2r wide (the 768×256
+          // longeye shrinks proportionally instead of exploding).
+          const nat = raceDraw.img.naturalWidth / raceDraw.img.naturalHeight;
+          let dw = r * 2 * nat;
+          let dh = r * 2;
+          if (dw > r * 3.2) {
+            dw = r * 3.2;
+            dh = dw / nat;
+          }
+          c.save();
+          if (raceDraw.flip) {
+            c.translate(x, y);
+            c.scale(-1, 1);
+            c.translate(-x, -y);
+          }
+          c.drawImage(raceDraw.img, x - dw / 2, y - dh / 2, dw, dh);
+          c.restore();
+        } else if (!overviewShapes && img && img.complete && img.naturalWidth > 0) {
           c.drawImage(img, x - r, y - r, r * 2, r * 2);
         } else {
           // Distinct fallback glyph per kind — types read even before the
@@ -3107,7 +3326,13 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           const x = X(tr.x);
           const y = Y(tr.y);
           const r = Math.max(10, s * 0.03);
-          const img = sprites.turret;
+          // Race FRONT art when the chain has it — the rotated draw below
+          // reads the barrel direction off the art exactly as it does for
+          // the shared skin; otherwise the shared turret, unchanged.
+          const trRace = sideRace(tr.side);
+          if (trRace) getRaceSprite(trRace, "turret", "front"); // kick the lazy load
+          const trResolved = trRace ? resolveUnitSprite(trRace, "turret", "front") : null;
+          const img = trResolved?.raceArt ? trResolved.img : sprites.turret;
           c.save();
           if (ui.gunnerId === tr.id) {
             c.strokeStyle = "#a5f3fc";
