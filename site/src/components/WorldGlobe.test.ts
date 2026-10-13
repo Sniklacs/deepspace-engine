@@ -4,7 +4,7 @@
 // these tests cover the pure kernel: spin/tilt targeting + shortest-path
 // deltas. Run: bun test site/src/components/WorldGlobe.test.ts
 import { describe, expect, test } from "bun:test";
-import { ARENA_MARKER_SIZE, focusViewTarget, shortestSpinDelta } from "./WorldGlobe";
+import { ARENA_MARKER_SIZE, DISC_BACKING_BUCKET, DISC_BACKING_CAP, discBackingFor, focusViewTarget, shortestSpinDelta } from "./WorldGlobe";
 import { projectGlobe } from "../game/globe-layers";
 
 describe("focusViewTarget", () => {
@@ -77,5 +77,36 @@ describe("WS-A ARENA_MARKER_SIZE", () => {
     expect(ARENA_MARKER_SIZE.normal >= 2 * DOT_ICON_PX).toBe(true);
     expect(ARENA_MARKER_SIZE.normal <= 3 * DOT_ICON_PX).toBe(true);
     expect(ARENA_MARKER_SIZE.selected).toBeGreaterThan(ARENA_MARKER_SIZE.normal);
+  });
+});
+
+describe("discBackingFor (Oct 13 2026 freeze fix)", () => {
+  test("small discs pass through at bucket granularity", () => {
+    expect(discBackingFor(100)).toBe(DISC_BACKING_BUCKET);
+    expect(discBackingFor(587)).toBe(640);
+    expect(discBackingFor(640)).toBe(640);
+    expect(discBackingFor(641)).toBe(768);
+  });
+
+  test("tablet deep-zoom diameters are capped, not proportional", () => {
+    // 734px-wide tablet at deep zoom asks for a ~3500px disc; the old
+    // code allocated exactly that, per frame, and the renderer died.
+    expect(discBackingFor(3524)).toBe(DISC_BACKING_CAP);
+    expect(discBackingFor(100000)).toBe(DISC_BACKING_CAP);
+  });
+
+  test("a full zoom sweep crosses few backing sizes (no per-frame realloc)", () => {
+    const sizes = new Set<number>();
+    for (let d = 64; d <= 3600; d += 7) sizes.add(discBackingFor(d));
+    expect(sizes.size <= DISC_BACKING_CAP / DISC_BACKING_BUCKET).toBe(true);
+  });
+
+  test("backing is never smaller than a bucket and always finite", () => {
+    for (const d of [0, 1, 2, 127, 128, 129, 2048, 2049]) {
+      const b = discBackingFor(d);
+      expect(Number.isFinite(b)).toBe(true);
+      expect(b >= DISC_BACKING_BUCKET).toBe(true);
+      expect(b <= DISC_BACKING_CAP).toBe(true);
+    }
   });
 });

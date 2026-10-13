@@ -265,18 +265,46 @@ const WORLD_PATCH_ROWS = 16;
 // alpha telegraphed the patch grid as block seams. Patches now draw at
 // alpha 1 into this disc — same-texture overdraw is invisible — and a
 // radial limb mask softens the edge. Recreated when the disc size changes.
+//
+// FREEZE FIX (Hans, Oct 13 2026 — tablet hard freeze on zoom): the disc
+// diameter is 2R and R grows with zoom, so at tablet size a deep zoom
+// wanted a ~3500px disc — and because the zoom ease changes R a little
+// EVERY frame, this allocated a brand-new multi-megabyte canvas nearly
+// every frame while every frame's composite cost grew with the disc's
+// AREA. The main thread saturated for ~100s (measured, 4x-throttled
+// tablet profile) and the renderer then died outright during the next
+// pan — the "walking dead" tab, browser back included. Two bounds fix
+// it: the backing is quantized into 128px buckets (a zoom sweep crosses
+// ~a dozen buckets, not thousands of sizes) and capped outright; the
+// composite draws in virtual disc units through discScale, so the patch
+// math and the screen blit are untouched — past the cap the disc is
+// simply a bounded texture the (screen-sized) tile layer replaces as
+// the morph completes anyway.
+export const DISC_BACKING_CAP = 2048;
+export const DISC_BACKING_BUCKET = 128;
+/** Backing-store size for a virtual disc diameter: bucketed + capped. */
+export function discBackingFor(diameterPx: number): number {
+  const d = Math.max(2, Math.round(diameterPx));
+  const bucketed = Math.ceil(d / DISC_BACKING_BUCKET) * DISC_BACKING_BUCKET;
+  return Math.max(DISC_BACKING_BUCKET, Math.min(DISC_BACKING_CAP, bucketed));
+}
 let discCanvas: HTMLCanvasElement | null = null;
 let discCtx: CanvasRenderingContext2D | null = null;
 let discKey = "";
+/** backingPx / virtualPx for the current disc — the composite applies
+ *  it as the disc context's transform so all disc math stays virtual. */
+let discScale = 1;
 function ensureDiscCtx(diameterPx: number): CanvasRenderingContext2D | null {
-  const s = Math.max(2, Math.round(diameterPx));
-  const key = `${s}`;
+  const virtual = Math.max(2, Math.round(diameterPx));
+  const backing = discBackingFor(virtual);
+  const key = `${backing}`;
   if (!discCanvas || !discCtx || discKey !== key) {
     discCanvas = document.createElement("canvas");
-    discCanvas.width = discCanvas.height = s;
+    discCanvas.width = discCanvas.height = backing;
     discCtx = discCanvas.getContext("2d");
     discKey = key;
   }
+  discScale = backing / virtual;
   return discCtx;
 }
 
@@ -1978,7 +2006,9 @@ export default function WorldGlobe({
         const D = Math.ceil(R * 2);
         const dg = ensureDiscCtx(D);
         if (dg && discCanvas) {
-          dg.setTransform(1, 0, 0, 1, 0, 0);
+          // Virtual disc units -> bounded backing (see ensureDiscCtx):
+          // every draw below (clear, patches, limb mask) is in D units.
+          dg.setTransform(discScale, 0, 0, discScale, 0, 0);
           dg.clearRect(0, 0, D, D);
           dg.fillStyle = "#3d5a3f"; // land-colored base under the patches
           dg.fillRect(0, 0, D, D);
