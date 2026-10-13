@@ -5,7 +5,7 @@
 // OWNER UI RULE: every action has a button. The Muster button is ALWAYS
 // visible — when requirements aren't met it says what's missing and how to
 // fix it, inline, instead of hiding.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { GameState } from "../game/types";
 import {
   TROOP_TYPES,
@@ -84,6 +84,45 @@ const TROOP_ART: Record<TroopType, string> = {
   thunder: "/art/troops/thunder.webp",
   warden: "/art/troops/warden.webp",
 };
+
+/**
+ * Per-race class portrait: `/art/troops/{raceId}-{type}.webp` when the
+ * player's race has its own skin of the class, else the generic portrait.
+ * Same try-race-then-fall-back contract as PageBanner — a missing race
+ * file swaps to the generic on error instead of showing a broken image.
+ */
+function TroopPortrait({
+  raceId,
+  type,
+  alt,
+}: {
+  raceId?: string | null;
+  type: TroopType;
+  alt: string;
+}) {
+  const raceSrc =
+    raceId && raceId.trim()
+      ? `/art/troops/${raceId.trim().toLowerCase()}-${type}.webp`
+      : null;
+  const fallback = TROOP_ART[type];
+  const [src, setSrc] = useState(raceSrc ?? fallback);
+  // Re-arm when the race changes (race/account switch).
+  useEffect(() => {
+    setSrc(raceSrc ?? fallback);
+  }, [fallback, raceSrc]);
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onError={() => {
+        if (src !== fallback) setSrc(fallback);
+      }}
+      style={{ objectPosition: TROOP_FOCAL[type] }}
+      className="h-64 w-full object-cover sm:h-auto sm:w-44 sm:shrink-0"
+    />
+  );
+}
 
 /**
  * Per-troop object-position focal points for the phone crop.
@@ -172,6 +211,8 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
     <div className="space-y-4 pb-8" data-testid="troops-tab">
       <PageBanner
         image="/art/pages/barracks-banner.webp"
+        raceId={state.race}
+        skinDir="troops"
         focal="center 0%"
         title={t("troops.title", "Barracks")}
         sub={t("troops.sub", "Raise your army. Every soldier is real — mustered, fed, and counted.")}
@@ -256,12 +297,10 @@ export default function TroopsTab({ state, now, onMuster }: TroopsTabProps) {
           return (
             <article key={type} className="overflow-hidden rounded-xl border border-zinc-700/60 bg-zinc-900/60" data-testid={`troop-card-${type}`}>
               <div className="flex flex-col sm:flex-row">
-                <img
-                  src={TROOP_ART[type]}
+                <TroopPortrait
+                  raceId={state.race}
+                  type={type}
                   alt={t("troops.artAlt", "{label} troop artwork", { label: label(type) })}
-                  loading="lazy"
-                  style={{ objectPosition: TROOP_FOCAL[type] }}
-                  className="h-64 w-full object-cover sm:h-auto sm:w-44 sm:shrink-0"
                 />
                 <div className="flex-1 p-4">
                   <div className="flex items-baseline justify-between gap-2">
