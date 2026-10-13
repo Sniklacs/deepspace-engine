@@ -49,10 +49,20 @@ const BTN =
 function useTranslatorStatus(): TranslatorStatus | null {
   const [status, setStatus] = useState<TranslatorStatus | null>(null);
   useEffect(() => {
-    // A device nobody has looked at yet starts its own download here too: the
-    // boot effect does this on a real launch, and this covers a Settings sheet
-    // opened before that effect has run. It is idempotent either way.
-    if (weightsState().phase === "unknown") void prepareTranslator();
+    // Mounting a translator surface IS the first real need: boot never
+    // prepares anymore (2026-10-13 crash fix — see routes/__root.tsx), so a
+    // Settings sheet opening, or a Translate control mounting, is what starts
+    // the download/engine — with the progress this row renders. Anything not
+    // already in motion counts: unlooked-at, absent, partial, and "ready"
+    // (pack on device, engine not yet loaded). A failed download is NOT
+    // auto-retried here — the row's Retry button is that deliberate act.
+    const phase = weightsState().phase;
+    if (
+      !translatorStatus().available &&
+      (phase === "unknown" || phase === "absent" || phase === "partial" || phase === "ready")
+    ) {
+      void prepareTranslator();
+    }
     setStatus(translatorStatus());
     return subscribeTranslator(() => {
       setStatus(translatorStatus());

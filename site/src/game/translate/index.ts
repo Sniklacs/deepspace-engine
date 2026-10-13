@@ -8,6 +8,13 @@
 //      "build the Persian translator into where they have to download it — I don't
 //      want players getting disgruntled because they can't translate." No opt-in,
 //      no prompt, no pack to get wrong, nothing cloud-based.
+//      BUT NEVER AT BOOT (owner crash fix, 2026-10-13): the pack is ~600 MB and
+//      the engine is a WASM runtime holding all of it, so starting either during
+//      initial load — alongside the intro, the art and the state load — OOM-kills
+//      mid-range Android WebViews before the solar system ever paints. Boot only
+//      INSPECTS (`inspectTranslator`); preparation starts at the first real need
+//      (`requestTranslation`, a translator surface mounting) or from the deferred
+//      auto-prepare below, once the game is up and the main thread is idle.
 //
 //   2. THE ENGINE SEAM. Once the pack is on the device, the ML runtime is loaded
 //      with a DYNAMIC import (`./runtime/engine` — the effect-scoped precedent
@@ -154,9 +161,11 @@ export function translatorStatus(): TranslatorStatus {
 let started: Promise<TranslatorStatus> | null = null;
 
 /**
- * Boot the translator: look at the device, download what is missing, load the
- * runtime. Called once from a client effect. Safe to call again — it re-checks and
- * costs nothing when everything is already in place.
+ * Prepare the translator: look at the device, download what is missing, load the
+ * runtime. NOT a boot call — see the header. The callers are the first real need
+ * (a translation request, a translator surface) and the deferred auto-prepare.
+ * Safe to call again — it re-checks and costs nothing when everything is already
+ * in place. Never throws: every failure lands in the status, not the caller.
  */
 export function prepareTranslator(env?: WeightsEnvironment): Promise<TranslatorStatus> {
   if (typeof window === "undefined") return Promise.resolve(translatorStatus());
@@ -165,6 +174,36 @@ export function prepareTranslator(env?: WeightsEnvironment): Promise<TranslatorS
     started = null;
   });
   return started;
+}
+
+let autoPrepareScheduled = false;
+
+/**
+ * The owner's "it downloads on its own" rule, made boot-safe: schedule the
+ * unprompted prepare for AFTER the game is up. A floor delay (well past first
+ * paint and the intro) must elapse first, and even then the prepare waits for a
+ * genuinely idle main thread — `requestIdleCallback` with NO timeout, so a busy
+ * game defers it indefinitely rather than forcing a 600 MB moment into play.
+ * The first real need always pre-empts this via `prepareTranslator()` itself.
+ * Idempotent: only the first call schedules anything.
+ */
+export function scheduleTranslatorAutoPrepare(delayMs = 30_000): void {
+  if (typeof window === "undefined" || autoPrepareScheduled) return;
+  autoPrepareScheduled = true;
+  window.setTimeout(() => {
+    const ric = (
+      window as Window & {
+        requestIdleCallback?: (cb: () => void) => number;
+      }
+    ).requestIdleCallback;
+    if (typeof ric === "function") {
+      ric(() => {
+        void prepareTranslator();
+      });
+    } else {
+      void prepareTranslator();
+    }
+  }, delayMs);
 }
 
 async function run(env?: WeightsEnvironment): Promise<TranslatorStatus> {
@@ -235,7 +274,13 @@ export function requestTranslation(
 ): Promise<string | null> {
   const already = translated.get(cacheKey(text, from, to));
   if (already !== undefined) return Promise.resolve(already);
-  if (!runtime) return Promise.resolve(null);
+  if (!runtime) {
+    // The first actual need is what starts everything (boot never does — see
+    // the header). This tap still answers with the honest null; the next one
+    // finds the engine registered and the cache filling.
+    void prepareTranslator();
+    return Promise.resolve(null);
+  }
   const key = cacheKey(text, from, to);
   const pending = inFlight.get(key);
   if (pending) return pending;

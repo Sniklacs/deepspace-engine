@@ -31,7 +31,12 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { useLang, useT } from "../i18n/I18n";
 import { Bdi } from "../ui/Bdi";
 import { langDir, langMeta } from "../../game/i18n/languages";
-import { requestTranslation, subscribeTranslator, translatorAvailable } from "../../game/translate";
+import {
+  prepareTranslator,
+  requestTranslation,
+  subscribeTranslator,
+  translatorAvailable,
+} from "../../game/translate";
 import type { ChatMessage } from "../../game/chat/chat-types";
 
 /** Is an engine really answerable right now? (Re-renders when one appears.) */
@@ -46,6 +51,13 @@ export function useTranslatorReady(): boolean {
 export function TranslatorNotice() {
   const t = useT();
   const ready = useTranslatorReady();
+  // A chat thread open on an unready engine is a translation need: boot never
+  // prepares anymore (2026-10-13 crash fix), so this notice mounting is one of
+  // the first-need triggers that starts the pack download/engine load — the
+  // "preparing" line below is then literally true, with progress in Settings.
+  useEffect(() => {
+    if (!ready) void prepareTranslator();
+  }, [ready]);
   if (ready) return null;
   return (
     <p data-testid="chat-translator-notice" className="text-[11px] text-text-3">
