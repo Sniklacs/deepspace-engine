@@ -1,6 +1,14 @@
 # War Room Walls — "Off The Wall"
 
-Owner decision: Hans, Oct 12 2026. Drafted same day from his locked notes; uncommitted, awaiting his word.
+Owner decision: Hans, Oct 12 2026. Drafted same day from his locked notes.
+BUILT Oct 13 2026 on Hans's word ("Build the live wall"): the War Room's
+"The Wall" tab — five boards (The War / Playbook / Field Marks / Off The
+Wall / The Word) in `site/src/components/BattleScene/OffTheWall.tsx`, data
++ live feed in `site/src/game/war/off-the-wall.ts`. The War and Lesson
+boards read the player's real battle ledger; the Word board speaks with
+the player's race Oracle daily; the fresh-chalk rotation turns daily.
+The two "Open for Hans" questions below remain open (v1 ships the whole
+wall readable from day one; Oracle-seat additions land as new systems ship).
 
 ## Concept
 The War Room is a BIG HALLWAY of chalkboards. The walls carry HANDWRITTEN game tips —

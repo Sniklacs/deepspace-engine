@@ -51,8 +51,10 @@ import { FormationBuilder, type BuilderSeed } from "./FormationBuilder";
 import { BattleReplayViewer } from "./BattleReplayViewer";
 import { encodeFormationShare, decodeFormationShare } from "../../game/war/formation-share";
 import { getReplay } from "../../game/war/battle-replays";
+import { OffTheWall } from "./OffTheWall";
+import type { WallLiveFeed, WallOracleWord, WallTipRef } from "../../game/war/off-the-wall";
 
-const TABS = ["Deploy", "Playbook", "Formations", "Builder"] as const;
+const TABS = ["Deploy", "Playbook", "Formations", "Builder", "Wall"] as const;
 type Tab = (typeof TABS)[number];
 
 const GRADES: ChorusGrade[] = [1, 2, 3, 4, 5];
@@ -94,6 +96,10 @@ export interface WarRoomProps {
   gameId: string;
   /** player's race — the room wears its race skin: /art/warroom/{raceId}-skin.webp */
   raceId?: string | null;
+  /** OFF THE WALL (design/war-room-walls.md): the live feed for the
+   *  chalkboard hallway — computed by the host from real game state.
+   *  Absent → the Wall tab shows the boards without the live layer. */
+  wall?: { feed: WallLiveFeed; tips: WallTipRef[]; oracle: WallOracleWord | null; now: number } | null;
   onSaveFormation: (draft: { id?: string; name: string; playId: string; loads: SlotLoads; slotMeta?: SavedFormation["slotMeta"]; replayId?: string; locked: boolean }) => void;
   onDeleteFormation: (id: string) => void;
   onToggleLock: (id: string, locked: boolean) => void;
@@ -141,7 +147,7 @@ function GradeDial({ grade, setGrade, myReverb, foeReverb }: { grade: ChorusGrad
   );
 }
 
-export function WarRoom({ roster, warRoom, leaderLevel, gameId, raceId, onSaveFormation, onDeleteFormation, onToggleLock, onDeployFormation, onClose }: WarRoomProps) {
+export function WarRoom({ roster, warRoom, leaderLevel, gameId, raceId, wall, onSaveFormation, onDeleteFormation, onToggleLock, onDeployFormation, onClose }: WarRoomProps) {
   const [tab, setTab] = useState<Tab>("Deploy");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [suggestedPickId, setSuggestedPickId] = useState<string | null>(null);
@@ -231,7 +237,7 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, raceId, onSaveFo
           onClick={onClose}
           aria-label="Close war room"
           data-testid="warroom-close"
-          className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:text-white"
+          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-zinc-700 px-3 text-sm text-zinc-300 hover:text-white"
         >
           ✕
         </button>
@@ -267,7 +273,7 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, raceId, onSaveFo
             data-testid={`warroom-tab-${t}`}
             className={`rounded-t-lg px-3 py-2 text-xs font-bold uppercase tracking-wider ${tab === t ? "bg-white/10 text-white" : "text-zinc-500 hover:text-zinc-300"}`}
           >
-            {t}
+            {t === "Wall" ? "🖍️ The Wall" : t}
             {t === "Formations" && warRoom.formations.length > 0 && (
               <span className="ml-1 rounded-full bg-zinc-700 px-1.5 text-[10px]">{warRoom.formations.length}</span>
             )}
@@ -648,6 +654,15 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, raceId, onSaveFo
             />
           ) : null;
         })()}
+
+        {tab === "Wall" &&
+          (wall ? (
+            <OffTheWall feed={wall.feed} tips={wall.tips} oracle={wall.oracle} now={wall.now} />
+          ) : (
+            <p className="text-xs text-zinc-500" data-testid="warroom-wall-unfed">
+              The chalkboards are up — the live chalk arrives when the room is opened from the Arena.
+            </p>
+          ))}
 
         {tab === "Builder" && (
           <div data-testid="warroom-builder">

@@ -33,6 +33,7 @@ import { crewFromHeroes } from "../game/war/battle-scene-ui-store";
 import { buildFormationScene, clampLoadsToRoster, emptyWarRoomState, formationCount, type SavedFormation } from "../game/war/playbook";
 import { warRoomDeleteFormationFn, warRoomSaveFormationFn, warRoomSetLockFn, allianceSaveDoctrineFn } from "../game/api";
 import { allianceOf } from "../game/war/alliances";
+import { wallContextualTips, wallLiveFeed, wallOracleWord, type WallContext } from "../game/war/off-the-wall";
 import { leaderLevel } from "../game/leader-xp";
 import { rosterCount } from "../game/war/troops";
 import { battleSfx } from "../game/war/battle-sfx";
@@ -466,6 +467,25 @@ export default function ArenaPanel({ state, token, onAction }: {
   const roster = state.troops?.home.roster ?? null;
   const rosterSize = roster ? rosterCount(roster) : 0;
   const warRoom = state.warRoom ?? emptyWarRoomState();
+  // OFF THE WALL (design/war-room-walls.md): the chalkboard hallway's live
+  // feed — the player's real battle ledger, meters, and race Oracle,
+  // recomputed whenever the state underneath it moves.
+  const wall = useMemo(() => {
+    const wallCtx: WallContext = {
+      me: state.gameId ?? me,
+      battles: state.battles ?? [],
+      chorusAttention: state.chorusAttention ?? 0,
+      corruption: state.corruption ?? 0,
+      now: Date.now(),
+    };
+    const feed = wallLiveFeed(wallCtx);
+    return {
+      feed,
+      tips: wallContextualTips(wallCtx, feed),
+      oracle: wallOracleWord(state.race, wallCtx.now),
+      now: wallCtx.now,
+    };
+  }, [state.battles, state.chorusAttention, state.corruption, state.gameId, state.race, me]);
   const myLeaderLevel = Math.max(
     1,
     ...state.leaders.filter((l) => l.status === "active").map((l) => leaderLevel(l)),
@@ -573,6 +593,7 @@ export default function ArenaPanel({ state, token, onAction }: {
             leaderLevel={myLeaderLevel}
             gameId={state.gameId ?? me}
             raceId={state.race}
+            wall={wall}
             onClose={() => setShowWarRoom(false)}
             onSaveFormation={(draft) =>
               onAction(
