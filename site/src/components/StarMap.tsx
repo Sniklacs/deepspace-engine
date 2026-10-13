@@ -12,7 +12,6 @@ import {
   playWhoosh,
   playEntrance,
 } from "../game/audio/ui-sounds";
-import { startMusic, stopMusic } from "../game/audio/starmap-music";
 import { sound } from "../game/sound";
 // RACE SKINS (Hans, Oct 12 2026): solar-system planets wear the same globe
 // textures as the zoomed world globe — `/art/globe/{raceId}-globe.webp`.
@@ -959,19 +958,18 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
     return () => { cancelled = true; window.clearInterval(id); };
   }, []);
 
-  // Music + grand entrance: start on mount (a user gesture — signup — already
-  // happened), stop on unmount
+  // Grand entrance: on mount (a user gesture — signup — already happened).
+  // No ambient music bed here (Hans, Oct 13 2026): the synthesized "cosmos"
+  // bed is gone — his own tracks are the game's only music.
   useEffect(() => {
     reducedMotion.current =
       typeof window !== "undefined" &&
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    startMusic();
     // "You have arrived." — delayed a beat so the map is visible first
     const entrance = setTimeout(() => playEntrance(), 600);
     return () => {
       clearTimeout(entrance);
-      stopMusic();
     };
   }, []);
 
@@ -1025,8 +1023,6 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
   const toggleMute = useCallback(() => {
     const m = sound.toggleMute();
     setMuted(m);
-    if (m) stopMusic();
-    else startMusic();
   }, []);
 
   // ---- Canvas render loop ----

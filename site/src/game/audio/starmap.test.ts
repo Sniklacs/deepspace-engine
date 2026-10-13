@@ -11,7 +11,6 @@ import {
   playWhoosh,
   playEntrance,
 } from "./ui-sounds";
-import { startMusic, stopMusic, isMusicPlaying } from "./starmap-music";
 import { ac, out, reverbBus, tone, noiseBurst, subDrop, boom, now } from "./audio-core";
 import { KNOWN_SERVERS } from "../servers";
 import { RACES } from "../races";
@@ -55,28 +54,6 @@ describe("ui-sounds (no browser env)", () => {
       playDenied();
       playWhoosh();
       playEntrance();
-    } catch {
-      threw = true;
-    }
-    expect(threw).toBe(false);
-  });
-});
-
-describe("starmap-music (no browser env)", () => {
-  test("startMusic is a safe no-op without window; not playing", () => {
-    let threw = false;
-    try {
-      startMusic();
-    } catch {
-      threw = true;
-    }
-    expect(threw).toBe(false);
-    expect(isMusicPlaying()).toBe(false);
-  });
-  test("stopMusic is safe without window", () => {
-    let threw = false;
-    try {
-      stopMusic();
     } catch {
       threw = true;
     }
