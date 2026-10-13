@@ -12,6 +12,11 @@ export interface RadarDot {
   side: "attacker" | "defender";
   kind: "unit" | "turret";
   alive: boolean;
+  /** owning squad (unit dots only) — lets a radar tap select the squad
+   *  whose blip was tapped (owner 2026-10-13: the radar is a command
+   *  surface, and this id is the selection model the future wide-picture
+   *  battlefield screen will command through too). */
+  squadId?: string;
 }
 
 export interface RadarPing {
@@ -40,6 +45,7 @@ export interface RadarUnitLike {
   y: number;
   side: string;
   state: string;
+  squadId?: string;
 }
 
 /** Replace the dot snapshot (called ~4Hz from the scene loop). */
@@ -56,6 +62,7 @@ export function pushRadarFrame(
       side: u.side === "attacker" ? "attacker" : "defender",
       kind: "unit",
       alive: u.state !== "dead",
+      ...(u.squadId ? { squadId: u.squadId } : {}),
     });
   }
   for (const t of turrets) {

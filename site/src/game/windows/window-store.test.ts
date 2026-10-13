@@ -9,6 +9,8 @@ import {
   closeWindow,
   closeWindowsOfKind,
   minimizeWindow,
+  minimizeWindowByKind,
+  minimizeBattleWindows,
   restoreWindow,
   focusWindow,
   resizeWindow,
@@ -314,5 +316,77 @@ describe("per-window opacity (owner 2026-10-11)", () => {
     const id = openWindow("battle-squads");
     expect(id).toBe("battle-squads::battle-squads");
     expect(isWindowOpen("battle-squads")).toBe(true);
+  });
+});
+
+// Battle windows (owner 2026-10-13): on phone geometry every battle window
+// spawns at the same near-full-screen rect, so two visible battle windows
+// stack — the buried one is invisible and untappable, and its controls read
+// as dead (the quick-pick / cover / reserve outage). One battle window in
+// the foreground at a time; the rest park in the tray.
+describe("battle windows — one command surface at a time", () => {
+  test("opening a battle window parks the battle window behind it", () => {
+    openWindow("battle-squads");
+    openWindow("battle-enemy-forces");
+    expect(isWindowOpen("battle-enemy-forces")).toBe(true);
+    expect(isWindowOpen("battle-squads")).toBe(false); // parked, not closed
+    expect(minimizedWindows().map((w) => w.kind)).toEqual(["battle-squads"]);
+  });
+
+  test("re-focusing a parked battle window swaps the foreground back", () => {
+    openWindow("battle-squads");
+    openWindow("battle-controls");
+    openWindow("battle-squads");
+    expect(isWindowOpen("battle-squads")).toBe(true);
+    expect(isWindowOpen("battle-controls")).toBe(false);
+    expect(visibleWindows().filter((w) => w.kind.startsWith("battle-"))).toHaveLength(1);
+  });
+
+  test("restoring a battle window from the tray parks the current one", () => {
+    const squads = openWindow("battle-squads");
+    openWindow("battle-enemy-forces");
+    restoreWindow(squads);
+    expect(isWindowOpen("battle-squads")).toBe(true);
+    expect(isWindowOpen("battle-enemy-forces")).toBe(false);
+  });
+
+  test("non-battle windows are never parked by battle windows", () => {
+    openWindow("chat");
+    openWindow("battle-squads");
+    openWindow("battle-controls");
+    expect(isWindowOpen("chat")).toBe(true);
+    expect(isWindowOpen("battle-controls")).toBe(true);
+    expect(isWindowOpen("battle-squads")).toBe(false);
+  });
+
+  test("background open creates the window parked — it never steals the screen", () => {
+    openWindow("battle-squads");
+    const id = openWindow("battle-enemy-forces", { background: true });
+    expect(id).toBe("battle-enemy-forces::battle-enemy-forces");
+    expect(isWindowOpen("battle-enemy-forces")).toBe(false); // in the tray
+    expect(isWindowOpen("battle-squads")).toBe(true); // untouched
+    expect(minimizedWindows().map((w) => w.kind).includes("battle-enemy-forces")).toBe(true);
+  });
+
+  test("background open of an already-visible window leaves it alone", () => {
+    openWindow("battle-enemy-forces");
+    openWindow("battle-enemy-forces", { background: true });
+    expect(isWindowOpen("battle-enemy-forces")).toBe(true);
+  });
+
+  test("minimizeBattleWindows parks every visible battle window", () => {
+    openWindow("battle-squads");
+    openWindow("chat");
+    minimizeBattleWindows();
+    expect(isWindowOpen("battle-squads")).toBe(false);
+    expect(isWindowOpen("chat")).toBe(true); // not a battle window
+  });
+
+  test("minimizeWindowByKind parks just that kind", () => {
+    openWindow("battle-squads");
+    minimizeWindowByKind("battle-squads");
+    expect(isWindowOpen("battle-squads")).toBe(false);
+    minimizeWindowByKind("battle-squads"); // already parked — no-op
+    expect(windowSnapshot().windows).toHaveLength(1);
   });
 });

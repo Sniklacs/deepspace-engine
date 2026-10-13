@@ -1626,7 +1626,13 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
                 .map((u) => ({ squadId: u.squadId, kind: u.kind, alive: u.state !== "dead" })),
             );
             setScoutIntel(intel.length > 0 ? intel : DEMO_ENEMY_INTEL);
-            openWindow("battle-enemy-forces", { titleFallback: "Enemy Forces" });
+            // Owner 2026-10-13: the intel window must NOT slam open over
+            // the squads window mid-command (on phone geometry both are
+            // the same full-screen rect — the auto-open buried every
+            // squad control under an empty intel panel and taps read as
+            // dead). It waits in the tray; the comms bubble announces it
+            // and the launcher/tray chip summons it.
+            openWindow("battle-enemy-forces", { titleFallback: "Enemy Forces", background: true });
           } catch {
             /* intel is best-effort — the battle runs without it */
           }
@@ -4026,10 +4032,19 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     const dest = { x: softClampX(dx), y: softClampY(dy) };
     // HOT DROP COMMIT (owner 2026-10-06): an on-call reserve still in
     // staging isn't ordered — it's COMMITTED. Tap the reserve squad, tap
-    // the map, and it falls on the picked spot, loud. Only while driving
-    // manually and only once the dropships are down (touchdown+).
+    // the map, and it falls on the picked spot, loud. Only once the
+    // dropships are down (touchdown+).
+    // Owner 2026-10-13: this used to ALSO require the Manual toggle —
+    // which lives only behind the Controls glass, exactly what the
+    // live-battle rules forbid for a mid-battle action. Commanders who
+    // never opened Controls could tap a reserve forever and nothing
+    // happened. issueOrder is only ever called from a commander's own
+    // tap (canvas, radar, armed move) — the tap IS the manual act, so
+    // the commit stands on the tap alone. (AUTO still enters reserves
+    // on their preset timing when nobody taps — see the staging block
+    // in the sim step.)
     const stagingOnCall = squadUnits.filter((u) => u.state === "staging" && u.onCall);
-    if (stagingOnCall.length > 0 && ui.manual) {
+    if (stagingOnCall.length > 0) {
       const phase = scenePhaseAt(simTRef.current);
       if (phase === "approach") {
         toastRef.current = { text: "Dropships aren't down yet — wait for touchdown.", born: performance.now() };

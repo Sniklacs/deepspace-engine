@@ -505,6 +505,17 @@ export function setSelectedSquad(id: string | null): void {
   set({ selectedSquadId: id });
 }
 
+/**
+ * The squad-chip toggle (owner 2026-10-13): tap a squad → its panel opens;
+ * tap the SAME squad again → the panel minimizes back to the compact squad
+ * strip so the others are visible; tap a DIFFERENT squad → switch to it.
+ * One state machine behind every squad chip/row surface so they can never
+ * disagree about what a tap means.
+ */
+export function toggleSquadSelection(id: string): void {
+  setSelectedSquad(state.selectedSquadId === id ? null : id);
+}
+
 let orderSeq = 0;
 
 /** Log a judged order — newest first, capped. The command log seed. Entries

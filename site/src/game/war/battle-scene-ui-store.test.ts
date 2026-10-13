@@ -33,6 +33,7 @@ import {
   registerRoster,
   registerSquads,
   setSelectedSquad,
+  toggleSquadSelection,
   logOrder,
   orderReceipt,
   squadChipLabel,
@@ -366,6 +367,37 @@ describe("click-to-command", () => {
     setSelectedSquad("A2"); // no-op, same value
     setSelectedSquad(null);
     expect(sceneUISnapshot().selectedSquadId).toBeNull();
+  });
+
+  // The toggle (owner 2026-10-13): "when I click on a squad it opens up
+  // that squad, but if I don't want to do anything there I should just
+  // click the squad again and it should minimize that squad and go back
+  // to the regulars." Every chip/row surface drives this one machine.
+  describe("squad toggle — tap opens, tap again minimizes", () => {
+    test("tap a squad → selected (panel opens)", () => {
+      toggleSquadSelection("A0");
+      expect(sceneUISnapshot().selectedSquadId).toBe("A0");
+    });
+
+    test("tap the SAME squad again → deselected (back to the regulars)", () => {
+      toggleSquadSelection("A0");
+      toggleSquadSelection("A0");
+      expect(sceneUISnapshot().selectedSquadId).toBeNull();
+    });
+
+    test("tap a DIFFERENT squad → switch, never closes", () => {
+      toggleSquadSelection("A0");
+      toggleSquadSelection("A2");
+      expect(sceneUISnapshot().selectedSquadId).toBe("A2");
+    });
+
+    test("toggle round-trips through a scene selection set elsewhere", () => {
+      setSelectedSquad("A4"); // e.g. a canvas tap selected the reserve
+      toggleSquadSelection("A4"); // chip tap on it minimizes it
+      expect(sceneUISnapshot().selectedSquadId).toBeNull();
+      toggleSquadSelection("A4"); // and reopens it
+      expect(sceneUISnapshot().selectedSquadId).toBe("A4");
+    });
   });
 
   test("squads register for the panel", () => {

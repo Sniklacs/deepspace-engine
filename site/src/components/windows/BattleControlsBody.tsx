@@ -23,7 +23,7 @@ import {
   setBattleSpeed,
   setLabelsOn,
   setZoomLevel,
-  setSelectedSquad,
+  toggleSquadSelection,
   recenterMap,
   cycleDayNight,
   setTurretMode,
@@ -34,6 +34,7 @@ import {
   type TurretMode,
 } from "../../game/war/battle-scene-ui-store";
 import { TROOP_KINDS, UNIT_KIND_LABEL } from "../../game/war/battle-scene-model";
+import { minimizeWindowByKind } from "../../game/windows/window-store";
 import type { ManeuverVector } from "../../game/war/war-types";
 import { BattleClock } from "../BattleScene/BattleClock";
 import { CockpitThemePicker } from "../BattleScene/CockpitThemePicker";
@@ -294,7 +295,14 @@ export function BattleControlsBody() {
                 <button
                   key={sq.id}
                   type="button"
-                  onClick={() => { battleSfx.uiClick(); setSelectedSquad(selected ? null : sq.id); }}
+                  onClick={() => {
+                    battleSfx.uiClick();
+                    // Same toggle state machine as the squads window chips.
+                    toggleSquadSelection(sq.id);
+                    // On-call reserve selected: park this window — the
+                    // reserve's order is the next tap on the map (hot drop).
+                    if (!selected && sq.onCallReserve) minimizeWindowByKind("battle-controls");
+                  }}
                   data-testid={`squad-pick-${sq.id}`}
                   aria-pressed={selected}
                   className={`flex items-center justify-between rounded-lg border px-2.5 py-2 text-left transition-colors ${

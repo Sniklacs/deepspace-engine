@@ -28,14 +28,25 @@ const FOE = "#f87171";
 export function BattleRadar({
   interactive = false,
   onTapWorld,
+  onTapSquad,
+  selectedSquadId = null,
   size = 148,
 }: {
   interactive?: boolean;
   onTapWorld?: (x: number, y: number) => void;
+  /** Blip tap (owner 2026-10-13): when no move is being aimed, tapping one
+   *  of your squads' blips selects that squad — the radar commands, it
+   *  doesn't just show. */
+  onTapSquad?: (squadId: string) => void;
+  /** The selected squad's blips are ringed so the commander can see which
+   *  part of the line the next order will move. */
+  selectedSquadId?: string | null;
   size?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const CSS = size;
+  const selectedRef = useRef<string | null>(selectedSquadId);
+  selectedRef.current = selectedSquadId;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -95,6 +106,16 @@ export function BattleRadar({
           ctx.beginPath();
           ctx.arc(x, y, d.alive ? 2.1 : 1.6, 0, Math.PI * 2);
           ctx.fill();
+          // The selected squad reads as a ringed cluster — the commander
+          // sees exactly which stretch of the line the next tap moves.
+          if (d.squadId && d.squadId === selectedRef.current) {
+            ctx.globalAlpha = 0.95;
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 1.1;
+            ctx.beginPath();
+            ctx.arc(x, y, 4.1, 0, Math.PI * 2);
+            ctx.stroke();
+          }
         }
       }
       ctx.globalAlpha = 1;
@@ -148,9 +169,11 @@ export function BattleRadar({
     return () => cancelAnimationFrame(raf);
   }, [CSS]);
 
-  // Tap → world coords → the commander's destination.
-  const handleTap = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!interactive || !onTapWorld) return;
+  // Tap → world coords → the commander's destination. The mapping is the
+  // exact inverse of the draw transform (same PAD/field box), and it is
+  // view-independent: the radar always spans the whole world, in MAP and
+  // POV alike, so a radar order lands where the blips say it lands.
+  const tapWorld = (e: React.PointerEvent<HTMLCanvasElement>): { x: number; y: number } | null => {
     const rect = e.currentTarget.getBoundingClientRect();
     const px = (e.clientX - rect.left) / rect.width;
     const py = (e.clientY - rect.top) / rect.height;
@@ -158,22 +181,48 @@ export function BattleRadar({
     const fh = CSS - PAD * 2 - 14;
     const wx = ((px * CSS - PAD) / fw) * WORLD_W;
     const wy = ((py * CSS - PAD) / fh) * WORLD_H;
-    if (wx < 0 || wy < 0 || wx > WORLD_W || wy > WORLD_H) return;
-    onTapWorld(wx, wy);
+    if (wx < 0 || wy < 0 || wx > WORLD_W || wy > WORLD_H) return null;
+    return { x: wx, y: wy };
   };
+
+  const handleTap = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const w = tapWorld(e);
+    if (!w) return;
+    if (interactive && onTapWorld) {
+      onTapWorld(w.x, w.y);
+      return;
+    }
+    // No move being aimed: a tap on (or near) one of your squads' blips
+    // selects that squad. Fat-finger radius — squads are clusters, so the
+    // nearest friendly unit dot within the radius names the squad.
+    if (onTapSquad) {
+      let best: string | null = null;
+      let bd = 0.09; // world units — ~20px on the expanded radar
+      for (const d of radarFeed.dots) {
+        if (d.side !== "attacker" || d.kind !== "unit" || !d.alive || !d.squadId) continue;
+        const dist = Math.hypot(d.x - w.x, d.y - w.y);
+        if (dist < bd) { bd = dist; best = d.squadId; }
+      }
+      if (best) onTapSquad(best);
+    }
+  };
+
+  const tappable = interactive || !!onTapSquad;
 
   return (
     <canvas
       ref={canvasRef}
       style={{ width: CSS, height: CSS }}
-      onPointerDown={interactive ? handleTap : undefined}
-      className={`block ${interactive ? "cursor-crosshair touch-manipulation" : "pointer-events-none"}`}
+      onPointerDown={tappable ? handleTap : undefined}
+      className={`block ${tappable ? "cursor-crosshair touch-manipulation" : "pointer-events-none"}`}
       data-testid="battle-radar"
       data-interactive={interactive ? "true" : undefined}
       aria-label={
         interactive
-          ? "Battle radar: tap to set the armed squad's destination"
-          : "Battle radar: whole-field minimap"
+          ? "Battle radar: tap to set the squad's destination"
+          : onTapSquad
+            ? "Battle radar: tap one of your squads to select it"
+            : "Battle radar: whole-field minimap"
       }
     />
   );

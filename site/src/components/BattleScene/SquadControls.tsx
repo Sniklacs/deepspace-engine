@@ -8,7 +8,7 @@ import {
   subscribeSceneUI,
   sceneUISnapshot,
   sceneUIServerSnapshot,
-  setSelectedSquad,
+  toggleSquadSelection,
   orderReceipt,
   selectionBannerText,
   squadStanceOf,
@@ -16,6 +16,7 @@ import {
   squadCoverOf,
   squadFireModeOf,
 } from "../../game/war/battle-scene-ui-store";
+import { minimizeWindowByKind } from "../../game/windows/window-store";
 import { fireModeGlyph } from "../../game/war/squad-command";
 import { battleSfx } from "../../game/war/battle-sfx";
 import { useSyncExternalStore } from "react";
@@ -61,7 +62,16 @@ export function SquadChip({ sq }: { sq: SceneSquad }) {
     <button
       key={sq.id}
       type="button"
-      onClick={() => { battleSfx.uiClick(); setSelectedSquad(selected ? null : sq.id); }}
+      onClick={() => {
+        battleSfx.uiClick();
+        // The toggle (owner 2026-10-13): tap → open; tap the SAME squad
+        // again → minimize back to the compact strip; another squad →
+        // switch. One state machine in the store drives every surface.
+        toggleSquadSelection(sq.id);
+        // Selecting an on-call reserve: its order IS the next map tap
+        // (hot drop) — park this window so the map is there to tap.
+        if (!selected && sq.onCallReserve) minimizeWindowByKind("battle-squads");
+      }}
       data-testid={`hud-squad-${sq.id}`}
       data-oncall={sq.onCallReserve ? "true" : undefined}
       aria-pressed={selected}

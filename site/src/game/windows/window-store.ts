@@ -278,6 +278,65 @@ export interface OpenWindowOpts {
   titleKey?: string;
   titleFallback?: string;
   props?: WindowProps;
+  /**
+   * Open WITHOUT stealing the screen (owner 2026-10-13): the window is
+   * created (or left) minimized in the tray instead of raised to the front.
+   * For system-triggered opens (e.g. scout intel arriving mid-battle) that
+   * must never bury the surface the player is commanding from.
+   */
+  background?: boolean;
+}
+
+/** The battle command surfaces (owner 2026-10-13). On phone geometry every
+ *  battle window spawns at the same near-full-screen rect, so two visible
+ *  battle windows STACK — the buried one is invisible, unreachable, and its
+ *  controls read as dead (the quick-pick / cover / reserve outage). Rule:
+ *  at most ONE battle window is foregrounded at a time; foregrounding one
+ *  parks the others in the tray, one tap away. Non-battle windows (chat,
+ *  satellite research) are never touched. */
+export const BATTLE_WINDOW_KINDS: readonly WindowKind[] = [
+  "battle-controls",
+  "battle-squads",
+  "battle-enemy-forces",
+];
+
+export function isBattleWindowKind(kind: WindowKind): boolean {
+  return BATTLE_WINDOW_KINDS.includes(kind);
+}
+
+/** Park every OTHER visible battle window when `id` takes the foreground. */
+function parkOtherBattleWindows(windows: WindowInstance[], id: string): WindowInstance[] {
+  const target = windows.find((w) => w.id === id);
+  if (!target || !isBattleWindowKind(target.kind)) return windows;
+  return windows.map((w) =>
+    w.id !== id && isBattleWindowKind(w.kind) && !w.minimized
+      ? { ...w, minimized: true }
+      : w,
+  );
+}
+
+/** Minimize the (single, default-keyed) window of a kind, if it is visible. */
+export function minimizeWindowByKind(kind: WindowKind): void {
+  const w = state.windows.find((x) => x.kind === kind && !x.minimized);
+  if (!w) return;
+  state = {
+    ...state,
+    windows: state.windows.map((x) => (x.id === w.id ? { ...x, minimized: true } : x)),
+  };
+  emit();
+}
+
+/** Park every visible battle window in the tray (the field takes the
+ *  screen — e.g. a move was armed and the next tap belongs to the map). */
+export function minimizeBattleWindows(): void {
+  if (!state.windows.some((w) => isBattleWindowKind(w.kind) && !w.minimized)) return;
+  state = {
+    ...state,
+    windows: state.windows.map((w) =>
+      isBattleWindowKind(w.kind) && !w.minimized ? { ...w, minimized: true } : w,
+    ),
+  };
+  emit();
 }
 
 /**
@@ -290,35 +349,42 @@ export function openWindow(kind: WindowKind, opts: OpenWindowOpts = {}): string 
   const existing = state.windows.find((w) => w.id === id);
   const seq = state.seq + 1;
   if (existing) {
+    if (opts.background) {
+      // Already open: a background open never raises, parks, or disturbs it.
+      return id;
+    }
     state = {
       seq,
-      windows: state.windows.map((w) =>
-        w.id === id ? { ...w, minimized: false, z: seq } : w,
+      windows: parkOtherBattleWindows(
+        state.windows.map((w) =>
+          w.id === id ? { ...w, minimized: false, z: seq } : w,
+        ),
+        id,
       ),
     };
   } else {
     const title = defaultTitle(kind);
+    const created: WindowInstance = {
+      id,
+      kind,
+      key,
+      titleKey: opts.titleKey ?? title.titleKey,
+      titleFallback: opts.titleFallback ?? title.titleFallback,
+      props: opts.props ?? {},
+      minimized: opts.background === true,
+      z: seq,
+      // EVE remembers: reopen at the player's last size for this kind.
+      size: loadRememberedSize(kind),
+      // EVE remembers: reopen where the player left it.
+      pos: loadRememberedPos(kind),
+      // EVE remembers: reopen at the player's last translucency.
+      opacity: loadRememberedOpacity(kind),
+    };
     state = {
       seq,
-      windows: [
-        ...state.windows,
-        {
-          id,
-          kind,
-          key,
-          titleKey: opts.titleKey ?? title.titleKey,
-          titleFallback: opts.titleFallback ?? title.titleFallback,
-          props: opts.props ?? {},
-          minimized: false,
-          z: seq,
-          // EVE remembers: reopen at the player's last size for this kind.
-          size: loadRememberedSize(kind),
-          // EVE remembers: reopen where the player left it.
-          pos: loadRememberedPos(kind),
-          // EVE remembers: reopen at the player's last translucency.
-          opacity: loadRememberedOpacity(kind),
-        },
-      ],
+      windows: opts.background
+        ? [...state.windows, created]
+        : parkOtherBattleWindows([...state.windows, created], id),
     };
   }
   emit();
@@ -350,14 +416,18 @@ export function minimizeWindow(id: string): void {
   emit();
 }
 
-/** Restore a minimized window: un-minimize and bring to front. */
+/** Restore a minimized window: un-minimize and bring to front. Restoring a
+ *  battle window parks the other battle windows (one command surface). */
 export function restoreWindow(id: string): void {
   const w = state.windows.find((x) => x.id === id);
   if (!w || !w.minimized) return;
   const seq = state.seq + 1;
   state = {
     seq,
-    windows: state.windows.map((x) => (x.id === id ? { ...x, minimized: false, z: seq } : x)),
+    windows: parkOtherBattleWindows(
+      state.windows.map((x) => (x.id === id ? { ...x, minimized: false, z: seq } : x)),
+      id,
+    ),
   };
   emit();
 }

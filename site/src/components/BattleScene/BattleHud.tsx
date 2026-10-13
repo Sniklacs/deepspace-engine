@@ -20,6 +20,7 @@ import {
   sceneUISnapshot,
   sceneUIServerSnapshot,
   setMoveArmedFor,
+  setSelectedSquad,
   queueRadarMove,
 } from "../../game/war/battle-scene-ui-store";
 import {
@@ -28,6 +29,7 @@ import {
   windowServerSnapshot,
   openWindow,
   isWindowOpen,
+  minimizeBattleWindows,
 } from "../../game/windows/window-store";
 import { battleSfx } from "../../game/war/battle-sfx";
 import type { CommsBubble } from "../../game/war/battle-comms";
@@ -78,15 +80,33 @@ export function BattleHud({
   const [radarBig, setRadarBig] = useState(false);
   const moveArmed = ui.moveArmedFor !== null;
   const armedSquad = ui.squads.find((s) => s.id === ui.moveArmedFor) ?? null;
+  // Hans 2026-10-13: the radar commands with a squad SELECTED, not only
+  // with a move pre-armed in the panel — selected is enough: the tap IS
+  // the order. (Armed still wins when both are set.)
+  const selectedSquad = ui.squads.find((s) => s.id === ui.selectedSquadId) ?? null;
+  const commandSquad = armedSquad ?? selectedSquad;
 
   // Hans 2026-10-12: the radar is the movement instrument — when a squad's
   // MOVE is armed, the radar OPENS LARGE on its own so the destination tap
   // is a fat-finger target, not a 148px guess.
+  // Hans 2026-10-13: arming a move (or the siege aim) also parks the battle
+  // windows in the tray — the arming tap happens INSIDE a window that
+  // otherwise covers the whole field, and the follow-up tap (map or radar)
+  // could never land. The windows wait in the tray; the receipt lands on
+  // the field.
   const prevArmedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (ui.moveArmedFor && !prevArmedRef.current) setRadarBig(true);
+    if (ui.moveArmedFor && !prevArmedRef.current) {
+      minimizeBattleWindows();
+      setRadarBig(true);
+    }
     prevArmedRef.current = ui.moveArmedFor;
   }, [ui.moveArmedFor]);
+  const prevSiegeRef = useRef(false);
+  useEffect(() => {
+    if (ui.siegeAimArmed && !prevSiegeRef.current) minimizeBattleWindows();
+    prevSiegeRef.current = ui.siegeAimArmed;
+  }, [ui.siegeAimArmed]);
 
   // Small radar tap while armed: enlarge — precision lives in the overlay.
   const onRadarTap = () => {
@@ -97,11 +117,21 @@ export function BattleHud({
   // Overlay tap: the destination. Queue it through the store — the scene
   // routes it through the order judge, and the receipt (order ping + log +
   // the judge's toast on a refusal) lands on the field as the panel closes.
+  // Works for an armed squad AND for a merely-selected one (owner
+  // 2026-10-13: "when I open up the radar I can't move troops there" —
+  // opening the radar with a squad selected must be enough to command).
   const onOverlayRadarTap = (x: number, y: number) => {
-    if (!ui.moveArmedFor) return;
+    if (!commandSquad) return;
     battleSfx.uiClick();
-    queueRadarMove(ui.moveArmedFor, x, y);
+    queueRadarMove(commandSquad.id, x, y);
     setRadarBig(false);
+  };
+
+  // Overlay blip tap with nothing selected/armed: select that squad, stay
+  // open — the next tap is its destination.
+  const onOverlaySquadTap = (squadId: string) => {
+    battleSfx.uiClick();
+    setSelectedSquad(squadId);
   };
 
   const bigRadarSize =
@@ -136,6 +166,7 @@ export function BattleHud({
           <BattleRadar
             interactive={moveArmed}
             onTapWorld={onRadarTap}
+            selectedSquadId={ui.selectedSquadId}
             size={148}
           />
           {moveArmed && armedSquad && (
@@ -168,12 +199,16 @@ export function BattleHud({
       </div>
 
       {/* EXPANDED RADAR (Hans 2026-10-12): the radar opens LARGE — an
-          EVE-style panel over the field. With a squad's MOVE armed, a tap
-          on the big field IS the destination: it queues through the order
-          judge and the receipt lands on the field as this panel closes.
-          Without an armed squad it's a big tactical view. Works the same
-          in POV and Map — the radar is the movement instrument when the
-          view itself can't be tapped for ground positions. */}
+          EVE-style panel over the field. A tap on the big field IS the
+          destination for the commanding squad (MOVE armed, or simply
+          selected — owner 2026-10-13): it queues through the order judge
+          and the receipt lands on the field as this panel closes. With
+          nothing selected, tapping one of your squads' blips selects it.
+          Works the same in POV and Map — the radar is the movement
+          instrument when the view itself can't be tapped for ground
+          positions. This overlay is the seed of the wide-picture
+          battlefield screen: it commands through the same world-coord /
+          squad-id model a full-screen panning view will use. */}
       {radarBig && (
         <div
           className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-black/55 p-3"
@@ -192,13 +227,13 @@ export function BattleHud({
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#eef1f6]">
                 📡 Radar
-                {moveArmed && armedSquad ? (
+                {commandSquad ? (
                   <span className="ml-2 normal-case tracking-normal text-[var(--cmd-accent)]">
-                    {armedSquad.name} — tap the destination
+                    {commandSquad.name} — tap the destination
                   </span>
                 ) : (
                   <span className="ml-2 normal-case tracking-normal text-zinc-400">
-                    arm a squad&apos;s MOVE to direct it here
+                    tap one of your squads to select it
                   </span>
                 )}
               </p>
@@ -213,8 +248,10 @@ export function BattleHud({
               </button>
             </div>
             <BattleRadar
-              interactive={moveArmed}
+              interactive={commandSquad !== null}
               onTapWorld={onOverlayRadarTap}
+              onTapSquad={commandSquad ? undefined : onOverlaySquadTap}
+              selectedSquadId={ui.selectedSquadId ?? ui.moveArmedFor}
               size={bigRadarSize}
             />
             {moveArmed && (
