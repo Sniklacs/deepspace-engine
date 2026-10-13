@@ -22,7 +22,7 @@ import {
   relocateColonyFn,
 } from "../game/api";
 import type { GameSummary } from "../game/api";
-import { RACES, UNBOUND_LEGEND, getRace, raceModLines } from "../game/races";
+import { RACES, UNBOUND_LEGEND, getRace } from "../game/races";
 import { WORLD_CONFIG_PUBLIC, worldAllowedRaces, worldLockPlain } from "../game/world-config";
 import { ZONES, DOMAINS, getZone } from "../game/zones";
 import { engineHelpers } from "../game/client-utils";
@@ -40,6 +40,7 @@ import {
 } from "../game/engine";
 import type { CraftKind } from "../game/engine";
 import WorkshopShelf from "../components/WorkshopShelf";
+import RaceStats from "../components/RaceStats";
 import {
   raceFamilies, ARMORY_FAMILY_TECH, weaponStats, weaponCost, weaponTimeMs, modelName, STAT_LABELS,
   ARMORY_CONFIG, ARMORY_BUILD_SLOTS,
@@ -1282,6 +1283,7 @@ function RaceSelect({ busy, onStart, resetNote }: { busy: boolean; onStart: (nam
                     <span className="text-xs text-gray-400">{r.title}</span>
                   </div>
                   <p className="mt-1 text-sm text-gray-300">{r.blurb}</p>
+                  <RaceStats race={r} compact />
                 </div>
               </div>
             </button>
@@ -1329,19 +1331,7 @@ function RaceSelect({ busy, onStart, resetNote }: { busy: boolean; onStart: (nam
             ))}
           </div>
           <div className="mt-4">
-            <p className="mb-1.5 text-[11px] uppercase tracking-wider text-text-3">
-              {t("play.races.liveBonuses", "Live engine bonuses ")}<span className="normal-case tracking-normal">{t("play.races.wiredIn", "— wired into the current build")}</span>
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {raceModLines(race).map((b) => (
-                <span key={b.label} className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
-                  b.good ? "bg-ember/10 text-ember-soft border-ember/30"
-                         : "bg-rose-400/10 text-rose-300 border-rose-400/30"
-                }`}>
-                  {b.label}
-                </span>
-              ))}
-            </div>
+            <RaceStats race={race} />
             <p className="mt-2 text-[11px] text-text-3">
               {t("play.races.pillsNote", "Sky-blue dashed pills (e.g. warfare, stealth, defense, diplomacy) arrive with the combat & survival layer — they are not playable in this beta build yet.")}
             </p>

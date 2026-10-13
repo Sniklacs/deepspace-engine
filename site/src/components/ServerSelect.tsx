@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { KNOWN_SERVERS, type KnownServer } from "../game/servers";
 import { getRace } from "../game/races";
+import RaceStats from "./RaceStats";
 import { useT } from "./i18n/I18n";
 
 type ServerHealth = "checking" | "up" | "down";
@@ -233,6 +234,8 @@ function ServerDetail({ card, onClaim }: { card: ServerCardState; onClaim: () =>
           ))}
         </div>
       )}
+
+      <RaceStats race={race} />
 
       <div style={{ display: "flex", gap: 16, fontSize: 13, opacity: 0.75, marginBottom: 12 }}>
         <span>

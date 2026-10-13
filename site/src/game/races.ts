@@ -184,3 +184,51 @@ export function raceModLines(race: Race): ModLine[] {
 
   return out;
 }
+
+// Uniform stat rows for the race-choice surfaces (owner 2026-10-13: "I would
+// like the stats there on the race descriptions — people like to see that and
+// that's how they choose"). Unlike raceModLines above — which lists only the
+// mods that differ from baseline — raceStatRows returns ALL SEVEN rows for
+// EVERY race, in the same order and format, so two race cards can be compared
+// side by side. Every value is derived from the same live `mods` the engine
+// applies (engine.ts: emberGain ×loot, chipsetChance ×drop chance,
+// suppliesEfficiency ×exploration cost, yieldSupply ×2 base supplies,
+// studySpeed ×research duration, corruptionResist/chorusResist ×gain taken).
+// Display only — nothing here feeds back into the mechanics.
+export interface RaceStatRow {
+  /** Stable row id — also the i18n label key suffix (cfg.raceStats.<key>). */
+  key: "studySpeed" | "emberLoot" | "chipsetChance" | "explorationCost" | "corruptionGain" | "chorusGain" | "baseSupplies";
+  /** Formatted value, e.g. "×1.67", "+25%", "−30%", "×0.35", "0%" at baseline. */
+  value: string;
+  /** true = better than the baseline race, false = worse, null = baseline. */
+  good: boolean | null;
+}
+
+export function raceStatRows(race: Race): RaceStatRow[] {
+  const m = race.mods;
+  const mult = (v: number): RaceStatRow["value"] => `×${v.toFixed(2)}`;
+  const pct = (v: number): RaceStatRow["value"] => {
+    const p = Math.round((v - 1) * 100);
+    return p === 0 ? "0%" : `${p > 0 ? "+" : "−"}${Math.abs(p)}%`;
+  };
+  const dir = (v: number, higherIsGood: boolean): boolean | null =>
+    Math.abs(v - 1) < 0.001 ? null : higherIsGood ? v > 1 : v < 1;
+
+  return [
+    // studySpeed multiplies research DURATION, so the stat a player compares
+    // is the effective speed 1/v (same derivation as raceModLines).
+    { key: "studySpeed", value: mult(1 / m.studySpeed), good: dir(m.studySpeed, false) },
+    { key: "emberLoot", value: pct(m.emberGain), good: dir(m.emberGain, true) },
+    { key: "chipsetChance", value: pct(m.chipsetChance), good: dir(m.chipsetChance, true) },
+    // suppliesEfficiency multiplies exploration COST — a negative delta is good.
+    {
+      key: "explorationCost",
+      value: m.suppliesEfficiency === 1 ? "0%" : `${m.suppliesEfficiency < 1 ? "−" : "+"}${Math.round(Math.abs(1 - m.suppliesEfficiency) * 100)}%`,
+      good: dir(m.suppliesEfficiency, false),
+    },
+    // corruptionResist / chorusResist multiply the gain TAKEN — lower is safer.
+    { key: "corruptionGain", value: mult(m.corruptionResist), good: dir(m.corruptionResist, false) },
+    { key: "chorusGain", value: mult(m.chorusResist), good: dir(m.chorusResist, false) },
+    { key: "baseSupplies", value: pct(m.yieldSupply), good: dir(m.yieldSupply, true) },
+  ];
+}
