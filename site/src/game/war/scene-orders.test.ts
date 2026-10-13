@@ -17,6 +17,7 @@ import {
   judgeMoveOrder,
   DEEP_Y,
   ORDER_DELAY_S,
+  releaseStagingSquad,
   squadEyeCount,
   stampOrder,
   stepOffUnits,
@@ -194,6 +195,39 @@ describe("order response time", () => {
     expect(u.moveAtS).toBe(53);
     expect(stepOffUnits([u], 52).length).toBe(0);
     expect(stepOffUnits([u], 53).length).toBe(1);
+  });
+});
+
+describe("releaseStagingSquad — the call-in (owner 2026-10-13)", () => {
+  test("an order pulls a mustering squad's entry up to now", () => {
+    const rear = unit("thunder", "REAR", "attacker", "staging", "A3");
+    rear.enterAtS = 300; // the rear's preset wave time
+    const n = releaseStagingSquad([rear], 95);
+    expect(n).toBe(1);
+    expect(rear.enterAtS).toBe(95);
+    // It does NOT teleport or flip state — the staging block still
+    // performs the entry (announcement, dropship roar, state machine).
+    expect(rear.state).toBe("staging");
+  });
+
+  test("units already due or on the field are untouched", () => {
+    const due = unit("reaver", "MAIN", "attacker", "staging", "A0");
+    due.enterAtS = 30;
+    const onField = unit("reaver", "MAIN", "attacker", "holding", "A0");
+    onField.enterAtS = 30;
+    expect(releaseStagingSquad([due, onField], 95)).toBe(0);
+    expect(due.enterAtS).toBe(30);
+    expect(onField.enterAtS).toBe(30);
+  });
+
+  test("a whole wave releases together", () => {
+    const wave = [0, 1, 2].map(() => {
+      const u = unit("warden", "REAR", "attacker", "staging", "A3");
+      u.enterAtS = 300;
+      return u;
+    });
+    expect(releaseStagingSquad(wave, 120)).toBe(3);
+    expect(wave.every((u) => u.enterAtS === 120)).toBe(true);
   });
 });
 

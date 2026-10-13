@@ -81,3 +81,44 @@ describe("Exit Law — custom close buttons meet the 44px floor", () => {
     expect(hits.length).toBe(2);
   });
 });
+
+describe("Exit Law — battle end screens are never a trap (owner 2026-10-13, second sweep)", () => {
+  // The first audit swept sheets/modals and MISSED the battle result
+  // sheet: it offered Retry / Re-challenge / Report / replay / save and
+  // NO exit, while the only door was an 11px header pill labeled for the
+  // Arena. Hans stood on it asking "where's my exit."
+  const scene = read("BattleScene/BattleScene.tsx");
+
+  test("the result sheet carries its own full-size EXIT (44px floor)", () => {
+    expect(has(scene, 'data-testid="battle-result-exit"')).toBe(true);
+    expect(has(scene, "min-h-[44px] w-full items-center justify-center")).toBe(true);
+    expect(has(scene, "🚪 Exit battle")).toBe(true);
+    // The exit sits OUTSIDE the actions/report/save view switch (it is
+    // rendered after the save view closes), so it is present in every
+    // sheet view — pin its position after the report view marker.
+    const exitAt = scene.indexOf('data-testid="battle-result-exit"');
+    const reportAt = scene.indexOf('data-testid="battle-report-view"');
+    expect(reportAt).toBeGreaterThan(-1);
+    expect(exitAt).toBeGreaterThan(reportAt);
+  });
+
+  test("the header close is a plainly-labeled 44px exit, not '✕ Arena' at py-1.5", () => {
+    expect(has(scene, "✕ Arena")).toBe(false);
+    expect(has(scene, 'aria-label="Exit the battle"')).toBe(true);
+    expect(has(scene, "flex min-h-[44px] flex-none items-center rounded-full")).toBe(true);
+  });
+
+  test("the replay viewer's ✕ meets the floor too", () => {
+    const viewer = read("BattleScene/BattleReplayViewer.tsx");
+    expect(has(viewer, "flex h-11 w-11 flex-none items-center justify-center rounded-lg")).toBe(true);
+  });
+
+  test("browser back exits the battle one step — it never dumps to landing", () => {
+    const fs = read("BattleScene/BattleSceneFullscreen.tsx");
+    // The scene owns one history entry while mounted…
+    expect(has(fs, "unboundBattleScene: true")).toBe(true);
+    expect(has(fs, 'addEventListener("popstate", onPopState)')).toBe(true);
+    // …consumed again on an in-game exit so the stack stays honest.
+    expect(has(fs, "if (!exitedViaBack) window.history.back();")).toBe(true);
+  });
+});

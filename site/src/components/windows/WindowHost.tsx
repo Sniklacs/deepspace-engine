@@ -9,7 +9,7 @@
 // chat's minimized state).
 import { useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18n";
-import { Icon } from "../icons";
+import { Icon, type IconName } from "../icons";
 import {
   subscribeWindows,
   windowSnapshot,
@@ -19,7 +19,11 @@ import {
   closeWindow,
   minimizeWindow,
   restoreWindow,
+  openWindow,
+  isBattleWindowKind,
+  BATTLE_WINDOW_KINDS,
   type WindowInstance,
+  type WindowKind,
 } from "../../game/windows/window-store";
 import { WindowFrame } from "./WindowFrame";
 import { ChatWindowBody } from "./ChatWindowBody";
@@ -60,11 +64,32 @@ function WindowContent({ win, ctx }: { win: WindowInstance; ctx: WindowCtx }) {
   }
 }
 
+const BATTLE_SWITCH_META: Record<string, { titleKey: string; titleFallback: string; icon: IconName }> = {
+  "battle-controls": { titleKey: "windows.battleControlsTitle", titleFallback: "Battle controls", icon: "gamepad" },
+  "battle-squads": { titleKey: "windows.battleSquadsTitle", titleFallback: "Squads", icon: "shield" },
+  "battle-enemy-forces": { titleKey: "windows.battleEnemyForcesTitle", titleFallback: "Enemy Forces", icon: "sword" },
+};
+
 export function WindowHost({ ctx }: { ctx: WindowCtx | null }) {
   const t = useT();
   useSyncExternalStore(subscribeWindows, windowSnapshot, windowServerSnapshot);
   const visible = visibleWindows();
   const minimized = minimizedWindows();
+  // BATTLE WINDOW SWITCHER (owner 2026-10-13): on phone geometry a
+  // foregrounded battle window covers the whole field — including the
+  // HUD launcher strip that summons the OTHER battle windows. The
+  // command surfaces were mutually unreachable without closing one
+  // first. While any battle window exists, the tray also carries a
+  // one-tap switch chip for each sibling kind that isn't foregrounded
+  // or already parked: tap → it opens/foregrounds, the current one
+  // parks (window exclusivity does the rest).
+  const allWindows = [...visible, ...minimized];
+  const foregroundedBattleKind = visible.find((w) => isBattleWindowKind(w.kind))?.kind;
+  const switchKinds: WindowKind[] = allWindows.some((w) => isBattleWindowKind(w.kind))
+    ? BATTLE_WINDOW_KINDS.filter(
+        (k) => k !== foregroundedBattleKind && !minimized.some((w) => w.kind === k),
+      )
+    : [];
   if (!ctx) return null;
   return (
     <>
@@ -83,13 +108,35 @@ export function WindowHost({ ctx }: { ctx: WindowCtx | null }) {
           <WindowContent win={win} ctx={ctx} />
         </WindowFrame>
       ))}
-      {minimized.length > 0 && (
+      {(minimized.length > 0 || switchKinds.length > 0) && (
         <div
           role="toolbar"
           aria-label={t("windows.trayLabel", "Minimized windows")}
           data-testid="window-tray"
           className="win-tray"
+          // With switch chips present, the tray must ride ABOVE the
+          // foregrounded battle window (frames paint at 70 + store seq,
+          // unbounded) — otherwise the switcher is rendered exactly
+          // where the window covers it, which is the trap it exists to
+          // fix. Restore-only trays keep the stylesheet's z-69.
+          style={switchKinds.length > 0 ? { zIndex: 9999 } : undefined}
         >
+          {switchKinds.map((kind) => {
+            const meta = BATTLE_SWITCH_META[kind];
+            return (
+              <button
+                key={`switch-${kind}`}
+                type="button"
+                onClick={() => openWindow(kind)}
+                data-testid={`window-switch-${kind}`}
+                className="win-tray-chip"
+                aria-label={t("windows.open", "Open {title}", { title: t(meta.titleKey, meta.titleFallback) })}
+              >
+                <Icon name={meta.icon} size={13} aria-hidden="true" />
+                <span className="max-w-28 truncate">{t(meta.titleKey, meta.titleFallback)}</span>
+              </button>
+            );
+          })}
           {minimized.map((win) => (
             <button
               key={win.id}

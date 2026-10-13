@@ -58,6 +58,56 @@ export function squadWeaponRangeM(kinds: string[]): number {
   return r;
 }
 
+/**
+ * One enemy UNIT's intel row (owner 2026-10-13, itemized targeting).
+ * Published per living unit by the scene once the scout reveals the
+ * enemy. `distM` = meters to the nearest living friendly unit — the
+ * range read a commander aims with.
+ */
+export interface EnemyUnitIntel {
+  id: string;
+  /** troop class key (warden, bulwark, reaver, longeye, thunder) */
+  kind: string;
+  /** the enemy squad this unit belongs to */
+  squadId: string;
+  /** living health, 0..1 */
+  hp01: number;
+  /** meters to the nearest living friendly unit */
+  distM: number;
+  /** the force's leader/hero, when it fields one — pinned atop the list */
+  leader?: boolean;
+  /** the leader's name, when the force fields one */
+  name?: string;
+}
+
+/** The cover-supplier facts the picker reads off a squad summary. */
+export interface CoverCandidateFacts {
+  alive: number;
+  /** still embarked in staging — not on the field yet */
+  onCallReserve?: boolean;
+  /** carries siege guns (thunder) */
+  hasThunders?: boolean;
+}
+
+/**
+ * Can this squad supply cover for another? (owner 2026-10-13, the cover
+ * picker). Returns null when it can — or the reason it can't, which the
+ * picker SHOWS on the disabled row (never silently absent):
+ *   out of action · still in staging · siege (siege holds its ground and
+ *   never repositions — the maneuver-legality maxims).
+ * A squad already covering the requester is eligible (tapping releases).
+ */
+export function coverIneligibility(
+  candidate: CoverCandidateFacts,
+  isCurrentSupplier: boolean,
+): string | null {
+  if (isCurrentSupplier) return null;
+  if (candidate.alive <= 0) return "Out of action";
+  if (candidate.onCallReserve) return "Still in staging — not on the field yet";
+  if (candidate.hasThunders) return "Siege — holds its ground, can't reposition to cover";
+  return null;
+}
+
 /** One enemy squad as revealed by the scout flyby. */
 export interface EnemySquadIntel {
   id: string;

@@ -174,7 +174,7 @@ export function BattleReplayViewer({
             type="button"
             onClick={onClose}
             aria-label="Close replay"
-            className="flex-none rounded-lg border border-white/15 px-2 py-1 text-xs text-zinc-300"
+            className="flex h-11 w-11 flex-none items-center justify-center rounded-lg border border-white/15 text-xs text-zinc-300"
           >
             ✕
           </button>

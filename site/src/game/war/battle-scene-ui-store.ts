@@ -9,7 +9,8 @@
 
 import type { ManeuverVector } from "./war-types";
 import type { SceneUnitKind } from "./battle-scene-model";
-import type { SquadFireMode, EnemySquadIntel } from "./squad-command";
+import type { SquadFireMode, EnemySquadIntel, EnemyUnitIntel } from "./squad-command";
+export type { EnemyUnitIntel } from "./squad-command";
 import {
   loadCockpitThemeId,
   saveCockpitThemeId,
@@ -256,6 +257,19 @@ export interface SceneUIState {
   squadTargets: Record<string, string[]>;
   /** Enemy composition per squad, revealed by the scout flyby. */
   enemyIntel: EnemySquadIntel[];
+  /**
+   * ITEMIZED enemy troops (owner 2026-10-13): one entry per living enemy
+   * UNIT — "an itemized list, a Warden and everything else, so I can pick
+   * them apart." Published by the scene on its registration tick once the
+   * scout has revealed the enemy; dead units leave the list as they fall.
+   */
+  enemyUnitIntel: EnemyUnitIntel[];
+  /**
+   * The focused enemy unit's id — the commander's current target. His
+   * engaged squads concentrate their fire on it (within their normal
+   * engagement radius) and the field draws its marker. Null = no focus.
+   */
+  focusTargetId: string | null;
   /** True once the scout has returned (or the demo intel was loaded). */
   scoutIntelReady: boolean;
   /** "setup" = pre-battle target assignment; "live" = the battle is running. */
@@ -318,6 +332,8 @@ const INITIAL: SceneUIState = {
   squadCover: {},
   squadTargets: {},
   enemyIntel: [],
+  enemyUnitIntel: [],
+  focusTargetId: null,
   scoutIntelReady: false,
   battlePhase: "setup",
   moveArmedFor: null,
@@ -547,6 +563,8 @@ export function resetSceneUI(): void {
     siegeAimArmed: false,
     squadStance: {},
     siegeHoldAll: false,
+    enemyUnitIntel: [],
+    focusTargetId: null,
   });
 }
 
@@ -664,6 +682,48 @@ export function unlinkSquadTarget(squadId: string, enemyId: string): void {
  */
 export function setScoutIntel(intel: EnemySquadIntel[]): void {
   set({ enemyIntel: intel, scoutIntelReady: true });
+}
+
+/**
+ * Publish the itemized enemy troop list (owner 2026-10-13). Called by the
+ * scene on its registration tick; cheap change-guard so the 4 Hz tick
+ * doesn't churn subscribers when nothing moved. If the focused unit has
+ * left the list (it died), the focus clears with it — a commander never
+ * aims at a ghost.
+ */
+export function registerEnemyUnitIntel(units: EnemyUnitIntel[]): void {
+  const prev = state.enemyUnitIntel;
+  const same =
+    prev.length === units.length &&
+    prev.every((p, i) => {
+      const n = units[i];
+      return (
+        p.id === n.id &&
+        p.hp01 === n.hp01 &&
+        p.distM === n.distM &&
+        p.kind === n.kind &&
+        p.leader === n.leader &&
+        p.name === n.name
+      );
+    });
+  const focusGone =
+    state.focusTargetId !== null && !units.some((u) => u.id === state.focusTargetId);
+  if (same && !focusGone) return;
+  set({
+    enemyUnitIntel: units,
+    ...(focusGone ? { focusTargetId: null } : {}),
+  });
+}
+
+/** Set (or clear, with null) the focus target. */
+export function setFocusTarget(id: string | null): void {
+  if (state.focusTargetId === id) return;
+  set({ focusTargetId: id });
+}
+
+/** Tap a target row: tap selects it, tap again clears it. */
+export function toggleFocusTarget(id: string): void {
+  setFocusTarget(state.focusTargetId === id ? null : id);
 }
 
 /** Setup (target assignment) vs live battle. */

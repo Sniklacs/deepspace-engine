@@ -78,6 +78,34 @@ export function stepOffUnits(units: SceneUnit[], tS: number): SceneUnit[] {
   return units.filter((u) => u.moveAtS !== undefined && tS >= u.moveAtS);
 }
 
+/**
+ * CALL IN A MUSTERING SQUAD (owner 2026-10-13 — the reinforcement break).
+ * A squad still in staging has exactly ONE door onto the field: the sim's
+ * staging block, which releases it when the scene clock reaches its
+ * enterAtS (and the phase allows entry). An accepted order on such a squad
+ * used to only stamp a destination (the tracer drew, the log said
+ * "accepted") while the units waited out a preset clock the commander
+ * never set — 300 sim-s for the rear, 480 for the reserve, i.e. 10–16
+ * wall-minutes at SLOW pace. The order IS the call-in: pull the squad's
+ * entry up to now. The staging block still performs the actual entry
+ * (state flip, dropship roar, the "wave is on the field" announcement) —
+ * this helper only moves the appointment; it never teleports a unit.
+ * On-call reserves do NOT pass through here: issueOrder commits them via
+ * the hot-drop branch before the ground-move path runs. Returns how many
+ * units were released. Pure.
+ */
+export function releaseStagingSquad(units: SceneUnit[], tS: number): number {
+  let released = 0;
+  for (const u of units) {
+    if (u.state !== "staging") continue;
+    if (u.enterAtS > tS) {
+      u.enterAtS = tS;
+      released += 1;
+    }
+  }
+  return released;
+}
+
 // ---------------------------------------------------------------------------
 // LONGEYE COVERAGE (owner 2026-10-06): positional. A Longeye only watches
 // its own sector — coverage follows vector assignment (Flank L eyes cover

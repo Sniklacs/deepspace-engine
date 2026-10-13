@@ -39,6 +39,7 @@ import type { ManeuverVector } from "../../game/war/war-types";
 import { BattleClock } from "../BattleScene/BattleClock";
 import { CockpitThemePicker } from "../BattleScene/CockpitThemePicker";
 import { ToggleSwitch } from "../BattleScene/ToggleSwitch";
+import { SquadQuickPick } from "../BattleScene/SquadQuickPick";
 
 const ART = "/art/battle/units";
 
@@ -347,6 +348,22 @@ export function BattleControlsBody() {
             ? "Squad selected — tap the map to order it. The judge rules every move."
             : "Tap one of your squads — or tap it on the map — then tap where it goes."}
         </p>
+        {/* SELECTION CARRIES (owner 2026-10-13): the quick-pick lives HERE
+            too, not only in the Squads window. Selecting a squad in this
+            list used to show nothing but the hint line above — the orders
+            sat in the other window, parked in the tray by window
+            exclusivity, and the tap read as dead ("the selectables are in
+            these controls, they don't carry over to the squads"). One
+            selection, one shared quick-pick component: wherever you pick
+            the squad, its orders are in front of you. */}
+        {(() => {
+          const sel = ui.squads.find((s) => s.id === ui.selectedSquadId) ?? null;
+          return sel ? (
+            <div className="mt-2" data-testid="controls-quickpick">
+              <SquadQuickPick squad={sel} />
+            </div>
+          ) : null;
+        })()}
       </section>
 
       {/* orders — the judged command log */}

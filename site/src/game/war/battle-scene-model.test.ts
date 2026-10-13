@@ -89,6 +89,24 @@ describe("demo scene", () => {
     }
   });
 
+  test("the RESERVE is ON CALL — deployable, committable (owner 2026-10-13)", () => {
+    const s = buildDemoScene(1_000_000);
+    const reserve = s.units.filter((u) => u.vector === "RESERVE");
+    expect(reserve.length).toBeGreaterThan(0);
+    // Every reserve unit carries the on-call posture: the squads panel
+    // marks the squad deployable (🪂) from it, and issueOrder's hot-drop
+    // commit filters on it. buildUnits shipped without the flag and the
+    // whole reinforcement path silently found nobody to commit.
+    expect(reserve.every((u) => u.onCall === true)).toBe(true);
+    // No other vector is on call — timed waves enter on their clock or
+    // when the commander calls them in (releaseStagingSquad).
+    const others = s.units.filter((u) => u.vector !== "RESERVE");
+    expect(others.every((u) => u.onCall !== true)).toBe(true);
+    // Both sides field an on-call reserve.
+    expect(reserve.some((u) => u.side === "attacker")).toBe(true);
+    expect(reserve.some((u) => u.side === "defender")).toBe(true);
+  });
+
   test("deterministic per seed", () => {
     const a = buildDemoScene(5_000);
     const b = buildDemoScene(9_999);

@@ -70,6 +70,16 @@ export interface SceneUnit {
   /** On-call reserve (owner 2026-10-06): waits for the raid leader's commit
    *  when driving manually (hot drop); on auto it enters at enterAtS. */
   onCall?: boolean;
+  /**
+   * The force's leader/hero unit (owner 2026-10-13): when a force fields
+   * one (a player-led loadout's hero), the itemized target list pins it
+   * at the top, named and badged, targetable like any troop. The Chorus
+   * defense templates field NO leader — nothing sets this in the demo —
+   * so no fake entry ever appears against them.
+   */
+  leader?: boolean;
+  /** The leader's display name (only meaningful with `leader`). */
+  name?: string;
   /** Sim-time the hot drop started (descent began). */
   dropAtS?: number;
   /** Sim-time when a stamped move order steps off (command delay) — the
@@ -490,6 +500,14 @@ interface DemoSpec {
   kinds: SceneUnitKind[];
   count: number;
   enterAtS: number;
+  /** On-call posture (owner 2026-10-06 doctrine, restored 2026-10-13):
+   *  the RESERVE waits embarked for the commander's commit — the squads
+   *  panel shows it as deployable (🪂), a tap + map tap hot-drops it, and
+   *  on AUTO it enters at enterAtS like any timed wave. buildUnits shipped
+   *  without ever setting this flag, so no reserve was ever on call: the
+   *  hot-drop commit in issueOrder filtered on it and always found nobody,
+   *  and the panel never marked the squad deployable. */
+  onCall?: boolean;
 }
 
 /**
@@ -519,8 +537,8 @@ function buildUnits(seed: number): SceneUnit[] {
     specs.push({ side, vector: "FLANK_RIGHT", kinds: ["reaver", "longeye", "longeye"], count: 7, enterAtS: 38 });
     // REAR — thunder siege + warden escort (the doctrine: never without wardens).
     specs.push({ side, vector: "REAR", kinds: ["thunder", "warden", "warden", "bulwark"], count: 6, enterAtS: side === "attacker" ? 300 : 240 });
-    // RESERVE — the ace in the hole, embarked.
-    specs.push({ side, vector: "RESERVE", kinds: ["bulwark", "reaver", "warden"], count: 6, enterAtS: 480 });
+    // RESERVE — the ace in the hole, embarked and ON CALL.
+    specs.push({ side, vector: "RESERVE", kinds: ["bulwark", "reaver", "warden"], count: 6, enterAtS: 480, onCall: true });
   }
   for (const s of specs) {
     const lane = VECTOR_LANES[s.vector];
@@ -558,6 +576,7 @@ function buildUnits(seed: number): SceneUnit[] {
         hp01: 1,
         state: "staging",
         enterAtS: s.enterAtS,
+        ...(s.onCall ? { onCall: true } : {}),
       });
     }
   }

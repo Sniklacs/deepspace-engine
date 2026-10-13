@@ -47,6 +47,13 @@ import {
   adjutantOf,
   setCockpitOn,
   crewFromHeroes,
+  setSquadFireMode,
+  squadFireModeOf,
+  setSquadCover,
+  squadCoverOf,
+  registerEnemyUnitIntel,
+  setFocusTarget,
+  toggleFocusTarget,
 } from "./battle-scene-ui-store";
 
 beforeEach(() => {
@@ -398,6 +405,49 @@ describe("click-to-command", () => {
       toggleSquadSelection("A4"); // and reopens it
       expect(sceneUISnapshot().selectedSquadId).toBe("A4");
     });
+
+    // THE REPORTED BUG (owner 2026-10-13): "selected a squad after I do
+    // a quick pick, no changes." The store machine was never the fault
+    // (the quick-pick lived only in the Squads window — see
+    // battle-selection-carry.test.ts) — but these pins hold the machine
+    // to the exact sequence so a regression here is caught too:
+    // quick-pick use must never consume, corrupt, or latch selection.
+    test("quick-pick → tap a DIFFERENT squad switches, orders intact", () => {
+      toggleSquadSelection("A0"); // open A0's quick-pick
+      setSquadFireMode("A0", "hold"); // use the quick-pick
+      setSquadCover("A1", "A0"); // use the COVER picker (A1 covers A0)
+      toggleSquadSelection("A2"); // tap a different squad
+      const s = sceneUISnapshot();
+      expect(s.selectedSquadId).toBe("A2");
+      expect(squadFireModeOf("A0")).toBe("hold"); // A0's orders survive
+      expect(squadCoverOf("A1")).toBe("A0"); // the cover assignment survives
+      expect(s.squads.find((q) => q.id === "A2")).toBeDefined; // panel data untouched
+    });
+
+    test("quick-pick → tap the SAME squad still toggles closed", () => {
+      toggleSquadSelection("A1");
+      setSquadFireMode("A1", "free");
+      toggleSquadSelection("A1");
+      expect(sceneUISnapshot().selectedSquadId).toBeNull();
+    });
+
+    test("quick-pick → manual select → quick-pick again stays consistent", () => {
+      toggleSquadSelection("A0");
+      setSquadCover("A3", "A0"); // rear covers main via the picker
+      setSelectedSquad("A3"); // a manual select elsewhere (e.g. radar)
+      expect(sceneUISnapshot().selectedSquadId).toBe("A3");
+      toggleSquadSelection("A0"); // back to A0 through the chip machine
+      expect(sceneUISnapshot().selectedSquadId).toBe("A0");
+      expect(squadCoverOf("A3")).toBe("A0");
+    });
+
+    test("cover assignment and release round-trip through the store", () => {
+      setSquadCover("A2", "A0");
+      expect(squadCoverOf("A2")).toBe("A0");
+      setSquadCover("A2", null);
+      expect(squadCoverOf("A2")).toBeNull();
+      expect(sceneUISnapshot().squadCover.A2).toBeUndefined;
+    });
   });
 
   test("squads register for the panel", () => {
@@ -408,6 +458,25 @@ describe("click-to-command", () => {
     const s = sceneUISnapshot();
     expect(s.squads).toHaveLength(2);
     expect(s.squads[1].alive).toBe(6);
+  });
+
+  test("itemized targets: publish, focus, and the dead take their focus with them", () => {
+    const warden = { id: "e-w1", kind: "warden", squadId: "D", hp01: 0.8, distM: 240 };
+    const thunder = { id: "e-t1", kind: "thunder", squadId: "D", hp01: 1, distM: 700 };
+    registerEnemyUnitIntel([warden, thunder]);
+    expect(sceneUISnapshot().enemyUnitIntel.map((x) => x.id)).toEqual(["e-w1", "e-t1"]);
+
+    toggleFocusTarget("e-w1"); // tap selects
+    expect(sceneUISnapshot().focusTargetId).toBe("e-w1");
+    toggleFocusTarget("e-t1"); // tap another switches
+    expect(sceneUISnapshot().focusTargetId).toBe("e-t1");
+    toggleFocusTarget("e-t1"); // tap again clears
+    expect(sceneUISnapshot().focusTargetId).toBe(null);
+
+    setFocusTarget("e-w1");
+    registerEnemyUnitIntel([thunder]); // the warden died — it leaves the list…
+    expect(sceneUISnapshot().enemyUnitIntel.map((x) => x.id)).toEqual(["e-t1"]);
+    expect(sceneUISnapshot().focusTargetId).toBe(null); // …and the focus clears with it
   });
 
   test("order log is newest-first and capped", () => {

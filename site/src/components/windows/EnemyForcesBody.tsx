@@ -16,7 +16,10 @@ import {
   setPendingTargetId,
   linkSquadTarget,
   unlinkSquadTarget,
+  toggleFocusTarget,
 } from "../../game/war/battle-scene-ui-store";
+import { buildTargetList } from "../../game/war/enemy-targeting";
+import { UNIT_KIND_LABEL, type SceneUnitKind } from "../../game/war/battle-scene-model";
 import { battleSfx } from "../../game/war/battle-sfx";
 import { CMD, CMD_THEME } from "../BattleScene/command-console";
 import {
@@ -147,6 +150,80 @@ export function EnemyForcesBody() {
           </div>
         </div>
       ))}
+
+      {/* ITEMIZED TARGETS (owner 2026-10-13): every enemy troop, one row
+          each — "a Warden and everything else, so I can pick them apart."
+          Tap a row → that unit is the FOCUS: engaged squads concentrate
+          fire on it (same engagement radius, no reach cheat) and the
+          field marks it. Tap again to clear. The leader/hero pins at the
+          top when the force fields one — Hans's warning stands: the hero
+          is an HP sponge; killing him first is a known trap. Rows are
+          live: health + distance refresh on the scene's tick, and the
+          dead leave the list. */}
+      {ui.enemyUnitIntel.length > 0 && (
+        <div data-testid="enemy-target-list">
+          <p className={`${CMD.section} mt-2`}>
+            Targets — tap one to focus fire
+          </p>
+          <p className={CMD.meta}>
+            your engaged squads concentrate on the marked troop
+          </p>
+          {(() => {
+            const list = buildTargetList(ui.enemyUnitIntel);
+            const row = (
+              u: (typeof ui.enemyUnitIntel)[number],
+              label: string,
+              badge?: string,
+            ) => {
+              const focused = ui.focusTargetId === u.id;
+              return (
+                <button
+                  key={u.id}
+                  type="button"
+                  onClick={() => { battleSfx.uiClick(); toggleFocusTarget(u.id); }}
+                  data-testid={`enemy-target-row-${u.id}`}
+                  aria-pressed={focused}
+                  aria-label={
+                    focused
+                      ? `${label} is the focus target — tap to clear`
+                      : `Focus fire on ${label}`
+                  }
+                  className={`${CMD.btn} ${CMD.btnH} flex w-full items-center justify-between ${focused ? CMD.btnActive : ""}`}
+                >
+                  <span>
+                    {focused ? "🎯 " : ""}
+                    {badge ? `${badge} ` : ""}
+                    {label}
+                  </span>
+                  <span className={CMD.meta}>
+                    HP {Math.round(u.hp01 * 100)}% · {u.distM} m
+                  </span>
+                </button>
+              );
+            };
+            return (
+              <div className="mt-1 flex flex-col gap-1">
+                {list.leader &&
+                  row(
+                    list.leader,
+                    list.leader.name ?? UNIT_KIND_LABEL[list.leader.kind as SceneUnitKind] ?? list.leader.kind,
+                    "👑 LEADER",
+                  )}
+                {list.groups.map((g) => (
+                  <div key={g.kind} className="flex flex-col gap-1">
+                    <p className={CMD.meta}>
+                      {UNIT_KIND_LABEL[g.kind as SceneUnitKind] ?? g.kind} × {g.units.length}
+                    </p>
+                    {g.units.map(({ unit, n }) =>
+                      row(unit, `${UNIT_KIND_LABEL[g.kind as SceneUnitKind] ?? g.kind} ${n}`),
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }

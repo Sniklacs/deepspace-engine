@@ -494,6 +494,7 @@ function ActiveBattles({ state, now, token, onDecision, tutorialEnabled, muted =
           scene={sceneFullscreen.scene}
           onClose={() => setSceneFullscreen(null)}
           crew={crewFromHeroes(state.prologue?.heroes)}
+          liveCasualties={battleMoment(sceneFullscreen.battle, now).casualties}
           {...battleRaces(state, sceneFullscreen.battle)}
         />
       )}

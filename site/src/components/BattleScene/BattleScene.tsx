@@ -82,6 +82,7 @@ import {
   registerTurrets,
   registerRoster,
   registerSquads,
+  registerEnemyUnitIntel,
   setSelectedSquad,
   logOrder,
   orderReceipt,
@@ -100,6 +101,7 @@ import {
   // command-ship cockpit (owner 2026-10-12): bridge crew registration
   registerCrew,
   type CrewMember,
+  type EnemyUnitIntel,
 } from "../../game/war/battle-scene-ui-store";
 import {
   buildEnemyIntel,
@@ -116,6 +118,7 @@ import {
   lineWardenCount,
   destLabel,
   ORDER_DELAY_S,
+  releaseStagingSquad,
   squadEyeCount,
   stampOrder,
   stepOffUnits,
@@ -707,6 +710,10 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
   const [revealed, setRevealed] = useState(false);
   // Reserve-arrival comms, announced once per vector per battle.
   const reserveAnnouncedRef = useRef<Set<string>>(new Set());
+  // Cover-follow bookkeeping: coverer squad id → the last cover point
+  // stamped + when. The sim re-stamps only when the covered squad has
+  // actually moved on, so a covering squad settles instead of jittering.
+  const coverFollowRef = useRef<Map<string, { x: number; y: number; atS: number }>>(new Map());
   // Threshold victory (demo): when a side loses >= DEMO_BREAK_FRAC of its
   // force, the field breaks — the other side holds it. Doctrine: casualty
   // thresholds, not mutual annihilation.
@@ -845,6 +852,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       warn1Ref.current = false;
       clockFailRef.current = false;
       reserveAnnouncedRef.current = new Set();
+      coverFollowRef.current = new Map();
       // Directional-sprite tracking restarts with the battle (positions
       // teleport on retry/re-challenge — stale velocities would spin units).
       prevPosRef.current.clear();
@@ -1222,8 +1230,11 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           // On-call reserves (owner 2026-10-06): when the raid leader is
           // driving manually, the reserve waits for the commit — tap the
           // squad, tap the map, hot drop. On auto it enters at its preset
-          // time like any other wave.
-          if (u.onCall && ui.manual) continue;
+          // time like any other wave. Attacker-only (2026-10-13): the
+          // commander's Manual toggle must never hold the CHORUS reserve
+          // hostage — the AI has no tap to commit with, so its on-call
+          // waves keep their preset timing regardless.
+          if (u.onCall && u.side === "attacker" && ui.manual) continue;
           u.state = "advancing";
           // Delayed waves arrive loud: dropship engines on late entries,
           // a crash swell when a flank hits the field weapons-free.
@@ -1339,11 +1350,75 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         }
       }
 
+      // --- cover ------------------------------------------------------------
+      // COVER (owner 2026-10-13): a squad ordered to cover another
+      // repositions ONTO it — offset toward its own (southern) edge, so
+      // it stands between the covered squad and home with its guns free —
+      // and follows as the covered squad moves. Until this block existed,
+      // setSquadCover wrote a UI flag nothing read: the order showed a
+      // shield glyph and changed nothing on the field. The mechanics are
+      // the ordinary ones: the same stampOrder + command delay a judged
+      // move uses, destination derived from the covered squad's living
+      // centroid (never a free tap, so no judge question arises — the
+      // point sits behind the covered squad, on its own side of the
+      // line). Engaged, staging, descending, or hold-position squads are
+      // never dragged; a released cover (flag cleared) simply stops
+      // following and the squad keeps the ground it holds.
+      for (const [covererId, coveredId] of Object.entries(ui.squadCover)) {
+        if (!coveredId) continue;
+        const coverer = unitsRef.current.filter((u) => u.squadId === covererId && u.state !== "dead");
+        const covered = unitsRef.current.filter((u) => u.squadId === coveredId && u.state !== "dead");
+        if (coverer.length === 0 || covered.length === 0) continue;
+        const onField = (u: (typeof coverer)[number]) => u.state === "holding" || u.state === "advancing";
+        if (!coverer.every(onField)) continue;
+        if (coverer.some((u) => u.state === "engaged")) continue;
+        // A fresh commander order is still plotting — the commander's
+        // word outranks the standing cover instruction until it steps off.
+        if (coverer.some((u) => u.moveAtS !== undefined)) continue;
+        const covererHasThunders = coverer.some((u) => u.kind === "thunder");
+        if (squadStanceOf(ui, covererId, covererHasThunders).holdPosition) continue;
+        const cx = covered.reduce((a, u) => a + u.x, 0) / covered.length;
+        const cy = covered.reduce((a, u) => a + u.y, 0) / covered.length;
+        const dest = { x: cx, y: softClampY(cy + 0.07) };
+        const gx = coverer.reduce((a, u) => a + u.x, 0) / coverer.length;
+        const gy = coverer.reduce((a, u) => a + u.y, 0) / coverer.length;
+        if (Math.hypot(gx - dest.x, gy - dest.y) < 0.05) continue; // in position
+        // Re-stamp ONLY when the covered squad has genuinely moved on.
+        // A repeated stamp re-arms the ORDER_DELAY command delay — the
+        // squad steps off, gets re-stamped the same frame, and plots
+        // again: measured live, the covering squad crept one frame per
+        // 3 s cycle and never arrived. The destination is the contract;
+        // while it stands, the squad walks.
+        const last = coverFollowRef.current.get(covererId);
+        if (last && Math.hypot(last.x - dest.x, last.y - dest.y) < 0.08) continue;
+        coverFollowRef.current.set(covererId, { x: dest.x, y: dest.y, atS: t });
+        for (const u of coverer) {
+          stampOrder(u, softClampX(dest.x + (u.x - gx)), softClampY(dest.y + (u.y - gy)), t);
+        }
+      }
+
       // --- combat ---------------------------------------------------------
       fireAcc += sdt;
       if (phase === "weapons-free" && fireAcc > 0.28) {
         fireAcc = 0;
         const engaged = unitsRef.current.filter((u) => u.state === "engaged");
+        // FOCUS FIRE (owner 2026-10-13): the commander's itemized target.
+        // The engine resolves combat per unit against the nearest enemy in
+        // the engagement radius — a focused unit inside that same radius
+        // takes the shot instead, so the commander picks the enemy apart
+        // (Wardens first, then the guns). The focus never extends a
+        // weapon's reach and never applies to the enemy's fire.
+        const focusUnit = ui.focusTargetId
+          ? unitsRef.current.find(
+              (w) => w.id === ui.focusTargetId && w.state !== "dead" && w.state !== "staging",
+            ) ?? null
+          : null;
+        const focusFor = (u: SceneUnit): SceneUnit | null =>
+          u.side === "attacker" &&
+          focusUnit &&
+          Math.hypot(focusUnit.x - u.x, focusUnit.y - u.y) <= 0.45
+            ? focusUnit
+            : null;
         // Cap simultaneous exchanges for perf + readability.
         for (const u of engaged.slice(0, 40)) {
           if (Math.random() < 0.55) continue;
@@ -1368,7 +1443,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
             if (aim) {
               gx = aim.x; gy = aim.y;
             } else {
-              const tgt = nearestEnemy(u.x, u.y, u.side, 0.45);
+              const tgt = focusFor(u) ?? nearestEnemy(u.x, u.y, u.side, 0.45);
               if (!tgt) { u.state = "holding"; continue; }
               gx = tgt.x; gy = tgt.y;
               tierDiv = tierPowerMult(tgt.tier);
@@ -1384,7 +1459,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
             }
             continue;
           }
-          const e = nearestEnemy(u.x, u.y, u.side, 0.45);
+          const e = focusFor(u) ?? nearestEnemy(u.x, u.y, u.side, 0.45);
           if (!e) { u.state = "holding"; continue; }
           // Weapon identity (owner 2026-10-11): lasers read as beams,
           // kinetics as rapid-fire slug bursts. Same damage event.
@@ -1873,6 +1948,38 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
               }),
             })),
           );
+        }
+        // ITEMIZED ENEMY INTEL (owner 2026-10-13): one row per living
+        // enemy unit for the target list — class, health, distance to the
+        // nearest living friendly. Published only once the scout has
+        // revealed the enemy (the same gate as the aggregate intel);
+        // before that the list stays empty rather than leaking the field.
+        if (scoutRef.current === "revealed") {
+          const friendlies = unitsRef.current.filter(
+            (u) => u.side === "attacker" && u.state !== "dead" && u.state !== "staging",
+          );
+          const intel: EnemyUnitIntel[] = [];
+          for (const u of unitsRef.current) {
+            if (u.side !== "defender") continue;
+            if (u.state === "dead" || u.state === "staging" || u.state === "descending") continue;
+            let best = Infinity;
+            for (const f of friendlies) {
+              const d = Math.hypot(f.x - u.x, f.y - u.y);
+              if (d < best) best = d;
+            }
+            intel.push({
+              id: u.id,
+              kind: u.kind,
+              squadId: u.squadId,
+              hp01: Math.round(u.hp01 * 100) / 100,
+              distM: best === Infinity ? 0 : Math.round(best * METERS_PER_WORLD_UNIT),
+              ...(u.leader ? { leader: true } : {}),
+              ...(u.name ? { name: u.name } : {}),
+            });
+          }
+          registerEnemyUnitIntel(intel);
+        } else if (sceneUISnapshot().enemyUnitIntel.length > 0) {
+          registerEnemyUnitIntel([]);
         }
         // WARDEN SHIELDS (owner 2026-10-11): living Wardens project a shield
         // umbrella over nearby friendlies. Shield max derives from the
@@ -3175,6 +3282,24 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           c.strokeRect(-r - 3, -r - 3, (r + 3) * 2, (r + 3) * 2);
           c.restore();
         }
+        // FOCUS TARGET (owner 2026-10-13): the commander's picked-apart
+        // target wears an amber crosshair ring — visible in the same
+        // glance as the list row that selected it.
+        if (ui.focusTargetId === u.id) {
+          const pulse = 0.7 + 0.3 * Math.sin(performance.now() / 160);
+          c.save();
+          c.globalAlpha = pulse;
+          c.strokeStyle = "#fbbf24";
+          c.lineWidth = 2;
+          c.beginPath(); c.arc(x, y, r + 7, 0, Math.PI * 2); c.stroke();
+          c.beginPath();
+          for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]] as const) {
+            c.moveTo(x + dx * (r + 3), y + dy * (r + 3));
+            c.lineTo(x + dx * (r + 11), y + dy * (r + 11));
+          }
+          c.stroke();
+          c.restore();
+        }
         if (u.state === "engaged") {
           c.strokeStyle = SIDE_COLOR[u.side];
           c.globalAlpha = 0.7 + 0.3 * Math.sin(Date.now() / 130);
@@ -4097,11 +4222,20 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       return;
     }
     // HOLD POSITION (owner 2026-10-11): the squad stays put even if ordered —
-    // toggle MOVE to reposition it. Siege batteries hold by default
-    // (deployed); jump drops bypass — that's an airlift, not a ground move.
+    // release Hold in its quick-pick to reposition it. Siege batteries hold
+    // by default (deployed); jump drops bypass — that's an airlift, not a
+    // ground move.
+    // STAGING EXEMPTION (owner 2026-10-13): a squad that is ENTIRELY still
+    // in staging has nothing deployed to hold — its order is a CALL-IN,
+    // not a reposition. The gate used to refuse the rear wave here (a
+    // thunder squad holds by default), so the commander's order died on
+    // a stance the squad hadn't taken yet: "you have to pick a command
+    // before you can get the rear to come in." The call-in path below
+    // releases it; on arrival the guns dig in and hold as doctrine says.
     const squadHasThunders = squadUnits.some((u) => u.kind === "thunder" && u.state !== "dead");
-    if (squadStanceOf(sceneUISnapshot(), squadId, squadHasThunders).holdPosition) {
-      const reason = "Holding position — toggle MOVE to reposition.";
+    const entirelyStaging = squadUnits.length > 0 && squadUnits.every((u) => u.state === "staging");
+    if (!entirelyStaging && squadStanceOf(sceneUISnapshot(), squadId, squadHasThunders).holdPosition) {
+      const reason = "Holding position — release Hold in the squad's quick-pick to reposition.";
       logOrder({ squadName: name, dest: destLabel(dest.x, dest.y), verdict: "rejected", reason });
       toastRef.current = { text: reason, born: performance.now() };
       battleSfx.orderRejected();
@@ -4121,6 +4255,18 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       return;
     }
     battleSfx.orderAccepted();
+    // CALL-IN (owner 2026-10-13): if the ordered squad is still mustering
+    // in staging (the rear wave, or any squad ordered before its preset
+    // entry), the accepted order releases it NOW — its entry appointment
+    // moves up to the current clock and the sim's staging block walks it
+    // onto the field (announcing the wave as it enters). Before this, the
+    // stamp below was the whole story: the tracer drew to the destination
+    // and the log said "accepted", but staging units obey only the
+    // enterAtS clock, so the rear sat at muster for 300 sim-s (480 for
+    // the reserve) while the commander watched a line point at nothing.
+    // On-call reserves never reach this line — the hot-drop branch above
+    // commits them first.
+    releaseStagingSquad(squadUnits, simTRef.current);
     // Accepted: the squad acknowledges, plots for ORDER_DELAY_S sim-seconds,
     // then steps off — the order READS as "acknowledged/plotting" → "moving".
     // Symmetric with AI moves (the engine waits the same delay).
@@ -4509,10 +4655,10 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
               type="button"
               onClick={onClose}
               data-testid="battle-scene-close"
-              aria-label="Back to the Arena"
-              className="flex-none rounded-full border border-white/20 bg-black/55 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-200 backdrop-blur-md hover:bg-black/80"
+              aria-label="Exit the battle"
+              className="flex min-h-[44px] flex-none items-center rounded-full border border-white/20 bg-black/55 px-4 text-[11px] font-semibold uppercase tracking-wider text-zinc-200 backdrop-blur-md hover:bg-black/80"
             >
-              ✕ Arena
+              ✕ Exit
             </button>
           </div>
         </div>
@@ -4821,6 +4967,24 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
                 <p className="mt-3 text-center text-xs font-semibold text-emerald-300" data-testid="warroom-saved-flag">
                   ✓ {saveDest === "doctrine" ? "Saved to the alliance doctrine library." : "Saved in the war room — locked down and ready to deploy."}
                 </p>
+              )}
+              {/* THE EXIT (Exit Law, owner 2026-10-13): the result sheet
+                  carries its own door, in EVERY view (actions / report /
+                  save) — Retry and Re-challenge may never be the only ways
+                  out of a finished battle. Hans stood on this sheet with
+                  no way out but a undersized header pill labeled for the
+                  place he was leaving TO, not out of the battle. Full-size,
+                  44px floor, plain label. */}
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={() => { battleSfx.uiClick(); onClose(); }}
+                  data-testid="battle-result-exit"
+                  aria-label="Exit the battle"
+                  className="mt-3 flex min-h-[44px] w-full items-center justify-center rounded-lg border border-white/25 bg-white/10 px-4 text-[12px] font-extrabold uppercase tracking-wider text-white active:scale-[0.98]"
+                >
+                  🚪 Exit battle
+                </button>
               )}
             </div>
           </div>

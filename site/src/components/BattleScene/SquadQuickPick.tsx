@@ -4,7 +4,11 @@
 // quick-pick opens:
 //   FIRE CONTROL: Stop Fire / Hold Fire / Cease Fire / Weapons Free / Bombard
 //   MOVE: arm it, then tap the map or radar — the squad moves there
-//   COVER: assign this squad to cover another (e.g. cover Squad 2)
+//   COVER: "Cover…" opens the supplier picker — pick WHICH of your other
+//         squads covers THIS one (owner 2026-10-13: "when you hit that it
+//         brings up the squad so you can supply one or pick one"). The
+//         picked squad repositions onto this one in the sim and the order
+//         lands in the ORDERS log as its receipt.
 //   HOLD: hold position — only fire when the enemy enters weapon range
 // Every weapon shows its range. Buttons always render; tapping when the
 // action can't run says what needs to happen (Hans's UI rule).
@@ -12,7 +16,7 @@
 // Styling: command-console compact (owner 2026-10-12) — small, delicate,
 // dense. Tight command-console feel.
 
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import {
   subscribeSceneUI,
   sceneUISnapshot,
@@ -27,10 +31,12 @@ import {
   setSquadWeaponsHold,
   squadStanceOf,
   setSiegeAimArmed,
+  logOrder,
 } from "../../game/war/battle-scene-ui-store";
 import { battleSfx } from "../../game/war/battle-sfx";
 import {
   FIRE_MODES,
+  coverIneligibility,
   squadWeaponRangeM,
   type SquadFireMode,
 } from "../../game/war/squad-command";
@@ -82,6 +88,30 @@ export function SquadQuickPick({ squad }: { squad: SceneSquad }) {
   const targets = squadTargetIdsOf(squad.id);
   const stance = squadStanceOf(ui, squad.id, squad.hasThunders ?? false);
   const moveArmed = ui.moveArmedFor === squad.id;
+  // The cover supplier picker (owner 2026-10-13): who covers THIS squad.
+  const [coverPickOpen, setCoverPickOpen] = useState(false);
+  const coveredBy = ui.squads.find((s) => squadCoverOf(s.id) === squad.id) ?? null;
+
+  /** Order `supplier` to cover this squad — store assignment + the ORDERS
+   *  log receipt, the same receipt surface every other order lands on.
+   *  The sim's cover block does the walking (see BattleScene). */
+  const orderCover = (supplier: SceneSquad) => {
+    battleSfx.uiClick();
+    // One covering squad per covered squad: a new assignment relieves the
+    // previous supplier (it keeps its position; its orders are its own).
+    for (const s of ui.squads) {
+      if (s.id !== supplier.id && squadCoverOf(s.id) === squad.id) setSquadCover(s.id, null);
+    }
+    setSquadCover(supplier.id, squad.id);
+    logOrder({
+      squadName: supplier.name,
+      dest: squad.name,
+      verdict: "accepted",
+      kind: "comms",
+      reason: `covering ${squad.name}`,
+    });
+    setCoverPickOpen(false);
+  };
   // Weapon range: best-effort from the squad's registered kinds. The store
   // doesn't carry per-unit kinds, so fall back to a sensible default band.
   const rangeM = squadWeaponRangeM([]);
@@ -161,23 +191,97 @@ export function SquadQuickPick({ squad }: { squad: SceneSquad }) {
       />
 
       <SectionLabel>Cover</SectionLabel>
-      <div className={CMD.grid}>
-        {ui.squads
-          .filter((s) => s.id !== squad.id)
-          .map((s) => (
-            <PickBtn
-              key={s.id}
-              active={cover === s.id}
-              onClick={() => {
-                battleSfx.uiClick();
-                setSquadCover(squad.id, cover === s.id ? null : s.id);
-              }}
-              testid={`quickpick-cover-${s.id}`}
-              ariaLabel={`${squad.name}: ${cover === s.id ? "stop covering" : "cover"} ${s.name}`}
-              label={<>🛡️ {s.name}</>}
-            />
-          ))}
-      </div>
+      {coveredBy && (
+        <p className={CMD.body} data-testid={`quickpick-coveredby-${squad.id}`}>
+          🛡️ {coveredBy.name} is covering you
+          <button
+            type="button"
+            onClick={() => { battleSfx.uiClick(); setSquadCover(coveredBy.id, null); }}
+            className="ml-1.5 underline"
+            aria-label={`Release ${coveredBy.name} from covering ${squad.name}`}
+          >
+            release
+          </button>
+        </p>
+      )}
+      {!coverPickOpen ? (
+        <PickBtn
+          active={false}
+          onClick={() => { battleSfx.uiClick(); setCoverPickOpen(true); }}
+          testid="quickpick-cover-open"
+          ariaLabel={`${squad.name}: pick a squad to cover this one`}
+          label={coveredBy ? "🛡️ Change cover…" : "🛡️ Cover… pick a squad"}
+        />
+      ) : (
+        <div className={CMD.surface} data-testid="quickpick-cover-picker">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className={CMD.title}>Who covers {squad.name}?</span>
+            <button
+              type="button"
+              onClick={() => { battleSfx.uiClick(); setCoverPickOpen(false); }}
+              data-testid="quickpick-cover-close"
+              aria-label="Close the cover picker"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded border border-[var(--cmd-line)] bg-[var(--cmd-panel)] text-[11px] text-[var(--cmd-text)] active:scale-[0.97]"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex flex-col gap-1">
+            {ui.squads
+              .filter((s) => s.id !== squad.id)
+              .map((s) => {
+                // Eligibility, with the reason SHOWN on the disabled row
+                // (never silently absent) — the pure rule lives in
+                // squad-command.ts (coverIneligibility) and is unit-tested.
+                const reason = coverIneligibility(s, coveredBy?.id === s.id);
+                if (reason) {
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      disabled
+                      data-testid={`quickpick-cover-pick-${s.id}`}
+                      aria-label={`${s.name} can't cover ${squad.name}: ${reason}`}
+                      className={`${CMD.btn} ${CMD.btnH} flex w-full items-center justify-between opacity-45`}
+                    >
+                      <span>🛡️ {s.name}</span>
+                      <span className={CMD.meta}>{reason}</span>
+                    </button>
+                  );
+                }
+                const isSupplier = coveredBy?.id === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      if (isSupplier) {
+                        battleSfx.uiClick();
+                        setSquadCover(s.id, null);
+                        setCoverPickOpen(false);
+                      } else {
+                        orderCover(s);
+                      }
+                    }}
+                    data-testid={`quickpick-cover-pick-${s.id}`}
+                    aria-pressed={isSupplier}
+                    aria-label={
+                      isSupplier
+                        ? `${s.name} is covering ${squad.name} — tap to release`
+                        : `${s.name}: cover ${squad.name}`
+                    }
+                    className={`${CMD.btn} ${CMD.btnH} flex w-full items-center justify-between ${isSupplier ? CMD.btnActive : ""}`}
+                  >
+                    <span>🛡️ {s.name}</span>
+                    <span className={CMD.meta}>
+                      {isSupplier ? "covering you — tap to release" : `${s.alive}/${s.total}`}
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      )}
 
       <SectionLabel>Hold</SectionLabel>
       <PickBtn
