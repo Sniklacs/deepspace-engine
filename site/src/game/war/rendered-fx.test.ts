@@ -10,6 +10,9 @@ import { describe, test, expect } from "bun:test";
 import { Fx } from "../../components/BattleScene/effects";
 import { particleBudgetMultiplier } from "../graphics-quality";
 import {
+  explosionBrightT,
+  explosionFrameAt,
+  explosionRadiusAt,
   fireballOffsets,
   planExplosion,
   spawnExplosion,
@@ -17,6 +20,8 @@ import {
   spawnImpact,
   spawnMuzzleBloom,
   spawnVolumetricDust,
+  EXPLOSION_BRIGHT_S,
+  EXPLOSION_FRAMES,
   SPARK_GRAVITY,
   VOL_DUST_LAYERS,
 } from "./rendered-fx";
@@ -318,5 +323,86 @@ describe("spawnExplosionDust", () => {
       expect(d.lit).toBe(1);
       expect(d.maxLife).toBeGreaterThan(1);
     }
+  });
+});
+
+describe("explosion beats (Oct 13 rebuild — baked three-beat fireball)", () => {
+  test("frame index is monotonic across the bright phase and bounded", () => {
+    let prev = -1;
+    for (let i = 0; i <= 20; i++) {
+      const f = explosionFrameAt(i / 20);
+      expect(f).toBeGreaterThan(prev - 1); // never runs backwards
+      expect(f >= prev).toBe(true);
+      expect(f).toBeLessThan(EXPLOSION_FRAMES);
+      prev = f;
+    }
+    expect(explosionFrameAt(0)).toBe(0);
+    expect(explosionFrameAt(1)).toBe(EXPLOSION_FRAMES - 1);
+    expect(explosionFrameAt(-1)).toBe(0);
+    expect(explosionFrameAt(2)).toBe(EXPLOSION_FRAMES - 1);
+  });
+
+  test("radius envelope SWELLS fast, peaks, then settles — never invisible-big", () => {
+    const start = explosionRadiusAt(0);
+    const peak = explosionRadiusAt(0.35);
+    const late = explosionRadiusAt(1);
+    expect(peak).toBeGreaterThan(start * 2); // the flash beat visibly swells
+    expect(peak).toBeGreaterThan(1.2); // peak ≈1.3× the base radius
+    expect(late).toBeLessThan(peak); // settles as it cools
+    expect(late).toBeGreaterThan(start); // still substantial at the end
+  });
+
+  test("bright phase completes inside the boom's smoke lifetime", () => {
+    const fx = new Fx();
+    spawnExplosion(fx, 0, 0, 1, "cinematic");
+    const b = fx.booms[0];
+    expect(explosionBrightT(b)).toBe(0); // fresh: beat 1
+    // Age the boom past the bright window: body is done, smoke remains.
+    fx.update(EXPLOSION_BRIGHT_S + 0.3);
+    expect(explosionBrightT(b)).toBeGreaterThan(1);
+    expect(fx.booms.length + fx.dusts.length).toBeGreaterThan(0);
+  });
+
+  test("smoke puffs carry bake-variant seeds (soft sprite pick is stable)", () => {
+    const fx = new Fx();
+    spawnExplosion(fx, 0, 0, 1, "cinematic");
+    expect(fx.booms[0].smoke.length).toBeGreaterThan(0);
+    for (const sm of fx.booms[0].smoke) {
+      expect(sm.seed).toBeDefined();
+    }
+  });
+});
+
+describe("unit-death cook-off (Oct 13 rebuild)", () => {
+  test("Fx.explode with cookoff marks the boom and remembers its scale", () => {
+    const fx = new Fx();
+    fx.explode(10, 10, 2, { cookoff: true });
+    expect(fx.booms).toHaveLength(1);
+    expect(fx.booms[0].cookoff).toBe(true);
+    expect(fx.booms[0].scale).toBe(2);
+  });
+
+  test("a plain explode does not cook off", () => {
+    const fx = new Fx();
+    fx.explode(10, 10, 1);
+    fx.update(1.0);
+    expect(fx.booms).toHaveLength(1); // only the original, still smoking
+  });
+
+  test("the cook-off pops a smaller secondary once, a beat after the blast", () => {
+    const fx = new Fx();
+    fx.explode(10, 10, 2, { cookoff: true });
+    fx.update(0.5);
+    expect(fx.booms).toHaveLength(1); // not yet — the beat hasn't landed
+    fx.update(0.5); // age crosses 0.8s
+    expect(fx.booms).toHaveLength(2); // main + secondary
+    const secondary = fx.booms[1];
+    expect(secondary.cookoff).toBe(false); // no chain
+    expect(secondary.radius).toBeLessThan(fx.booms[0].radius);
+    expect(fx.booms[0].cooked).toBe(true);
+    fx.update(1.0);
+    // Secondary ages past its own window without spawning a third.
+    const cookoffs = fx.booms.filter((b) => b.cookoff);
+    expect(cookoffs.length).toBeLessThan(2);
   });
 });

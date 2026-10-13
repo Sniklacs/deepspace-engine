@@ -1,18 +1,18 @@
 // RENDERED FX — "rendered" explosion composites + volumetric dust/fireballs
-// (Seamless World spec §9, Phase 2 slice 9).
+// (Seamless World spec §9, Phase 2 slice 9; REBUILT Oct 13 2026).
 //
 // Spec §9's bar: the old single-sprite "pixel blotch" dies here. A rendered
 // explosion has STRUCTURE — a bright core, a turbulent mid fireball, an
 // outer shockwave ring, smoke that rises and lingers, and LIGHT: a
 // point-light bloom cast onto nearby terrain/units for its lifetime.
-// Fireballs are volumetric (2–3 offset radial gradients with animated noise
-// churn) and illuminate as they travel. Dust is volumetric too — layered
-// soft sprites that hang, spread, and settle, never pop in/out puffs.
 //
-// Everything here is parameterized by the graphics ladder
-// (game/graphics-quality.ts): CINEMATIC gets everything, BALANCED drops the
-// shockwave ring, PERFORMANCE gets a single shaded composite sprite (never
-// a blob). Presentation only — no sim/engine/balance changes.
+// Oct 13 2026 rebuild (owner: explosions read "thin and snare-like"): the
+// structure above is now PRE-BAKED into a sprite atlas (fireball frame
+// sequence, glow, smoke, dust, scorch) and blitted — see the "explosion
+// beats" section below for the full root-cause note. The ladder
+// (game/graphics-quality.ts) still gates companion-particle counts and the
+// shockwave ring — never the fireball's structure, at any rung.
+// Presentation only — no sim/engine/balance changes.
 //
 // The spawn/draw functions push into and read from the BattleScene Fx
 // instance (components/BattleScene/effects.ts); the Fx class owns update +
@@ -164,6 +164,7 @@ export function spawnExplosion(
   y: number,
   scale: number,
   level: GraphicsLevel,
+  cookoff = false,
 ): void {
   const plan = planExplosion(level);
   const budget = particleBudgetMultiplier(level);
@@ -191,13 +192,17 @@ export function spawnExplosion(
     // Lingering column: longer life, stronger rise, growth in update().
     const life = 2.2 + Math.random() * 1.6;
     smoke.push({
-      x: x + (Math.random() - 0.5) * 20,
-      y: y + (Math.random() - 0.5) * 20,
+      // Spread across the blast, not clumped dead-center: a tight cluster
+      // of dark puffs over the young fireball reads as a black hole in its
+      // heart (Oct 13 rebuild capture pass).
+      x: x + (Math.random() - 0.5) * Math.max(20, 46 * scale * 0.9),
+      y: y + (Math.random() - 0.5) * Math.max(20, 46 * scale * 0.55),
       vx: Math.cos(a) * 24,
       vy: -26 - Math.random() * 26,
       life,
       maxLife: 3.8,
       size: 10 + Math.random() * 14,
+      seed: Math.random() * Math.PI * 2,
     });
   }
   fx.booms.push({
@@ -210,6 +215,8 @@ export function spawnExplosion(
     smoke,
     churnSeed: (Math.random() * 1e9) | 0,
     composite: plan.composite,
+    cookoff,
+    scale,
   });
   if (fx.booms.length > 40) fx.booms.splice(0, fx.booms.length - 40);
 
@@ -424,117 +431,427 @@ export function spawnMuzzleBloom(
   if (fx.blooms.length > 60) fx.blooms.splice(0, fx.blooms.length - 60);
 }
 
+// ---- explosion beats (pure timing — the three-beat read) --------------------
+//
+// Owner verdict (Oct 13 2026): the old explosions read THIN and snare-like.
+// Root causes found in the draw path: (1) every boom/bloom/dust/flash built
+// fresh radial gradients EVERY FRAME — on Android that blew the AUTO ladder's
+// 20ms frame budget, so AUTO demoted the graphics rung mid-fight and the
+// explosion collapsed to the single-gradient PERFORMANCE composite (one soft
+// circle + ~4 dots); (2) the POV renderer never got the rendered explosion
+// at all — one gradient blob; (3) smoke was hard-edged flat discs.
+//
+// The rebuild: the fireball is a PRE-BAKED frame sequence (baked once,
+// offscreen — gradients are legal at bake time, banned per-frame), played
+// back in three beats inside EXPLOSION_BRIGHT_S:
+//   beat 1 — white-hot core flash that SWELLS (radius envelope peaks ~1.3×),
+//   beat 2 — turbulent fireball, cooling white → orange → deep red,
+//   beat 3 — the body dies into the lingering smoke + embers (spawned data).
+// Every rung blits the same baked frames; the ladder still gates how many
+// companion particles (sparks/chunks/embers/smoke) ride along — never the
+// fireball's structure. Draw calls per frame: drawImage only.
+
+/** Baked fireball frames across the bright phase. */
+export const EXPLOSION_FRAMES = 10;
+/** Seconds the fireball body lives (the boom's smoke/embers outlive it). */
+export const EXPLOSION_BRIGHT_S = 0.95;
+
+/** Frame index for bright-phase progress t01 ∈ [0,1] — monotonic, bounded. */
+export function explosionFrameAt(t01: number): number {
+  const t = Math.max(0, Math.min(1, t01));
+  return Math.min(EXPLOSION_FRAMES - 1, Math.floor(t * EXPLOSION_FRAMES));
+}
+
+/**
+ * Fireball radius envelope over the bright phase, as a multiple of the
+ * boom's base radius: a fast swell to ≈1.3× by t≈0.3 (the flash beat),
+ * then a slow settle as it cools. The old body grew while fading — biggest
+ * when nearly invisible — which is half of why it read thin.
+ */
+export function explosionRadiusAt(t01: number): number {
+  const t = Math.max(0, Math.min(1, t01));
+  const swellIn = Math.min(1, t / 0.3);
+  const swell = 1 - Math.pow(1 - swellIn, 3); // easeOutCubic
+  return (0.5 + 0.85 * swell) * (1 - 0.12 * t);
+}
+
+/** Bright-phase progress 0..1 for a boom (≥1 = body has died into smoke). */
+export function explosionBrightT(b: Boom): number {
+  const age = b.maxLife - b.life;
+  // Per-boom rate variance from the churn seed so simultaneous booms don't
+  // march in lockstep.
+  const rate = 0.92 + (((b.churnSeed >> 3) % 17) / 100);
+  return Math.max(0, Math.min(1.2, (age / EXPLOSION_BRIGHT_S) * rate));
+}
+
+// ---- pre-baked sprite atlas (bake once, blit forever) -----------------------
+
+type FxCanvas = HTMLCanvasElement;
+
+interface FxAtlas {
+  /** Fireball frame sequence (256px), index = explosionFrameAt(brightT). */
+  fire: FxCanvas[];
+  /** Soft warm light (blooms, flash bodies). */
+  glowWarm: FxCanvas;
+  /** Near-white hot light (impact/muzzle flash cores). */
+  glowHot: FxCanvas;
+  /** Soft irregular smoke puffs (128px), variant per smoke seed. */
+  smoke: FxCanvas[];
+  /** Soft dust puff, cool tan. */
+  dust: FxCanvas;
+  /** Soft dust puff, blast-lit orange. */
+  dustLit: FxCanvas;
+  /** Dark irregular ground scorch. */
+  scorch: FxCanvas;
+}
+
+let atlasCache: FxAtlas | null | undefined;
+
+/** Deterministic RNG (mulberry32) — bakes are stable frame to frame. */
+function bakeRng(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let z = s;
+    z = Math.imul(z ^ (z >>> 15), z | 1);
+    z ^= z + Math.imul(z ^ (z >>> 7), z | 61);
+    return ((z ^ (z >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function bakeCanvas(size: number): FxCanvas | null {
+  if (typeof document === "undefined") return null;
+  const cv = document.createElement("canvas");
+  cv.width = size;
+  cv.height = size;
+  return cv;
+}
+
+/** Fire sprite geometry: solid fire reaches BAKE_FIRE_R of the half-size. */
+const FIRE_HALF = 128;
+const FIRE_R = 92;
+export const FIRE_SPRITE_OVERHANG = FIRE_HALF / FIRE_R;
+
+/** Cooling color ramp shared by the bake (same stops the old body used). */
+function coolRamp(t: number): {
+  inner: [number, number, number];
+  mid: [number, number, number];
+  hot: [number, number, number];
+} {
+  const cool = Math.min(1, t * 1.4);
+  return {
+    inner: [
+      Math.round(255 - 75 * cool),
+      Math.round(252 - 175 * cool),
+      Math.round(240 - 210 * cool),
+    ],
+    mid: [
+      Math.round(255 - 95 * cool),
+      Math.round(220 - 160 * cool),
+      Math.round(150 - 130 * cool),
+    ],
+    hot: [
+      Math.round(255 - 115 * cool),
+      Math.round(150 - 100 * cool),
+      Math.round(50 - 35 * cool),
+    ],
+  };
+}
+
+function rgb(c: [number, number, number], a: number): string {
+  return `rgba(${c[0]},${c[1]},${c[2]},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+}
+
+function bakeFireFrame(t: number, frameIdx: number): FxCanvas | null {
+  const cv = bakeCanvas(FIRE_HALF * 2);
+  if (!cv) return null;
+  const g = cv.getContext("2d");
+  if (!g) return null;
+  const rnd = bakeRng(0xf17e + frameIdx * 7919);
+  const C = FIRE_HALF;
+  const ramp = coolRamp(t);
+
+  // Dark turbulent rim — overlapping smoky lobes, stronger as it cools.
+  const rimN = 7;
+  for (let i = 0; i < rimN; i++) {
+    const ang = (i / rimN) * Math.PI * 2 + rnd() * 0.7;
+    const dist = FIRE_R * (0.55 + rnd() * 0.35);
+    const r = FIRE_R * (0.34 + rnd() * 0.22);
+    const x = C + Math.cos(ang) * dist;
+    const y = C + Math.sin(ang) * dist;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, `rgba(96,38,16,${0.34 + 0.3 * t})`);
+    gr.addColorStop(1, "rgba(60,22,10,0)");
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  }
+  // Turbulent fireball lobes (baked churn — per-frame positions, no runtime cost).
+  const lobeN = 5;
+  for (let i = 0; i < lobeN; i++) {
+    const ang = rnd() * Math.PI * 2;
+    const dist = FIRE_R * (0.12 + rnd() * 0.4);
+    const r = FIRE_R * (0.5 + rnd() * 0.3);
+    const x = C + Math.cos(ang) * dist;
+    const y = C + Math.sin(ang) * dist;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, rgb(ramp.hot, 0.5));
+    gr.addColorStop(0.6, "rgba(220,80,25,0.28)");
+    gr.addColorStop(1, "rgba(120,30,10,0)");
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  }
+  // Mid body.
+  {
+    const gr = g.createRadialGradient(C, C, 0, C, C, FIRE_R * 0.78);
+    gr.addColorStop(0, rgb(ramp.mid, 0.72));
+    gr.addColorStop(1, "rgba(255,140,50,0)");
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(C, C, FIRE_R * 0.78, 0, Math.PI * 2); g.fill();
+  }
+  // White-hot core — biggest and brightest in the flash beat, cools/shrinks.
+  {
+    const coreR = FIRE_R * (0.62 - 0.38 * t);
+    const gr = g.createRadialGradient(C, C, 0, C, C, coreR);
+    gr.addColorStop(0, rgb(ramp.inner, 0.98));
+    gr.addColorStop(0.6, rgb(ramp.mid, 0.8));
+    gr.addColorStop(1, "rgba(255,160,60,0)");
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(C, C, coreR, 0, Math.PI * 2); g.fill();
+  }
+  // Beat 1 flash: an extra near-white wash over the whole ball.
+  if (t < 0.3) {
+    const gr = g.createRadialGradient(C, C, 0, C, C, FIRE_R * 1.05);
+    gr.addColorStop(0, `rgba(255,252,240,${0.55 * (1 - t / 0.3)})`);
+    gr.addColorStop(1, "rgba(255,240,200,0)");
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(C, C, FIRE_R * 1.05, 0, Math.PI * 2); g.fill();
+  }
+  // Beat 3: smoke creeps in over the cooling fire.
+  if (t > 0.5) {
+    const sa = (t - 0.5) * 0.8;
+    for (let i = 0; i < 4; i++) {
+      const ang = rnd() * Math.PI * 2;
+      const dist = FIRE_R * (0.3 + rnd() * 0.5);
+      const r = FIRE_R * (0.4 + rnd() * 0.3);
+      const x = C + Math.cos(ang) * dist;
+      const y = C + Math.sin(ang) * dist - FIRE_R * 0.1;
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, `rgba(28,24,22,${sa})`);
+      gr.addColorStop(1, "rgba(28,24,22,0)");
+      g.fillStyle = gr;
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+  }
+  return cv;
+}
+
+function bakeGlow(inner: string, mid: string): FxCanvas | null {
+  const cv = bakeCanvas(128);
+  if (!cv) return null;
+  const g = cv.getContext("2d");
+  if (!g) return null;
+  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, inner);
+  gr.addColorStop(0.4, mid);
+  gr.addColorStop(1, "rgba(255,150,50,0)");
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 128, 128);
+  return cv;
+}
+
+function bakePuff(
+  seed: number,
+  stops: [number, string][],
+  baseR: number,
+): FxCanvas | null {
+  const cv = bakeCanvas(128);
+  if (!cv) return null;
+  const g = cv.getContext("2d");
+  if (!g) return null;
+  const rnd = bakeRng(seed);
+  // One soft body + a few offset lobes so the silhouette is irregular.
+  const blobs: [number, number, number][] = [[64, 64, baseR]];
+  for (let i = 0; i < 4; i++) {
+    const ang = rnd() * Math.PI * 2;
+    const dist = 12 + rnd() * 18;
+    blobs.push([64 + Math.cos(ang) * dist, 64 + Math.sin(ang) * dist, baseR * (0.55 + rnd() * 0.3)]);
+  }
+  for (const [x, y, r] of blobs) {
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    for (const [off, col] of stops) gr.addColorStop(off, col);
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  }
+  return cv;
+}
+
+function bakeAtlas(): FxAtlas | null {
+  const fire: FxCanvas[] = [];
+  for (let i = 0; i < EXPLOSION_FRAMES; i++) {
+    const f = bakeFireFrame(i / (EXPLOSION_FRAMES - 1), i);
+    if (!f) return null;
+    fire.push(f);
+  }
+  const glowWarm = bakeGlow("rgba(255,205,130,0.55)", "rgba(255,160,70,0.26)");
+  const glowHot = bakeGlow("rgba(255,246,220,0.9)", "rgba(255,205,120,0.4)");
+  const smokeStops: [number, string][] = [
+    [0, "rgba(38,33,30,0.82)"],
+    [0.6, "rgba(34,30,28,0.45)"],
+    [1, "rgba(30,26,24,0)"],
+  ];
+  const smoke: FxCanvas[] = [];
+  for (let i = 0; i < 3; i++) {
+    const s = bakePuff(0x5100 + i * 331, smokeStops, 46);
+    if (!s) return null;
+    smoke.push(s);
+  }
+  const dust = bakePuff(0xd057, [
+    [0, "rgba(203,185,143,0.5)"],
+    [0.7, "rgba(203,185,143,0.25)"],
+    [1, "rgba(203,185,143,0)"],
+  ], 52);
+  const dustLit = bakePuff(0xd118, [
+    [0, "rgba(255,150,60,0.55)"],
+    [0.7, "rgba(240,130,55,0.27)"],
+    [1, "rgba(230,120,50,0)"],
+  ], 52);
+  const scorch = bakePuff(0x5c09, [
+    [0, "rgba(10,7,5,0.88)"],
+    [0.7, "rgba(14,9,7,0.5)"],
+    [1, "rgba(16,10,8,0)"],
+  ], 54);
+  if (!glowWarm || !glowHot || !dust || !dustLit || !scorch) return null;
+  return { fire, glowWarm, glowHot, smoke, dust, dustLit, scorch };
+}
+
+/** The baked FX atlas — baked lazily on first use, null where canvas is unavailable (tests/SSR). */
+export function fxAtlas(): FxAtlas | null {
+  if (atlasCache === undefined) {
+    try {
+      atlasCache = bakeAtlas();
+    } catch {
+      atlasCache = null;
+    }
+  }
+  return atlasCache;
+}
+
+/**
+ * Blit the baked warm/hot light sprite — replaces every per-frame radial
+ * gradient the flash/bloom paths used to build. Caller owns composite mode
+ * (blooms/flashes draw inside the "lighter" pass).
+ */
+export function drawGlowAt(
+  c: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  alpha: number,
+  hot = false,
+): void {
+  const at = fxAtlas();
+  if (!at || r <= 0 || alpha <= 0) return;
+  c.globalAlpha = Math.max(0, Math.min(1, alpha));
+  c.drawImage(hot ? at.glowHot : at.glowWarm, x - r, y - r, r * 2, r * 2);
+  c.globalAlpha = 1;
+}
+
+/**
+ * Blit one baked smoke puff (soft, irregular — never the old hard disc).
+ * `seed` picks the variant; the puff's own alpha profile does the soft edge.
+ */
+export function drawSmokePuff(
+  c: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  alpha: number,
+  seed: number,
+): void {
+  const at = fxAtlas();
+  if (!at || r <= 0 || alpha <= 0) return;
+  const idx = Math.abs(Math.floor(seed * 7)) % at.smoke.length;
+  c.globalAlpha = Math.max(0, Math.min(1, alpha));
+  c.drawImage(at.smoke[idx], x - r, y - r, r * 2, r * 2);
+  c.globalAlpha = 1;
+}
+
+/** Blit the baked scorch decal, stretched to an ellipse (ground-plane views). */
+export function drawScorchAt(
+  c: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  rx: number,
+  ry: number,
+  alpha: number,
+): void {
+  const at = fxAtlas();
+  if (!at || rx <= 0 || ry <= 0 || alpha <= 0) return;
+  c.globalAlpha = Math.max(0, Math.min(1, alpha));
+  c.drawImage(at.scorch, x - rx, y - ry, rx * 2, ry * 2);
+  c.globalAlpha = 1;
+}
+
 // ---- draw helpers (called from the scene's fx draw passes) -----------------
 
 function alphaOf(life: number, maxLife: number): number {
   return Math.max(0, Math.min(1, life / maxLife));
 }
 
-/** "#rrggbb" + alpha → rgba() string. */
-function hexA(hex: string, a: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
-}
-
 /**
  * Point-light bloom: drawn in the "lighter" pass over ground AND units so
  * the flash genuinely casts light on the scene for its lifetime.
+ * Blits the baked glow sprite — no per-frame gradient (Oct 13 rebuild).
  */
 export function drawBloom(c: CanvasRenderingContext2D, b: Bloom): void {
   const a = alphaOf(b.life, b.maxLife);
   if (a <= 0 || b.radius <= 0) return;
-  const g = c.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.radius);
-  g.addColorStop(0, hexA(b.color, 0.3 * a));
-  g.addColorStop(1, hexA(b.color, 0));
-  c.globalAlpha = 1;
-  c.fillStyle = g;
-  c.beginPath();
-  c.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
-  c.fill();
+  drawGlowAt(c, b.x, b.y, b.radius, a);
 }
 
 /**
- * The explosion body: either the PERFORMANCE single shaded composite sprite
- * (structured multi-stop gradient — bright heart, hot mid, dark turbulent
- * rim — never a blob) or the CINEMATIC/BALANCED core + churning fireball
- * layers + hot debris particles.
- *
- * The fireball COOLS as it ages — white-hot at birth, deep red as it dies —
- * and RISES on its own heat. That's what makes it read as fire, not a blob.
+ * The explosion body, projected or not: blit the baked fireball frame for
+ * the boom's bright-phase beat at an explicit center + solid-fire radius.
+ * Shared by the top-down pass (drawExplosionBody) and the POV renderer, so
+ * BOTH modes finally show the same rendered explosion (the POV path used to
+ * draw a lone gradient blob). After the bright phase the body is gone —
+ * smoke, embers, and scorch carry the tail.
+ */
+export function drawExplosionBodyAt(
+  c: CanvasRenderingContext2D,
+  b: Boom,
+  cx: number,
+  cy: number,
+  fireR: number,
+): void {
+  const at = fxAtlas();
+  if (!at || fireR <= 0) return;
+  const bt = explosionBrightT(b);
+  if (bt >= 1) return;
+  const frame = at.fire[explosionFrameAt(bt)];
+  const half = fireR * FIRE_SPRITE_OVERHANG;
+  // Fade the body out across the last fifth of the bright phase.
+  const fade = bt > 0.8 ? 1 - (bt - 0.8) * 5 * 0.7 : 1;
+  c.globalAlpha = Math.max(0, Math.min(1, fade));
+  c.drawImage(frame, cx - half, cy - half, half * 2, half * 2);
+  c.globalAlpha = 1;
+}
+
+/**
+ * The explosion body (top-down pass): the baked three-beat fireball —
+ * swelling white-hot flash → turbulent cooling fireball → gone, leaving
+ * smoke and embers — plus the boom's hot debris particles. The composite
+ * (PERFORMANCE) boom blits the same frames: one sprite, but a structured,
+ * animated one — never the old single static gradient blob.
  */
 export function drawExplosionBody(c: CanvasRenderingContext2D, b: Boom): void {
   const a = alphaOf(b.life, b.maxLife);
   if (a <= 0) return;
-  const t = 1 - a; // 0 = fresh, 1 = dying
-  const R = b.radius * (1.6 - a * 0.6);
+  const bt = explosionBrightT(b);
+  const R = b.radius * explosionRadiusAt(Math.min(1, bt));
   // Hot air rises — the fireball climbs as it cools.
-  const riseY = -t * R * 0.35;
-  const bx = b.x;
-  const by = b.y + riseY;
-
-  // Color ramp: white → yellow → orange → deep red, parameterized by age.
-  // lerp3(t, fresh, mid, dying) across the stops.
-  const cool = Math.min(1, t * 1.4);
-  const coreInner: [number, number, number] = [
-    Math.round(255 - 75 * cool),
-    Math.round(252 - 175 * cool),
-    Math.round(240 - 210 * cool),
-  ];
-  const coreMid: [number, number, number] = [
-    Math.round(255 - 95 * cool),
-    Math.round(220 - 160 * cool),
-    Math.round(150 - 130 * cool),
-  ];
-  const fireHot: [number, number, number] = [
-    Math.round(255 - 115 * cool),
-    Math.round(150 - 100 * cool),
-    Math.round(50 - 35 * cool),
-  ];
-
-  if (b.composite) {
-    // One sprite, but SHAPED: the rim wobble keeps it from reading as a blob.
-    const rimStop = 0.5 + 0.12 * Math.sin(b.churnSeed * 0.001 + t * 9);
-    const g = c.createRadialGradient(bx, by, 0, bx, by, R);
-    g.addColorStop(0, `rgba(${coreInner[0]},${coreInner[1]},${coreInner[2]},${0.95 * a})`);
-    g.addColorStop(0.35, `rgba(${coreMid[0]},${coreMid[1]},${coreMid[2]},${0.75 * a})`);
-    g.addColorStop(rimStop, `rgba(150,60,20,${0.5 * a})`);
-    g.addColorStop(1, "rgba(40,20,12,0)");
-    c.globalAlpha = 1;
-    c.fillStyle = g;
-    c.beginPath();
-    c.arc(bx, by, R, 0, Math.PI * 2);
-    c.fill();
-    return;
-  }
-
-  // Bright core — near-white at birth, cooling through yellow to orange.
-  const core = c.createRadialGradient(bx, by, 0, bx, by, R * 0.55);
-  core.addColorStop(0, `rgba(${coreInner[0]},${coreInner[1]},${coreInner[2]},${0.95 * a})`);
-  core.addColorStop(0.6, `rgba(${coreMid[0]},${coreMid[1]},${coreMid[2]},${0.7 * a})`);
-  core.addColorStop(1, "rgba(255,160,60,0)");
-  c.globalAlpha = 1;
-  c.fillStyle = core;
-  c.beginPath();
-  c.arc(bx, by, R * 0.55, 0, Math.PI * 2);
-  c.fill();
-
-  // Turbulent mid fireball: the offset layers roil as the boom ages, and
-  // they cool from bright orange toward deep red.
-  for (const L of fireballOffsets(b.churnSeed, t)) {
-    const lx = bx + L.dx * R;
-    const ly = by + L.dy * R;
-    const lr = R * L.scale;
-    const g = c.createRadialGradient(lx, ly, 0, lx, ly, lr);
-    g.addColorStop(0, `rgba(${fireHot[0]},${fireHot[1]},${fireHot[2]},${0.55 * a})`);
-    g.addColorStop(0.6, `rgba(220,80,25,${0.3 * a})`);
-    g.addColorStop(1, "rgba(120,30,10,0)");
-    c.fillStyle = g;
-    c.beginPath();
-    c.arc(lx, ly, lr, 0, Math.PI * 2);
-    c.fill();
-  }
+  const riseY = -Math.min(1, bt) * R * 0.3;
+  drawExplosionBodyAt(c, b, b.x, b.y + riseY, R);
 
   // Hot debris particles.
   for (const p of b.particles) {
@@ -606,14 +923,10 @@ export function drawTracerBeam(c: CanvasRenderingContext2D, tr: Tracer): void {
   c.globalAlpha = a;
   c.lineWidth = Math.max(1, w * 0.7);
   c.beginPath(); c.moveTo(tr.x1, tr.y1); c.lineTo(tr.x2, tr.y2); c.stroke();
-  // Head: the bright point where the shot is landing.
-  const hg = c.createRadialGradient(tr.x2, tr.y2, 0, tr.x2, tr.y2, w * 3);
-  hg.addColorStop(0, `rgba(255,255,250,${0.9 * a})`);
-  hg.addColorStop(0.4, hexA(tr.color, 0.5 * a));
-  hg.addColorStop(1, hexA(tr.color, 0));
-  c.globalAlpha = 1;
-  c.fillStyle = hg;
-  c.beginPath(); c.arc(tr.x2, tr.y2, w * 3, 0, Math.PI * 2); c.fill();
+  // Head: the bright point where the shot is landing (baked glow blit —
+  // tracers are the most numerous fx; per-frame gradients here were a
+  // real hot-loop cost).
+  drawGlowAt(c, tr.x2, tr.y2, w * 3, 0.9 * a, true);
   c.globalAlpha = 1;
 }
 
@@ -649,27 +962,20 @@ export function drawShell(c: CanvasRenderingContext2D, s: Shell): void {
   const x = s.x1 + (s.x2 - s.x1) * t;
   const y = s.y1 + (s.y2 - s.y1) * t - Math.sin(t * Math.PI) * s.arc;
   const r = 5 * s.size;
-  // hot glow around the shell
-  const g = c.createRadialGradient(x, y, 0, x, y, r * 4);
-  g.addColorStop(0, "rgba(255,220,160,0.9)");
-  g.addColorStop(0.4, "rgba(255,150,60,0.45)");
-  g.addColorStop(1, "rgba(255,120,40,0)");
-  c.fillStyle = g;
-  c.beginPath(); c.arc(x, y, r * 4, 0, Math.PI * 2); c.fill();
+  // hot glow around the shell (baked glow blit — no per-frame gradients)
+  drawGlowAt(c, x, y, r * 4, 0.9);
   // the shell body — dark with a burning rim
   c.fillStyle = "#2a1a10";
   c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
   c.strokeStyle = "#ffb347";
   c.lineWidth = 1.6;
   c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke();
-  // fire trail along the arc behind it
+  // fire trail along the arc behind it — a tapered solid stroke (round cap)
+  // reads the same at shell scale and builds no gradient.
   const tb = Math.max(0, t - 0.08);
   const tx = s.x1 + (s.x2 - s.x1) * tb;
   const ty = s.y1 + (s.y2 - s.y1) * tb - Math.sin(tb * Math.PI) * s.arc;
-  const tg = c.createLinearGradient(tx, ty, x, y);
-  tg.addColorStop(0, "rgba(255,140,50,0)");
-  tg.addColorStop(1, "rgba(255,180,90,0.7)");
-  c.strokeStyle = tg;
+  c.strokeStyle = "rgba(255,165,80,0.5)";
   c.lineWidth = r * 1.2;
   c.lineCap = "round";
   c.beginPath(); c.moveTo(tx, ty); c.lineTo(x, y); c.stroke();
@@ -722,13 +1028,7 @@ export function drawScorch(c: CanvasRenderingContext2D, s: Scorch): void {
   if (a <= 0) return;
   // Scorches linger: full strength for the first half of life, then fade.
   const hold = a > 0.5 ? 1 : a * 2;
-  const g = c.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.radius);
-  g.addColorStop(0, `rgba(12,8,6,${0.55 * hold})`);
-  g.addColorStop(0.7, `rgba(16,10,8,${0.3 * hold})`);
-  g.addColorStop(1, "rgba(16,10,8,0)");
-  c.globalAlpha = 1;
-  c.fillStyle = g;
-  c.beginPath(); c.arc(s.x, s.y, s.radius, 0, Math.PI * 2); c.fill();
+  drawScorchAt(c, s.x, s.y, s.radius, s.radius, hold * 0.75);
 }
 
 /**
@@ -740,22 +1040,17 @@ export function drawScorch(c: CanvasRenderingContext2D, s: Scorch): void {
 export function drawVolDust(c: CanvasRenderingContext2D, d: Dust): void {
   const ageA = Math.min(1, d.age / 0.35); // fade-in — no pop
   const outA = alphaOf(d.life, d.maxLife);
-  const a = ageA * outA * 0.3;
+  const a = ageA * outA * 0.62;
   if (a <= 0) return;
+  const at = fxAtlas();
+  if (!at) return;
   const cx = d.x + Math.cos(d.churn + d.age * 1.3) * d.size * 0.22;
   const cy = d.y + Math.sin(d.churn * 1.3 + d.age * 1.7) * d.size * 0.22;
-  // Cool tan → hot orange, driven by blast lighting.
-  const lit = Math.max(0, Math.min(1, d.lit));
-  const r = Math.round(203 + (255 - 203) * lit);
-  const g = Math.round(185 + (140 - 185) * lit);
-  const b = Math.round(143 + (50 - 143) * lit);
-  const grad = c.createRadialGradient(cx, cy, 0, cx, cy, d.size);
-  grad.addColorStop(0, `rgba(${r},${g},${b},${a})`);
-  grad.addColorStop(0.7, `rgba(${r},${g},${b},${a * 0.5})`);
-  grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  // Cool tan → hot orange, driven by blast lighting: pick the baked variant
+  // (the puff count is the highest of any fx — per-puff gradients were a
+  // top hot-loop cost; the blit keeps the churn/alpha motion identical).
+  const spr = d.lit >= 0.4 ? at.dustLit : at.dust;
+  c.globalAlpha = Math.max(0, Math.min(1, a));
+  c.drawImage(spr, cx - d.size, cy - d.size, d.size * 2, d.size * 2);
   c.globalAlpha = 1;
-  c.fillStyle = grad;
-  c.beginPath();
-  c.arc(cx, cy, d.size, 0, Math.PI * 2);
-  c.fill();
 }

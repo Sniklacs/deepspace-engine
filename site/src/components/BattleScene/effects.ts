@@ -33,11 +33,17 @@ export interface Flash {
 export interface Boom {
   x: number; y: number; life: number; maxLife: number; radius: number;
   particles: { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; color: string }[];
-  smoke: { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number }[];
+  smoke: { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; size: number; seed?: number }[];
   /** Seeded churn phase for the volumetric fireball layers (rendered-fx). */
   churnSeed: number;
   /** PERFORMANCE path: draw the single shaded composite sprite. */
   composite: boolean;
+  /** Unit-death cook-off: as this boom ages it pops a secondary blast. */
+  cookoff?: boolean;
+  /** Set once the cook-off secondary has fired. */
+  cooked?: boolean;
+  /** The scale the boom was spawned at (cook-off sizing). */
+  scale?: number;
 }
 export interface Ring {
   x: number; y: number; life: number; maxLife: number; maxR: number; color: string; width: number;
@@ -189,13 +195,15 @@ export class Fx {
     this.rings.push({ x, y, life: 0.45, maxLife: 0.45, maxR: 26, color: "rgba(125,211,252,0.8)", width: 2, kind: "shield" });
   }
 
-  explode(x: number, y: number, scale = 1): void {
+  explode(x: number, y: number, scale = 1, opts?: { cookoff?: boolean }): void {
     // SEAMLESS-WORLD §9 (slice 9): the rendered 3-layer composite
     // (core + turbulent fireball + shockwave) + bloom + lingering smoke
     // column + impact sparks — ladder-gated inside rendered-fx. The slice-8
     // particle-budget hook stays the spawn path's budget; trauma is sim-adjacent
     // timing (presentation) and is untouched.
-    spawnExplosion(this, x, y, scale, resolveGraphicsLevel());
+    // Oct 13 2026 rebuild: cookoff marks unit deaths — when the boom dies,
+    // update() pops a smaller secondary blast + ember burst (the cook-off).
+    spawnExplosion(this, x, y, scale, resolveGraphicsLevel(), opts?.cookoff ?? false);
     this.trauma = Math.min(1, this.trauma + 0.35 * scale);
   }
 
@@ -272,6 +280,29 @@ export class Fx {
         p.vx *= 1 - 2.4 * dt; p.vy *= 1 - 2.4 * dt;
       }
       for (const s of b.smoke) { s.life -= dt; s.x += s.vx * dt; s.y += s.vy * dt; s.size += 14 * dt; }
+      // COOK-OFF (owner, Oct 13 2026): a dying unit's stored energy pops a
+      // beat after the main fireball — a smaller secondary explosion plus an
+      // ember burst, fired once as the boom ages past the bright phase. The
+      // secondary is NOT itself a cook-off (no chain).
+      if (b.cookoff && !b.cooked && b.maxLife - b.life >= 0.8) {
+        b.cooked = true;
+        this.explode(b.x, b.y, (b.scale ?? 1) * 0.55);
+        for (let k = 0; k < 8; k++) {
+          const a2 = Math.random() * Math.PI * 2;
+          const life = 0.9 + Math.random() * 1.1;
+          this.embers.push({
+            x: b.x + (Math.random() - 0.5) * 16,
+            y: b.y + (Math.random() - 0.5) * 16,
+            vx: Math.cos(a2) * (30 + Math.random() * 70),
+            vy: -50 - Math.random() * 80,
+            life,
+            maxLife: life,
+            size: 1.2 + Math.random() * 1.6,
+            seed: Math.random() * Math.PI * 2,
+          });
+        }
+        if (this.embers.length > 160) this.embers.splice(0, this.embers.length - 160);
+      }
       if (b.life <= 0) this.booms.splice(i, 1);
     }
     this.trauma = Math.max(0, this.trauma - dt * 1.6);

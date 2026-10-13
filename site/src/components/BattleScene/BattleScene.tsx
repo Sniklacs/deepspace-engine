@@ -211,9 +211,15 @@ import {
   drawDebrisChunks,
   drawEmbers,
   drawExplosionBody,
+  drawExplosionBodyAt,
+  drawGlowAt,
+  explosionBrightT,
+  explosionRadiusAt,
   drawScorch,
+  drawScorchAt,
   drawShockwave,
   drawShell,
+  drawSmokePuff,
   drawSpark,
   drawTracerBeam,
   drawTracerSlug,
@@ -1041,7 +1047,9 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       u.state = "dead";
       u.hp01 = 0;
       u.shield01 = 0;
-      fx.explode(X(u.x), Y(u.y), u.kind === "thunder" ? 1.5 : 1);
+      // Deaths cook off (Oct 13 2026 FX rebuild): the main blast pops a
+      // smaller secondary a beat later — stored energy going up.
+      fx.explode(X(u.x), Y(u.y), u.kind === "thunder" ? 1.5 : 1, { cookoff: true });
       battleSfx.explosion(u.x, u.y, u.kind === "thunder");
       bumpKill(u.side as "attacker" | "defender");
       radarPing(u.x, u.y, "kill");
@@ -2461,9 +2469,8 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           const e = groundEllipse(cam, w, h, fx2w(sc.x), fy2w(sc.y), sc.radius / w);
           if (!e) continue;
           c.save();
-          c.globalAlpha = a01(sc.life, sc.maxLife) * 0.5;
-          c.fillStyle = "#14100c";
-          c.beginPath(); c.ellipse(e.sx, e.sy, e.rx, e.ry, 0, 0, Math.PI * 2); c.fill();
+          // Baked scorch sprite stretched to the ground ellipse (Oct 13).
+          drawScorchAt(c, e.sx, e.sy, e.rx, e.ry, a01(sc.life, sc.maxLife) * 0.8);
           c.restore();
         }
         c.save();
@@ -2512,12 +2519,8 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           const p = P(fx2w(gx), fy2w(gy), wz);
           if (!p.visible) continue;
           const r = Math.max(1.6, sh.size * 0.006 * p.scale);
-          const g = c.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, r * 3);
-          g.addColorStop(0, "rgba(255,220,160,0.95)");
-          g.addColorStop(0.4, "rgba(255,160,60,0.55)");
-          g.addColorStop(1, "rgba(255,140,40,0)");
-          c.fillStyle = g;
-          c.beginPath(); c.arc(p.sx, p.sy, r * 3, 0, Math.PI * 2); c.fill();
+          // Baked glow blit (Oct 13 FX rebuild) — was a per-frame gradient.
+          drawGlowAt(c, p.sx, p.sy, r * 3, 0.9);
           c.fillStyle = "#fff3d6";
           c.beginPath(); c.arc(p.sx, p.sy, r, 0, Math.PI * 2); c.fill();
         }
@@ -2526,34 +2529,24 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           if (!p.visible) continue;
           const a = a01(f.life, f.maxLife);
           const rr = (f.radius / w) * p.scale;
-          const g2 = c.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, Math.max(2, rr));
-          g2.addColorStop(0, `rgba(255,240,200,${0.9 * a})`);
-          g2.addColorStop(1, "rgba(255,180,80,0)");
-          c.fillStyle = g2;
-          c.beginPath(); c.arc(p.sx, p.sy, Math.max(2, rr), 0, Math.PI * 2); c.fill();
+          drawGlowAt(c, p.sx, p.sy, Math.max(2, rr), 0.95 * a, true);
         }
         for (const bl of fx.blooms) {
           const p = P(fx2w(bl.x), fy2w(bl.y), 0.02);
           if (!p.visible) continue;
           const a = a01(bl.life, bl.maxLife);
           const rr = Math.max(2, (bl.radius / w) * p.scale);
-          const g2 = c.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, rr);
-          g2.addColorStop(0, `rgba(255,200,120,${0.35 * a})`);
-          g2.addColorStop(1, "rgba(255,160,60,0)");
-          c.fillStyle = g2;
-          c.beginPath(); c.arc(p.sx, p.sy, rr, 0, Math.PI * 2); c.fill();
+          drawGlowAt(c, p.sx, p.sy, rr, 0.8 * a);
         }
         for (const b of fx.booms) {
           const p = P(fx2w(b.x), fy2w(b.y), 0.01);
           if (!p.visible) continue;
-          const a = a01(b.life, b.maxLife);
           const rr = Math.max(3, (b.radius / w) * p.scale);
-          const g2 = c.createRadialGradient(p.sx, p.sy - rr * 0.4, 0, p.sx, p.sy - rr * 0.4, rr * 1.6);
-          g2.addColorStop(0, `rgba(255,236,190,${0.95 * a})`);
-          g2.addColorStop(0.35, `rgba(255,150,60,${0.8 * a})`);
-          g2.addColorStop(1, "rgba(200,60,20,0)");
-          c.fillStyle = g2;
-          c.beginPath(); c.arc(p.sx, p.sy - rr * 0.4, rr * 1.6, 0, Math.PI * 2); c.fill();
+          // The SAME baked three-beat fireball the top-down pass draws
+          // (Oct 13 FX rebuild) — POV used to get a lone gradient blob.
+          // Center rides up the fireball's rise, radius takes the swell
+          // envelope so the flash beat reads at distance too.
+          drawExplosionBodyAt(c, b, p.sx, p.sy - rr * 0.4, rr * explosionRadiusAt(Math.min(1, explosionBrightT(b))));
           for (const pt of b.particles) {
             if (pt.life <= 0) continue;
             const pp = P(fx2w(pt.x), fy2w(pt.y), 0.01 + (1 - a01(pt.life, pt.maxLife)) * 0.02);
@@ -2594,17 +2587,17 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           c.beginPath(); c.ellipse(e.sx, e.sy, e.rx, e.ry, 0, 0, Math.PI * 2); c.stroke();
           c.restore();
         }
-        // Smoke + kicked-up dust (normal blend).
+        // Smoke + kicked-up dust (normal blend) — baked soft puffs, same
+        // as the top-down pass (was hard flat discs here too).
         c.save();
         for (const b of fx.booms) {
           for (const sm of b.smoke) {
             if (sm.life <= 0) continue;
             const p = P(fx2w(sm.x), fy2w(sm.y), 0.02 + (1 - a01(sm.life, sm.maxLife)) * 0.06);
             if (!p.visible) continue;
-            c.globalAlpha = a01(sm.life, sm.maxLife) * 0.35;
-            c.fillStyle = "#1c1917";
             const rr = Math.max(2, (sm.size / w) * p.scale);
-            c.beginPath(); c.arc(p.sx, p.sy, rr, 0, Math.PI * 2); c.fill();
+            const fadeIn = Math.min(1, (sm.maxLife - sm.life) / 0.7);
+            drawSmokePuff(c, p.sx, p.sy, rr, a01(sm.life, sm.maxLife) * 0.55 * fadeIn, sm.seed ?? 0);
           }
         }
         for (const d of fx.dusts) {
@@ -3370,6 +3363,12 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
 
       // --- fx: beams, tracers, flashes, blooms, booms, rings, sparks --------
       const alpha = (life: number, max: number) => Math.max(0, Math.min(1, life / max));
+      // Ground scorch decals FIRST, under the fire (Oct 13 rebuild): a
+      // scorch is a ground mark — drawing it over a young fireball punched
+      // a dark hole through the fireball's heart.
+      c.save();
+      for (const sc of fx.scorches) drawScorch(c, sc);
+      c.restore();
       c.save();
       c.globalCompositeOperation = "lighter";
       for (const b of fx.beams) {
@@ -3390,13 +3389,8 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       for (const sh of fx.shells) drawShell(c, sh);
       // (shadowBlur retired — the layered beam strokes ARE the glow.)
       for (const f of fx.flashes) {
-        const a = alpha(f.life, f.maxLife);
-        const g2 = c.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.radius);
-        g2.addColorStop(0, `rgba(255,240,200,${0.9 * a})`);
-        g2.addColorStop(1, "rgba(255,180,80,0)");
-        c.globalAlpha = 1;
-        c.fillStyle = g2;
-        c.beginPath(); c.arc(f.x, f.y, f.radius, 0, Math.PI * 2); c.fill();
+        // Baked glow blit (Oct 13 FX rebuild) — was a per-frame gradient.
+        drawGlowAt(c, f.x, f.y, f.radius, 0.95 * alpha(f.life, f.maxLife), true);
       }
       // Point-light blooms (slice 9): drawn first in the lighter pass, over
       // ground AND units — the explosion genuinely casts light on the scene
@@ -3424,15 +3418,16 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
         c.stroke();
       }
       c.restore();
-      // Smoke (normal blend, under night).
+      // Smoke (normal blend, under night) — baked soft puffs now; the old
+      // hard-edged flat discs read as snares/holes, not smoke (Oct 13).
+      // Puffs fade IN over ~0.45s: they're born inside the fireball and
+      // take over only as the fire dies (beat 3), never masking the flash.
       c.save();
-      for (const sc of fx.scorches) drawScorch(c, sc);
       for (const b of fx.booms) {
         for (const sm of b.smoke) {
           if (sm.life <= 0) continue;
-          c.globalAlpha = alpha(sm.life, sm.maxLife) * 0.35;
-          c.fillStyle = "#1c1917";
-          c.beginPath(); c.arc(sm.x, sm.y, sm.size, 0, Math.PI * 2); c.fill();
+          const fadeIn = Math.min(1, (sm.maxLife - sm.life) / 0.7);
+          drawSmokePuff(c, sm.x, sm.y, sm.size, alpha(sm.life, sm.maxLife) * 0.55 * fadeIn, sm.seed ?? 0);
         }
       }
       c.restore();
