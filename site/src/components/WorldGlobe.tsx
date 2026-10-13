@@ -7,13 +7,19 @@
 // to destinations (enter colony, launch raid, rally defense) is the linking
 // pass — action buttons render per Hans's "nothing without a button" rule and
 // explain inline that wiring lands next.
+// LINKING PASS LANDED (owner, Oct 13 2026): sheet actions now run the World
+// page's real flows (arena, raid, claim, glean, rally, explore) via props;
+// kinds with no flow anywhere in the game (chorus launch, satellite details,
+// beachhead plans) render intel-only sheets — no fake buttons.
 //
 // Canvas 2D, 2D Plus style, and per Hans's universal rule it POPS: atmosphere
 // glow, terminator shading, city lights, glowing pulse markers, starfield.
 // Interaction model mirrors StarMap (drag threshold tap-vs-spin, inertia,
 // smoothed pinch/wheel zoom).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GameState } from "../game/types";
+import type { GameState, Zone } from "../game/types";
+import type { KnownColony } from "../game/worldmap";
+import type { IncomingRaidAlert } from "../game/raid-protocol";
 import {
   buildGlobeMarkers,
   chorusHeartGlobePosition,
@@ -92,7 +98,8 @@ import {
 } from "../game/world/camera-flights";
 // FRAME-TIME TELEMETRY (Phase 2, slice 14, spec §9): the world frame loop
 // feeds the rolling-window sampler AUTO's rung decisions are driven from.
-import { recordFrameTime } from "../game/graphics-quality-telemetry";
+import { autoLadderTick, recordFrameTime } from "../game/graphics-quality-telemetry";
+import { effectiveDpr, resolveGraphicsLevel, subscribeGraphicsMode } from "../game/graphics-quality";
 // CRADLE ENTRY (Phase 2, slice 10): the tap→focus→hover→descend→inside→
 // ascend state machine (spec §10) — pure kernel; this file wires gestures
 // and the camera to it. Slice 11's module ids double as the ?module= URL
@@ -1183,14 +1190,88 @@ function ensureMorphCtx(w: number, h: number, dpr: number): CanvasRenderingConte
   return morphCtx;
 }
 
+// ---------------------------------------------------------------------------
+// SYSTEM-VIEW PLANET SKINS (owner 2026-10-13): zoomed all the way out, the
+// foreign planets wear the SAME race globe skins as the StarMap landing
+// (/art/globe/{raceId}-globe.webp via globeSkinFor) — Hans: "thought we said
+// we were going to put skins in." Same discipline as StarMap's bake: each
+// skin is center-cropped ONCE into a small (256px) disc sprite; the frame
+// loop only blits sprites, and the decoded full-size image is released as
+// soon as its disc is baked (never a fleet of full-size images held).
+// ---------------------------------------------------------------------------
+
+/** Baked disc diameter for system-view planets (they draw at ≤ ~90px). */
+export const SYSTEM_PLANET_DISC_PX = 256;
+
+const systemDiscCache = new Map<string, HTMLCanvasElement>();
+const systemDiscPending = new Set<string>();
+const systemDiscFailed = new Set<string>();
+
+/** Center-crop a 2:1 equirectangular race skin into a round planet face —
+ *  the same crop StarMap's makePlanetTexture applies, so a world reads
+ *  identically on the landing map and inside the World page's sky. Pure
+ *  canvas work; the caller owns loading. */
+export function bakeSystemPlanetDisc(img: HTMLImageElement): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = SYSTEM_PLANET_DISC_PX;
+  c.height = SYSTEM_PLANET_DISC_PX;
+  const g = c.getContext("2d");
+  if (!g) return c;
+  const sw = img.naturalWidth, sh = img.naturalHeight;
+  if (sw > 0 && sh > 0) {
+    const side = Math.min(sw, sh);
+    const sx = (sw - side) / 2, sy = (sh - side) / 2;
+    g.save();
+    g.beginPath();
+    g.arc(SYSTEM_PLANET_DISC_PX / 2, SYSTEM_PLANET_DISC_PX / 2, SYSTEM_PLANET_DISC_PX / 2, 0, Math.PI * 2);
+    g.clip();
+    g.drawImage(img, sx, sy, side, side, 0, 0, SYSTEM_PLANET_DISC_PX, SYSTEM_PLANET_DISC_PX);
+    g.restore();
+  }
+  return c;
+}
+
+/** The baked skin disc for a race, or null while it loads / when the race
+ *  has no skin (caller falls back to the palette sphere). Kicks off the
+ *  load on first ask; the full-size image is dropped the moment its disc
+ *  is baked, so the steady-state cost is one 256px canvas per race. */
+export function ensureSystemPlanetDisc(raceId: string): HTMLCanvasElement | null {
+  const url = globeSkinFor(raceId);
+  if (!url) return null;
+  const hit = systemDiscCache.get(url);
+  if (hit) return hit;
+  if (systemDiscPending.has(url) || systemDiscFailed.has(url)) return null;
+  systemDiscPending.add(url);
+  const img = new Image();
+  img.onload = () => {
+    systemDiscPending.delete(url);
+    try {
+      systemDiscCache.set(url, bakeSystemPlanetDisc(img));
+    } catch {
+      /* bake failed — the palette sphere stays; never a broken frame */
+    }
+    // Release the decoded full-size skin: only the 256px disc is kept.
+    img.src = "";
+  };
+  img.onerror = () => {
+    systemDiscPending.delete(url);
+    systemDiscFailed.add(url); // no skin file for this race — stop asking
+  };
+  img.src = url;
+  return null;
+}
+
 /** One foreign planet of the solar system, drawn 2D Plus: atmosphere
- *  glow, a sphere lit from the sun's actual direction, sunlit rim. */
+ *  glow, a sphere lit from the sun's actual direction, sunlit rim. When a
+ *  race skin disc has baked, the artwork IS the surface (shaded toward
+ *  the sun per frame); otherwise the palette gradient sphere stands in. */
 function drawSystemPlanet(
   g: CanvasRenderingContext2D,
   x: number, y: number, r: number,
   pal: PlanetPalette,
   sunX: number, sunY: number,
   alpha: number,
+  disc?: HTMLCanvasElement | null,
 ) {
   const glow = g.createRadialGradient(x, y, r * 0.6, x, y, r * 2.1);
   glow.addColorStop(0, hexA(pal.rim, 0.20 * alpha));
@@ -1202,18 +1283,40 @@ function drawSystemPlanet(
   const dx = sunX - x, dy = sunY - y;
   const dl = Math.hypot(dx, dy) || 1;
   const ux = dx / dl, uy = dy / dl;
-  const body = g.createRadialGradient(
-    x + ux * r * 0.5, y + uy * r * 0.5, r * 0.15,
-    x, y, r * 1.12,
-  );
-  body.addColorStop(0, pal.core);
-  body.addColorStop(0.52, pal.mid);
-  body.addColorStop(1, pal.dark);
   g.globalAlpha = alpha;
-  g.fillStyle = body;
-  g.beginPath();
-  g.arc(x, y, r, 0, Math.PI * 2);
-  g.fill();
+  if (disc && disc.width > 0) {
+    // RACE SKIN: the baked artwork disc is the surface. A sun-side shade
+    // (same light geometry as the palette sphere) keeps it reading as a
+    // lit ball as it orbits — bright toward the sun, dark at the limb
+    // away from it. The disc itself is pre-clipped round at bake time.
+    g.save();
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.clip();
+    g.drawImage(disc, x - r, y - r, r * 2, r * 2);
+    const shade = g.createRadialGradient(
+      x + ux * r * 0.55, y + uy * r * 0.55, r * 0.1,
+      x, y, r * 1.25,
+    );
+    shade.addColorStop(0, "rgba(255,250,230,0.16)");
+    shade.addColorStop(0.45, "rgba(0,0,0,0)");
+    shade.addColorStop(1, "rgba(0,0,10,0.52)");
+    g.fillStyle = shade;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+    g.restore();
+  } else {
+    const body = g.createRadialGradient(
+      x + ux * r * 0.5, y + uy * r * 0.5, r * 0.15,
+      x, y, r * 1.12,
+    );
+    body.addColorStop(0, pal.core);
+    body.addColorStop(0.52, pal.mid);
+    body.addColorStop(1, pal.dark);
+    g.fillStyle = body;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
   g.globalAlpha = 1;
   g.save();
   g.strokeStyle = hexA(pal.rim, 0.85 * alpha);
@@ -1235,10 +1338,26 @@ export default function WorldGlobe({
   selectedPlanetId,
   onSelectPlanet,
   enterHomeNonce,
+  onEnterArena,
+  onRaidColony,
+  onClaimHuskColony,
+  onGleanColony,
+  onRallyRaid,
+  onExploreSite,
 }: {
   state: GameState;
   now: number;
   focusTarget?: GlobeFocusTarget;
+  /** SHEET ACTIONS (owner 2026-10-13): the detail sheet's buttons do real
+   *  work or don't exist. Each callback is owned by the World page, which
+   *  already runs these flows from its own panels. Unwired = the button
+   *  falls back to the honest "wires up in the linking pass" note. */
+  onEnterArena?: () => void;
+  onRaidColony?: (colony: KnownColony, key: string) => void;
+  onClaimHuskColony?: (colony: KnownColony, key: string) => void;
+  onGleanColony?: (colony: KnownColony) => void;
+  onRallyRaid?: (raid: IncomingRaidAlert) => void;
+  onExploreSite?: (zone: Zone, tier: 1 | 2 | 3) => void;
   /** Hive relocation (owner 2026-10-04, WS-E): called with the picked
    *  lat/lon on confirm. Resolves with an inline error message, or null on
    *  success (Hans's UI rule — the button stays tappable and explains).
@@ -1531,7 +1650,11 @@ export default function WorldGlobe({
     let w = 0, h = 0, dpr = 1;
     const resize = () => {
       const rect = wrap.getBoundingClientRect();
-      dpr = Math.min(2.5, window.devicePixelRatio || 1);
+      // GRAPHICS LADDER (spec §9): the DPR cap comes from the player's
+      // quality rung (cinematic 2 / balanced 1.5 / performance 1) — the
+      // renderer's main cost valve. The old flat 2.5 cap let a tablet
+      // push ~2.6× the pixels the ladder ever intended.
+      dpr = effectiveDpr(window.devicePixelRatio || 1, resolveGraphicsLevel());
       w = Math.max(1, rect.width);
       h = Math.max(1, rect.height);
       canvas.width = Math.round(w * dpr);
@@ -1540,6 +1663,8 @@ export default function WorldGlobe({
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
+    // A quality change in Settings re-caps the canvas immediately.
+    const unsubQuality = subscribeGraphicsMode(() => resize());
 
     // Native non-passive wheel listener so globe zoom doesn't fight page scroll.
     const wheelHandler = (e: WheelEvent) => {
@@ -1590,11 +1715,22 @@ export default function WorldGlobe({
 
     let raf = 0;
     let last = performance.now();
+    let frameNo = 0;
     const frame = (ms: number) => {
       raf = requestAnimationFrame(frame);
       // FRAME-TIME TELEMETRY (slice 14, spec §9): feed the rolling-window
       // sampler AUTO's rung decisions are driven from — one cheap write.
       recordFrameTime(ms - last);
+      // AUTO QUALITY (spec §9, wired 2026-10-13): the sampler was fed for
+      // a full day of builds but NOTHING ever called the ladder — a
+      // struggling tablet got zero relief, the loop saturated, and taps
+      // starved behind seconds-long frames (Hans's globe freeze). One
+      // tick per telemetry window (90 frames); when a rung drops, the
+      // canvas re-caps its DPR and shrinks — graceful degradation, and
+      // the loop (rescheduled first, above) can never be killed by a
+      // slow frame or a failed bake.
+      frameNo += 1;
+      if (frameNo % 90 === 0 && autoLadderTick()) resize();
       const dt = Math.min(0.05, (ms - last) / 1000);
       last = ms;
       const v = view.current;
@@ -2327,7 +2463,11 @@ export default function WorldGlobe({
           if (!def) continue;
           const selected = p.serverId === selId;
           if (!p.isHome) {
-            drawSystemPlanet(ctx, p.x, p.y, p.r, def.palette, sunX, sunY, sysT);
+            // SYSTEM SKINS (owner 2026-10-13): foreign planets wear their
+            // race's globe skin once its disc has baked; palette sphere
+            // until then (and for any race without a skin file).
+            const disc = def.raceId ? ensureSystemPlanetDisc(def.raceId) : null;
+            drawSystemPlanet(ctx, p.x, p.y, p.r, def.palette, sunX, sunY, sysT, disc);
           }
           if (selected) {
             ctx.strokeStyle = hexA(def.palette.rim, 0.9 * sysT);
@@ -2406,6 +2546,7 @@ export default function WorldGlobe({
       document.removeEventListener("visibilitychange", onVis); // WS5
       canvas.removeEventListener("wheel", wheelHandler);
       ro.disconnect();
+      unsubQuality();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -3454,6 +3595,15 @@ export default function WorldGlobe({
             // the tap→focus→hover→descend chain (spec §10) instead of the
             // linking-pass note — the sheet is the fallback path.
             onEnterColony={selected.ref.kind === "home" ? enterCradle : undefined}
+            // SHEET ACTIONS (owner 2026-10-13): real flows owned by the
+            // World page — arena tab, raid party, husk claim, glean,
+            // defense rally, site exploration.
+            onEnterArena={onEnterArena}
+            onRaidColony={onRaidColony}
+            onClaimHuskColony={onClaimHuskColony}
+            onGleanColony={onGleanColony}
+            onRallyRaid={onRallyRaid}
+            onExploreSite={onExploreSite}
           />
         )}
 
@@ -3506,6 +3656,12 @@ function DetailSheet({
   onHivePick,
   hiveNote,
   onEnterColony,
+  onEnterArena,
+  onRaidColony,
+  onClaimHuskColony,
+  onGleanColony,
+  onRallyRaid,
+  onExploreSite,
 }: {
   marker: GlobeMarker;
   onClose: () => void;
@@ -3518,6 +3674,15 @@ function DetailSheet({
   /** CRADLE ENTRY (slice 10): the home sheet's Enter button starts the
    *  tap→focus→hover→descend chain instead of the linking-pass note. */
   onEnterColony?: () => void;
+  /** SHEET ACTIONS (owner 2026-10-13): real flows, threaded from the
+   *  World page. A kind whose handler is missing keeps the linking-pass
+   *  note; kinds with no flow anywhere in the game render no button. */
+  onEnterArena?: () => void;
+  onRaidColony?: (colony: KnownColony, key: string) => void;
+  onClaimHuskColony?: (colony: KnownColony, key: string) => void;
+  onGleanColony?: (colony: KnownColony) => void;
+  onRallyRaid?: (raid: IncomingRaidAlert) => void;
+  onExploreSite?: (zone: Zone, tier: 1 | 2 | 3) => void;
 }) {
   const t = useT();
   const meta = GLOBE_LAYER_META[marker.layer];
@@ -3560,6 +3725,12 @@ function DetailSheet({
           onHivePick={onHivePick}
           hiveNote={hiveNote}
           onEnterColony={onEnterColony}
+          onEnterArena={onEnterArena}
+          onRaidColony={onRaidColony}
+          onClaimHuskColony={onClaimHuskColony}
+          onGleanColony={onGleanColony}
+          onRallyRaid={onRallyRaid}
+          onExploreSite={onExploreSite}
         />
         {hint && (
           <p role="status" className="mt-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-gray-300">
@@ -3730,6 +3901,12 @@ function SheetActions({
   onHivePick,
   hiveNote,
   onEnterColony,
+  onEnterArena,
+  onRaidColony,
+  onClaimHuskColony,
+  onGleanColony,
+  onRallyRaid,
+  onExploreSite,
 }: {
   marker: GlobeMarker;
   onAction: (label: string) => void;
@@ -3738,17 +3915,27 @@ function SheetActions({
   /** CRADLE ENTRY (slice 10): the home sheet's Enter button starts the
    *  entry chain — the sheet is the fallback path, the gesture the fast one. */
   onEnterColony?: () => void;
+  /** SHEET ACTIONS (owner 2026-10-13): real flows owned by the World
+   *  page. Wired = the button DOES it. Unwired = the linking-pass note
+   *  (standalone/test usage). No flow anywhere in the game = no button. */
+  onEnterArena?: () => void;
+  onRaidColony?: (colony: KnownColony, key: string) => void;
+  onClaimHuskColony?: (colony: KnownColony, key: string) => void;
+  onGleanColony?: (colony: KnownColony) => void;
+  onRallyRaid?: (raid: IncomingRaidAlert) => void;
+  onExploreSite?: (zone: Zone, tier: 1 | 2 | 3) => void;
 }) {
   const t = useT();
   const r = marker.ref;
   const go = (label: string) => () => onAction(label);
 
   if (r.kind === "chorus") {
-    return (
-      <div className="flex flex-wrap gap-2">
-        <ActionButton primary label={t("worldglobe.launchRaid", "⚔️ LAUNCH RAID")} onClick={go(t("worldglobe.launchRaid", "Raid launch"))} />
-      </div>
-    );
+    // INTEL ONLY (owner 2026-10-13): the raid engine targets colonies —
+    // no "launch raid at a Chorus site" flow exists anywhere in the game
+    // yet, so the sheet carries its intel (strength / garrison / rec.
+    // force above) and NO fake launch button. Hans's rule: a button
+    // that does nothing is worse than no button.
+    return null;
   }
   if (r.kind === "home") {
     return (
@@ -3782,12 +3969,23 @@ function SheetActions({
     return (
       <div className="flex flex-wrap gap-2">
         {c.status === "husk" ? (
-          <ActionButton primary label={t("worldglobe.claimHusk", "Claim as sub colony")} onClick={go(t("worldglobe.claimHusk", "Husk claim"))} />
+          <ActionButton
+            primary
+            label={t("worldglobe.claimHusk", "Claim as sub colony")}
+            onClick={onClaimHuskColony ? () => onClaimHuskColony(c, r.key) : go(t("worldglobe.claimHusk", "Husk claim"))}
+          />
         ) : (
           <>
-            <ActionButton primary label={t("worldglobe.raid", "Raid")} onClick={go(t("worldglobe.raid", "Raid"))} />
+            <ActionButton
+              primary
+              label={t("worldglobe.raid", "Raid")}
+              onClick={onRaidColony ? () => onRaidColony(c, r.key) : go(t("worldglobe.raid", "Raid"))}
+            />
             {c.status === "abandoned" && (
-              <ActionButton label={t("worldglobe.glean", "Glean")} onClick={go(t("worldglobe.glean", "Glean"))} />
+              <ActionButton
+                label={t("worldglobe.glean", "Glean")}
+                onClick={onGleanColony ? () => onGleanColony(c) : go(t("worldglobe.glean", "Glean"))}
+              />
             )}
           </>
         )}
@@ -3797,38 +3995,46 @@ function SheetActions({
   if (r.kind === "site") {
     return (
       <div className="flex flex-wrap gap-2">
-        <ActionButton primary label={t("worldglobe.explore", "Explore")} onClick={go(t("worldglobe.explore", "Explore"))} />
+        <ActionButton
+          primary
+          label={t("worldglobe.explore", "Explore")}
+          onClick={onExploreSite ? () => onExploreSite(r.zone, r.tier) : go(t("worldglobe.explore", "Explore"))}
+        />
       </div>
     );
   }
   if (r.kind === "raid") {
     return (
       <div className="flex flex-wrap gap-2">
-        <ActionButton primary label={t("worldglobe.rallyDefense", "🛡️ Rally the defense")} onClick={go(t("worldglobe.rallyDefense", "Defense rally"))} />
+        <ActionButton
+          primary
+          label={t("worldglobe.rallyDefense", "🛡️ Rally the defense")}
+          onClick={onRallyRaid ? () => onRallyRaid(r.raid) : go(t("worldglobe.rallyDefense", "Defense rally"))}
+        />
       </div>
     );
   }
   if (r.kind === "satellite") {
-    return (
-      <div className="flex flex-wrap gap-2">
-        <ActionButton label={t("worldglobe.coverageDetails", "Coverage details")} onClick={go(t("worldglobe.coverageDetails", "Satellite coverage"))} />
-      </div>
-    );
+    // INTEL ONLY: coverage is a map read (the stats above say what the
+    // satellite watches) — there is no coverage-details flow to open.
+    return null;
   }
   if (r.kind === "beachhead") {
-    return (
-      <div className="flex flex-wrap gap-2">
-        <ActionButton primary label={t("worldglobe.beachheadPlans", "Invasion plans")} onClick={go(t("worldglobe.beachheadPlans", "Beachhead plans"))} />
-      </div>
-    );
+    // INTEL ONLY: invasion planning lives in the raid/war flows once a
+    // cross-server invasion exists; the beachhead sheet is the marker's
+    // story (stats above), not a launcher.
+    return null;
   }
   if (r.kind === "arena") {
-    // Layout-first: the arena engine wires up in the linking pass — these
-    // buttons show the honest "wires up soon" note, never a dead click.
+    // WIRED (owner 2026-10-13): the arena is a real place — its own tab
+    // with practice, duels, AND the public ladder. Both buttons go
+    // there; this was the owner's headline dead tap ("enter arena,
+    // nothing happens").
+    const enter = onEnterArena ?? go(t("worldglobe.enterArena", "Arena entry"));
     return (
       <div className="flex flex-wrap gap-2">
-        <ActionButton primary label={t("worldglobe.enterArena", "🏟️ ENTER ARENA")} onClick={go(t("worldglobe.enterArena", "Arena entry"))} />
-        <ActionButton label={t("worldglobe.arenaLadder", "View the ladder")} onClick={go(t("worldglobe.arenaLadder", "Arena ladder"))} />
+        <ActionButton primary label={t("worldglobe.enterArena", "🏟️ ENTER ARENA")} onClick={enter} />
+        <ActionButton label={t("worldglobe.arenaLadder", "View the ladder")} onClick={onEnterArena ?? go(t("worldglobe.arenaLadder", "Arena ladder"))} />
       </div>
     );
   }

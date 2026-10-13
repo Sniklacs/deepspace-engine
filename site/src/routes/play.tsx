@@ -853,6 +853,8 @@ function PlayPage() {
           onEpitaph={(plaqueId, epitaph) => act(() => setMemorialEpitaphFn({ data: { token: token!, plaqueId, epitaph } }), "setMemorialEpitaph")}
           onRespondToRaid={(r) => respondToIncomingRaid(r)}
           onOpenWarBand={() => switchTab("battles")}
+          onEnterArena={() => switchTab("arena")}
+          onExploreSite={() => switchTab("expeditions")}
           onRelocateColony={relocateColony}
           onBuildProbe={() => act(() => buildProbeFn({ data: { token: token! } }), "buildProbe")}
           onLaunchProbe={(sid) => act(() => launchProbeFn({ data: { token: token!, serverId: sid } }), "launchProbe")}

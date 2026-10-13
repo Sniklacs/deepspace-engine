@@ -8,7 +8,7 @@
 // shows the reason inline, right below the button.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TacticalBattleView } from "./TacticalBattleView";
-import type { GameState } from "../game/types";
+import type { GameState, Zone } from "../game/types";
 import {
   abandonmentIn,
   colonyKey,
@@ -1354,6 +1354,8 @@ export default function WorldMapView({
   onEpitaph,
   onRespondToRaid,
   onOpenWarBand,
+  onEnterArena,
+  onExploreSite,
   onRelocateColony,
   onBuildProbe,
   onLaunchProbe,
@@ -1399,6 +1401,12 @@ export default function WorldMapView({
   /** Jump to the war band (Battles tab) — used when a defense rally already
    *  exists for the raid. */
   onOpenWarBand?: () => void;
+  /** Globe sheet actions (owner 2026-10-13): ENTER ARENA on the globe's
+   *  arena sheet leaves for the Arena tab (practice, duels, ladder). */
+  onEnterArena?: () => void;
+  /** Globe sheet actions: a world site's Explore goes to the Expeditions
+   *  tab, where zone launches actually live. */
+  onExploreSite?: (zone: Zone, tier: 1 | 2 | 3) => void;
 }) {
   const t = useT();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -1541,6 +1549,23 @@ export default function WorldMapView({
         selectedPlanetId={selectedPlanetId}
         onSelectPlanet={setSelectedPlanetId}
         enterHomeNonce={enterHomeNonce}
+        onEnterArena={onEnterArena}
+        onExploreSite={onExploreSite}
+        onRaidColony={(colony, key) => {
+          // Same flow as the colony list's Raid button, plus select the
+          // colony in the list so its action box opens under its card —
+          // the formed party and its target live in the panels below.
+          handleRaid(colony, key);
+          setSelectedKey(key);
+        }}
+        onClaimHuskColony={onClaimHusk}
+        onGleanColony={handleExplore}
+        onRallyRaid={(raid) => {
+          // The real rally button (with its respond flow) lives on the
+          // raid's entry in the Incoming raids panel: snap the globe to
+          // the raided site and scroll that entry into view.
+          snapToRaidSite(raid.raidId);
+        }}
       />
 
       {/* SCOUT PROBE HOME (Hans, Oct 6 2026): probes live on the World
