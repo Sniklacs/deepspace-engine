@@ -17,6 +17,13 @@ import {
   effectiveDpr,
   getGraphicsMode,
   maybeDropRung,
+  maybeRaiseRung,
+  RAISE_FRAME_MAX_MS,
+  RAISE_IDLE_MS,
+  RAISE_OVER_SHARE_MAX,
+  RAISE_REST_AVG_MAX_MS,
+  RAISE_REST_SHARE_MAX,
+  RAISE_WINDOWS,
   particleBudgetMultiplier,
   resetAutoLadder,
   resolveGraphicsLevel,
@@ -210,5 +217,126 @@ describe("AUTO rung (maybeDropRung)", () => {
     setGraphicsMode("performance");
     expect(resolveGraphicsLevel()).toBe("performance");
     expect(particleBudgetMultiplier()).toBe(0.15);
+  });
+});
+
+describe("AUTO climb-back (maybeRaiseRung) — Oct 13 2026 blur fix", () => {
+  function demoteToPerformance(): void {
+    for (let i = 0; i < 6; i++) maybeDropRung(100);
+    expect(autoRungLevel()).toBe("performance");
+  }
+
+  test("a demoted rung climbs back after sustained cheap frames", () => {
+    fresh();
+    resetAutoLadder();
+    demoteToPerformance();
+    for (let i = 0; i < RAISE_WINDOWS - 1; i++) {
+      expect(maybeRaiseRung(RAISE_FRAME_MAX_MS)).toBe(false);
+    }
+    expect(autoRungLevel()).toBe("performance");
+    expect(maybeRaiseRung(RAISE_FRAME_MAX_MS)).toBe(true); // the RAISE_WINDOWS-th cheap window
+    expect(autoRungLevel()).toBe("balanced");
+    expect(effectiveDpr(2)).toBe(1.5); // the DPR the canvas actually gets back
+    for (let i = 0; i < RAISE_WINDOWS; i++) maybeRaiseRung(4);
+    expect(autoRungLevel()).toBe("cinematic");
+    expect(effectiveDpr(2)).toBe(2);
+  });
+
+  test("CINEMATIC is the ceiling — cheap frames there change nothing", () => {
+    fresh();
+    resetAutoLadder();
+    for (let i = 0; i < RAISE_WINDOWS + 2; i++) expect(maybeRaiseRung(4)).toBe(false);
+    expect(autoRungLevel()).toBe("cinematic");
+  });
+
+  test("one non-cheap window resets the climb streak (no oscillation)", () => {
+    fresh();
+    resetAutoLadder();
+    demoteToPerformance();
+    for (let i = 0; i < RAISE_WINDOWS - 1; i++) maybeRaiseRung(4);
+    expect(maybeRaiseRung(RAISE_FRAME_MAX_MS + 5)).toBe(false); // streak broken
+    for (let i = 0; i < RAISE_WINDOWS - 1; i++) {
+      expect(maybeRaiseRung(4)).toBe(false);
+    }
+    expect(autoRungLevel()).toBe("performance");
+    expect(maybeRaiseRung(4)).toBe(true);
+    expect(autoRungLevel()).toBe("balanced");
+  });
+
+  test("a bad window kills the climb streak (drop-check then raise-check, as the tick runs them)", () => {
+    fresh();
+    resetAutoLadder();
+    demoteToPerformance();
+    for (let i = 0; i < RAISE_WINDOWS - 1; i++) maybeRaiseRung(4);
+    // One drowning window, evaluated in autoLadderTick's order: the drop
+    // side no-ops at the floor, the raise side sees a non-qualifying
+    // window and resets the streak.
+    expect(maybeDropRung(50)).toBe(false);
+    expect(maybeRaiseRung(50, 1, RAISE_IDLE_MS * 10)).toBe(false);
+    for (let i = 0; i < RAISE_WINDOWS - 1; i++) {
+      expect(maybeRaiseRung(4)).toBe(false);
+    }
+    expect(autoRungLevel()).toBe("performance");
+    expect(maybeRaiseRung(4)).toBe(true);
+    expect(autoRungLevel()).toBe("balanced");
+  });
+
+  test("manual modes never climb", () => {
+    fresh();
+    resetAutoLadder();
+    demoteToPerformance();
+    setGraphicsMode("performance");
+    for (let i = 0; i < RAISE_WINDOWS + 2; i++) expect(maybeRaiseRung(4)).toBe(false);
+    expect(autoRungLevel()).toBe("performance");
+  });
+
+  test("the CHEAP path needs the over-budget share low, not just the mean", () => {
+    fresh();
+    resetAutoLadder();
+    demoteToPerformance();
+    // Mean looks vsync-fine, but a third of frames blow the budget —
+    // a stuttery device, not a cheap one: no climb without idleness.
+    for (let i = 0; i < RAISE_WINDOWS + 2; i++) {
+      expect(maybeRaiseRung(16, RAISE_OVER_SHARE_MAX + 0.2, 0)).toBe(false);
+    }
+    expect(autoRungLevel()).toBe("performance");
+  });
+
+  test("the REST path: idle + coping (hitchy mean, low share) climbs", () => {
+    fresh();
+    resetAutoLadder();
+    demoteToPerformance();
+    // The measured QA-tablet rest profile: mean ~21ms (over the cheap
+    // bar), share ~0.15 (under the rest bar), player idle past the gate.
+    for (let i = 0; i < RAISE_WINDOWS - 1; i++) {
+      expect(maybeRaiseRung(21, 0.15, RAISE_IDLE_MS + 5000)).toBe(false);
+    }
+    expect(maybeRaiseRung(21, 0.15, RAISE_IDLE_MS + 5000)).toBe(true);
+    expect(autoRungLevel()).toBe("balanced");
+  });
+
+  test("the REST path refuses while the player is still interacting", () => {
+    fresh();
+    resetAutoLadder();
+    demoteToPerformance();
+    for (let i = 0; i < RAISE_WINDOWS + 2; i++) {
+      expect(maybeRaiseRung(21, 0.15, RAISE_IDLE_MS - 1)).toBe(false);
+    }
+    expect(autoRungLevel()).toBe("performance");
+  });
+
+  test("the REST path refuses a device that is not coping at this rung", () => {
+    fresh();
+    resetAutoLadder();
+    demoteToPerformance();
+    // Idle forever, but most frames over budget — raising would drown it.
+    for (let i = 0; i < RAISE_WINDOWS + 2; i++) {
+      expect(maybeRaiseRung(RAISE_REST_AVG_MAX_MS, RAISE_REST_SHARE_MAX + 0.2, RAISE_IDLE_MS * 10)).toBe(false);
+    }
+    // And a mean beyond the rest bar refuses even with a clean share.
+    for (let i = 0; i < RAISE_WINDOWS + 2; i++) {
+      expect(maybeRaiseRung(RAISE_REST_AVG_MAX_MS + 10, 0.1, RAISE_IDLE_MS * 10)).toBe(false);
+    }
+    expect(autoRungLevel()).toBe("performance");
   });
 });

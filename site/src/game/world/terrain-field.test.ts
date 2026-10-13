@@ -3,6 +3,7 @@ import {
   bakeTerrainRegion,
   bakeWorldTexture,
   createRegionBaker,
+  createWorldTextureBaker,
   elevationAt,
   elevationDetailAt,
   greatCircleDeg,
@@ -201,5 +202,52 @@ describe("bakeWorldTexture — one equirectangular land map", () => {
       if (px[o + 2] > px[o] && px[o + 2] > px[o + 1]) blueCount++;
     }
     expect(blueCount).toBe(0);
+  });
+});
+
+describe("createWorldTextureBaker — the sliced bake (Oct 13 2026)", () => {
+  test("stepped baking produces byte-identical pixels to the monolithic bake", () => {
+    const whole = bakeWorldTexture(96, 48, HEART);
+    const baker = createWorldTextureBaker(96, 48, HEART);
+    let guard = 0;
+    while (!baker.done && guard < 10000) {
+      baker.step(0); // minimum progress per call — one row
+      guard++;
+    }
+    expect(baker.done).toBe(true);
+    expect(baker.progress).toBe(1);
+    const stepped = baker.result();
+    expect(stepped.width).toBe(whole.width);
+    expect(stepped.height).toBe(whole.height);
+    expect(stepped.data.length).toBe(whole.data.length);
+    let diffs = 0;
+    for (let i = 0; i < whole.data.length; i++) {
+      if (stepped.data[i] !== whole.data[i]) diffs++;
+    }
+    expect(diffs).toBe(0);
+  });
+
+  test("result() before done throws — same contract as the region baker", () => {
+    const baker = createWorldTextureBaker(96, 48, HEART);
+    let threw = false;
+    try {
+      baker.result();
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+  });
+
+  test("progress is monotonic across slices", () => {
+    const baker = createWorldTextureBaker(96, 48, HEART);
+    let last = 0;
+    let guard = 0;
+    while (!baker.done && guard < 10000) {
+      baker.step(1);
+      expect(baker.progress >= last).toBe(true);
+      last = baker.progress;
+      guard++;
+    }
+    expect(baker.done).toBe(true);
   });
 });

@@ -151,10 +151,11 @@ export function autoRungLevel(): GraphicsLevel {
   return autoRung;
 }
 
-/** Test / session door: drop AUTO back to CINEMATIC with a clean streak. */
+/** Test / session door: drop AUTO back to CINEMATIC with clean streaks. */
 export function resetAutoLadder(): void {
   autoRung = "cinematic";
   overBudgetStreak = 0;
+  cheapStreak = 0;
 }
 
 /**
@@ -197,10 +198,87 @@ export function maybeDropRung(avgFrameMs: number): boolean {
     if (overBudgetStreak >= OVER_BUDGET_WINDOWS) {
       autoRung = GRAPHICS_LEVELS[GRAPHICS_LEVELS.indexOf(autoRung) + 1];
       overBudgetStreak = 0;
+      cheapStreak = 0; // a fired drop restarts the climb-back count too
       return true;
     }
     return false;
   }
   overBudgetStreak = 0;
+  return false;
+}
+
+// ---- AUTO climb-back (owner bug, Oct 13 2026) ------------------------------
+// The ladder originally only went DOWN: one rough patch (a pinch storm, a
+// heavy battle) demoted the session to DPR 1.0 and it STAYED there — the
+// zoomed globe at rest was permanently soft ("real blurry, no detail at
+// all") because nothing ever stepped the quality back up. The climb-back is
+// deliberately harder to earn than the drop (asymmetric hysteresis: 3 bad
+// windows drop, RAISE_WINDOWS cheap windows raise) so a borderline device
+// settles instead of oscillating, and a raise that proves too expensive is
+// simply dropped again by the rule above.
+
+/**
+ * CHEAP path thresholds. The telemetry records frame INTERVALS (rAF
+ * timestamp deltas), so a loop holding a 60Hz vsync averages ~16.7ms —
+ * "cheap" means the device holds its refresh rate with most frames
+ * inside the 20ms budget, NOT that frames cost <10ms of work (an
+ * earlier 10ms threshold could never fire on a 60Hz screen at all).
+ */
+export const RAISE_FRAME_MAX_MS = 17;
+/** Cheap path: at most this share of window frames may be over budget. */
+export const RAISE_OVER_SHARE_MAX = 0.1;
+/**
+ * REST path thresholds (measured on the QA tablet profile, Oct 13
+ * 2026): a coping device at rest shows a vsync MEDIAN (16.7ms) but a
+ * hitch-dragged MEAN (~21ms, p95 ≈ 33ms) — a mean-only rule reads it
+ * as failing forever. At rest the player is looking, not gesturing, so
+ * the bar is "coping at this rung": mean under 26ms and at least 3/4 of
+ * frames inside budget, sustained while nobody has touched the screen
+ * for RAISE_IDLE_MS.
+ */
+export const RAISE_REST_AVG_MAX_MS = 26;
+/** Rest path: at most this share of window frames may be over budget. */
+export const RAISE_REST_SHARE_MAX = 0.25;
+/** Rest path: no interaction for at least this long (ms). */
+export const RAISE_IDLE_MS = 10_000;
+/** Consecutive qualifying windows before AUTO climbs one rung (≈15s at
+ *  the telemetry tick's 2.5s cadence). Longer than the 3-window drop, so
+ *  a borderline device settles instead of yo-yoing: worst case it
+ *  trades one resize every ~25s, never a flap storm. */
+export const RAISE_WINDOWS = 6;
+
+let cheapStreak = 0;
+
+/**
+ * AUTO climb-back: raises exactly one rung toward CINEMATIC and returns
+ * true when a window qualifies via EITHER path — CHEAP (sustained
+ * near-vsync frames) or REST (player idle ≥ RAISE_IDLE_MS while the
+ * device copes at the current rung). Manual modes never move; CINEMATIC
+ * is the ceiling. Any non-qualifying window resets the streak.
+ * `overShare` is the window's share of over-budget frames (0..1);
+ * `idleMs` is time since the player's last interaction.
+ */
+export function maybeRaiseRung(avgFrameMs: number, overShare = 0, idleMs = 0): boolean {
+  if (getGraphicsMode() !== "auto") return false;
+  if (autoRung === "cinematic") {
+    cheapStreak = 0;
+    return false;
+  }
+  const cheap = avgFrameMs <= RAISE_FRAME_MAX_MS && overShare <= RAISE_OVER_SHARE_MAX;
+  const resting =
+    idleMs >= RAISE_IDLE_MS &&
+    avgFrameMs <= RAISE_REST_AVG_MAX_MS &&
+    overShare <= RAISE_REST_SHARE_MAX;
+  if (cheap || resting) {
+    cheapStreak += 1;
+    if (cheapStreak >= RAISE_WINDOWS) {
+      autoRung = GRAPHICS_LEVELS[GRAPHICS_LEVELS.indexOf(autoRung) - 1];
+      cheapStreak = 0;
+      overBudgetStreak = 0;
+      return true;
+    }
+    return false;
+  }
+  cheapStreak = 0;
   return false;
 }

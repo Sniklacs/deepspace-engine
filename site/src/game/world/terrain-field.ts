@@ -387,36 +387,56 @@ export function createRegionBaker(
   };
 }
 
-/**
- * The whole-world texture for the globe: one equirectangular land map
- * (2048×1024 default), baked once. The globe draws patches of this — one
- * map, not piles of cutouts.
- */
-export function bakeWorldTexture(
+interface WorldBakeState {
+  w: number;
+  h: number;
+  heart: { lat: number; lon: number };
+  elev: Float32Array;
+  data: Uint8ClampedArray<ArrayBuffer>;
+  pass: number; // 1 = elevation, 2 = shaded color
+  row: number;
+  done: boolean;
+}
+
+function makeWorldBakeState(
   w: number,
   h: number,
   heart: { lat: number; lon: number },
-): BakedLayer {
-  // Equirectangular: lon −180..180 across w, lat 90..−90 down h.
-  const data = new Uint8ClampedArray(new ArrayBuffer(w * h * 4));
-  const px = data;
-  const elev = new Float32Array(w * h);
-  for (let j = 0; j < h; j++) {
-    const lat = 90 - (j / (h - 1)) * 180;
+): WorldBakeState {
+  return {
+    w,
+    h,
+    heart,
+    elev: new Float32Array(w * h),
+    data: new Uint8ClampedArray(new ArrayBuffer(w * h * 4)),
+    pass: 1,
+    row: 0,
+    done: false,
+  };
+}
+
+/** Bake ONE row of the world texture (or finish a pass). Same row math the
+ *  monolithic bake always used — equirectangular: lon −180..180 across w,
+ *  lat 90..−90 down h. */
+function bakeWorldRow(s: WorldBakeState): void {
+  if (s.done) return;
+  const { w, h } = s;
+  const j = s.row;
+  const lat = 90 - (j / (h - 1)) * 180;
+  if (s.pass === 1) {
     for (let i = 0; i < w; i++) {
       const lon = -180 + (i / (w - 1)) * 360;
-      elev[j * w + i] = elevationAt(lat, lon);
+      s.elev[j * w + i] = elevationAt(lat, lon);
     }
-  }
-  for (let j = 0; j < h; j++) {
-    const lat = 90 - (j / (h - 1)) * 180;
+  } else {
+    const px = s.data;
     for (let i = 0; i < w; i++) {
       const lon = -180 + (i / (w - 1)) * 360;
-      const e = elev[j * w + i];
-      const ex = elev[j * w + Math.min(w - 1, i + 1)] - elev[j * w + Math.max(0, i - 1)];
-      const ey = elev[Math.min(h - 1, j + 1) * w + i] - elev[Math.max(0, j - 1) * w + i];
+      const e = s.elev[j * w + i];
+      const ex = s.elev[j * w + Math.min(w - 1, i + 1)] - s.elev[j * w + Math.max(0, i - 1)];
+      const ey = s.elev[Math.min(h - 1, j + 1) * w + i] - s.elev[Math.max(0, j - 1) * w + i];
       const shade = Math.max(0, Math.min(1, 0.5 - (ex - ey) * 1.6));
-      const corr = worldCorruptionAt(lat, lon, heart);
+      const corr = worldCorruptionAt(lat, lon, s.heart);
       const [rr, gg, bb] = terrainRGB(e, corr, hash2i(i >> 2, j >> 2, WORLD_TERRAIN_SEED + 31));
       const li = 0.6 + shade * 0.7;
       const o = (j * w + i) * 4;
@@ -426,5 +446,69 @@ export function bakeWorldTexture(
       px[o + 3] = 255;
     }
   }
-  return { width: w, height: h, data };
+  s.row += 1;
+  if (s.row >= h) {
+    if (s.pass === 1) {
+      s.pass = 2;
+      s.row = 0;
+    } else {
+      s.done = true;
+    }
+  }
+}
+
+/** An incremental world-texture baker — same contract as RegionBaker. */
+export type WorldTextureBaker = RegionBaker;
+
+/**
+ * Create an incremental baker for the whole-world texture. The globe
+ * drives this in small slices from a timer chain: at 2048×1024 the bake is
+ * ~2M field evaluations, and run monolithically it was a ~2s main-thread
+ * block at globe entry (worse on a throttled tablet). Sliced, no single
+ * task exceeds the caller's budget and the disc simply appears when ready.
+ */
+export function createWorldTextureBaker(
+  w: number,
+  h: number,
+  heart: { lat: number; lon: number },
+): WorldTextureBaker {
+  const s = makeWorldBakeState(w, h, heart);
+  return {
+    width: w,
+    height: h,
+    get done() {
+      return s.done;
+    },
+    get progress() {
+      const rowsDone = (s.pass - 1) * s.h + s.row;
+      return s.h > 0 ? rowsDone / (2 * s.h) : 1;
+    },
+    step(budgetMs: number, now: () => number = defaultBakeNow): boolean {
+      if (s.done) return true;
+      const start = now();
+      // At least one row per call — a starved budget must never livelock.
+      bakeWorldRow(s);
+      while (!s.done && now() - start < budgetMs) bakeWorldRow(s);
+      return s.done;
+    },
+    result(): BakedLayer {
+      if (!s.done) throw new Error("world texture baker: result() before done");
+      return { width: s.w, height: s.h, data: s.data };
+    },
+  };
+}
+
+/**
+ * The whole-world texture for the globe: one equirectangular land map,
+ * baked once. The globe draws patches of this — one map, not piles of
+ * cutouts. (Synchronous drain of the incremental baker — same pixels.)
+ */
+export function bakeWorldTexture(
+  w: number,
+  h: number,
+  heart: { lat: number; lon: number },
+): BakedLayer {
+  const baker = createWorldTextureBaker(w, h, heart);
+  baker.step(Number.POSITIVE_INFINITY);
+  return baker.result();
 }

@@ -10,6 +10,7 @@ import {
   FRAME_SAMPLE_MAX_MS,
   FRAME_WINDOW,
   autoLadderTick,
+  frameOverBudgetShare,
   frameSampleCount,
   frameTimeAvg,
   recordFrameTime,
@@ -94,6 +95,18 @@ describe("recordFrameTime / frameTimeAvg (rolling window)", () => {
     expect(frameSampleCount()).toBe(0);
     expect(frameTimeAvg()).toBe(0);
   });
+
+  test("frameOverBudgetShare tracks the over-budget fraction, evictions included", () => {
+    fresh();
+    expect(frameOverBudgetShare()).toBe(0);
+    for (let i = 0; i < FRAME_WINDOW; i++) recordFrameTime(i < 45 ? 30 : 10); // half over 20ms
+    expect(frameOverBudgetShare()).toBeCloseTo(0.5, 6);
+    // Evict the whole window with cheap frames — the share must follow.
+    for (let i = 0; i < FRAME_WINDOW; i++) recordFrameTime(10);
+    expect(frameOverBudgetShare()).toBe(0);
+    resetFrameTelemetry();
+    expect(frameOverBudgetShare()).toBe(0);
+  });
 });
 
 describe("autoLadderTick — the AUTO decision driven from the sampler", () => {
@@ -123,5 +136,45 @@ describe("autoLadderTick — the AUTO decision driven from the sampler", () => {
     for (let i = 0; i < 6; i++) expect(autoLadderTick()).toBe(false);
     expect(autoRungLevel()).toBe("cinematic");
     expect(getGraphicsMode()).toBe("cinematic");
+  });
+
+  test("climb-back: demoted rung returns after sustained cheap ticks", () => {
+    fresh();
+    setGraphicsMode("auto");
+    for (let i = 0; i < FRAME_WINDOW; i++) recordFrameTime(100);
+    for (let i = 0; i < 3; i++) autoLadderTick();
+    expect(autoRungLevel()).toBe("balanced");
+    // Flush the window with vsync-rate frames, then tick the climb out.
+    resetFrameTelemetry();
+    for (let i = 0; i < FRAME_WINDOW; i++) recordFrameTime(16);
+    let climbed = false;
+    for (let i = 0; i < 8 && !climbed; i++) climbed = autoLadderTick();
+    expect(climbed).toBe(true);
+    expect(autoRungLevel()).toBe("cinematic");
+  });
+
+  test("climb-back REST path: the floor escapes at idle; active touching never climbs", () => {
+    fresh();
+    setGraphicsMode("auto");
+    for (let i = 0; i < FRAME_WINDOW; i++) recordFrameTime(100);
+    for (let i = 0; i < 6; i++) autoLadderTick();
+    expect(autoRungLevel()).toBe("performance");
+    // The measured rest profile: mean ~21ms, ~15% over budget.
+    resetFrameTelemetry();
+    for (let i = 0; i < FRAME_WINDOW; i++) recordFrameTime(i % 20 < 3 ? 33 : 19);
+    for (let i = 0; i < 8; i++) expect(autoLadderTick(0)).toBe(false); // still touching
+    expect(autoRungLevel()).toBe("performance");
+    let climbed = false;
+    for (let i = 0; i < 8 && !climbed; i++) climbed = autoLadderTick(30_000); // idle 30s
+    expect(climbed).toBe(true);
+    expect(autoRungLevel()).toBe("balanced");
+    // Settle contract: at BALANCED this mean is over the drop budget, so
+    // the shipped drop rule pulls it back within 3 ticks — the ladder
+    // settles at the highest rung whose mean holds, it does not yo-yo
+    // upward past the evidence.
+    let dropped = false;
+    for (let i = 0; i < 4 && !dropped; i++) dropped = autoLadderTick(30_000);
+    expect(dropped).toBe(true);
+    expect(autoRungLevel()).toBe("performance");
   });
 });

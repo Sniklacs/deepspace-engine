@@ -4,7 +4,7 @@
 // these tests cover the pure kernel: spin/tilt targeting + shortest-path
 // deltas. Run: bun test site/src/components/WorldGlobe.test.ts
 import { describe, expect, test } from "bun:test";
-import { ARENA_MARKER_SIZE, DISC_BACKING_BUCKET, DISC_BACKING_CAP, discBackingFor, focusViewTarget, shortestSpinDelta } from "./WorldGlobe";
+import { ARENA_MARKER_SIZE, DISC_BACKING_BUCKET, DISC_BACKING_CAP, discBackingFor, focusViewTarget, shortestSpinDelta, TILE_DETAIL_SCALE, TILE_GROUND_SCALE, tileLevelForScale } from "./WorldGlobe";
 import { projectGlobe } from "../game/globe-layers";
 
 describe("focusViewTarget", () => {
@@ -108,5 +108,41 @@ describe("discBackingFor (Oct 13 2026 freeze fix)", () => {
       expect(b >= DISC_BACKING_BUCKET).toBe(true);
       expect(b <= DISC_BACKING_CAP).toBe(true);
     }
+  });
+});
+
+describe("tileLevelForScale (Oct 13 2026 blur fix — L2 ground LOD)", () => {
+  test("rises through the bands at their edges", () => {
+    expect(tileLevelForScale(0, 1)).toBe(0);
+    expect(tileLevelForScale(0, TILE_DETAIL_SCALE)).toBe(1);
+    expect(tileLevelForScale(1, TILE_GROUND_SCALE)).toBe(2);
+  });
+
+  test("a dive from orbit to ground settles at L2 in one call", () => {
+    expect(tileLevelForScale(0, 24)).toBe(2);
+    expect(tileLevelForScale(0, TILE_GROUND_SCALE + 0.01)).toBe(2);
+  });
+
+  test("hysteresis: a level is exited only 10% below its entry edge", () => {
+    // Hovering just under the L2 edge keeps L2 (12.6 = 14 × 0.9)…
+    expect(tileLevelForScale(2, TILE_GROUND_SCALE * 0.95)).toBe(2);
+    expect(tileLevelForScale(2, TILE_GROUND_SCALE * 0.89)).toBe(1);
+    // …and just under the L1 edge keeps L1 (5.4 = 6 × 0.9).
+    expect(tileLevelForScale(1, TILE_DETAIL_SCALE * 0.95)).toBe(1);
+    expect(tileLevelForScale(1, TILE_DETAIL_SCALE * 0.89)).toBe(0);
+    // But the same scales do NOT enter the level from below.
+    expect(tileLevelForScale(1, TILE_GROUND_SCALE * 0.95)).toBe(1);
+    expect(tileLevelForScale(0, TILE_DETAIL_SCALE * 0.95)).toBe(0);
+  });
+
+  test("zooming far out cascades down in one call", () => {
+    expect(tileLevelForScale(2, 3)).toBe(0);
+    expect(tileLevelForScale(2, 5.39)).toBe(0);
+    expect(tileLevelForScale(2, 5.41)).toBe(1);
+  });
+
+  test("out-of-range previous levels are clamped", () => {
+    expect(tileLevelForScale(99, 1)).toBe(0);
+    expect(tileLevelForScale(-3, 24)).toBe(2);
   });
 });

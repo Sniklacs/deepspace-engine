@@ -40,7 +40,7 @@ import {
   type GlobeMarker,
   type ScreenMarker,
 } from "../game/globe-layers";
-import { bakeWorldTexture, createRegionBaker, type RegionBaker } from "../game/world/terrain-field";
+import { createRegionBaker, createWorldTextureBaker, type RegionBaker } from "../game/world/terrain-field";
 import { globeSkinFor } from "../game/globe-skins";
 import {
   alliedKnownColonies,
@@ -253,8 +253,18 @@ interface Star { x: number; y: number; r: number; tw: number; ph: number }
 // terrain field (game/world/terrain-field.ts). The globe draws patches of
 // this one map; the zoom tiles bake their own layers from the same field.
 // Same field everywhere → the morph never pops.
-const WORLD_TEX_W = 1024;
-const WORLD_TEX_H = 512;
+// Resolution: 2048×1024, matching the race globe masters (2240×1120 /
+// 2048×1024). It was 1024×512 until Oct 13 2026 — the masters were
+// downscaled 2.2× per axis into the bake and then stretched back out on
+// zoom, one of the named links in Hans's zoom-blur chain.
+const WORLD_TEX_W = 2048;
+const WORLD_TEX_H = 1024;
+/** Per-slice budget for the incremental world-texture bake — the bake
+ *  runs from a timer chain in slices this small, so globe entry never
+ *  eats a multi-second main-thread block (the old monolithic 1024×512
+ *  bake already cost ~2s at 4× CPU throttle; 2048×1024 monolithic would
+ *  have cost ~4× that). */
+export const WORLD_TEX_BAKE_SLICE_MS = 12;
 /** Patch grid over the texture — one map, drawn as projected patches.
  *  Small enough that the flat-rectangle projection stays honest, drawn at
  *  exactly 1.0x their projected size: oversizing stretches each patch's
@@ -328,9 +338,21 @@ function ensureWorldTexture(skinUrl: string | null): HTMLCanvasElement | null {
   worldTexture = null;
   worldTextureSkinKey = key;
   worldTextureBaking = true;
-  setTimeout(() => {
+  // SLICED BAKE (Oct 13 2026): the texture bakes incrementally from a
+  // timer chain, ≤ WORLD_TEX_BAKE_SLICE_MS per slice — never one
+  // monolithic block on the main thread. The globe holds its
+  // land-colored disc until the texture lands, exactly as before.
+  const baker = createWorldTextureBaker(WORLD_TEX_W, WORLD_TEX_H, chorusHeartGlobePosition());
+  const pump = () => {
+    // A race switch mid-bake supersedes this chain (the newer call owns
+    // the baking flag now) — stop quietly.
+    if (worldTextureSkinKey !== key) return;
     try {
-      const baked = bakeWorldTexture(WORLD_TEX_W, WORLD_TEX_H, chorusHeartGlobePosition());
+      if (!baker.step(WORLD_TEX_BAKE_SLICE_MS)) {
+        setTimeout(pump, 0);
+        return;
+      }
+      const baked = baker.result();
       const c = document.createElement("canvas");
       c.width = WORLD_TEX_W;
       c.height = WORLD_TEX_H;
@@ -370,7 +392,8 @@ function ensureWorldTexture(skinUrl: string | null): HTMLCanvasElement | null {
     } catch {
       worldTextureBaking = false; // retry next call
     }
-  }, 0);
+  };
+  setTimeout(pump, 0);
   return worldTexture;
 }
 
@@ -893,17 +916,41 @@ interface TileLevel {
 }
 // LOD LEVELS (Hans Oct 11 2026): every level bakes its OWN layer fresh from
 // the terrain field at its own px/deg — the JPEG-within-a-JPEG. Level 0
-// carries the morph; level 1 takes over at LOW ALT and deeper with ~25
-// px/deg of real terrain detail.
+// carries the morph; level 1 takes over at LOW ALT and deeper; level 2 owns
+// the GROUND band. Bake resolution per level: L0 1024/120° ≈ 8.5 px/deg,
+// L1 1024/30° ≈ 34 px/deg, L2 1024/10° ≈ 102 px/deg. Until Oct 13 2026 the
+// ladder STOPPED at L1's 768px/30° ≈ 25.6 px/deg while the screen at
+// ground zoom (scale 14–24) demands 46–78 CSS px/deg — the deepest zoom
+// stretched the finest tile ~4.6× on a DPR-1.5 tablet: Hans's "zooming in
+// is real blurry, no detail at all." L2 + the L0/L1 doubling close that.
 const TILE_LEVELS: TileLevel[] = [
-  { tilePx: 512, halfDeg: 60, cellDeg: 20, cacheMax: 6 },
-  { tilePx: 768, halfDeg: 15, cellDeg: 5, cacheMax: 8 },
+  { tilePx: 1024, halfDeg: 60, cellDeg: 20, cacheMax: 6 },
+  { tilePx: 1024, halfDeg: 15, cellDeg: 5, cacheMax: 8 },
+  { tilePx: 1024, halfDeg: 5, cellDeg: 2, cacheMax: 8 },
 ];
 /** Deep-zoom detail tiles take over at LOW ALT and deeper. */
 export const TILE_DETAIL_SCALE = 6;
+/** Ground tiles (L2) take over at the Z4 GROUND band edge. */
+export const TILE_GROUND_SCALE = 14;
+
+/**
+ * Sticky LOD selection with per-boundary hysteresis: a level is ENTERED at
+ * its band edge but only EXITED 10% below it, so a pinch hovering on the
+ * boundary never thrashes bakes. Multi-band jumps settle in one call (the
+ * falling checks cascade). Pure — unit-tested.
+ */
+export function tileLevelForScale(prev: number, scale: number): number {
+  let lvl = Math.max(0, Math.min(TILE_LEVELS.length - 1, prev));
+  if (lvl < 1 && scale >= TILE_DETAIL_SCALE) lvl = 1;
+  if (lvl < 2 && scale >= TILE_GROUND_SCALE) lvl = 2;
+  if (lvl > 1 && scale < TILE_GROUND_SCALE * 0.9) lvl = 1;
+  if (lvl > 0 && scale < TILE_DETAIL_SCALE * 0.9) lvl = 0;
+  return lvl;
+}
+
 /** The LOD level the frame loop currently requests — sticky across the
- *  TILE_DETAIL_SCALE boundary (hysteresis in the frame loop) so a pinch
- *  hovering at the threshold can't flap levels frame-to-frame. */
+ *  band boundaries (hysteresis in tileLevelForScale) so a pinch hovering
+ *  at a threshold can't flap levels frame-to-frame. */
 let stickyTileLevel = 0;
 
 interface RegionTile {
@@ -1059,33 +1106,43 @@ function requestTileBake(lat: number, lon: number, level: number, priority: Bake
  * tracking) crossfades in over the coarser layer it replaces.
  */
 export function pumpBakeQueue(budgetMs: number): void {
-  if (!activeBake) {
-    // Highest priority first (lowest number); FIFO within a priority —
-    // Map iteration is insertion-ordered, so the first minimum wins.
-    let next: BakeJob | null = null;
-    for (const j of bakeJobs.values()) {
-      if (!next || j.priority < next.priority) next = j;
+  // Highest priority first (lowest number); FIFO within a priority —
+  // Map iteration is insertion-ordered, so the first minimum wins.
+  // PREEMPTION (Oct 13 2026): the pick runs every pump, not only when the
+  // active bake finishes — if a strictly more urgent job is waiting (the
+  // tile the player is looking at, priority 0, vs a neighbor prefetch),
+  // the active bake yields. Bakers are incremental and live on their
+  // jobs, so the preempted job resumes later with its progress intact.
+  // Without this, the wanted tile sat behind a full 1024² prefetch bake
+  // — at low frame rates that is the difference between "sharpens when
+  // you stop" and "still baking half a minute later".
+  let next: BakeJob | null = null;
+  for (const j of bakeJobs.values()) {
+    if (!next || j.priority < next.priority) next = j;
+  }
+  if (!next) return;
+  if (next !== activeBake) {
+    if (!next.baker) {
+      try {
+        const L = TILE_LEVELS[next.level];
+        const ppd = L.tilePx / (L.halfDeg * 2);
+        // One continuous landmass: bake this layer fresh from the terrain
+        // field at the level's own px/deg — the JPEG-within-a-JPEG. No
+        // ocean, no sprites; the corruption field colors the land around
+        // the Chorus heart. Deep layers resolve the fine-grain relief.
+        next.baker = createRegionBaker(
+          L.tilePx, L.tilePx, next.qLat, next.qLon, ppd,
+          chorusHeartGlobePosition(), next.level >= 1,
+        );
+      } catch (err) {
+        tileDebugStatus.lastError = `bake-init L${next.level} ${next.key}: ${String(err)}`.slice(0, 160);
+        bakeJobs.delete(next.key);
+        if (activeBake === next) activeBake = null;
+        tileDebugStatus.queued = bakeJobs.size;
+        return;
+      }
     }
-    if (!next) return;
     activeBake = next;
-    try {
-      const L = TILE_LEVELS[next.level];
-      const ppd = L.tilePx / (L.halfDeg * 2);
-      // One continuous landmass: bake this layer fresh from the terrain
-      // field at the level's own px/deg — the JPEG-within-a-JPEG. No
-      // ocean, no sprites; the corruption field colors the land around
-      // the Chorus heart. Deep layers resolve the fine-grain relief.
-      next.baker = createRegionBaker(
-        L.tilePx, L.tilePx, next.qLat, next.qLon, ppd,
-        chorusHeartGlobePosition(), next.level >= 1,
-      );
-    } catch (err) {
-      tileDebugStatus.lastError = `bake-init L${next.level} ${next.key}: ${String(err)}`.slice(0, 160);
-      bakeJobs.delete(next.key);
-      activeBake = null;
-      tileDebugStatus.queued = bakeJobs.size;
-      return;
-    }
   }
   const job = activeBake;
   try {
@@ -1470,6 +1527,7 @@ export default function WorldGlobe({
         const dest = focusLatLon(spin, tilt);
         requestTileBake(dest.lat, dest.lon, 0, 1);
         if (scale >= TILE_DETAIL_SCALE) requestTileBake(dest.lat, dest.lon, 1, 1);
+        if (scale >= TILE_GROUND_SCALE) requestTileBake(dest.lat, dest.lon, 2, 1);
       }
     },
     [],
@@ -1763,7 +1821,7 @@ export default function WorldGlobe({
       // can never be killed by a slow frame or a failed bake.
       if (ms - lastLadderTickMs >= 2500) {
         lastLadderTickMs = ms;
-        if (autoLadderTick()) resize();
+        if (autoLadderTick(ms - lastInteract.current)) resize();
       }
       const dt = Math.min(0.05, (ms - last) / 1000);
       last = ms;
@@ -1771,8 +1829,14 @@ export default function WorldGlobe({
 
       // smooth zoom
       v.scale += (v.targetScale - v.scale) * Math.min(1, dt * 8);
-      // gentle ambient drift when idle (never while dragging)
-      if (!drag.current && !reduceMotion.current && ms - lastInteract.current > 5000) {
+      // Gentle ambient drift when idle (never while dragging) — ORBIT
+      // ONLY. Past TILE_DETAIL_SCALE the player is studying the ground:
+      // drift slides the focus across tile cells (L2 cells are 2° wide —
+      // a crossing every ~1.25s) faster than bakes can land, so the
+      // ground never finishes sharpening under a hands-off reader
+      // (measured Oct 13 2026 in the tiledebug watch). A living planet
+      // at orbit; a steady map at inspection depth.
+      if (!drag.current && !reduceMotion.current && v.scale < TILE_DETAIL_SCALE && ms - lastInteract.current > 5000) {
         v.spin += dt * 1.6;
       }
 
@@ -1955,14 +2019,13 @@ export default function WorldGlobe({
       const focusLL = focusLatLon(v.spin, v.tilt);
       let regionTile: RegionTile | null = null;
       if (morphT > 0) {
-        // LOD: the detail tile level takes over at LOW ALT and deeper, so
-        // the ground keeps resolving as you descend instead of stretching
-        // the morph tile forever. HYSTERESIS (Oct 12 2026): the level is
-        // sticky — it rises at TILE_DETAIL_SCALE but only falls back at
-        // 0.9× — so a pinch hovering on the boundary can't flap L0↔L1
-        // (and restart the crossfade) every frame.
-        if (stickyTileLevel === 0 && v.scale >= TILE_DETAIL_SCALE) stickyTileLevel = 1;
-        else if (stickyTileLevel === 1 && v.scale < TILE_DETAIL_SCALE * 0.9) stickyTileLevel = 0;
+        // LOD: finer tile levels take over as you descend (L1 at LOW ALT,
+        // L2 at GROUND), so the ground keeps resolving instead of
+        // stretching one tile forever. HYSTERESIS: tileLevelForScale is
+        // sticky — a level is entered at its band edge but only exited
+        // 10% below it — so a pinch hovering on a boundary can't flap
+        // levels (and restart the crossfade) every frame.
+        stickyTileLevel = tileLevelForScale(stickyTileLevel, v.scale);
         const tileLevel = stickyTileLevel;
         tileDebugStatus.scale = v.scale;
         tileDebugStatus.tileLevel = tileLevel;
