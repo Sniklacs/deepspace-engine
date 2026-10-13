@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KNOWN_SERVERS, type KnownServer } from "../game/servers";
+import {
+  initialPortalStates,
+  nextPortalPollDelay,
+  parseHealthPayload,
+  portalPollDown,
+  portalPollUp,
+  portalTick,
+  warStateFromPortal,
+  type PlanetWar,
+  type PortalServerState,
+  type ServerHealthPayload,
+  type SystemWarState,
+} from "../game/portal-health";
 import { getRace } from "../game/races";
 import { useT } from "./i18n/I18n";
 import {
@@ -25,6 +38,11 @@ interface PlanetDatum {
   health: ServerHealth;
   playerCount?: number;
   reverb?: number;
+  /** From the health payload's balance lever (undefined = world doesn't
+   *  report it — older deployment). */
+  accepting?: boolean;
+  /** Shown values are last-known, not fresh (planet down or data aged). */
+  stale?: boolean;
   angle: number;
   orbitRadius: number; // base orbit radius in world units
   size: number; // planet radius in world units
@@ -104,57 +122,38 @@ const STATUS_COLOR: Record<ServerHealth, string> = {
   down: "#f87171",
 };
 
-async function checkHealth(server: KnownServer): Promise<{ health: ServerHealth; playerCount?: number; reverb?: number }> {
-  if (server.status === "soon" || !server.url) return { health: "down" };
+/* ------------------------------------------------------------------ */
+/* THE PORTAL MONITOR (owner architecture, Oct 13 2026)                */
+/*                                                                     */
+/* This page belongs to no server — it MONITORS all of them. Every     */
+/* ~10s it pings each world's /api/health (see game/portal-health.ts   */
+/* for the payload, the freshness reducer, and the war derivation).    */
+/* The same polled payload feeds everything on screen: status lights,  */
+/* player counts, reverb, accepting lines, and the live war map.       */
+/*                                                                     */
+/* The war visuals run ONLY on fresh, real payload data: the simulated */
+/* Demo War was cut by owner decision (2026-10-13) after its graphics  */
+/* Aw-Snapped his phone; the viz that remains is pre-hardened for the  */
+/* live feed (baked sprites, no per-frame gradients — see              */
+/* drawPlanetFires / drawWarTracers).                                  */
+/* ------------------------------------------------------------------ */
+
+/** One portal ping. Resolves with the parsed payload when the world
+ *  answered at all (up OR an explicit down report); null when the ping
+ *  itself failed — network error, timeout, or an unparseable body
+ *  (e.g. an old deployment whose /api/health route doesn't exist). */
+async function pingServer(server: KnownServer): Promise<ServerHealthPayload | null> {
   const ctrl = new AbortController();
   const timeout = setTimeout(() => ctrl.abort(), HEALTH_TIMEOUT_MS);
   try {
     const res = await fetch(`${server.url}/api/health`, { signal: ctrl.signal });
-    if (!res.ok) return { health: "down" };
-    const data = await res.json();
-    if (data.status !== "up") return { health: "down" };
-    return {
-      health: "up",
-      playerCount: typeof data.playerCount === "number" ? data.playerCount : undefined,
-      reverb: typeof data.reverb === "number" ? data.reverb : undefined,
-    };
+    const data: unknown = await res.json().catch(() => null);
+    return parseHealthPayload(data);
   } catch {
-    return { health: "down" };
+    return null;
   } finally {
     clearTimeout(timeout);
   }
-}
-
-/* ------------------------------------------------------------------ */
-/* LIVE WAR MAP — system-wide war state                                 */
-/*                                                                     */
-/* TODO(Hans): wire fetchWarState() to the real war feed. Right now no  */
-/* live war endpoint exists, so this returns null (→ "ALL QUIET") —    */
-/* the correct display until the feed lands. The war visuals below run */
-/* ONLY on real feed data: the simulated Demo War was cut by owner      */
-/* decision (2026-10-13) after its graphics Aw-Snapped his phone; the   */
-/* viz that remains is pre-hardened for the live feed (baked sprites,   */
-/* no per-frame gradients — see drawPlanetFires / drawWarTracers).     */
-/* ------------------------------------------------------------------ */
-
-interface PlanetWar {
-  planetId: string; // KnownServer id under attack
-  attackers: string[]; // KnownServer ids raining fire on it
-  reverbDrop?: number; // how much reverb has fallen since the attack began
-}
-
-interface SystemWarState {
-  active: boolean;
-  wars: PlanetWar[];
-}
-
-const WAR_POLL_MS = 15000;
-
-async function fetchWarState(): Promise<SystemWarState | null> {
-  // TODO(Hans): replace with the real war feed (per-planet attack status +
-  // reverb deltas). Until then: null = all quiet. No simulated branch —
-  // the Demo War was removed by owner decision (2026-10-13).
-  return null;
 }
 
 interface Star {
@@ -1009,42 +1008,118 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
 
   if (starsRef.current.length === 0) starsRef.current = makeStars(260);
 
-  // Health checks on mount
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const results = await Promise.all(
-        KNOWN_SERVERS.map(async (server) => {
-          const { health, playerCount, reverb } = await checkHealth(server);
-          return { server, health, playerCount, reverb };
-        }),
-      );
-      if (cancelled) return;
-      setPlanets((prev) =>
-        prev.map((p) => {
-          const r = results.find((x) => x.server.id === p.server.id);
-          return r ? { ...p, health: r.health, playerCount: r.playerCount, reverb: r.reverb } : p;
-        }),
-      );
-    })();
-    return () => { cancelled = true; };
+  // ---- THE PORTAL MONITOR — poll every world's health ~every 10s ----
+  // Source of truth lives in portalRef (game/portal-health.ts reducer);
+  // projectPortal mirrors it into the planet data + the war state after
+  // every round. Polls pause while the tab is hidden and resume with an
+  // immediate round on return; a 5s tick ages out stale successes so
+  // nothing on screen is ever fake-fresh.
+  const portalRef = useRef<Record<string, PortalServerState> | null>(null);
+  if (portalRef.current === null) portalRef.current = initialPortalStates(KNOWN_SERVERS);
+  const pollInFlight = useRef(false);
+
+  const projectPortal = useCallback(() => {
+    const states = portalRef.current;
+    if (!states) return;
+    setPlanets((prev) =>
+      prev.map((p) => {
+        const st = states[p.server.id];
+        if (!st) return p;
+        if (st.phase === "up" && st.lastUp) {
+          return {
+            ...p,
+            health: "up" as ServerHealth,
+            playerCount: st.lastUp.playerCount,
+            reverb: st.lastUp.reverb,
+            accepting: st.lastUp.accepting,
+            stale: st.stale,
+          };
+        }
+        if (st.phase === "down") {
+          return {
+            ...p,
+            health: "down" as ServerHealth,
+            playerCount: st.lastUp?.playerCount,
+            reverb: st.lastUp?.reverb,
+            accepting: st.lastUp?.accepting,
+            stale: st.lastUp !== null,
+          };
+        }
+        return { ...p, health: "checking" as ServerHealth };
+      }),
+    );
+    setWar(warStateFromPortal(states, KNOWN_SERVERS));
   }, []);
 
-  // War-state polling — the live war map feed (TODO(Hans): real endpoint)
   useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
+    const states = portalRef.current;
+    if (!states) return;
+    let stopped = false;
+    let timer: number | undefined;
+
+    const round = async () => {
+      if (pollInFlight.current) return;
+      pollInFlight.current = true;
       try {
-        const w = await fetchWarState();
-        if (!cancelled) setWar(w);
-      } catch {
-        if (!cancelled) setWar(null);
+        await Promise.all(
+          KNOWN_SERVERS.filter((s) => s.status !== "soon" && !!s.url).map(async (server) => {
+            const payload = await pingServer(server);
+            const now = Date.now();
+            states[server.id] =
+              payload && payload.status === "up"
+                ? portalPollUp(states[server.id], payload, now)
+                : portalPollDown(states[server.id], now);
+          }),
+        );
+      } finally {
+        pollInFlight.current = false;
+      }
+      if (!stopped) projectPortal();
+    };
+
+    const loop = async () => {
+      await round();
+      if (stopped || document.hidden) return;
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        void loop();
+      }, nextPortalPollDelay());
+    };
+
+    const onVis = () => {
+      if (document.hidden) {
+        if (timer !== undefined) {
+          window.clearTimeout(timer);
+          timer = undefined;
+        }
+      } else if (!stopped && timer === undefined && !pollInFlight.current) {
+        void loop();
       }
     };
-    void poll();
-    const id = window.setInterval(poll, WAR_POLL_MS);
-    return () => { cancelled = true; window.clearInterval(id); };
-  }, []);
+    document.addEventListener("visibilitychange", onVis);
+    void loop();
+
+    // Freshness sweep: age out successes that stopped being refreshed.
+    const tickId = window.setInterval(() => {
+      let changed = false;
+      const now = Date.now();
+      for (const id of Object.keys(states)) {
+        const next = portalTick(states[id], now);
+        if (next !== states[id]) {
+          states[id] = next;
+          changed = true;
+        }
+      }
+      if (changed && !stopped) projectPortal();
+    }, 5000);
+
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      window.clearInterval(tickId);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [projectPortal]);
 
   // Grand entrance: on mount (a user gesture — signup — already happened).
   // No ambient music bed here (Hans, Oct 13 2026): the synthesized "cosmos"
@@ -1368,7 +1443,9 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
         screenPos.set(p.server.id, { x: px, y: py, r: pr });
 
         const vis = p.visual;
-        const dim = p.server.status === "soon";
+        // Dark planet = not there yet ("soon") or DOWN (failed ping —
+        // portal rule: dark/red, last-known values dimmed, never fresh).
+        const dim = p.server.status === "soon" || p.health === "down";
         const [ar, ag, ab] = hexToRgb(vis.atmosphere);
         const [gr2, gg2, gb2] = hexToRgb(vis.glow);
 
@@ -1993,14 +2070,33 @@ function DetailPanel({
                   : t("servers.statusChecking", "Checking…")}
             </span>
             {planet.playerCount !== undefined && (
-              <span>{t("servers.inhabitants", "{count} inhabitants", { count: planet.playerCount.toLocaleString() })}</span>
+              <span style={{ opacity: planet.stale ? 0.45 : 1 }}>{t("servers.inhabitants", "{count} inhabitants", { count: planet.playerCount.toLocaleString() })}</span>
             )}
             {planet.reverb !== undefined && (
-              <span style={underAttack ? { color: "#fca5a5", fontWeight: 700 } : undefined}>
+              <span style={{
+                ...(underAttack ? { color: "#fca5a5", fontWeight: 700 } : {}),
+                opacity: planet.stale ? 0.45 : 1,
+              }}>
                 {t("servers.reverb", "Reverb {score}", { score: planet.reverb.toLocaleString() })}
                 {underAttack && reverbDrop !== undefined && (
                   <> <span style={{ color: "#f87171" }}>▼{reverbDrop.toLocaleString()}</span></>
                 )}
+              </span>
+            )}
+            {planet.accepting !== undefined && (
+              <span style={{
+                opacity: planet.stale ? 0.45 : 1,
+                color: planet.accepting ? "#4ade80" : "#fbbf24",
+                fontWeight: 600,
+              }}>
+                {planet.accepting
+                  ? t("servers.accepting", "Accepting new players")
+                  : t("servers.notAccepting", "Not accepting new players")}
+              </span>
+            )}
+            {planet.stale && (
+              <span style={{ opacity: 0.6, fontStyle: "italic" }}>
+                {t("servers.lastKnown", "Last known")}
               </span>
             )}
             {underAttack && (

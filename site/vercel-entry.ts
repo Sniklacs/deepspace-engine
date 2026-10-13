@@ -437,6 +437,93 @@ async function runSeedWarlord(uname: string): Promise<Record<string, any>> {
   return results;
 }
 
+/* ------------------------------------------------------------------ */
+/* PORTAL HEALTH AGGREGATE (owner architecture, Oct 13 2026)            */
+/*                                                                      */
+/* The landing page is a standalone portal that pings every world's     */
+/* /api/health ~every 10s. Two of its fields need a look across this    */
+/* world's saves:                                                     */
+/*   • reverb — the world's total fielded force-power: Σ over every   */
+/*     colony's saved formations of formationReverb (ships + troops;  */
+/*     the battle engine's own scale — formations.ts). Hero gear is    */
+/*     not folded in (it lives on hero records, not formations).       */
+/*   • war — unresolved incoming raids written by /api/raid-incoming: */
+/*     this world is under attack, by whom, how many, next landing.   */
+/* The scan is memoized ~20s so a crowd of portals polling every 10s   */
+/* doesn't rescan the saves table per hit. Best-effort: any failure    */
+/* degrades to reverb 0 / war null and NEVER breaks the health core    */
+/* (DB ping + account count), which is computed separately.             */
+/* ------------------------------------------------------------------ */
+interface HealthAggregate {
+  reverb: number;
+  war: { attackers: string[]; raids: number; nextLandingAt?: number } | null;
+}
+
+const HEALTH_AGG_TTL_MS = 20_000;
+let healthAggCache: { at: number; agg: HealthAggregate } | null = null;
+
+async function healthAggregate(now: number): Promise<HealthAggregate> {
+  if (healthAggCache && now - healthAggCache.at < HEALTH_AGG_TTL_MS) {
+    return healthAggCache.agg;
+  }
+  let agg: HealthAggregate = { reverb: 0, war: null };
+  try {
+    const [{ loadAllSaves }, { formationReverb }] = await Promise.all([
+      import("./src/game/store"),
+      import("./src/game/formations.js"),
+    ]);
+    const all = await loadAllSaves();
+    let reverb = 0;
+    let raids = 0;
+    let nextLandingAt: number | undefined;
+    const attackers = new Set<string>();
+    for (const { saves } of all) {
+      const games = (saves as { games?: Record<string, unknown> })?.games ?? {};
+      for (const game of Object.values(games)) {
+        const g = game as {
+          formations?: { formations?: unknown[] };
+          worldMap?: { incomingRaids?: unknown[] };
+        } | null;
+        if (!g || typeof g !== "object") continue;
+        const forms = g.formations?.formations;
+        if (Array.isArray(forms)) {
+          for (const f of forms) {
+            try {
+              reverb += formationReverb(f as Parameters<typeof formationReverb>[0]);
+            } catch { /* one malformed formation never sinks the aggregate */ }
+          }
+        }
+        const incoming = g.worldMap?.incomingRaids;
+        if (Array.isArray(incoming)) {
+          for (const r of incoming) {
+            const raid = r as { resolved?: boolean; attackerWorldId?: unknown; landsAt?: unknown } | null;
+            if (!raid || typeof raid !== "object" || raid.resolved) continue;
+            raids++;
+            if (typeof raid.attackerWorldId === "string" && raid.attackerWorldId) {
+              attackers.add(raid.attackerWorldId);
+            }
+            if (typeof raid.landsAt === "number" && raid.landsAt > now) {
+              if (nextLandingAt === undefined || raid.landsAt < nextLandingAt) {
+                nextLandingAt = raid.landsAt;
+              }
+            }
+          }
+        }
+      }
+    }
+    agg = {
+      reverb: Math.round(reverb),
+      war: raids > 0
+        ? { attackers: [...attackers], raids, ...(nextLandingAt !== undefined ? { nextLandingAt } : {}) }
+        : null,
+    };
+  } catch {
+    // Aggregate is decorative next to the health core — stay quiet, stay up.
+  }
+  healthAggCache = { at: now, agg };
+  return agg;
+}
+
 export default async function vercelHandler(
   req: IncomingMessage,
   res: ServerResponse
@@ -478,8 +565,12 @@ export default async function vercelHandler(
       }
       return;
     }
-    // Health check endpoint for server-select UI.
-    // Returns { status: "up" } if DB reachable, 503 { status: "down" } if not.
+    // Health check endpoint — the PORTAL's ping target (owner, Oct 13 2026).
+    // The landing/solar-system page belongs to no server: it polls every
+    // world's /api/health cross-origin ~every 10s and renders real status.
+    // This payload is PUBLIC status data by design, so CORS is wide open
+    // on this endpoint only. Returns { status: "up", … } if DB reachable,
+    // 503 { status: "down" } if not.
     if (pathname === "/api/health") {
       const worldId = process.env.WORLD_ID || "watchers-beta";
       const worldName = process.env.WORLD_NAME || "The Shattered Academies";
@@ -487,6 +578,14 @@ export default async function vercelHandler(
       const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
       res.setHeader("content-type", "application/json; charset=utf-8");
       res.setHeader("cache-control", "no-store");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Access-Control-Max-Age", "86400");
+      if (req.method === "OPTIONS") {
+        res.statusCode = 204;
+        res.end();
+        return;
+      }
       if (!dbUrl) {
         res.statusCode = 503;
         res.end(JSON.stringify({
@@ -507,6 +606,14 @@ export default async function vercelHandler(
           const rows = await sql`SELECT COUNT(*) as count FROM accounts`;
           playerCount = Number((rows as any)[0]?.count ?? 0);
         } catch {}
+        // Portal contract (Oct 13 2026): `accepting` is the balance lever —
+        // an operator kill-switch (WORLD_ACCEPTING=0) or the world's player
+        // cap (WORLD_MAX_PLAYERS, default 1000) closes the gate; no cap is
+        // configured today, so every live world accepts. `reverb`/`war`
+        // come from the memoized saves aggregate (see healthAggregate).
+        const maxPlayers = Number(process.env.WORLD_MAX_PLAYERS) || 1000;
+        const accepting = process.env.WORLD_ACCEPTING !== "0" && playerCount < maxPlayers;
+        const agg = await healthAggregate(Date.now());
         res.statusCode = 200;
         res.end(JSON.stringify({
           status: "up",
@@ -514,7 +621,9 @@ export default async function vercelHandler(
           worldName,
           raceLock,
           playerCount,
-          reverb: 0,
+          reverb: agg.reverb,
+          accepting,
+          war: agg.war,
           serverBuild: serverBuildSha(),
           timestamp: new Date().toISOString(),
         }));
