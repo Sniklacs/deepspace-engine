@@ -159,6 +159,43 @@ a committed garrison, not a passing assignment.
 
 ---
 
+## 4A. Capture timing — taking a bunker is conversion work
+
+**RULED (Hans, Oct 13 2026; duration provisional).** Capturing a bunker is
+**not instant**, even after everyone defending it has been beaten. The
+victorious force still has to convert the position before it is solidly
+theirs:
+
+1. clear the dead out of the bunker;
+2. haul the enemy's shells and ammunition out;
+3. stock their own ammunition and supplies in; and
+4. prepare the position for their own use.
+
+Hans's reasoning:
+
+> "Just because you beat everybody in it doesn't mean that you can just go
+> in and take it — there's a lot of bodies that have to be removed, there's
+> shells to be moved, and things have to be prepared."
+
+- A **conversion timer** runs from takeover until the bunker goes
+  **solid** for its new holders. Winning the fight starts the conversion;
+  it does not complete it.
+- **The clock runs against the attacker, in the defender's favor.** Until
+  the bunker goes solid, the defender may move back in at any time and keep
+  restocking soldiers there. A converting bunker is therefore not yet
+  secure ground — it remains a live fight for possession while the work is
+  unfinished.
+- **Provisional duration: ~30 minutes — tunable, NOT locked.** Hans
+  floated 30 minutes while explicitly leaving the length undecided: *"I
+  don't know if that's 30 minutes or what — we'll just have to kind of
+  see."* Playtesting and later owner rulings set the real number.
+- **Still open (§8, Q3):** whether defender re-entry resets the conversion
+  timer or merely pauses it; whether partial restocking of the bunker
+  counts toward conversion progress; and how the wide view shows a bunker
+  that is converting / not yet solid.
+
+---
+
 ## 5. The threat model — three planets at once
 
 The scale in §3 exists because of the threat Hans named (Oct 13 2026):
@@ -223,9 +260,18 @@ not an edge case.
 2. **Fortification:** does "fortify" mean only manning pre-placed bunkers,
    or can positions be built/upgraded? If built: cost, build time, and can
    building happen under fire?
-3. **Occupation time:** when the boys across the street move into an empty
-   bunker, is occupation instant on arrival, or is there a hold/settle
-   timer before the position counts as theirs?
+3. **Occupation / capture time — RULED (Oct 13 2026), duration
+   provisional:** capturing a defended bunker is **not instant** after its
+   defenders are beaten. A conversion timer runs from takeover until the
+   bunker is solidly the takers' — the dead must be cleared, enemy
+   shells/ammo hauled out, and the takers' own ammunition and supplies
+   stocked in (see §4A). Until it goes solid, the defender may move back
+   in at any time and keep restocking soldiers; the clock runs against the
+   attacker. **Duration: ~30 minutes, provisional/tunable and not locked**
+   — Hans has not settled the final length. Still open: does defender
+   re-entry reset the timer or pause it; does partial restocking count
+   toward conversion; and how does the wide view show a converting /
+   not-yet-solid bunker?
 4. **"Hold" fire behavior:** what does the HOLD stance mean for fire —
    hold fire until fired on, engage anything in range/arc, pre-sighted
    fields of fire only? Do held troops ever pursue?
