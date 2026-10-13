@@ -42,8 +42,36 @@ case "$WORLD" in
     export WORLD_TAGLINE="The Watchers debug world — the beta test bed. This world belongs to the Fallen Teachers, and only Watcher colonies may be founded here."
     export DEBUG_WORLD="true"
     ;;
+  grays-world)
+    export WORLD_ID="grays-world"
+    export WORLD_NAME="The Gray Enclaves"
+    export RACE_LOCK="grays"
+    export WORLD_TAGLINE="The Grays world — fragile minds, formidable tech. Only Gray colonies may be founded here."
+    export DEBUG_WORLD="false"
+    ;;
+  nephilim-world)
+    export WORLD_ID="nephilim-world"
+    export WORLD_NAME="The Highlands"
+    export RACE_LOCK="nephilim"
+    export WORLD_TAGLINE="The Nephilim world — giants of the highlands, wielders of the massive war hammer. Only Nephilim colonies may be founded here."
+    export DEBUG_WORLD="false"
+    ;;
+  anunnaki-world)
+    export WORLD_ID="anunnaki-world"
+    export WORLD_NAME="The Gilded Courts"
+    export RACE_LOCK="anunnaki"
+    export WORLD_TAGLINE="The Annunaki world — ancient kings adorned in gold. Only Annunaki colonies may be founded here."
+    export DEBUG_WORLD="false"
+    ;;
+  ashtar-world)
+    export WORLD_ID="ashtar-world"
+    export WORLD_NAME="The Accord"
+    export RACE_LOCK="ashtar"
+    export WORLD_TAGLINE="The Ashtar world — peacekeepers of the Accord. Only Ashtar colonies may be founded here."
+    export DEBUG_WORLD="false"
+    ;;
   *)
-    echo "Unknown world: $WORLD (expected draconians-world or watchers-beta)" >&2
+    echo "Unknown world: $WORLD (expected draconians-world, watchers-beta, grays-world, nephilim-world, anunnaki-world or ashtar-world)" >&2
     exit 1
     ;;
 esac
