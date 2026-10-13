@@ -1715,7 +1715,7 @@ export default function WorldGlobe({
 
     let raf = 0;
     let last = performance.now();
-    let frameNo = 0;
+    let lastLadderTickMs = 0;
     const frame = (ms: number) => {
       raf = requestAnimationFrame(frame);
       // FRAME-TIME TELEMETRY (slice 14, spec §9): feed the rolling-window
@@ -1724,13 +1724,19 @@ export default function WorldGlobe({
       // AUTO QUALITY (spec §9, wired 2026-10-13): the sampler was fed for
       // a full day of builds but NOTHING ever called the ladder — a
       // struggling tablet got zero relief, the loop saturated, and taps
-      // starved behind seconds-long frames (Hans's globe freeze). One
-      // tick per telemetry window (90 frames); when a rung drops, the
-      // canvas re-caps its DPR and shrinks — graceful degradation, and
-      // the loop (rescheduled first, above) can never be killed by a
-      // slow frame or a failed bake.
-      frameNo += 1;
-      if (frameNo % 90 === 0 && autoLadderTick()) resize();
+      // starved behind seconds-long frames (Hans's globe freeze). The
+      // tick is TIME-based (every ~2.5s), never frame-count-based: a
+      // frame-counted window stretches exactly when the device is
+      // drowning (90 frames at 2fps = 45s per window, relief minutes
+      // away — measured in the throttled freeze repro). Three sustained
+      // over-budget ticks ≈ 7.5s to the first rung drop at ANY frame
+      // rate; a dropped rung re-caps the DPR and the canvas shrinks —
+      // graceful degradation, and the loop (rescheduled first, above)
+      // can never be killed by a slow frame or a failed bake.
+      if (ms - lastLadderTickMs >= 2500) {
+        lastLadderTickMs = ms;
+        if (autoLadderTick()) resize();
+      }
       const dt = Math.min(0.05, (ms - last) / 1000);
       last = ms;
       const v = view.current;
