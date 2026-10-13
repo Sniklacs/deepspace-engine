@@ -114,6 +114,53 @@ export interface HeroDeed {
    *  guarantee; null = not bound to a week window, e.g. the vouch). */
   finiteTimeWeeks: number | null;
 }
+/** One entry in the colony's hero-deed ledger (the earn engine's append-only
+ *  record — hero-earn.ts is the only writer). Two entry shapes share the
+ *  ledger: a COMPLETION (a deed's server-measured condition latched true;
+ *  `heroId` is null until the colony names its champion from the deed's
+ *  pool) and a GRANT (a hero actually earned — by claim, by a single-hero
+ *  pool's automatic grant, or by Oracle vouch; `heroId` names the hero and
+ *  `deedId` the deed or `oracle_vouch:<race>` that earned them). `evidence`
+ *  is the caller's idempotency/event reference (a battle id, a request id) —
+ *  provenance is auditable (R1), never client-writable. */
+export interface HeroDeedRecord {
+  deedId: string;
+  heroId: string | null;
+  /** True when this entry GRANTS the hero (claim / auto-grant / vouch);
+   *  false for a bare completion awaiting the colony's choice. */
+  grant: boolean;
+  at: number; // epoch ms
+  evidence: string;
+}
+
+/** Monotonic deed-progress counters (hero-earn.ts) — the server-measured
+ *  tallies the §3.1 threshold deeds read. Counters only ever grow; a deed
+ *  completes when its counter crosses the catalog threshold, and the ledger
+ *  entry latches it forever. Sources that don't exist in the war layer yet
+ *  (hauls, shield assists, escorts, purifies, climaxes, History firsts) sit
+ *  at zero until their event streams land — the evaluator already reads
+ *  them, so wiring a source later is a counter increment, not a redesign. */
+export interface HeroDeedProgress {
+  /** Offensive battles resolved by this colony (attacker-side, non-arena). */
+  marches: number;
+  /** Sites taken: attacker victories against the Chorus. */
+  captures: number;
+  /** First invasion-touch on enemy soil has happened (attacker victory). */
+  breach: boolean;
+  /** A march WON with zero corruption gain (battle marches gain none). */
+  cleanMarch: boolean;
+  hauls: number;
+  shieldAssists: number;
+  escorts: number;
+  purifies: number;
+  /** Scored actions taken while >25% outpowered that still won. */
+  comebackActions: number;
+  climaxWindows: number;
+  historyFirsts: number;
+  /** Distinct war weeks (ISO week keys) with ≥1 scored battle action. */
+  warWeeks: string[];
+}
+
 /** A roster hero — the ratified Wave-1 Watcher set (§2.6). */
 export interface HeroDef {
   id: string;

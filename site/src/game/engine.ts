@@ -66,6 +66,9 @@ import {
   freshDaily,
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
+// HERO EARN ENGINE (hero-earn.ts): deed ledger, hero XP, Oracle vouch, and
+// the leader battle-XP ladder — computed there, granted here (grantXpTo).
+import { processHeroEarn } from "./hero-earn";
 import {
   createMemorial,
   ensureMemorials,
@@ -744,6 +747,12 @@ export function newGame(playerName: string, raceId: RaceId, now = Date.now()): G
     deedsCompleted: [],
     totalBreakthroughs: 0,
     leaderXpCaps: {},
+    // Hero earn engine (hero-earn.ts): zeroed ledgers — heroes are earned.
+    heroDeeds: [],
+    earnedHeroes: [],
+    heroXpCaps: {},
+    heroBattleGrants: {},
+    heroEventIds: {},
     // Season identity (the sky rolls against it — design/satellites.md §0.4).
     seasonId: MONETIZATION_CONFIG.season0Id,
     // Orbital Watch: the constellation over this world (~50% awake, seeded).
@@ -845,6 +854,12 @@ export function blankColony(now = Date.now()): GameState {
     deedsCompleted: [],
     totalBreakthroughs: 0,
     leaderXpCaps: {},
+    // Hero earn engine (hero-earn.ts): zeroed ledgers — heroes are earned.
+    heroDeeds: [],
+    earnedHeroes: [],
+    heroXpCaps: {},
+    heroBattleGrants: {},
+    heroEventIds: {},
     seasonId: MONETIZATION_CONFIG.season0Id,
     satellites: freshSatellites(WORLD_CONFIG_PUBLIC.worldId, MONETIZATION_CONFIG.season0Id),
     // Blank slot: no ground yet — colonyNodeId() assigns on first use.
@@ -2057,6 +2072,20 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // battles finished — contribution-locked loot, per-colony loss ledger.
   // Runs AFTER resolveRosterCasualties so the segments are already billed.
   advanceRallies(state, now);
+  // HERO EARN ENGINE (hero-earn.ts; heroes-design-brief §3/§4): with every
+  // battle resolver above done, fold each newly resolved battle's facts
+  // into the deed ledger — participating heroes earn the published
+  // HERO_XP_SOURCES, deed completions latch (single-hero pools grant on
+  // the spot), and the commanding leader's battle XP comes back as grant
+  // intents applied HERE through grantXpTo, so the 40/day cap, the
+  // level-up invariant and the Chronicle line stay single-sourced in the
+  // engine. Idempotent per battle id; the threshold pass inside also
+  // latches contribution/codex deeds that ripened outside battle.
+  const heroEarn = processHeroEarn(state, now, { contributionScore: contributionScore(state) });
+  for (const grant of heroEarn.leaderGrants) {
+    const leader = state.leaders.find((l) => l.id === grant.leaderId);
+    if (leader) grantXpTo(state, leader, grant.amount, grant.source, now);
+  }
   // THE MUSTER (design/muster-troops.md): resolve finished muster orders,
   // charge upkeep from the supply stockpile, run the hunger clock
   // (grace → desertion → mercenary bands). Lazy and idempotent like every

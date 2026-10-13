@@ -289,6 +289,24 @@ export interface GameState {
   // resolve against the SAME cap the online runs spent from.
   leaderXpCaps: Record<string, number>;
 
+  // ---- Hero earn engine (heroes-design-brief §3; hero-earn.ts) ----
+  // The earn side of the Heroes Hall: an append-only deed ledger (every
+  // completion and every grant, with its evidence ref), the colony's
+  // live-earned hero instances (separate from the prologue's sealed height
+  // records — the Hall joins both), the hero-XP day-cap ledger (the
+  // colony-wide half of hero-xp.ts's grantHeroXpTo discipline), the
+  // monotonic deed-progress counters, and the per-battle idempotency
+  // stamps for battle-driven grants. All optional + backfilled by
+  // ensureHeroEarn so legacy saves load clean. Heroes remain EARNED,
+  // never bought: no field here is writable by a purchase path.
+  heroDeeds?: import("./heroes-data").HeroDeedRecord[];
+  earnedHeroes?: import("./hero-xp").HeroUnit[];
+  heroXpCaps?: Record<string, number>;
+  heroDeedProgress?: import("./heroes-data").HeroDeedProgress;
+  heroBattleGrants?: Record<string, true>;
+  /** Idempotency stamps for non-battle war events folded via noteWarEvent. */
+  heroEventIds?: Record<string, true>;
+
   // ---- Hidden Unbound revelation track (V4, entirely server-side) ----
   // Silent purity counters: incremented by player actions, NEVER sent to the
   // client (api.ts strips them from every payload). When silent thresholds

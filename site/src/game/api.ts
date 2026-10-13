@@ -25,6 +25,11 @@ import type { ForgeItem } from "./forge";
 import { RACES } from "./races";
 import { ZONES } from "./zones";
 import * as engine from "./engine";
+// HERO EARN ENGINE (hero-earn.ts): the claim doors — naming a deed's
+// champion and claiming an Oracle's vouch. Heroes are EARNED, never
+// bought: these are the only server entries that grant a hero, and both
+// validate the recorded deed / earned favor server-side.
+import { claimHeroFromDeed, claimHeroVouch } from "./hero-earn";
 import { worldRaceError, WORLD_CONFIG } from "./world-config";
 import { snapshotHero } from "./prologue/act1-battle";
 import {
@@ -795,6 +800,46 @@ const claimDailyRewardFn = createServerFn({ method: "POST" }).validator(
     if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
   }
   return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined, granted: res.granted };
+});
+
+// HERO EARN — naming a deed's champion (heroes-design-brief §3, R2: the
+// colony names the champion; the server only verifies). A deed whose pool
+// holds several heroes completes in battle and waits; this fn records the
+// colony's choice — deed complete + unclaimed + hero in pool are all
+// re-validated against the ledger inside hero-earn, and `requestId`
+// makes a retried claim return the original grant instead of erroring.
+// loadActiveState advances first, so deeds completed by battles that
+// resolved since the last read are already latched when this resolves.
+const claimHeroFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), deedId: z.string(), heroId: z.string(), requestId: z.string() })
+).handler(async ({ data }): Promise<GameResult & { heroId?: string }> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = claimHeroFromDeed(st, { deedId: data.deedId, heroId: data.heroId, requestId: data.requestId, now: Date.now() });
+  if (!res.ok) return { ok: false, error: res.error };
+  const saved = await saveActiveState(accountId, st);
+  if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  return { ok: true, state: publicState(st), heroId: res.heroId };
+});
+
+// HERO EARN — the Oracle's vouch (the alternate earn route, §3/§5): the
+// hero's race Oracle, met + favor at the published vouch threshold, is
+// re-verified against the Oracle record server-side at claim time. Favor
+// is read, never spent — oracles.ts stays the only writer.
+const claimHeroVouchFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), heroId: z.string(), requestId: z.string() })
+).handler(async ({ data }): Promise<GameResult & { heroId?: string }> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = claimHeroVouch(st, { heroId: data.heroId, requestId: data.requestId, now: Date.now() });
+  if (!res.ok) return { ok: false, error: res.error };
+  const saved = await saveActiveState(accountId, st);
+  if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  return { ok: true, state: publicState(st), heroId: res.heroId };
 });
 
 // TIME TOKENS — the EARNED path's spend door (owner direction 2026-09-27).
@@ -3563,6 +3608,8 @@ export {
   getWalletFn,
   getContributionFn,
   claimDailyRewardFn,
+  claimHeroFn,
+  claimHeroVouchFn,
   applyTimeTokenFn,
   purchaseWithVotivesFn,
   purchaseStoreOfferFn,

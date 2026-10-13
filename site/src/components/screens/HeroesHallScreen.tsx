@@ -250,7 +250,13 @@ export default function HeroesHallScreen({ state }: { state: GameState; now: num
   const leaders = state.leaders ?? [];
   const prologueHeroes = state.prologue?.heroes ?? [];
   const fateById = new Map(prologueHeroes.map((h) => [h.id, h.fate]));
-  const roster = buildHeroRoster(prologueHeroes);
+  // The Hall lights up for BOTH hero records: the prologue's sealed height
+  // squad and the heroes earned in live play (hero-earn.ts grants them into
+  // state.earnedHeroes). buildHeroRoster's by-id Map lets the LIVE record
+  // win an id collision — a hero earned back into service shows their
+  // standing instance (level, XP); fate display still reads the prologue
+  // map above.
+  const roster = buildHeroRoster([...prologueHeroes, ...(state.earnedHeroes ?? [])]);
   const earned = roster.filter((e) => e.earned);
   const locked = roster.filter((e) => !e.earned);
   const tiers = deedTierLadder();
