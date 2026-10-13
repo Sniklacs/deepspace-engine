@@ -26,54 +26,68 @@ const VOICE_TIMEOUT_MS = 14000; // safety if the clip can't play / onended never
 const FADE_MS = 1600;
 
 /**
- * Hans's own intro music track. Plays with a 2-second lead before the
- * solar system fades in.
+ * Hans's intro music program (owner-directed, Oct 13 2026): two of his
+ * tracks back to back — Track 8 first, then Track 10 — then the pair loops.
+ * Both at the same program level; the old two-layer mix is gone.
  */
-const INTRO_MUSIC_SRC = "/audio/intro-main-loop.m4a";
-const INTRO_BG_SRC = "/audio/intro-bg-layer.m4a";
-let introMusicEl: HTMLAudioElement | null = null;
-let introBgEl: HTMLAudioElement | null = null;
+const INTRO_TRACK_SRCS = ["/audio/intro-track-1.m4a", "/audio/intro-track-2.m4a"] as const;
+const MUSIC_VOLUME = 0.8; // the old main loop's program level
+let introTrackEls: HTMLAudioElement[] | null = null;
+let musicChainActive = false;
+let musicFadeTimer: number | null = null;
+
+function getIntroTrackEls(): HTMLAudioElement[] {
+  if (!introTrackEls) {
+    introTrackEls = INTRO_TRACK_SRCS.map((src) => {
+      const el = new Audio(src);
+      el.preload = "auto";
+      el.volume = MUSIC_VOLUME;
+      return el;
+    });
+    // Hard cut at the seam: when one track ends, the next starts; after the
+    // second, the pair loops back to the first. Chained on `ended` only —
+    // no timers to drift, nothing to glitch.
+    introTrackEls[0].onended = () => {
+      if (musicChainActive) playIntroTrack(1);
+    };
+    introTrackEls[1].onended = () => {
+      if (musicChainActive) playIntroTrack(0);
+    };
+  }
+  return introTrackEls;
+}
+
+function playIntroTrack(index: 0 | 1): void {
+  const el = getIntroTrackEls()[index];
+  try {
+    el.currentTime = 0;
+    el.volume = MUSIC_VOLUME;
+    void el.play().catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}
 
 function startIntroMusic(): void {
   try {
-    // Main loop: Hans's track, 1:27, fades in slowly.
-    if (!introMusicEl) {
-      introMusicEl = new Audio(INTRO_MUSIC_SRC);
-      introMusicEl.loop = true;
-      introMusicEl.volume = 0;
-    }
-    // Background layer: the remainder of his track, half volume, underneath.
-    if (!introBgEl) {
-      introBgEl = new Audio(INTRO_BG_SRC);
-      introBgEl.loop = true;
-      introBgEl.volume = 0;
-    }
-    const main = introMusicEl;
-    const bg = introBgEl;
-    void main.play().then(() => {
+    musicChainActive = true;
+    const first = getIntroTrackEls()[0];
+    first.currentTime = 0;
+    first.volume = 0;
+    void first.play().then(() => {
+      // Same slow fade-in the old main loop had.
+      if (musicFadeTimer !== null) window.clearInterval(musicFadeTimer);
       let v = 0;
-      const fade = window.setInterval(() => {
+      musicFadeTimer = window.setInterval(() => {
         v += 0.05;
-        if (v >= 0.8) {
-          main.volume = 0.8;
-          window.clearInterval(fade);
+        if (v >= MUSIC_VOLUME) {
+          first.volume = MUSIC_VOLUME;
+          if (musicFadeTimer !== null) window.clearInterval(musicFadeTimer);
+          musicFadeTimer = null;
         } else {
-          main.volume = v;
+          first.volume = v;
         }
       }, 200);
-    }).catch(() => {});
-    // Background comes in softer and slower, vibing underneath.
-    void bg.play().then(() => {
-      let v = 0;
-      const fade = window.setInterval(() => {
-        v += 0.02;
-        if (v >= 0.35) {
-          bg.volume = 0.35;
-          window.clearInterval(fade);
-        } else {
-          bg.volume = v;
-        }
-      }, 300);
     }).catch(() => {});
   } catch {
     /* ignore */
@@ -95,14 +109,20 @@ function goFullscreen(): void {
   }
 }
 
-function stopIntroMusic(): void {  try {
-    if (introMusicEl) {
-      introMusicEl.pause();
-      introMusicEl.currentTime = 0;
-    }
-    if (introBgEl) {
-      introBgEl.pause();
-      introBgEl.currentTime = 0;
+function stopIntroMusic(): void {
+  // Kill the chain first so a pending `ended` can never start the next
+  // track, then stop BOTH elements — including the one not yet playing.
+  musicChainActive = false;
+  if (musicFadeTimer !== null) {
+    window.clearInterval(musicFadeTimer);
+    musicFadeTimer = null;
+  }
+  try {
+    if (introTrackEls) {
+      for (const el of introTrackEls) {
+        el.pause();
+        el.currentTime = 0;
+      }
     }
   } catch {
     /* ignore */
