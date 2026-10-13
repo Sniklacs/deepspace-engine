@@ -129,10 +129,12 @@ async function checkHealth(server: KnownServer): Promise<{ health: ServerHealth;
 /* LIVE WAR MAP — system-wide war state                                 */
 /*                                                                     */
 /* TODO(Hans): wire fetchWarState() to the real war feed. Right now no  */
-/* live war endpoint exists, so this returns null (→ "ALL QUIET") and   */
-/* the visuals below run on demo data only when ?wardemo=1 is in the   */
-/* URL. When the feed lands, delete the demo branch and return the     */
-/* real SystemWarState.                                                */
+/* live war endpoint exists, so this returns null (→ "ALL QUIET") —    */
+/* the correct display until the feed lands. The war visuals below run */
+/* ONLY on real feed data: the simulated Demo War was cut by owner      */
+/* decision (2026-10-13) after its graphics Aw-Snapped his phone; the   */
+/* viz that remains is pre-hardened for the live feed (baked sprites,   */
+/* no per-frame gradients — see drawPlanetFires / drawWarTracers).     */
 /* ------------------------------------------------------------------ */
 
 interface PlanetWar {
@@ -148,27 +150,10 @@ interface SystemWarState {
 
 const WAR_POLL_MS = 15000;
 
-/** Demo war — clearly fake data so Hans can check the fire/tracer graphics
- *  on his phone before real war exists. Visually tagged DEMO everywhere. */
-const DEMO_WAR: SystemWarState = {
-  active: true,
-  wars: [
-    { planetId: "watchers-beta", attackers: ["draconians-world"], reverbDrop: 320 },
-  ],
-};
-
-function isWarDemo(): boolean {
-  try {
-    return new URLSearchParams(window.location.search).get("wardemo") === "1";
-  } catch {
-    return false;
-  }
-}
-
 async function fetchWarState(): Promise<SystemWarState | null> {
   // TODO(Hans): replace with the real war feed (per-planet attack status +
-  // reverb deltas). Until then: null = all quiet.
-  if (isWarDemo()) return DEMO_WAR;
+  // reverb deltas). Until then: null = all quiet. No simulated branch —
+  // the Demo War was removed by owner decision (2026-10-13).
   return null;
 }
 
@@ -253,8 +238,14 @@ function seededRand(seed: string): () => number {
   };
 }
 
-/** Stable fire-spot positions on a planet's disk (unit circle coords). */
+/** Stable fire-spot positions on a planet's disk (unit circle coords).
+ *  Memoized: the spots are seeded per planet, so the frame loop reuses one
+ *  array instead of allocating a fresh one every frame. */
+const fireSpotCache = new Map<string, Array<{ x: number; y: number; s: number }>>();
 function fireSpotsFor(planetId: string, n: number): Array<{ x: number; y: number; s: number }> {
+  const key = `${planetId}:${n}`;
+  const hit = fireSpotCache.get(key);
+  if (hit) return hit;
   const rnd = seededRand(`fire:${planetId}`);
   const spots: Array<{ x: number; y: number; s: number }> = [];
   for (let i = 0; i < n; i++) {
@@ -262,6 +253,7 @@ function fireSpotsFor(planetId: string, n: number): Array<{ x: number; y: number
     const r = 0.15 + rnd() * 0.7;
     spots.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, s: 0.7 + rnd() * 0.6 });
   }
+  fireSpotCache.set(key, spots);
   return spots;
 }
 
@@ -390,13 +382,113 @@ function drawJumpGate(
   g.shadowBlur = 0;
 }
 
-/** Burning fires + rising smoke on a planet under attack. */
+/* ------------------------------------------------------------------ */
+/* WAR VIZ SPRITES — baked ONCE, blitted per frame (crash fix,        */
+/* 2026-10-13). The original war layer built 17 CanvasRadialGradients  */
+/* per attacked planet per frame (5 fire spots × glow+core+smoke,      */
+/* plus the tracer pulse head and a planet-sized impact flare) — the   */
+/* single most expensive thing the frame loop ever did, and what       */
+/* Aw-Snapped the owner's phone. Now every glow is a small offscreen   */
+/* canvas baked lazily on first use; a frame only drawImages them     */
+/* with globalAlpha carrying the flicker. Zero gradients, zero         */
+/* shadowBlur, zero allocations in the war hot loop.                   */
+/* ------------------------------------------------------------------ */
+
+const GLOW_TEX = 256;
+
+function bakeGlowSprite(size: number, stops: Array<[number, string]>): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = size;
+  c.height = size;
+  const g = c.getContext("2d");
+  if (!g) return c;
+  const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  for (const [at, color] of stops) grad.addColorStop(at, color);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, size, size);
+  return c;
+}
+
+let fireGlowSpriteCache: HTMLCanvasElement | null = null;
+/** Fire outer-glow + hot core in ONE sprite (core occupies the inner 1/2.4). */
+function fireGlowSprite(): HTMLCanvasElement {
+  if (fireGlowSpriteCache) return fireGlowSpriteCache;
+  const S = GLOW_TEX;
+  const c = document.createElement("canvas");
+  c.width = S;
+  c.height = S;
+  const g = c.getContext("2d");
+  if (g) {
+    const R = S / 2;
+    const outer = g.createRadialGradient(R, R, 0, R, R, R);
+    outer.addColorStop(0, "rgba(255,120,30,0.55)");
+    outer.addColorStop(0.5, "rgba(255,60,10,0.28)");
+    outer.addColorStop(1, "rgba(255,40,0,0)");
+    g.fillStyle = outer;
+    g.fillRect(0, 0, S, S);
+    const coreR = R / 2.4;
+    const core = g.createRadialGradient(R, R, 0, R, R, coreR);
+    core.addColorStop(0, "rgba(255,240,200,0.95)");
+    core.addColorStop(0.6, "rgba(255,160,60,0.8)");
+    core.addColorStop(1, "rgba(255,80,20,0)");
+    g.fillStyle = core;
+    g.beginPath();
+    g.arc(R, R, coreR, 0, Math.PI * 2);
+    g.fill();
+  }
+  fireGlowSpriteCache = c;
+  return c;
+}
+
+let smokeSpriteCache: HTMLCanvasElement | null = null;
+/** Smoke puff at full-strength alpha — per-frame alpha rides on globalAlpha. */
+function smokeSprite(): HTMLCanvasElement {
+  if (!smokeSpriteCache) {
+    smokeSpriteCache = bakeGlowSprite(128, [
+      [0, "rgba(60,60,70,1)"],
+      [1, "rgba(60,60,70,0)"],
+    ]);
+  }
+  return smokeSpriteCache;
+}
+
+let pulseSpriteCache: HTMLCanvasElement | null = null;
+/** Tracer pulse head glow. */
+function pulseSprite(): HTMLCanvasElement {
+  if (!pulseSpriteCache) {
+    pulseSpriteCache = bakeGlowSprite(64, [
+      [0, "rgba(255,200,120,0.95)"],
+      [0.4, "rgba(255,110,40,0.6)"],
+      [1, "rgba(255,80,20,0)"],
+    ]);
+  }
+  return pulseSpriteCache;
+}
+
+let flareSpriteCache: HTMLCanvasElement | null = null;
+/** Impact flare at its resting strength — the flicker rides on globalAlpha. */
+function flareSprite(): HTMLCanvasElement {
+  if (!flareSpriteCache) {
+    flareSpriteCache = bakeGlowSprite(GLOW_TEX, [
+      [0, "rgba(255,150,60,0.35)"],
+      [1, "rgba(255,80,20,0)"],
+    ]);
+  }
+  return flareSpriteCache;
+}
+
+/** Burning fires + rising smoke on a planet under attack.
+ *  HARDENED (2026-10-13): blits the baked sprites only — the flicker that
+ *  used to force 15 fresh radial gradients per planet per frame now rides
+ *  on globalAlpha + draw size. */
 function drawPlanetFires(
   g: CanvasRenderingContext2D,
   px: number, py: number, pr: number,
   spots: Array<{ x: number; y: number; s: number }>,
   time: number, reducedMotion: boolean,
 ): void {
+  const glow = fireGlowSprite();
+  const smoke = reducedMotion ? null : smokeSprite();
   g.save();
   g.beginPath();
   g.arc(px, py, pr, 0, Math.PI * 2);
@@ -407,37 +499,20 @@ function drawPlanetFires(
     const fy = py + sp.y * pr;
     const flick = reducedMotion ? 1 : 0.75 + 0.25 * Math.sin(time * 9 + i * 2.4) + 0.1 * Math.sin(time * 23 + i);
     const fr = pr * 0.22 * sp.s * flick;
-    // outer glow
-    const fg = g.createRadialGradient(fx, fy, 0, fx, fy, fr * 2.4);
-    fg.addColorStop(0, `rgba(255,120,30,${0.55 * flick})`);
-    fg.addColorStop(0.5, `rgba(255,60,10,${0.28 * flick})`);
-    fg.addColorStop(1, "rgba(255,40,0,0)");
-    g.fillStyle = fg;
-    g.beginPath();
-    g.arc(fx, fy, fr * 2.4, 0, Math.PI * 2);
-    g.fill();
-    // hot core
-    const cg = g.createRadialGradient(fx, fy, 0, fx, fy, fr);
-    cg.addColorStop(0, `rgba(255,240,200,${0.95 * flick})`);
-    cg.addColorStop(0.6, `rgba(255,160,60,${0.8 * flick})`);
-    cg.addColorStop(1, "rgba(255,80,20,0)");
-    g.fillStyle = cg;
-    g.beginPath();
-    g.arc(fx, fy, fr, 0, Math.PI * 2);
-    g.fill();
+    // glow + hot core — one baked sprite; diameter = outer glow radius × 2
+    const gd = fr * 2.4 * 2;
+    g.globalAlpha = Math.min(1, flick);
+    g.drawImage(glow, fx - gd / 2, fy - gd / 2, gd, gd);
+    g.globalAlpha = 1;
     // smoke wisp drifting up
-    if (!reducedMotion) {
+    if (smoke) {
       const rise = ((time * 0.35 + i * 0.37) % 1);
       const sx = fx + Math.sin(time * 1.3 + i * 3) * pr * 0.06;
       const sy = fy - rise * pr * 0.9;
-      const sa = (1 - rise) * 0.28;
-      const sg = g.createRadialGradient(sx, sy, 0, sx, sy, pr * 0.16 * (0.5 + rise));
-      sg.addColorStop(0, `rgba(60,60,70,${sa})`);
-      sg.addColorStop(1, "rgba(60,60,70,0)");
-      g.fillStyle = sg;
-      g.beginPath();
-      g.arc(sx, sy, pr * 0.16 * (0.5 + rise), 0, Math.PI * 2);
-      g.fill();
+      const sd = pr * 0.16 * (0.5 + rise) * 2;
+      g.globalAlpha = (1 - rise) * 0.28;
+      g.drawImage(smoke, sx - sd / 2, sy - sd / 2, sd, sd);
+      g.globalAlpha = 1;
     }
   }
   g.restore();
@@ -473,31 +548,22 @@ function drawWarTracers(
       g.moveTo(x0, y0);
       g.quadraticCurveTo(cxp, cyp, x1, y1);
       g.stroke();
-      // animated dash pulse racing toward the target
+      // animated dash pulse racing toward the target — baked sprite blit
       if (!reducedMotion) {
         const t = (time * 0.55) % 1;
         const q0 = 1 - t;
         // point on quadratic bezier at q0 (near attacker) and at 1 (target)
         const px = (1 - q0) * (1 - q0) * x0 + 2 * (1 - q0) * q0 * cxp + q0 * q0 * x1;
         const py = (1 - q0) * (1 - q0) * y0 + 2 * (1 - q0) * q0 * cyp + q0 * q0 * y1;
-        const sg = g.createRadialGradient(px, py, 0, px, py, 7 * dpr);
-        sg.addColorStop(0, "rgba(255,200,120,0.95)");
-        sg.addColorStop(0.4, "rgba(255,110,40,0.6)");
-        sg.addColorStop(1, "rgba(255,80,20,0)");
-        g.fillStyle = sg;
-        g.beginPath();
-        g.arc(px, py, 7 * dpr, 0, Math.PI * 2);
-        g.fill();
+        const pd = 7 * dpr * 2;
+        g.drawImage(pulseSprite(), px - pd / 2, py - pd / 2, pd, pd);
       }
-      // impact flare on the target
+      // impact flare on the target — baked sprite, flicker on globalAlpha
       const fl = reducedMotion ? 0.7 : 0.55 + 0.3 * Math.sin(time * 7 + x1);
-      const ig = g.createRadialGradient(x1, y1, 0, x1, y1, target.r * 0.9);
-      ig.addColorStop(0, `rgba(255,150,60,${0.35 * fl})`);
-      ig.addColorStop(1, "rgba(255,80,20,0)");
-      g.fillStyle = ig;
-      g.beginPath();
-      g.arc(x1, y1, target.r * 0.9, 0, Math.PI * 2);
-      g.fill();
+      const fd = target.r * 0.9 * 2;
+      g.globalAlpha = Math.min(1, Math.max(0, fl));
+      g.drawImage(flareSprite(), x1 - fd / 2, y1 - fd / 2, fd, fd);
+      g.globalAlpha = 1;
     }
   }
 }
@@ -809,8 +875,34 @@ function makeCityLights(): HTMLCanvasElement {
   return c;
 }
 
-/** Pre-render nebula wisps + vignette to an offscreen canvas (redrawn on resize). */
+/** Renderer memory budget (owner crash fix, round 3, 2026-10-13): phone GPUs
+ *  Aw-Snap on stacked full-device-resolution canvases. The main canvas draws
+ *  at most 1.5× CSS pixels, and the nebula backdrop bakes at most 1280 px on
+ *  its longest side, stretched back up by the frame loop's blit — it is soft
+ *  radial wisps and a vignette, so upscaling is invisible. Planet textures
+ *  stay their crisp 256 px bakes; only the soft backdrop gives. */
+const STARMAP_MAX_DPR = 1.5;
+const NEBULA_MAX_SIDE = 1280;
+
+function starmapDpr(): number {
+  return Math.min(STARMAP_MAX_DPR, window.devicePixelRatio || 1);
+}
+
+/** The capped bake size for a canvas of w×h — aspect preserved. */
+function nebulaSize(w: number, h: number): { w: number; h: number } {
+  const longest = Math.max(w, h);
+  if (longest <= NEBULA_MAX_SIDE) return { w, h };
+  const k = NEBULA_MAX_SIDE / longest;
+  return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
+}
+
+/** Pre-render nebula wisps + vignette to an offscreen canvas (redrawn on resize).
+ *  Baked at the capped nebula size (see above); the frame loop stretches it
+ *  back over the full canvas with drawImage. */
 function makeBackground(w: number, h: number): HTMLCanvasElement {
+  const capped = nebulaSize(w, h);
+  w = capped.w;
+  h = capped.h;
   const c = document.createElement("canvas");
   c.width = Math.max(1, w);
   c.height = Math.max(1, h);
@@ -895,17 +987,13 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
   const [muted, setMuted] = useState(sound.muted);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [war, setWar] = useState<SystemWarState | null>(null);
-  // Demo War toggle — Hans's graphics check. Clearly fake, clearly labeled.
-  const [demoWar, setDemoWar] = useState<boolean>(() => isWarDemo());
-  const effectiveWar = demoWar ? DEMO_WAR : war;
-  const isDemo = demoWar;
 
   // Mutable render state (not React state — updated every frame)
   const view = useRef({ rotation: 0, scale: 1, targetScale: 1, cx: 0, cy: 0, tcx: 0, tcy: 0, tScale: 1 });
   const gateRef = useRef({ angle: Math.PI * 0.75, orbitRadius: 470, size: 26 });
   const gateScreenRef = useRef<{ x: number; y: number; r: number } | null>(null);
   const warRef = useRef<SystemWarState | null>(null);
-  warRef.current = effectiveWar;
+  warRef.current = war;
   const drag = useRef<{ x: number; y: number; startX: number; startY: number; moved: boolean; lastT: number; vel: number } | null>(null);
   const planetsRef = useRef(planets);
   planetsRef.current = planets;
@@ -1035,7 +1123,7 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
 
     let raf = 0;
     let last = performance.now();
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = starmapDpr();
 
     const resize = () => {
       const rect = wrap.getBoundingClientRect();
@@ -1043,8 +1131,13 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
       canvas.height = Math.max(1, Math.floor(rect.height * dpr));
       canvas.style.width = `${rect.width}px`;
       canvas.style.height = `${rect.height}px`;
-      // pre-render the nebula background at device resolution
-      bgRef.current = makeBackground(canvas.width, canvas.height);
+      // Re-bake the nebula only when its CAPPED bake size actually changes —
+      // a resize/rotation that caps to the same bake costs no new surface.
+      const ns = nebulaSize(canvas.width, canvas.height);
+      const bg = bgRef.current;
+      if (!bg || bg.width !== ns.w || bg.height !== ns.h) {
+        bgRef.current = makeBackground(canvas.width, canvas.height);
+      }
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -1418,9 +1511,10 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
       }
 
       // --- LIVE WAR — fires on burning worlds, tracers between attackers ---
+      // Real feed data only. Quiet path costs one null check per frame.
       const warState = warRef.current;
-      const attackedIds = new Set((warState?.wars ?? []).map((w) => w.planetId));
       if (warState?.active) {
+        const attackedIds = new Set(warState.wars.map((w) => w.planetId));
         for (const p of planetsRef.current) {
           if (!attackedIds.has(p.server.id)) continue;
           const pos = screenPos.get(p.server.id);
@@ -1465,7 +1559,7 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
     const rect = canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = starmapDpr();
     const pos = (canvas as unknown as { __planets?: Map<string, { x: number; y: number; r: number }> }).__planets;
     if (!pos) return null;
     for (const [id, p] of pos) {
@@ -1627,17 +1721,12 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
     setHint(null);
   }, []);
 
-  const toggleDemoWar = useCallback(() => {
-    playClick();
-    setDemoWar((d) => !d);
-  }, []);
-
-  // ---- live war map status ----
-  const warActive = effectiveWar?.active === true;
-  const attackedCount = effectiveWar?.wars.length ?? 0;
-  const attackedIds = new Set((effectiveWar?.wars ?? []).map((w) => w.planetId));
+  // ---- live war map status (real feed only — no simulated branch) ----
+  const warActive = war?.active === true;
+  const attackedCount = war?.wars.length ?? 0;
+  const attackedIds = new Set((war?.wars ?? []).map((w) => w.planetId));
   const reverbDropFor = (planetId: string): number | undefined =>
-    effectiveWar?.wars.find((w) => w.planetId === planetId)?.reverbDrop;
+    war?.wars.find((w) => w.planetId === planetId)?.reverbDrop;
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100dvh", overflow: "hidden", background: "#04060d" }}>
@@ -1675,27 +1764,13 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
             }}
           >
             {warActive ? (
-              <>⚔ {isDemo ? "DEMO WAR" : "WAR"} — {attackedCount} {attackedCount === 1 ? "world" : "worlds"} under attack{isDemo ? " (simulated)" : ""}</>
+              <>⚔ WAR — {attackedCount} {attackedCount === 1 ? "world" : "worlds"} under attack</>
             ) : (
               <>◌ ALL QUIET</>
             )}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, pointerEvents: "auto" }}>
-          {/* Demo War toggle — Hans's graphics check, clearly labeled fake */}
-          <button
-            onClick={toggleDemoWar}
-            aria-pressed={demoWar}
-            title={t("starmap.demoWarHint", "Simulate an attack to check the war graphics — not real war data.")}
-            style={{
-              height: 40, padding: "0 12px", borderRadius: 20,
-              border: demoWar ? "1px solid rgba(251,191,36,0.8)" : "1px solid rgba(255,255,255,0.2)",
-              background: demoWar ? "rgba(120,53,15,0.75)" : "rgba(255,255,255,0.06)",
-              color: demoWar ? "#fde68a" : "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
-            }}
-          >
-            {demoWar ? "🔥 Demo War: ON" : "Demo War"}
-          </button>
           {/* zoom out — back to the full system */}
           <button
             onClick={zoomOut}
@@ -1761,7 +1836,6 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
           onClose={closeDetail}
           reverbDrop={reverbDropFor(selected.server.id)}
           underAttack={attackedIds.has(selected.server.id)}
-          isDemo={isDemo}
         />
       )}
       {/* jump gate panel */}
@@ -1854,14 +1928,12 @@ function DetailPanel({
   onClose,
   reverbDrop,
   underAttack,
-  isDemo,
 }: {
   planet: PlanetDatum;
   onClaim: () => void;
   onClose: () => void;
   reverbDrop?: number;
   underAttack?: boolean;
-  isDemo?: boolean;
 }) {
   const t = useT();
   const race = getRace(planet.server.raceId);
@@ -1927,7 +1999,7 @@ function DetailPanel({
               <span style={underAttack ? { color: "#fca5a5", fontWeight: 700 } : undefined}>
                 {t("servers.reverb", "Reverb {score}", { score: planet.reverb.toLocaleString() })}
                 {underAttack && reverbDrop !== undefined && (
-                  <> <span style={{ color: "#f87171" }}>▼{reverbDrop.toLocaleString()}</span>{isDemo ? " (demo)" : ""}</>
+                  <> <span style={{ color: "#f87171" }}>▼{reverbDrop.toLocaleString()}</span></>
                 )}
               </span>
             )}
@@ -1937,7 +2009,7 @@ function DetailPanel({
                 letterSpacing: "0.06em", color: "#fecaca",
                 background: "rgba(127,29,29,0.6)", border: "1px solid rgba(248,113,113,0.5)",
               }}>
-                ⚔ {isDemo ? t("servers.demoAttack", "DEMO ATTACK") : t("servers.underAttack", "UNDER ATTACK")}
+                ⚔ {t("servers.underAttack", "UNDER ATTACK")}
               </span>
             )}
           </div>

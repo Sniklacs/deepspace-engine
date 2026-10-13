@@ -3,8 +3,8 @@ import { useEffect } from "react";
 import type { ReactNode } from "react";
 
 import appCss from "~/styles/app.css?url";
-import { bootScript, resolveDeviceSettings } from "~/game/i18n";
-import { inspectTranslator, scheduleTranslatorAutoPrepare } from "~/game/translate";
+import { bootScript } from "~/game/i18n";
+import { inspectTranslator } from "~/game/translate";
 import { initWindowAppearance } from "~/game/windows/window-appearance";
 import { registerServiceWorker } from "~/game/pwa/register";
 import UpdateBanner from "~/components/shell/UpdateBanner";
@@ -66,22 +66,21 @@ function RootComponent() {
     // The player's window chrome (Hans 2026-10-02): paint the saved
     // translucency + tint before anything else draws a window.
     initWindowAppearance();
-    // THE BUNDLED TRANSLATOR (owner: ship it with the app for every player, no
-    // opt-in) — BUT NEVER PREPARED AT BOOT (crash fix, 2026-10-13). Preparing
-    // meant starting a ~600 MB weights download and, once the pack was on the
-    // device, constructing the WASM engine with all of it in memory — during
-    // initial load, alongside the intro, the art and the state load. On
-    // mid-range Android WebViews that is an OOM kill before the solar system
-    // paints. So boot does the cheap thing only: INSPECT the device (reads the
-    // cache receipt, starts nothing, cannot throw into the tree) so Settings
-    // can show an honest status. The unprompted download still happens on its
-    // own — deferred until the game is up and the main thread is idle (sooner
-    // for a non-English player, whose need is likelier), and the first real
-    // translation need starts it immediately (see game/translate/index.ts).
+    // THE BUNDLED TRANSLATOR — NEVER PREPARED AUTOMATICALLY (owner crash
+    // fix, rounds 1+3, 2026-10-13). Preparing means starting a ~600 MB
+    // weights download and, once the pack is on the device, constructing
+    // the WASM engine with all of it in renderer memory. At boot that
+    // OOM-killed mid-range Android WebViews before the solar system
+    // painted; deferred to a timer + idle callback it killed them again
+    // ~30 s after a smooth boot (Chrome's "Aw, Snap"). So boot does the
+    // cheap thing only: INSPECT the device (reads the cache receipt,
+    // starts nothing, cannot throw into the tree) so Settings can show an
+    // honest status. The translator prepares ONLY on an explicit player
+    // act — a Translate tap or opening the Settings translator row (see
+    // game/translate/index.ts).
     void inspectTranslator().catch(() => {
       /* status stays "unknown"; the first need surface retries the look */
     });
-    scheduleTranslatorAutoPrepare(resolveDeviceSettings().lang === "en" ? 30_000 : 12_000);
   }, []);
 
   return (

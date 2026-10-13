@@ -3,18 +3,19 @@
 // One import for the rest of the app. It owns three things and nothing else:
 //
 //   1. THE WEIGHTS. `prepareTranslator()` inspects the device, and if the pack is
-//      not there yet it starts the download — unprompted, in the background, with
-//      real progress the Settings row subscribes to. That is the owner's rule:
-//      "build the Persian translator into where they have to download it — I don't
-//      want players getting disgruntled because they can't translate." No opt-in,
-//      no prompt, no pack to get wrong, nothing cloud-based.
-//      BUT NEVER AT BOOT (owner crash fix, 2026-10-13): the pack is ~600 MB and
-//      the engine is a WASM runtime holding all of it, so starting either during
-//      initial load — alongside the intro, the art and the state load — OOM-kills
-//      mid-range Android WebViews before the solar system ever paints. Boot only
-//      INSPECTS (`inspectTranslator`); preparation starts at the first real need
-//      (`requestTranslation`, a translator surface mounting) or from the deferred
-//      auto-prepare below, once the game is up and the main thread is idle.
+//      not there yet it starts the download — with real progress the Settings
+//      row subscribes to. Nothing cloud-based, no pack to get wrong.
+//      BUT ONLY ON AN EXPLICIT PLAYER ACT (owner crash fix, round 3,
+//      2026-10-13): the pack is ~600 MB and the engine is a WASM runtime
+//      holding all of it in renderer memory. Preparing at boot OOM-killed
+//      mid-range Android WebViews before the solar system painted (round 1);
+//      deferring the prepare to a timer + idle callback killed them again
+//      ~30 s after a smooth boot (round 3 — Chrome's "Aw, Snap"). So the old
+//      "the download starts on its own" rule is DEAD: no boot prepare, no
+//      deferred auto-prepare, no engine construction on a timer or idle
+//      callback, ever. Preparation starts only when the player acts: a
+//      Translate tap (`requestTranslation`) or opening the translator row in
+//      Settings (`TranslatorNote`). Boot only INSPECTS (`inspectTranslator`).
 //
 //   2. THE ENGINE SEAM. Once the pack is on the device, the ML runtime is loaded
 //      with a DYNAMIC import (`./runtime/engine` — the effect-scoped precedent
@@ -161,11 +162,13 @@ export function translatorStatus(): TranslatorStatus {
 let started: Promise<TranslatorStatus> | null = null;
 
 /**
- * Prepare the translator: look at the device, download what is missing, load the
- * runtime. NOT a boot call — see the header. The callers are the first real need
- * (a translation request, a translator surface) and the deferred auto-prepare.
- * Safe to call again — it re-checks and costs nothing when everything is already
- * in place. Never throws: every failure lands in the status, not the caller.
+ * Prepare the translator: look at the device, download what is missing, load
+ * the runtime. Called ONLY from explicit player acts — a Translate tap or a
+ * translator surface (the Settings row) mounting. Never from boot, never
+ * from a timer or idle callback: constructing the ~600 MB WASM engine
+ * unprompted is what Aw-Snapped phones (see the header). Safe to call
+ * again — it re-checks and costs nothing when everything is already in
+ * place. Never throws: every failure lands in the status, not the caller.
  */
 export function prepareTranslator(env?: WeightsEnvironment): Promise<TranslatorStatus> {
   if (typeof window === "undefined") return Promise.resolve(translatorStatus());
@@ -174,36 +177,6 @@ export function prepareTranslator(env?: WeightsEnvironment): Promise<TranslatorS
     started = null;
   });
   return started;
-}
-
-let autoPrepareScheduled = false;
-
-/**
- * The owner's "it downloads on its own" rule, made boot-safe: schedule the
- * unprompted prepare for AFTER the game is up. A floor delay (well past first
- * paint and the intro) must elapse first, and even then the prepare waits for a
- * genuinely idle main thread — `requestIdleCallback` with NO timeout, so a busy
- * game defers it indefinitely rather than forcing a 600 MB moment into play.
- * The first real need always pre-empts this via `prepareTranslator()` itself.
- * Idempotent: only the first call schedules anything.
- */
-export function scheduleTranslatorAutoPrepare(delayMs = 30_000): void {
-  if (typeof window === "undefined" || autoPrepareScheduled) return;
-  autoPrepareScheduled = true;
-  window.setTimeout(() => {
-    const ric = (
-      window as Window & {
-        requestIdleCallback?: (cb: () => void) => number;
-      }
-    ).requestIdleCallback;
-    if (typeof ric === "function") {
-      ric(() => {
-        void prepareTranslator();
-      });
-    } else {
-      void prepareTranslator();
-    }
-  }, delayMs);
 }
 
 async function run(env?: WeightsEnvironment): Promise<TranslatorStatus> {

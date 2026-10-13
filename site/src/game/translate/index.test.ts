@@ -1,15 +1,18 @@
-// index.test.ts — THE BOOT CONTRACT (owner crash fix, 2026-10-13).
+// index.test.ts — THE BOOT CONTRACT (owner crash fix, 2026-10-13, round 3).
 //
 // The translator used to be prepared from the root route's boot effect: a
 // ~600 MB download, and — once the pack was on the device — a WASM engine
 // holding all of it in memory, during initial load. On mid-range Android
-// WebViews that OOM-killed the app before the solar system painted. These
-// tests pin the replacement contract at the module's public door:
+// WebViews that OOM-killed the app before the solar system painted. The
+// round-1 replacement deferred the prepare to a timer + idle callback; that
+// killed phones again ~30 s after a smooth boot (Chrome's "Aw, Snap").
+// These tests pin the round-3 contract at the module's public door:
 //
 //   • BOOT LOOKS, IT DOES NOT START — `inspectTranslator()` reports the real
 //     state and performs ZERO fetches.
-//   • THE AUTO-PREPARE IS DEFERRED — `scheduleTranslatorAutoPrepare()` runs
-//     nothing before its floor delay has elapsed, then prepares.
+//   • THERE IS NO AUTO-PREPARE — no scheduler export exists; boot plus time
+//     passing (any timer, any idle callback) starts NO download and builds
+//     NO engine. Only an explicit player act prepares.
 //   • THE FIRST NEED STARTS EVERYTHING — `requestTranslation()` with no
 //     engine answers the honest null AND kicks the prepare.
 //
@@ -17,11 +20,11 @@
 // the real one, same as weights.test.ts.
 
 import { describe, expect, test } from "bun:test";
+import * as translateDoor from "./index";
 import {
   inspectTranslator,
   prepareTranslator,
   requestTranslation,
-  scheduleTranslatorAutoPrepare,
   translatorAvailable,
 } from "./index";
 import {
@@ -68,38 +71,27 @@ function env404(log: string[]): WeightsEnvironment {
 (globalThis as { window?: unknown }).window = globalThis;
 
 describe("the boot contract", () => {
-  test("the auto-prepare is deferred: nothing runs before the floor delay", async () => {
+  test("there is no auto-prepare: boot look + elapsed time starts nothing", async () => {
     const log: string[] = [];
     const env = env404(log);
     setWeightsEnvironment(env);
 
-    let captured: { fn: () => void; ms: number } | null = null;
-    const realWindow = (globalThis as { window?: unknown }).window;
-    (globalThis as { window?: unknown }).window = {
-      setTimeout: (fn: () => void, ms: number) => {
-        captured = { fn, ms };
-        return 0;
-      },
-    };
-    try {
-      scheduleTranslatorAutoPrepare(4321);
-      expect(captured).not.toBeNull();
-      expect(captured!.ms).toBe(4321);
-      // The floor has not elapsed: no download, no look, state untouched.
-      expect(log.length).toBe(0);
-      expect(weightsState().phase).toBe("unknown");
-      expect(translatorAvailable()).toBe(false);
+    // The scheduler that Aw-Snapped phones is gone from the public door.
+    expect(
+      (translateDoor as Record<string, unknown>).scheduleTranslatorAutoPrepare,
+    ).toBeUndefined();
 
-      // The floor elapses (no requestIdleCallback on this window → prepare
-      // starts immediately after it). Join the run and prove it really ran:
-      // the network was hit and the state machine moved off "unknown".
-      captured!.fn();
-      await prepareTranslator(env);
-      expect(log.length).toBeGreaterThan(0);
-      expect(weightsState().phase).not.toBe("unknown");
-    } finally {
-      (globalThis as { window?: unknown }).window = realWindow;
-    }
+    // What boot does: inspect only.
+    const st = await inspectTranslator(env);
+    expect(st.phase).toBe("absent");
+
+    // Time passes — well past the old 12 s/30 s floors — and any idle
+    // callback the environment cares to fire changes nothing: no fetch,
+    // no state movement, no engine.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(log.length).toBe(0);
+    expect(weightsState().phase).toBe("absent");
+    expect(translatorAvailable()).toBe(false);
   });
 
   test("inspectTranslator looks at the device without starting anything", async () => {
