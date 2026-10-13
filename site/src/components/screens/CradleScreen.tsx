@@ -1,11 +1,13 @@
 // CradleScreen — the home surface (game-ui-shell-spec §2, the reference
 // implementation the other screens follow).
 //
-// The colony lands on a BASE VIEW, not a dashboard: the plate of six building
-// tiles, the advance bar, the status strip, the day's Devotion, the roster, the
-// workshop shelf, the stores band, the Codex and the Chronicle. Nothing from
-// the old Cradle tab is dropped (§3.5) — every number, button and modal that
-// lived there lives here, re-shaped at 44/48px and token-only.
+// STAGING (owner 2026-10-13): the landing is the colony SCENE alone —
+// full-bleed, no scroll — and every business surface (the advance bar, the
+// status strip, the day's Devotion, the roster, the stores band, the Codex
+// and the Chronicle) lives inside the Great Hall, entered by pressing the
+// keep. Nothing from the old Cradle tab is dropped (§3.5) — every number,
+// button and modal that lived there lives behind that door, re-shaped at
+// 44/48px and token-only.
 //
 // PRESENTATION ONLY: the screen owns no state beyond which sheet is open. Every
 // figure comes from `state`, every predicate from the shared helpers
@@ -13,7 +15,7 @@
 // and no new field is invented anywhere — least of all the Act I clock line,
 // which is a RESERVED, EMPTY element until the engine exposes accumulated
 // active play time (§8.8).
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Panel } from "../ui/Panel";
 import { ActionButton } from "../ui/ActionButton";
@@ -40,7 +42,6 @@ import { joinValue } from "../../game/i18n/split";
 import { ForgeDoor, ForgeRoom } from "../ForgeViews";
 import CradleOverview, { type SpeedupKind } from "../CradleOverview";
 import CradleScene from "../CradleScene";
-import CradleSkin from "../CradleSkin";
 import type { Tab } from "../../game/nav-slots";
 import SlotSheet from "../SlotSheet";
 import type { EarnedTimeTokenSizeId } from "../../game/time-tokens";
@@ -145,66 +146,66 @@ export default function CradleScreen({
   const r = state.resources;
   const [sheet, setSheet] = useState<null | { kind: "slot" | "leader" | "hero" | "forge"; id: string }>(null);
   const close = () => setSheet(null);
+  // The Great Hall door (owner 2026-10-13): null = standing in the scene;
+  // "top"/"shipyard" = inside the hall, at the overview / the shipyard berth.
+  const [hall, setHall] = useState<null | "top" | "shipyard">(null);
+  // The scene art gave up entirely → the business becomes the page (fallback).
+  const [sceneGone, setSceneGone] = useState(false);
   const adv = nextAdvance(state);
   const recipe = alloyRecipeRaces(state);
   const atHeight = state.prologue?.stage === "height";
   const squad = state.prologue?.squad ?? [];
   const heroes = (state.prologue?.heroes ?? []).filter((h) => squad.includes(h.id));
 
-  return (
-    <CradleSkin raceId={state.race} opacity={0.7}>
-    <main className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4">
-      {/* THE COLONY SCENE (owner 2026-10-04): the Cradle as a place — a bright
-          pannable vista where the buildings ARE the navigation. The colony's
-          business panels live below it in the page scroll. */}
-      <div className="mb-3">
-        <CradleScene
-          raceId={state.race}
-          onNavigate={onNavigate}
-          onOpenForge={() => { setSheet({ kind: "forge", id: "forge" }); sound.tab(); }}
-          onOpenStore={onOpenStore}
-        />
+  // ---- B1 · the Act I plate (only at the height): the story's front door.
+  // It rides ON the scene as an overlay card — its buttons are deliberate
+  // presses (owner 2026-10-13: nobody scrolls into their colony; you press
+  // a door and go in). In the no-art fallback it heads the page instead.
+  const actOne = atHeight ? (
+    <Panel variant="tinted" testid="act1-banner" className="space-y-3">
+      <div className="min-w-0">
+        <p className="eyebrow">The Fall · The Height</p>
+        <p className="mt-1 text-[13px] text-text-1">
+          The Last Academy holds the Ashline at full strength. Its front is live.
+        </p>
       </div>
+      {/* RESERVED: the accumulated active-play clock line (§8.8). The
+          engine exposes no such field yet, so this stays EMPTY — an
+          honest placeholder is not the same as an invented number. */}
+      <p data-slot="height-clock" className="hidden" aria-hidden="true" />
+      <div className="flex flex-wrap items-center gap-2">
+        <ActionButton
+          label="Open the front"
+          sub="The Ashline is live — the war is where you are needed"
+          icon="sword"
+          size="md"
+          testid="act1-open-front"
+          dataAction="openFront"
+          onClick={onField}
+          className="flex-1"
+        />
+        {canLeaveHeight ? (
+          <ActionButton
+            label="Return to your colony"
+            variant="ghost"
+            size="sm"
+            testid="act1-leave"
+            dataAction="leaveHeight"
+            ariaLabel="Return to your colony"
+            onClick={onLeaveHeight}
+          />
+        ) : null}
+      </div>
+    </Panel>
+  ) : null;
+
+  // The colony's business — every panel that used to pour down the landing
+  // under the scene (owner 2026-10-13: the scroll-dump is gone). It lives
+  // behind the Great Hall door in the return below, in its old order,
+  // unchanged; if the scene art ever fails outright it becomes the page.
+  const business = (
       <div className="home-columns space-y-3">
         <div className="space-y-3">
-          {/* ---- B1 · the Act I plate (only at the height) ------------------ */}
-          {atHeight ? (
-            <Panel variant="tinted" testid="act1-banner" className="space-y-3">
-              <div className="min-w-0">
-                <p className="eyebrow">The Fall · The Height</p>
-                <p className="mt-1 text-[13px] text-text-1">
-                  The Last Academy holds the Ashline at full strength. Its front is live.
-                </p>
-              </div>
-              {/* RESERVED: the accumulated active-play clock line (§8.8). The
-                  engine exposes no such field yet, so this stays EMPTY — an
-                  honest placeholder is not the same as an invented number. */}
-              <p data-slot="height-clock" className="hidden" aria-hidden="true" />
-              <div className="flex flex-wrap items-center gap-2">
-                <ActionButton
-                  label="Open the front"
-                  sub="The Ashline is live — the war is where you are needed"
-                  icon="sword"
-                  size="md"
-                  testid="act1-open-front"
-                  dataAction="openFront"
-                  onClick={onField}
-                  className="flex-1"
-                />
-                {canLeaveHeight ? (
-                  <ActionButton
-                    label="Return to your colony"
-                    variant="ghost"
-                    size="sm"
-                    testid="act1-leave"
-                    dataAction="leaveHeight"
-                    ariaLabel="Return to your colony"
-                    onClick={onLeaveHeight}
-                  />
-                ) : null}
-              </div>
-            </Panel>
-          ) : null}
 
           {/* ---- B2 · the Cradle overview (owner 2026-10-01: the name plate +
               its domain tiles moved to the Exploration page; the overview
@@ -499,6 +500,52 @@ export default function CradleScreen({
           />
         </div>
       </div>
+  );
+
+  return (
+    <main className="relative">
+      {/* THE COLONY SCENE (owner 2026-10-04; staging owner 2026-10-13): the
+          Cradle as a place and the WHOLE landing — a full-bleed stage pinned
+          between the shell's ribbon and nav, nothing under it to scroll to.
+          The buildings are the doors; the colony's business waits inside
+          the Great Hall, behind a deliberate press. */}
+      {!sceneGone && (
+        <div
+          data-testid="cradle-stage"
+          className="fixed inset-x-0 z-0"
+          style={{
+            top: "calc(var(--spacing-ribbon) + var(--safe-inset-top, 0px))",
+            bottom: "calc(var(--spacing-nav) + var(--dock-h, 0px) + var(--safe-inset-bottom, 0px))",
+          }}
+        >
+          <CradleScene
+            variant="stage"
+            raceId={state.race}
+            onNavigate={onNavigate}
+            onOpenForge={() => { setSheet({ kind: "forge", id: "forge" }); sound.tab(); }}
+            onOpenStore={onOpenStore}
+            onOpenBusiness={() => setHall("top")}
+            onOpenShipyard={() => setHall("shipyard")}
+            onUnavailable={() => setSceneGone(true)}
+          />
+          {actOne && (
+            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-3">
+              <div className="pointer-events-auto w-full max-w-xl">{actOne}</div>
+            </div>
+          )}
+        </div>
+      )}
+      {sceneGone && (
+        <div className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4">
+          {actOne}
+          <div className={actOne ? "mt-3" : undefined}>{business}</div>
+        </div>
+      )}
+      {hall !== null && !sceneGone && (
+        <ColonyHall anchor={hall} onClose={() => setHall(null)}>
+          {business}
+        </ColonyHall>
+      )}
 
       {/* ---------------- THE FORGE (owner 2026-09-26) ---------------- */}
       <Sheet
@@ -612,7 +659,68 @@ export default function CradleScreen({
           : null}
       </Sheet>
     </main>
-    </CradleSkin>
+  );
+}
+
+/* ---------------- The Great Hall (owner 2026-10-13) ----------------------
+   The colony's business as a PLACE you go into: pressing the keep (or the
+   Colony business pill, or the shipyard) opens this full-screen hall in the
+   frame between the shell's ribbon and nav, and the back row returns to the
+   scene. It is a room, not a scroll position — the landing keeps nothing of
+   it. Sheets (forge, slots, leaders, heroes) stack above it as always. */
+function ColonyHall({
+  anchor,
+  onClose,
+  children,
+}: {
+  /** "top" enters at the overview; "shipyard" enters at the shipyard berth */
+  anchor: "top" | "shipyard";
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (anchor !== "shipyard") return;
+    scrollRef.current
+      ?.querySelector('[data-testid="cradle-shipyard"]')
+      ?.scrollIntoView({ block: "start" });
+  }, [anchor]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      data-testid="cradle-hall"
+      role="dialog"
+      aria-label={t("cradle.scene.keep", "Great Hall")}
+      className="fixed inset-x-0 z-30 flex flex-col bg-surf-0"
+      style={{
+        top: "calc(var(--spacing-ribbon) + var(--safe-inset-top, 0px))",
+        bottom: "calc(var(--spacing-nav) + var(--dock-h, 0px) + var(--safe-inset-bottom, 0px))",
+      }}
+    >
+      <div className="flex flex-none items-center gap-2 border-b border-line bg-surf-1 px-3 py-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-line px-3 text-[13px] font-semibold text-text-1 hover:bg-surf-4"
+        >
+          <span aria-hidden="true">←</span>
+          {t("cradle.hall.back", "Back to colony")}
+        </button>
+        <h2 className="min-w-0 truncate text-[15px] font-semibold text-text-1">
+          {t("cradle.scene.keep", "Great Hall")}
+        </h2>
+      </div>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4">{children}</div>
+      </div>
+    </div>
   );
 }
 

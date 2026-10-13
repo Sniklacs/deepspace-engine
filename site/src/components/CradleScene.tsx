@@ -6,9 +6,11 @@
 // Lab, tap the Barracks and you're mustering troops. No text-link menus; you
 // walk the scene.
 //
-// The scene is the top of the colony tab; the colony's business panels
-// (overview, devotion, roster, stores…) live below it in the normal page
-// scroll, reachable via the Great Hall hotspot and the floating pill.
+// The scene IS the colony tab's landing (owner 2026-10-13, "stage" variant:
+// full-bleed between the shell's ribbon and nav — no card, no scroll-dump).
+// The colony's business panels (overview, devotion, roster, stores…) live
+// behind the Great Hall door in the host's hall view, reached by pressing
+// the keep hotspot or the floating pill — never poured under the scene.
 //
 // ART DIRECTION (owner, rev 2026-10-04): HIGH steep aerial camera — nearly
 // top-down (~65° from horizontal), the whole colony fitting on screen at
@@ -69,10 +71,37 @@ export interface PanTransform {
   z: number;
 }
 
+/**
+ * Hotspot layout for the RACE-SKIN paintings. The cradle skins are cinematic
+ * vistas (dragon gate, crystal spires…), not top-down colony maps, so the
+ * panorama positions point at buildings that aren't in the painting. Same
+ * buildings, same destinations — positions matched by eye to the vista's own
+ * features (the gate, the falls, the spire clusters, the foreground wall).
+ */
+const VISTA_POSITIONS: Record<string, { x: number; y: number }> = {
+  lab: { x: 27, y: 24 },
+  forge: { x: 85, y: 36 },
+  keep: { x: 56, y: 82 },
+  formations: { x: 47, y: 45 },
+  barracks: { x: 11, y: 27 },
+  alliance: { x: 66, y: 30 },
+  depot: { x: 80, y: 66 },
+  store: { x: 16, y: 68 },
+  shipyard: { x: 91, y: 22 },
+};
+export const CRADLE_HOTSPOTS_VISTA: readonly SceneHotspot[] = CRADLE_HOTSPOTS.map(
+  (h) => ({ ...h, ...(VISTA_POSITIONS[h.id] ?? {}) }),
+);
+
 /** Smallest zoom that still covers the viewport — the world never shows gaps. */
-export function minZoom(viewW: number, viewH: number): number {
+export function minZoom(
+  viewW: number,
+  viewH: number,
+  worldW: number = WORLD_W,
+  worldH: number = WORLD_H,
+): number {
   if (viewW <= 0 || viewH <= 0) return 1;
-  return Math.max(viewW / WORLD_W, viewH / WORLD_H);
+  return Math.max(viewW / worldW, viewH / worldH);
 }
 
 /** Clamp a pan so the world always covers the viewport (centers if smaller). */
@@ -82,9 +111,11 @@ export function clampPan(
   z: number,
   viewW: number,
   viewH: number,
+  worldW: number = WORLD_W,
+  worldH: number = WORLD_H,
 ): { x: number; y: number } {
-  const w = WORLD_W * z;
-  const h = WORLD_H * z;
+  const w = worldW * z;
+  const h = worldH * z;
   const cx = w <= viewW ? (viewW - w) / 2 : Math.min(0, Math.max(viewW - w, x));
   const cy = h <= viewH ? (viewH - h) / 2 : Math.min(0, Math.max(viewH - h, y));
   return { x: cx, y: cy };
@@ -102,6 +133,10 @@ export default function CradleScene({
   onOpenForge,
   onOpenStore,
   raceId,
+  variant = "card",
+  onOpenBusiness,
+  onOpenShipyard,
+  onUnavailable,
 }: {
   /** open a nav tab (Lab, Barracks, Alliance, Formations, Exploration…) */
   onNavigate: (tab: Tab) => void;
@@ -111,10 +146,26 @@ export default function CradleScene({
   onOpenStore?: () => void;
   /** player's race — uses /art/cradle/{raceId}-skin.webp when it exists */
   raceId?: string | null;
+  /**
+   * "stage" = the landing itself: fills the parent edge-to-edge, no card
+   * chrome (owner 2026-10-13 — the scene IS the home screen, not a banner
+   * over a panel scroll). "card" = the old boxed embed.
+   */
+  variant?: "card" | "stage";
+  /** Great Hall press: enter the colony's business hall (stage hosts wire it) */
+  onOpenBusiness?: () => void;
+  /** Shipyard press: enter the hall at the shipyard berth */
+  onOpenShipyard?: () => void;
+  /** the art gave up entirely (skin + panorama both failed) */
+  onUnavailable?: () => void;
 }) {
   const t = useT();
   const boxRef = useRef<HTMLDivElement>(null);
   const [artOk, setArtOk] = useState(true);
+  // The pan world takes the LOADED painting's own aspect (the race vistas are
+  // 1920×1280, the generic panorama 1920×1080) — a fixed 16:9 world squashes
+  // the 3:2 skins by ~17% vertically.
+  const [world, setWorld] = useState({ w: WORLD_W, h: WORLD_H });
   const [view, setView] = useState<PanTransform | null>(null);
   const viewRef = useRef<PanTransform | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -127,6 +178,7 @@ export default function CradleScene({
   const [sceneSrc, setSceneSrc] = useState(raceSkin ?? SCENE_ART);
   useEffect(() => {
     setSceneSrc(raceSkin ?? SCENE_ART);
+    setWorld({ w: WORLD_W, h: WORLD_H });
     setArtOk(true);
   }, [raceSkin]);
 
@@ -134,13 +186,13 @@ export default function CradleScene({
     if (!box) return;
     const vw = box.clientWidth;
     const vh = box.clientHeight;
-    const mz = minZoom(vw, vh);
+    const mz = minZoom(vw, vh, world.w, world.h);
     const cz = Math.min(MAX_ZOOM, Math.max(mz, z));
-    const c = clampPan(x, y, cz, vw, vh);
+    const c = clampPan(x, y, cz, vw, vh, world.w, world.h);
     const next = { x: c.x, y: c.y, z: cz };
     viewRef.current = next;
     setView(next);
-  }, []);
+  }, [world]);
 
   // Initial framing: slightly zoomed past cover, centered on the keep.
   useEffect(() => {
@@ -150,9 +202,9 @@ export default function CradleScene({
       const vw = box.clientWidth;
       const vh = box.clientHeight;
       if (vw === 0 || vh === 0) return;
-      const mz = minZoom(vw, vh);
+      const mz = minZoom(vw, vh, world.w, world.h);
       const z = Math.min(MAX_ZOOM, mz * 1.18);
-      setClamped((vw - WORLD_W * z) / 2, (vh - WORLD_H * z) / 2, z);
+      setClamped((vw - world.w * z) / 2, (vh - world.h * z) / 2, z);
     };
     frame();
     const ro = new ResizeObserver(frame);
@@ -167,14 +219,14 @@ export default function CradleScene({
       if (!v || !box) return;
       const px = cx ?? box.clientWidth / 2;
       const py = cy ?? box.clientHeight / 2;
-      const mz = minZoom(box.clientWidth, box.clientHeight);
+      const mz = minZoom(box.clientWidth, box.clientHeight, world.w, world.h);
       const nz = Math.min(MAX_ZOOM, Math.max(mz, v.z * factor));
       // Keep the point under the cursor fixed while zooming.
       const nx = px - ((px - v.x) * nz) / v.z;
       const ny = py - ((py - v.y) * nz) / v.z;
       setClamped(nx, ny, nz);
     },
-    [setClamped],
+    [setClamped, world],
   );
 
   const recenter = useCallback(() => {
@@ -182,10 +234,10 @@ export default function CradleScene({
     if (!box) return;
     const vw = box.clientWidth;
     const vh = box.clientHeight;
-    const mz = minZoom(vw, vh);
+    const mz = minZoom(vw, vh, world.w, world.h);
     const z = Math.min(MAX_ZOOM, mz * 1.18);
-    setClamped((vw - WORLD_W * z) / 2, (vh - WORLD_H * z) / 2, z);
-  }, [setClamped]);
+    setClamped((vw - world.w * z) / 2, (vh - world.h * z) / 2, z);
+  }, [setClamped, world]);
 
   // ---- pointer pan + pinch (touch-action:none owns the gesture) -----------
   useEffect(() => {
@@ -263,12 +315,25 @@ export default function CradleScene({
       sound.tab();
       onOpenForge();
     } else if (h.target === "business") {
-      scrollToTestid("cradle-overview");
+      // The Great Hall is a DOOR, not a scroll (owner 2026-10-13): when the
+      // host wires the hall, pressing the keep goes INTO the colony's
+      // business; the scroll only remains for a bare embed without a hall.
+      if (onOpenBusiness) {
+        sound.tab();
+        onOpenBusiness();
+      } else {
+        scrollToTestid("cradle-overview");
+      }
     } else if (h.target === "store") {
       sound.tab();
       onOpenStore?.();
     } else if (h.target === "shipyard") {
-      scrollToTestid("cradle-shipyard");
+      if (onOpenShipyard) {
+        sound.tab();
+        onOpenShipyard();
+      } else {
+        scrollToTestid("cradle-shipyard");
+      }
     } else {
       onNavigate(h.target);
     }
@@ -291,12 +356,24 @@ export default function CradleScene({
   if (!artOk) return null;
 
   const z = view?.z ?? 1;
+  const stage = variant === "stage";
+  // The vista paintings carry their own geography — hotspots follow the art
+  // that's actually on screen.
+  const hotspots = sceneSrc !== SCENE_ART ? CRADLE_HOTSPOTS_VISTA : CRADLE_HOTSPOTS;
   return (
     <section
       aria-label={t("cradle.scene.label", "Your colony")}
       data-testid="cradle-scene"
-      className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-transparent"
-      style={{ height: "clamp(300px, 52dvh, 520px)", touchAction: "none" }}
+      className={
+        stage
+          ? "relative h-full w-full overflow-hidden bg-transparent"
+          : "relative w-full overflow-hidden rounded-2xl border border-white/10 bg-transparent"
+      }
+      style={
+        stage
+          ? { touchAction: "none" }
+          : { height: "clamp(300px, 52dvh, 520px)", touchAction: "none" }
+      }
     >
       {/* the pan surface */}
       <div
@@ -311,8 +388,8 @@ export default function CradleScene({
           <div
             className="absolute left-0 top-0"
             style={{
-              width: WORLD_W,
-              height: WORLD_H,
+              width: world.w,
+              height: world.h,
               transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})`,
               transformOrigin: "0 0",
             }}
@@ -322,19 +399,28 @@ export default function CradleScene({
               alt=""
               aria-hidden="true"
               draggable={false}
+              onLoad={(e) => {
+                // The world takes the painting's own aspect — no squash.
+                const n = e.currentTarget;
+                if (n.naturalWidth > 0 && n.naturalHeight > 0) {
+                  setWorld({ w: n.naturalWidth, h: n.naturalHeight });
+                }
+              }}
               onError={() => {
                 // Race skin missing? Fall back to the generic panorama.
                 if (sceneSrc !== SCENE_ART) {
                   setSceneSrc(SCENE_ART);
+                  setWorld({ w: WORLD_W, h: WORLD_H });
                 } else {
                   setArtOk(false);
+                  onUnavailable?.();
                 }
               }}
               className="block h-full w-full select-none"
               style={{ WebkitUserDrag: "none" } as CSSProperties}
             />
             {/* building hotspots */}
-            {CRADLE_HOTSPOTS.map((h) => (
+            {hotspots.map((h) => (
               <button
                 key={h.id}
                 type="button"
@@ -371,7 +457,14 @@ export default function CradleScene({
       </div>
       <button
         type="button"
-        onClick={() => scrollToTestid("cradle-overview")}
+        onClick={() => {
+          if (onOpenBusiness) {
+            sound.tab();
+            onOpenBusiness();
+          } else {
+            scrollToTestid("cradle-overview");
+          }
+        }}
         className="absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-white/25 bg-black/65 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-sm hover:bg-black/80"
       >
         {t("cradle.scene.business", "▼ Colony business")}
