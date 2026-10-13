@@ -66,6 +66,8 @@ import {
   freshDaily,
 } from "./daily";
 import { advanceBattles, ensureBattles, freshWarReserve } from "./war/battle-engine";
+import { advanceBeachhead, seedFirstStripBeachhead } from "./war/beachheads";
+import { freshSiteName } from "./war/beachhead-names";
 // HERO EARN ENGINE (hero-earn.ts): deed ledger, hero XP, Oracle vouch, and
 // the leader battle-XP ladder — computed there, granted here (grantXpTo).
 import { processHeroEarn } from "./hero-earn";
@@ -956,6 +958,53 @@ export function ensureTroops(state: GameState, now: number): void {
   // Tier migration (owner 2026-10-05): cohorts and muster orders saved before
   // troop tiers existed read as T1. Idempotent.
   backfillTiers(state.troops.home.roster, state.troops.home.musterQueue);
+}
+
+/**
+ * BEACHHEADS — PHASE 1 (design/beachhead.md) — additive, idempotent.
+ * Pre-beachhead saves gain the phase-1 slice: ONE first-strip beachhead
+ * (50 bunkers, §3) on the colony's own world, seeded per §6 (Chorus
+ * pickets + a strongpoint; the rest standing empty as open doors). New
+ * games seed through the same path. Seeding needs a founded colony —
+ * a blank slot (race null) waits quietly.
+ */
+export function ensureBeachheads(state: GameState, now: number): void {
+  if (state.beachheads === undefined) {
+    state.beachheads = [];
+    if (state.race) {
+      const worldId = state.gameId ?? "home";
+      state.beachheads.push(
+        seedFirstStripBeachhead({
+          id: "bh-1",
+          name: freshSiteName(worldId).name,
+          worldId,
+          now,
+        }),
+      );
+    }
+  }
+  if (!Array.isArray(state.beachheads)) state.beachheads = [];
+  for (const bh of state.beachheads) {
+    if (!Array.isArray(bh.bunkers)) bh.bunkers = [];
+    if (!Array.isArray(bh.sectors)) bh.sectors = [];
+    if (typeof bh.lastAdvanceAt !== "number") bh.lastAdvanceAt = now;
+  }
+}
+
+/**
+ * BEACHHEAD advance — conversion timers tick on the same lazy clock as
+ * battles (advanceBattles discipline): a bunker goes SOLID whether or
+ * not the commander is watching (the multitask doctrine). Solid events
+ * land in the colony log exactly once (the conversion is consumed by
+ * the tick that completes it).
+ */
+export function advanceBeachheads(state: GameState, now: number): void {
+  ensureBeachheads(state, now);
+  for (const bh of state.beachheads ?? []) {
+    for (const ev of advanceBeachhead(bh, now)) {
+      log(state, `🏖️ ${ev.note}`);
+    }
+  }
 }
 
 export function ensureForwardBases(state: GameState, now: number): void {
@@ -1925,6 +1974,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   ensureMemorials(state); // Battle plaques (owner 2026-09-30): backfilled empty, never wiped
   ensureTroops(state, now); // MUSTER: garrison + queues + hunger clock (additive on old saves)
   ensureForwardBases(state, now); // BEACHHEADS: forward bases + shared server band pools (additive)
+  ensureBeachheads(state, now); // BEACHHEADS PHASE 1 (design/beachhead.md): the wide-picture fronts (additive; seeds the first strip once)
   ensureAlliances(state); // WAR BAND: alliance store + help budget + reinforcements (additive; never wiped by seasons)
   ensureRallies(state); // RALLIES: rally board (additive)
   ensureArena(state); // ARENA: challenges + bout ledger (additive)
@@ -2048,6 +2098,11 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // double-report. DETERMINISTIC: no Math.random in win/loss/power (the
   // strength formula reads only the §15 B4 snapshot inputs).
   advanceBattles(state, now);
+
+  // BEACHHEADS (design/beachhead.md §4A): conversion timers complete on
+  // the same lazy tick — the front keeps working while the commander is
+  // elsewhere. Runs after advanceBattles; consumes each completion once.
+  advanceBeachheads(state, now);
 
   // ROSTER COMMIT (war/roster-commit.ts): battles that stamped real-roster
   // commitments now pay them — the stamped casualty fraction comes out of

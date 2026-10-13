@@ -461,6 +461,16 @@ export interface GameState {
   forwardBases?: Record<string, ForwardBase>;
   serverBands?: Record<string, MercenaryBand[]>;
   lastJumpAt?: number | null;
+  /** BEACHHEADS — PHASE 1 (design/beachhead.md, owner Oct 13 2026) — the
+   *  wide-picture ground war: designed sectors of bunkers held by
+   *  DEDICATED garrisons (presence = control), capture as conversion work
+   *  on a provisional timer, ticking on advance() like battles do.
+   *  Optional for migration: seeded by ensureBeachheads on first advance
+   *  (phase 1: one 50-bunker first strip on the colony's own world,
+   *  Chorus-held pickets + strongpoint, the rest standing empty). Ships
+   *  whole in publicState — a beachhead is public ground truth: every
+   *  player reads the same line (equal access, spec §1). */
+  beachheads?: import("./war/beachheads").Beachhead[];
   /** WORLD MAP & ABANDONED COLONIES (design/abandoned-colonies-world-map.md) —
    *  scout probes, known colonies, gleaning runs. Optional for migration:
    *  pre-worldmap saves initialize via emptyWorldMap on first advance. */

@@ -158,6 +158,13 @@ import {
   plantForwardBase,
 } from "./war/forward-bases";
 import {
+  assaultBunker,
+  garrisonBunker,
+  relieveBunker,
+  type ControllerRef,
+  type TroopCounts,
+} from "./war/beachheads";
+import {
   loadAccountSaves,
   saveAccountSaves,
   loadAllSaves,
@@ -2936,6 +2943,54 @@ const plantForwardBaseFn = createServerFn({ method: "POST" }).validator(
   return { ok: true, state: publicState(engine.advance(saves.games[saves.activeGameId], Date.now())), activeGameId: saves.activeGameId };
 });
 
+/** BEACHHEADS — PHASE 1 (design/beachhead.md): the wide-picture orders.
+ *  One validated verb surface over war/beachheads.ts: garrison (occupy an
+ *  empty position / reinforce your own / defender re-entry into a
+ *  converting bunker), assault (beat the bodies inside; a win starts the
+ *  §4A conversion), relieve (the doctrine-blessed garrison release).
+ *  Troops are REAL bodies drawn from the home roster by the model's own
+ *  draw — the handler never fabricates a single soldier. The actor is the
+ *  calling colony, carrying its home worldId (the §5 threat model: a
+ *  beachhead can be held by troops from several worlds at once). */
+const beachheadOrderFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string(),
+    beachheadId: z.string().min(1).max(64),
+    bunkerId: z.string().min(1).max(96),
+    verb: z.enum(["garrison", "assault", "relieve"]),
+    troops: z.object({
+      bulwark: z.number().int().min(0).max(100000).optional(),
+      reaver: z.number().int().min(0).max(100000).optional(),
+      longeye: z.number().int().min(0).max(100000).optional(),
+      thunder: z.number().int().min(0).max(100000).optional(),
+      warden: z.number().int().min(0).max(100000).optional(),
+    }),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    engine.ensureBeachheads(st, ctx.now);
+    const bh = (st.beachheads ?? []).find((b) => b.id === data.beachheadId);
+    if (!bh) return { ok: false, error: "No such beachhead." };
+    if (!st.troops) return { ok: false, error: "Found your colony and muster a garrison first." };
+    const actor: ControllerRef = {
+      colonyId: ctx.colonyId,
+      colonyName: ctx.colonyName,
+      worldId: st.gameId ?? "home",
+    };
+    const counts: TroopCounts = data.troops;
+    const roster = st.troops.home.roster;
+    const res =
+      data.verb === "garrison"
+        ? garrisonBunker(bh, data.bunkerId, actor, roster, counts, ctx.now)
+        : data.verb === "assault"
+          ? assaultBunker(bh, data.bunkerId, actor, roster, counts, ctx.now)
+          : relieveBunker(bh, data.bunkerId, actor, roster, counts, ctx.now);
+    if (!res.ok) return { ok: false, error: res.error ?? "Order refused." };
+    if (res.note) engine.log(st, `🏖️ ${res.note}`);
+    return { ok: true };
+  }),
+);
+
 /** HIVE RELOCATION (owner 2026-10-04, Globe Wave 2 WS-E): move the home
  *  colony to a player-picked point on the globe. Validated server action:
  *  7-day cooldown, blocked while under attack or with a raid party away,
@@ -3638,6 +3693,7 @@ export {
   allianceSetAvatarFn,
   allianceGetAvatarFn,
   plantForwardBaseFn,
+  beachheadOrderFn,
   relocateColonyFn,
   musterForwardTroopsFn,
   hireServerBandFn,
