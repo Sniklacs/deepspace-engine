@@ -54,7 +54,25 @@ export const Route = createRootRoute({
       { rel: "apple-touch-icon", href: "/icons/apple-touch-icon-180.png", sizes: "180x180" },
     ],
   }),
-  notFoundComponent: () => <div>Page not found</div>,
+  // THE EXIT LAW (owner 2026-10-13): no dead ends, ever. A stale install or a
+  // mistyped link must never strand a player on bare text with only the
+  // browser's own navigation to save them — the game carries its own door
+  // back in. A plain anchor (full load) is deliberate: if the bundle that
+  // rendered this page is the stale one, a client-side nav would keep it.
+  notFoundComponent: () => (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#070910] px-6 text-center text-gray-200">
+      <p className="text-lg font-semibold text-white">This corner of the Shatterlands isn&rsquo;t charted.</p>
+      <p className="max-w-md text-sm text-gray-400">
+        The page you&rsquo;re looking for isn&rsquo;t here — but your colony is.
+      </p>
+      <a
+        href="/"
+        className="rounded-lg bg-ember px-5 py-2.5 font-semibold text-black hover:brightness-110"
+      >
+        Back to the game
+      </a>
+    </div>
+  ),
   component: RootComponent,
 });
 

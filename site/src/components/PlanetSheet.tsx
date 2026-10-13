@@ -57,7 +57,7 @@ export default function PlanetSheet({
         type="button"
         onClick={() => { sound.click(); onClose(); }}
         aria-label={t("worldglobe.close", "Close")}
-        className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-base text-white"
+        className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/5 text-base text-white"
       >
         ✕
       </button>

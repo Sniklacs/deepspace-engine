@@ -1945,7 +1945,7 @@ function GatePanel({ onClose }: { onClose: () => void }) {
         onClick={onClose}
         aria-label={t("starmap.close", "Close")}
         style={{
-          position: "absolute", top: 10, right: 12, width: 32, height: 32,
+          position: "absolute", top: 10, right: 12, width: 44, height: 44,
           borderRadius: "50%", border: "1px solid rgba(255,255,255,0.2)",
           background: "rgba(255,255,255,0.06)", color: "#fff", fontSize: 16, cursor: "pointer",
         }}
@@ -2036,7 +2036,7 @@ function DetailPanel({
         onClick={onClose}
         aria-label={t("starmap.close", "Close")}
         style={{
-          position: "absolute", top: 10, right: 12, width: 32, height: 32,
+          position: "absolute", top: 10, right: 12, width: 44, height: 44,
           borderRadius: "50%", border: "1px solid rgba(255,255,255,0.2)",
           background: "rgba(255,255,255,0.06)", color: "#fff", fontSize: 16, cursor: "pointer",
         }}

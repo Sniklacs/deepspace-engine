@@ -667,7 +667,7 @@ function PlayPage() {
         <div className="min-h-screen bg-[#070910] text-gray-200">
           <RaceSelect busy={busy} onStart={(name, race) => { void doFound(name, race); }} />
           {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
-          {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
+          {toast && <div className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
         </div>
       );
     }
@@ -687,7 +687,7 @@ function PlayPage() {
           onTrash={doTrash}
           flash={flash}
         />
-        {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
+        {toast && <div className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
       </div>
     );
   }
@@ -700,7 +700,7 @@ function PlayPage() {
         {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
         <RaceSelect busy={busy} resetNote
           onStart={(name, race) => { void doFound(name, race); }} />
-        {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
+        {toast && <div className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
       </div>
     );
   }
@@ -756,7 +756,7 @@ function PlayPage() {
         onAction={(fn, label) => act(fn, label)}
       >
       {firstRunNotice && tab !== "battles" && <FirstRunNudge onDismiss={dismissNudge} />}
-      {toast && <div className="fixed bottom-[calc(var(--spacing-nav)+var(--dock-h,0px)+env(safe-area-inset-bottom)+12px)] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
+      {toast && <div className="pointer-events-none fixed bottom-[calc(var(--spacing-nav)+var(--dock-h,0px)+env(safe-area-inset-bottom)+12px)] left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
       {tab === "colony" && (
         <CradleScreen
           state={state}
@@ -1985,7 +1985,7 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
       <div className="my-auto w-full max-w-lg rounded-2xl border border-red-400/40 bg-[#0b0e16] p-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-red-300">{t("play.risk.title", "☢️ High radiation: {zone}", { zone: zone.name })}</h3>
-          <button onClick={onCancel} className="rounded border border-white/15 px-2.5 py-2 text-xs text-gray-400 hover:bg-white/10">✕</button>
+          <button onClick={onCancel} aria-label={t("play.common.cancel", "Cancel")} className="flex min-h-11 min-w-11 items-center justify-center rounded border border-white/15 px-2.5 py-2 text-sm text-gray-400 hover:bg-white/10">✕</button>
         </div>
 
         <div className={`mt-4 rounded-lg border p-3 text-center ${fullyCovered ? "border-ember/30 bg-ember/5" : "border-red-400/30 bg-red-400/5"}`}>
@@ -2424,7 +2424,7 @@ function CodexModal({ onClose }: { onClose: () => void }) {
       <div className="my-auto w-full max-w-3xl rounded-2xl border border-white/15 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-bold text-white">{t("play.codex.title", "The Codex — Legends of the Shatterlands")}</h2>
-          <button onClick={onClose} aria-label={t("play.codex.close", "Close the Codex")} className="rounded border border-white/15 px-2.5 py-1.5 text-sm text-gray-400 hover:bg-white/10">✕</button>
+          <button onClick={onClose} aria-label={t("play.codex.close", "Close the Codex")} className="flex min-h-11 min-w-11 items-center justify-center rounded border border-white/15 px-2.5 py-1.5 text-sm text-gray-400 hover:bg-white/10">✕</button>
         </div>
         <CodexContent />
       </div>

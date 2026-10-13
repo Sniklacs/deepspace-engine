@@ -1043,7 +1043,7 @@ function ColonyDetail({
             onClose();
           }}
           aria-label={t("worldmap.close", "Close")}
-          className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-gray-300 hover:bg-white/10"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-sm text-gray-300 hover:bg-white/10"
         >
           ✕
         </button>

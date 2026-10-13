@@ -151,7 +151,7 @@ export function MemberProfile({
             type="button"
             onClick={onClose}
             aria-label="Close profile"
-            className="rounded-lg border border-line px-2 py-1 text-sm text-text-2"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-line px-2 py-1 text-sm text-text-2"
           >
             ✕
           </button>
