@@ -204,9 +204,9 @@ export const DEED_CATALOG: readonly HeroDeed[] = [
   // ---- T3 Legend (~1–3 months) ----
   { id: "hero_purify_5", tier: "t3", name: "Five Purifies", condition: "5 completed purifies (Phase-2 ability)", engineHook: "warLedger purify", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: 12 },
   { id: "hero_first_of_cycle", tier: "t3", name: "First of the Cycle", condition: "A History-Book 'first' of a war cycle (personal completion)", engineHook: "History Book firsts ledger", kind: "history-first-with-twin", unlocks: [], finiteTimeWeeks: 12 },
-  { id: "hero_climax_3", tier: "t3", name: "Climax Thrice", condition: "Scored contribution in 3 Climax windows", engineHook: "warLedger + goldenWindow flag", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: 12 },
+  { id: "hero_climax_3", tier: "t3", name: "Climax Thrice", condition: "Scored contribution in 3 Climax windows", engineHook: "warLedger + goldenWindow flag", kind: "personal-threshold", unlocks: ["gadreel"], finiteTimeWeeks: 12 },
   { id: "hero_contribution_400", tier: "t3", name: "Contribution 400", condition: "contributionScore ≥ 400", engineHook: "engine contributionScore()", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: 12 },
-  { id: "hero_legend_codex", tier: "t3", name: "Legend Codex", condition: "40 Codices earned by deeds", engineHook: "engine counter", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: 12 },
+  { id: "hero_legend_codex", tier: "t3", name: "Legend Codex", condition: "40 Codices earned by deeds", engineHook: "engine counter", kind: "personal-threshold", unlocks: ["gadreel"], finiteTimeWeeks: 12 },
   // ---- Vouch (not a week-window deed; earned trust, never bought) ----
   { id: "oracle_vouch:watchers", tier: "vouch", name: "Oracle's Vouch", condition: "Oracle attention `engaged` + favor ≥ published threshold", engineHook: "oracleRoster favor/attention", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: null },
 ];
@@ -215,11 +215,28 @@ export const DEED_BY_ID: Readonly<Record<string, HeroDeed>> = Object.fromEntries
 
 // ============================================================================
 // §4 THE ROSTER — Wave-1 Watchers, owner-ratified (O1). Names, roles, and
-// identities are EXACTLY the approved set. Skills are role-flavored
+// identities are EXACTLY the approved set (+ Gadreel, owner-ruled
+// 2026-10-14: face of the race and flagship of the catalog). Skills are role-flavored
 // decision-moment abilities with published sidegraded numbers (O4-style
 // calibration-pending). Deed mapping follows §3.1 verbatim.
 // ============================================================================
 export const HERO_DEFS: readonly HeroDef[] = [
+  {
+    id: "gadreel",
+    name: "Gadreel, the Wall of God",
+    role: "damage",
+    race: "watchers",
+    wave: "wave-1",
+    identity: "Third of the five, the wall of God who broke the wall: he showed the children of men all the blows of death and led Eve astray, and he has stood in the breach he made ever since. The flagship of the Watchers — the face of the race, and the last name a deed can earn.",
+    baseAttributes: { power: 6, guard: 4, craft: 1, presence: 2 },
+    skills: [
+      { id: "gadreel-blows-of-death", name: "The Blows of Death", action: "march", effect: "Offensive skills +15% strength on marches he leads (strength 0.15); he taught the world how a blow lands.", values: { strength: 0.15 } },
+      { id: "gadreel-the-wall-holds", name: "The Wall Holds", action: "defense", effect: "Squad takes −15% damage while holding defense actions (damageReduction 0.15); the wall does not move.", values: { damageReduction: 0.15 } },
+    ],
+    signatureDeed: "hero_legend_codex",
+    alternateDeeds: ["hero_climax_3"],
+    oracleVouch: true,
+  },
   {
     id: "azazel-3",
     name: "Azazel-3, the Teacher",

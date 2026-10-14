@@ -20,7 +20,7 @@ interface ServerCardState {
 /** Race → hero portrait for the detail view. */
 const HERO_PORTRAIT: Record<string, string> = {
   draconians: "/art/heroes/hero-kaaroth.webp",
-  watchers: "/art/heroes/hero-seraphel.webp",
+  watchers: "/art/heroes/hero-gadreel.webp",
   grays: "/art/heroes/hero-ilyra-voss.webp",
   ashtar: "/art/heroes/hero-mira-solenne.webp",
   anunnaki: "/art/heroes/hero-ensharra.webp",

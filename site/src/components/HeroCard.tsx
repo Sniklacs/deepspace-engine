@@ -39,11 +39,11 @@ export const HEROES: Record<HeroId, HeroMeta> = {
     title: "War-Captain of the Ashen Host",
   },
   watchers: {
-    file: "/art/heroes/hero-seraphel.webp",
+    file: "/art/heroes/hero-gadreel.webp",
     nameKey: "heroes.watchers.name",
     titleKey: "heroes.watchers.title",
-    name: "Seraphel",
-    title: "Watcher of the Threshold",
+    name: "Gadreel",
+    title: "The Wall of God",
   },
   ashtar: {
     file: "/art/heroes/hero-mira-solenne.webp",
