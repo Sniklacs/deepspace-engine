@@ -492,16 +492,18 @@ export function AllianceHome({
   );
   return (
     <section className="space-y-4 rounded-xl border border-line bg-surf-2/40 p-4">
-      {/* war council hall behind the header (owner 2026-10-01: every page gets
-          a background picture) */}
-      <PageBanner
-        image="/art/pages/alliance-banner.webp"
-        title={<><span aria-hidden>{alliance.banner || "⚔️"}</span> {alliance.name}</>}
-        sub={alliance.motto ? <>“{alliance.motto}”</> : undefined}
-        className="-m-4 rounded-t-xl"
-        titleClassName="text-sm font-semibold text-white drop-shadow"
-        focal="center 60%"
-      />
+      {/* No art banner (owner 2026-10-14, the World-stage law): this section
+          used to re-banner the alliance with the same pre-scene art the tab
+          header carried, so the member page wore the OLD skin twice and the
+          hall scene read as decoration. Identity is a text line now — the
+          scene is the picture. (This section is also reused on the Cradle's
+          alliance door, where the text header keeps it oriented.) */}
+      <div className="-m-4 border-b border-line bg-surf-2/60 px-4 py-3 rounded-t-xl">
+        <p className="text-sm font-semibold text-text-1">
+          <span aria-hidden>{alliance.banner || "⚔️"}</span> {alliance.name}
+          {alliance.motto && <span className="ml-2 font-normal italic text-text-2">“{alliance.motto}”</span>}
+        </p>
+      </div>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="rounded-full border border-line px-2 py-0.5 text-[10px] font-normal text-text-2">{ROLE_LABEL[role ?? "member"]}</span>

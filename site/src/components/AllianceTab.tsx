@@ -22,7 +22,6 @@ import { setJoinPolicyFn, setTitheFn } from "../game/api";
 import type { Tab } from "../game/nav-slots";
 import { AllianceHome, NoAlliance } from "./AlliancePanel";
 import AllianceHallScene from "./AllianceHallScene";
-import PageBanner from "./PageBanner";
 import { ActionButton } from "./ui/ActionButton";
 import { Bdi } from "./ui/Bdi";
 import { Icon } from "./icons";
@@ -77,16 +76,17 @@ function AllianceHeader({ alliance, me }: { alliance: Alliance; me: string }) {
   const role = memberRole(alliance, me);
   return (
     <section>
-      <PageBanner
-        image="/art/pages/alliance-banner.webp"
-        title={
-          <span className="flex items-center gap-2">
-            <span aria-hidden="true">{alliance.banner || "⚔️"}</span> {alliance.name}
-          </span>
-        }
-        sub={alliance.motto ? <>“{alliance.motto}”</> : undefined}
-        focal="center 60%"
-      />
+      {/* NO art banner here (owner 2026-10-14, the World-stage law): the
+          hall scene above IS this page's skin. The old alliance-banner band
+          sat directly under the scene and read as the page's real header —
+          the new skin looked pasted onto the old page. Identity rides as a
+          slim text plate; the scene carries the picture. */}
+      <div className="px-1">
+        <h2 className="flex items-center gap-2 text-xl font-bold text-text-1">
+          <span aria-hidden="true">{alliance.banner || "⚔️"}</span> {alliance.name}
+        </h2>
+        {alliance.motto && <p className="mt-0.5 text-[13px] italic text-text-2">“{alliance.motto}”</p>}
+      </div>
       <div className="mt-3 grid grid-cols-3 gap-2">
         <div className="rounded-xl border border-line bg-surf-1 px-3 py-2 text-center">
           <p className="text-lg font-bold text-text-1">
