@@ -63,6 +63,8 @@ import {
 import { Sheet, SheetHeader } from "../components/Sheet";
 import AppShell from "../components/shell/AppShell";
 import CradleSheet from "../components/shell/CradleSheet";
+import MaterialSheet from "../components/MaterialSheet";
+import { openMaterialSheet, type MaterialSheetId } from "../game/material-sheet";
 import SettingsSheet from "../components/shell/SettingsSheet";
 import MailboxSheet from "../components/Mailbox";
 import RaidAlarmOverlay from "../components/RaidAlarmOverlay";
@@ -913,6 +915,9 @@ function PlayPage() {
         onGames={() => { setCradleOpen(false); setGamesOpen(true); sound.click(); }}
         onLogout={doLogout}
       />
+      {/* THE MATERIAL EXPLANATION BOX (owner 2026-10-14): one shared sheet —
+          any material named anywhere can open it with a plain tap. */}
+      <MaterialSheet />
       {state && (
         <StorefrontOverlay
           state={state}
@@ -1719,13 +1724,13 @@ function SiteNeeds({ state, zone, scientists }: { state: GameState; zone: Zone; 
   const gear = requiredGear(zone, scientists);
   const convoy = convoyNeeds(state, zone);
   const rows = [
-    gear.hazmat > 0 ? { icon: "🧥", label: t("play.gear.hazmatLabel", "Hazmat suits"), have: Math.floor(r.hazmat), need: gear.hazmat } : null,
-    gear.shots > 0 ? { icon: "💉", label: t("play.gear.shotsLabel", "Radiation shots"), have: Math.floor(r.shots), need: gear.shots } : null,
-    gear.alloys > 0 ? { icon: "⚙️", label: t("play.gear.alloyLabel", "Alloy diggers"), have: Math.floor(r.alloys), need: gear.alloys } : null,
-    convoy.gas > 0 ? { icon: "⛽", label: t("play.gear.fuelLabel", "Vehicle fuel"), have: Math.floor(r.gas), need: convoy.gas } : null,
-    convoy.battery > 0 ? { icon: "🔋", label: t("play.gear.batteryLabel", "Battery packs"), have: Math.floor(r.battery), need: convoy.battery } : null,
-    convoy.skmech > 0 ? { icon: "🔧", label: t("play.gear.skmechLabel", "Skilled mechanics"), have: Math.floor(r.skmech), need: convoy.skmech } : null,
-  ].filter((x): x is { icon: string; label: string; have: number; need: number } => x !== null);
+    gear.hazmat > 0 ? { id: "hazmat" as MaterialSheetId, icon: "🧥", label: t("play.gear.hazmatLabel", "Hazmat suits"), have: Math.floor(r.hazmat), need: gear.hazmat } : null,
+    gear.shots > 0 ? { id: "shots" as MaterialSheetId, icon: "💉", label: t("play.gear.shotsLabel", "Radiation shots"), have: Math.floor(r.shots), need: gear.shots } : null,
+    gear.alloys > 0 ? { id: "alloy" as MaterialSheetId, icon: "⚙️", label: t("play.gear.alloyLabel", "Alloy diggers"), have: Math.floor(r.alloys), need: gear.alloys } : null,
+    convoy.gas > 0 ? { id: "gas" as MaterialSheetId, icon: "⛽", label: t("play.gear.fuelLabel", "Vehicle fuel"), have: Math.floor(r.gas), need: convoy.gas } : null,
+    convoy.battery > 0 ? { id: "battery" as MaterialSheetId, icon: "🔋", label: t("play.gear.batteryLabel", "Battery packs"), have: Math.floor(r.battery), need: convoy.battery } : null,
+    convoy.skmech > 0 ? { id: "skmech" as MaterialSheetId, icon: "🔧", label: t("play.gear.skmechLabel", "Skilled mechanics"), have: Math.floor(r.skmech), need: convoy.skmech } : null,
+  ].filter((x): x is { id: MaterialSheetId; icon: string; label: string; have: number; need: number } => x !== null);
   if (rows.length === 0) return null;
   return (
     <div className="mt-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2">
@@ -1737,7 +1742,16 @@ function SiteNeeds({ state, zone, scientists }: { state: GameState; zone: Zone; 
           const ok = row.have >= row.need;
           return (
             <li key={row.label} className="flex items-center justify-between text-[11px]">
-              <span className="text-gray-300">{row.icon} {row.label}</span>
+              {/* the material's name is a door (owner 2026-10-14): tap it and
+                  the explanation box opens — what it is, what it's for, how
+                  you get it. */}
+              <button
+                type="button"
+                onClick={() => openMaterialSheet({ id: row.id, count: row.have })}
+                className="py-1 text-left text-gray-300 underline decoration-dotted decoration-gray-500 underline-offset-2 hover:text-text-1"
+              >
+                {row.icon} {row.label} <span aria-hidden="true" className="text-text-3">ⓘ</span>
+              </button>
               <span className={ok ? "text-ember-soft" : "text-red-300"}>
                 <Bdi dir="ltr">{row.have}/{row.need}</Bdi>
                 {!ok && <span className="text-text-3">{t("play.gear.short", " — short")}</span>}
@@ -2113,10 +2127,10 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
   const success = engineHelpers.success(state, zone, scientists);
   const fullyCovered = loss === 0;
   const t = useT();
-  const table: { icon: string; label: string; have: number; need: number }[] = [
-    { icon: "🧥", label: t("play.gear.hazmatLabel", "Hazmat suits"), have: r.hazmat, need: need.hazmat },
-    { icon: "💉", label: t("play.gear.shotsLabel", "Radiation shots"), have: r.shots, need: need.shots },
-    { icon: "⚙️", label: t("play.gear.alloyArmedLabel", "Alloy-armed diggers"), have: r.alloys, need: need.alloys },
+  const table: { id: MaterialSheetId; icon: string; label: string; have: number; need: number }[] = [
+    { id: "hazmat", icon: "🧥", label: t("play.gear.hazmatLabel", "Hazmat suits"), have: r.hazmat, need: need.hazmat },
+    { id: "shots", icon: "💉", label: t("play.gear.shotsLabel", "Radiation shots"), have: r.shots, need: need.shots },
+    { id: "alloy", icon: "⚙️", label: t("play.gear.alloyArmedLabel", "Alloy-armed diggers"), have: r.alloys, need: need.alloys },
   ];
   // OWNER 2026-09-30: this pop-up explains what's missing — it stays open until
   // the player clicks it shut. No backdrop-click dismiss, no Escape dismiss; the
@@ -2148,7 +2162,15 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
                 const cover = row.need > 0 ? Math.min(1, row.have / row.need) : 1;
                 return (
                   <tr key={row.label} className="border-b border-white/5 last:border-0">
-                    <td className="py-1.5 text-gray-300">{row.icon} {row.label}</td>
+                    <td className="py-1.5 text-gray-300">
+                      <button
+                        type="button"
+                        onClick={() => openMaterialSheet({ id: row.id, count: Math.floor(row.have) })}
+                        className="py-1 text-left underline decoration-dotted decoration-gray-500 underline-offset-2 hover:text-text-1"
+                      >
+                        {row.icon} {row.label} <span aria-hidden="true" className="text-text-3">ⓘ</span>
+                      </button>
+                    </td>
                     <td className="py-1.5 text-end">
                       {row.need > 0 ? (
                         <span className={ok ? "text-ember-soft" : "text-red-300"}>

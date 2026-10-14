@@ -103,6 +103,16 @@ export const RESOURCE_TIPS: Record<string, TooltipBlock> = {
     does: "Funds Explorations into the Shatterlands, can be burned to Purify the Cradle, and forges radiation gear in the Workshop.",
     how: "Accrues over real time (boosted by Agriculture & Economy domains) and from scrapped salvage on exploration returns. Spent on exploration Cost, Purify, and Workshop crafting.",
   },
+  warplate: {
+    what: "Warplate (🛡️) — armor plate torn off war wrecks in the deep ruins.",
+    does: "The Forge's core ingredient: every forged weapon and war plate is built from it. Nothing forged exists until warplate comes home first.",
+    how: "Earned only, never sold: successful drops on DEEP exploration sites pay it (the outer ruins have none at all — depth decides). Melting a forged piece returns up to half of its warplate.",
+  },
+  plasma: {
+    what: "Plasma (🔮) — condensed high-energy matter, the lifeblood of high-tier weapons.",
+    does: "Tier-2+ weapon builds eat plasma (3 / 12 / 30). Rare and never cheap.",
+    how: "Refine 25 Embers → 1 plasma in the Lab (research Plasma Refinement first), or salvage 2–5 from deep chipset sites when a raid bites deep.",
+  },
   hazmat: {
     what: "Hazmat suits (🧥) — radiation protection that lets a team EXPLORE deep zones.",
     does: "Suited teams can enter deep radiation zones and reconnoiter. Without enough suits the run risks heavy attrition.",

@@ -22,6 +22,8 @@ import { ActionButton } from "./ui/ActionButton";
 import { RowButton } from "./ui/RowButton";
 import { useT } from "./i18n/I18n";
 import { weaponThumbUrl } from "./HeroCard";
+import { MaterialTag } from "./MaterialSheet";
+import { openMaterialSheet } from "../game/material-sheet";
 import {
   FORGE_GRADES,
   FORGE_RECIPES,
@@ -154,19 +156,13 @@ function RecipeCard({
         </div>
       </div>
       <p className="mt-2 text-[11px] text-text-3">{t("forge.cost")}</p>
-      <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
-        <span className="pill border border-line bg-surf-2 text-text-2">
-          <b className="num text-text-1">{r.warplate ?? 0}</b>
-          <span className="ms-1">{t("forge.warplate")}</span>
-        </span>
-        <span className="pill border border-line bg-surf-2 text-text-2">
-          <b className="num text-text-1">{Math.floor(r.supplies)}</b>
-          <span className="ms-1">{t("ribbon.supplies")}</span>
-        </span>
-        <span className="pill border border-line bg-surf-2 text-text-2">
-          <b className="num text-text-1">{Math.floor(r.embers)}</b>
-          <span className="ms-1">{t("ribbon.embers")}</span>
-        </span>
+      {/* the balances are doors (owner 2026-10-14): tap any of them and the
+          material's explanation box opens — what it is, what it's for, how
+          you get more. Warplate above all: it had no explanation anywhere. */}
+      <div className="mt-1 flex flex-wrap gap-2">
+        <MaterialTag id="warplate" label={t("forge.warplate")} amount={r.warplate ?? 0} count={Math.floor(r.warplate ?? 0)} />
+        <MaterialTag id="supplies" label={t("ribbon.supplies")} amount={Math.floor(r.supplies)} count={Math.floor(r.supplies)} />
+        <MaterialTag id="embers" label={t("ribbon.embers")} amount={Math.floor(r.embers)} count={Math.floor(r.embers)} />
       </div>
       <p className="mt-2 text-[11px] text-text-3">
         {t("forge.floor", { grade: t(`forge.grade.${forgeGrade(recipe.minGrade).id}`) })}
@@ -243,10 +239,16 @@ export function ForgeRoom({
           eyebrow={t("forge.warplate")}
           title={t("forge.roll", "Light the Forge")}
           right={
-            <span className="pill border border-amber-400/40 bg-amber-400/10 text-amber-100">
+            <button
+              type="button"
+              onClick={() => openMaterialSheet({ id: "warplate", count: warplate })}
+              aria-label={t("material.explain", "What is {name}? What is it for, and how do I get it?", { name: t("forge.warplate") })}
+              className="pill border border-amber-400/40 bg-amber-400/10 text-amber-100"
+            >
               <b className="num">{warplate}</b>
               <span className="ms-1">{t("forge.warplate")}</span>
-            </span>
+              <span aria-hidden="true" className="ms-1 opacity-70">ⓘ</span>
+            </button>
           }
         />
         <p className="mt-2 text-[11px] text-text-3">{t("forge.warplateSub")}</p>

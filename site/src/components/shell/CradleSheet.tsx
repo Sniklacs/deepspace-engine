@@ -18,6 +18,7 @@ import { engineHelpers } from "../../game/client-utils";
 import { getRace, raceText } from "../../game/races";
 import { WORLD_CONFIG_PUBLIC } from "../../game/world-config";
 import { RESOURCE_TIPS, ARMORY_TIPS, tipField } from "../../game/tooltips";
+import { MaterialInfoButton } from "../MaterialSheet";
 import type { GameState } from "../../game/types";
 import { PlayerAvatar } from "../PlayerAvatar";
 import type { IconName } from "../icons";
@@ -29,12 +30,16 @@ function StoreRow({
   label,
   value,
   sub,
+  info,
 }: {
   icon: IconName;
   label: string;
   value: number;
   /** a line, not a string: a rendered rate carries its own isolated `<Bdi>` */
   sub: ReactNode;
+  /** the explanation-box door (owner 2026-10-14): the full what/for/how,
+   *  one tap from the figure it explains */
+  info?: ReactNode;
 }) {
   return (
     <li className="flex min-h-tap items-center gap-3 rounded-xl border border-line bg-surf-3/60 px-3 py-2">
@@ -46,6 +51,7 @@ function StoreRow({
       <b className="shrink-0 text-sm text-text-1">
         <Bdi dir="ltr" className="num">{value.toLocaleString()}</Bdi>
       </b>
+      {info}
     </li>
   );
 }
@@ -135,16 +141,25 @@ export default function CradleSheet({
             {t("cradleSheet.stores", "Stores")} · {t("time.tokens")}
           </h3>
           <ul className="mt-2 space-y-1.5">
-            <StoreRow icon="flame" label={t("resource.embers", "Embers")} value={Math.floor(r.embers)} sub={tipField(t, "resource", "embers", "what", RESOURCE_TIPS.embers.what)} />
-            <StoreRow icon="chip" label={t("resource.chipsets", "Chipsets")} value={r.chipsets} sub={tipField(t, "resource", "chipsets", "what", RESOURCE_TIPS.chipsets.what)} />
+            <StoreRow icon="flame" label={t("resource.embers", "Embers")} value={Math.floor(r.embers)} sub={tipField(t, "resource", "embers", "what", RESOURCE_TIPS.embers.what)} info={<MaterialInfoButton id="embers" count={Math.floor(r.embers)} className="-my-1 border-0" />} />
+            <StoreRow icon="chip" label={t("resource.chipsets", "Chipsets")} value={r.chipsets} sub={tipField(t, "resource", "chipsets", "what", RESOURCE_TIPS.chipsets.what)} info={<MaterialInfoButton id="chipsets" count={r.chipsets} className="-my-1 border-0" />} />
             <StoreRow
               icon="crate"
               label={t("resource.supplies", "Supplies")}
               value={Math.floor(r.supplies)}
               sub={<><Bdi dir="ltr" className="num">{`+${spm.toFixed(1)}`}</Bdi> {t("resource.suppliesSub", "{rate} per minute while the Cradle stands", { rate: spm.toFixed(1) })}</>}
+              info={<MaterialInfoButton id="supplies" count={Math.floor(r.supplies)} className="-my-1 border-0" />}
             />
-            <StoreRow icon="scroll" label={t("resource.codices", "Codices")} value={state.codices} sub={tipField(t, "resource", "codices", "what", RESOURCE_TIPS.codices.what)} />
-            <StoreRow icon="spark" label={t("resource.plasma", "Plasma")} value={Math.floor(r.plasma ?? 0)} sub={tipField(t, "armory", "plasma", "what", ARMORY_TIPS.plasma.what)} />
+            <StoreRow icon="scroll" label={t("resource.codices", "Codices")} value={state.codices} sub={tipField(t, "resource", "codices", "what", RESOURCE_TIPS.codices.what)} info={<MaterialInfoButton id="codices" count={state.codices} className="-my-1 border-0" />} />
+            <StoreRow icon="spark" label={t("resource.plasma", "Plasma")} value={Math.floor(r.plasma ?? 0)} sub={tipField(t, "armory", "plasma", "what", ARMORY_TIPS.plasma.what)} info={<MaterialInfoButton id="plasma" count={Math.floor(r.plasma ?? 0)} className="-my-1 border-0" />} />
+            <StoreRow icon="shield" label={t("resource.warplate", "Warplate")} value={Math.floor(r.warplate ?? 0)} sub={tipField(t, "resource", "warplate", "what", RESOURCE_TIPS.warplate.what)} info={<MaterialInfoButton id="warplate" count={Math.floor(r.warplate ?? 0)} className="-my-1 border-0" />} />
+            <StoreRow
+              icon="globe"
+              label={t("resource.mats", "Territory materials")}
+              value={Object.values(r.mats ?? {}).reduce((a, b) => a + (b ?? 0), 0)}
+              sub={tipField(t, "resource", "mats", "what", RESOURCE_TIPS.mats.what)}
+              info={<MaterialInfoButton id="mats" mats={r.mats as Record<string, number>} className="-my-1 border-0" />}
+            />
             <StoreRow
               icon="coin"
               label={t("resource.scrip", "Scrip")}

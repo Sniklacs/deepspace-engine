@@ -24,6 +24,8 @@ import { Panel } from "./ui/Panel";
 import { ActionButton } from "./ui/ActionButton";
 import { Icon } from "./icons";
 import { Tooltip } from "./Tooltip";
+import { MaterialInfoButton } from "./MaterialSheet";
+import { openMaterialSheet, type MaterialSheetId } from "../game/material-sheet";
 import { Bdi } from "./ui/Bdi";
 import { engineHelpers } from "../game/client-utils";
 import { kitsHeld } from "../game/cradle-slots";
@@ -99,9 +101,15 @@ export default function WorkshopShelf({ state, onCraft }: {
           Panel, so the shelf reads as one inventory. `state.resources.embers`
           is the holding; lifetime loot lives in the stores band elsewhere. */}
       <Tooltip className="w-full" content={tipT(t, "resource", "embers", RESOURCE_TIPS.embers)}>
-        <div className="flex min-h-tap w-full items-center gap-2 rounded-xl border border-line bg-surf-3/60 px-3 py-2">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => openMaterialSheet({ id: "embers", count: Math.floor(r.embers) })}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openMaterialSheet({ id: "embers", count: Math.floor(r.embers) }); } }}
+          className="flex min-h-tap w-full cursor-pointer items-center gap-2 rounded-xl border border-line bg-surf-3/60 px-3 py-2"
+        >
           <Icon name="flame" size={16} className="shrink-0 text-ember-soft" aria-hidden="true" />
-          <span className="min-w-0 flex-1 text-[12px] text-text-2">{t("resource.embers")}</span>
+          <span className="min-w-0 flex-1 text-[12px] text-text-2">{t("resource.embers")} <span aria-hidden="true" className="text-text-3">ⓘ</span></span>
           <b className="shrink-0 text-[12px] text-text-1">
             <Bdi dir="ltr" className="num">{Math.floor(r.embers).toLocaleString()}</Bdi>
           </b>
@@ -137,8 +145,11 @@ export default function WorkshopShelf({ state, onCraft }: {
             const isOwn = state.race === race.id;
             const inRecipe = recipe.includes(race.id);
             return (
-              <span
+              <button
+                type="button"
                 key={race.id}
+                onClick={() => openMaterialSheet({ id: "mats", mats: state.resources.mats as Record<string, number> })}
+                aria-label={t("material.explain", "What is {name}? What is it for, and how do I get it?", { name: t("resource.mats", "Territory materials") })}
                 className={`chip border ${
                   inRecipe
                     ? "border-ember/50 bg-ember/10 text-ember-soft"
@@ -149,7 +160,7 @@ export default function WorkshopShelf({ state, onCraft }: {
               >
                 {raceText(t, race, "name", race.name).replace("The ", "")}
                 {isOwn ? " (own)" : ""} <Bdi dir="ltr" className="num">&times;{count}</Bdi>
-              </span>
+              </button>
             );
           })}
         </div>
@@ -234,6 +245,9 @@ function KitRow({ state, kind, recipe, onCraft }: {
         <span className="flex min-w-0 items-center gap-2">
           <Icon name={KIT_ICON[kind]} size={16} className="shrink-0 text-ember-soft" aria-hidden="true" />
           <span className="truncate text-[13px] font-semibold text-text-1">{kit.label}</span>
+          {/* what is this kit, what is it FOR, how do you get it (owner
+              2026-10-14) — one tap, the explanation box. */}
+          <MaterialInfoButton id={kind as MaterialSheetId} count={held} className="-my-2 h-11 w-11 shrink-0 border-0" />
         </span>
         <span className="shrink-0 text-[11px] text-text-3">
           <Bdi dir="ltr" className="num">{held}</Bdi> {t("cradle.heldUnit")}
