@@ -472,7 +472,7 @@ export function RUN_TIME_REBASE_STAMP(): number {
  * a 4 h ladder timer lands most of the way through its 12-minute band,
  * and a backyard run launched hours ago simply comes home.
  */
-export function migrateTimersToRunTime(state: GameState, now: number): void {
+export function migrateTimersToRunTime(state: GameState, _now: number): void {
   if (state.timerRebaseRunTime === RUN_TIME_REBASE_STAMP()) return;
   for (const e of state.expeditions ?? []) {
     if (e.status !== "out") continue;
