@@ -1423,6 +1423,43 @@ export default function WorldMapView({
   const selectedPlanet = selectedPlanetId
     ? planetDefById(selectedPlanetId, WORLD_CONFIG_PUBLIC.worldId)
     : undefined;
+  // THE WORLD STAGE (owner 2026-10-14): the globe IS the landing now —
+  // full-screen, edge to edge. Every panel that used to stack UNDER the
+  // globe in one long scroll column (probe station, intel, raids, the
+  // colony list…) lives behind the desk door on the stage and opens as
+  // its own surface; nothing is deleted, it is one tap away in the scene.
+  const [deskOpen, setDeskOpen] = useState(false);
+  // A globe action that names a panel entry (Raid on a marker, Rally on
+  // an incoming raid) opens the desk already aimed at that entry.
+  const [deskFocus, setDeskFocus] = useState<
+    { kind: "raid"; id: string } | { kind: "colony"; key: string } | null
+  >(null);
+  const colonyEntryRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // EXIT LAW: the desk always has a way back — its back button, and
+  // Escape on keyboards.
+  useEffect(() => {
+    if (!deskOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDeskOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deskOpen]);
+
+  // Once the desk is open, bring the focused entry into view.
+  useEffect(() => {
+    if (!deskOpen || !deskFocus) return;
+    const id = window.setTimeout(() => {
+      const el = deskFocus.kind === "raid"
+        ? raidEntryRefs.current[deskFocus.id]
+        : colonyEntryRefs.current[deskFocus.key];
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      setDeskFocus(null);
+    }, 60);
+    return () => window.clearTimeout(id);
+  }, [deskOpen, deskFocus]);
+
   // Pending raid target: when the user taps "Raid" with no party yet, we form
   // the party and remember the colony — once the party appears (server round-trip),
   // we auto-set it as the target so the user doesn't have to tap twice.
@@ -1537,11 +1574,26 @@ export default function WorldMapView({
   }, [wm?.raids, pendingRaidTarget, onSetRaidTarget]);
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-3 p-4 pb-24">
-      {/* THE GLOBE (owner 2026-10-04): the world page IS the globe — the main
-          core workstation. Everything below stays exactly as it was.
-          WS5: focusTarget snaps the globe to an incoming raid's site. */}
+    <div>
+      {/* THE WORLD STAGE (owner 2026-10-14 — "take the whole 'the world'
+          section away… make it full screen"): the globe fills the whole
+          stage between the ribbon and the nav — no banner band above it,
+          no scroll column under it. The world's name lives ON the scene
+          as an overlay; alerts ride as pills; and every panel that used
+          to stack below opens behind the desk door as its own surface
+          (the Cradle pattern: the scene is a place, business waits
+          behind a door). Same stage boxes as the colony stage: ribbon +
+          safe top, nav + dock + safe bottom. */}
+      <div
+        data-testid="world-stage"
+        className="fixed inset-x-0 z-0"
+        style={{
+          top: "calc(var(--spacing-ribbon) + var(--safe-inset-top, 0px))",
+          bottom: "calc(var(--spacing-nav) + var(--dock-h, 0px) + var(--safe-inset-bottom, 0px))",
+        }}
+      >
       <WorldGlobe
+        fill
         state={state}
         now={now}
         focusTarget={globeFocus ?? undefined}
@@ -1557,6 +1609,8 @@ export default function WorldMapView({
           // the formed party and its target live in the panels below.
           handleRaid(colony, key);
           setSelectedKey(key);
+          setDeskFocus({ kind: "colony", key });
+          setDeskOpen(true);
         }}
         onClaimHuskColony={onClaimHusk}
         onGleanColony={handleExplore}
@@ -1565,8 +1619,86 @@ export default function WorldMapView({
           // raid's entry in the Incoming raids panel: snap the globe to
           // the raided site and scroll that entry into view.
           snapToRaidSite(raid.raidId);
+          setDeskFocus({ kind: "raid", id: raid.raidId });
+          setDeskOpen(true);
         }}
       />
+
+      {/* STAGE OVERLAY: the world's identity + the doors, riding on the
+          scene itself. pointer-events-none lets globe drags pass
+          everywhere except the controls themselves. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] flex flex-col items-center gap-2 px-4 pb-3">
+        {warnings.length > 0 && (
+          <button
+            type="button"
+            onClick={() => { sound.click(); setDeskOpen(true); }}
+            className="pointer-events-auto min-h-[44px] rounded-full border border-red-400/60 bg-red-950/80 px-4 py-2 text-[12px] font-bold text-red-100 backdrop-blur-sm"
+          >
+            {t("worldmap.alertWarnings", "⚠️ {n} raid warning(s) — tap to view", { n: String(warnings.length) })}
+          </button>
+        )}
+        {raidIntel !== "none" && incomingRaids.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              sound.click();
+              setDeskFocus({ kind: "raid", id: incomingRaids[0].raidId });
+              setDeskOpen(true);
+            }}
+            className="pointer-events-auto min-h-[44px] rounded-full border border-red-400/60 bg-red-950/80 px-4 py-2 text-[12px] font-bold text-red-100 backdrop-blur-sm"
+          >
+            🚨 {t("raid.incomingTitle", "Incoming raids")} ({incomingRaids.length})
+          </button>
+        )}
+        <div className="text-center">
+          <h2 className="text-xl font-bold text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+            {t("world.title", "The World")}
+          </h2>
+          <p className="mx-auto mt-0.5 max-w-md text-[11px] leading-snug text-gray-200 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+            {t("world.sub", "Your colonies, rival holdings, Chorus sites, and incoming raids — the globe is your workstation.")}
+          </p>
+        </div>
+        <button
+          type="button"
+          data-testid="world-desk-door"
+          onClick={() => { sound.click(); setDeskOpen(true); }}
+          className="pointer-events-auto min-h-[48px] rounded-full border border-white/25 bg-black/60 px-5 py-3 text-[13px] font-bold text-white backdrop-blur-sm"
+        >
+          🗺️ {t("worldmap.desk", "Colonies, raids & intel")}
+        </button>
+      </div>
+      </div>
+
+      {/* THE DESK: every panel that used to stack under the globe, behind
+          one door, in its own scrollable surface with a way back. */}
+      {deskOpen && (
+      <div
+        data-testid="world-desk"
+        role="dialog"
+        aria-label={t("world.title", "The World")}
+        className="fixed inset-x-0 z-30 flex flex-col bg-surf-0"
+        style={{
+          top: "calc(var(--spacing-ribbon) + var(--safe-inset-top, 0px))",
+          bottom: "calc(var(--spacing-nav) + var(--dock-h, 0px) + var(--safe-inset-bottom, 0px))",
+        }}
+      >
+        <div className="flex items-center gap-3 border-b border-white/10 px-3 py-2">
+          <button
+            type="button"
+            onClick={() => { sound.click(); setDeskOpen(false); }}
+            className="min-h-[44px] shrink-0 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-[13px] font-semibold text-gray-100"
+          >
+            ← {t("world.deskBack", "Back to the globe")}
+          </button>
+          <div className="min-w-0">
+            <h2 className="truncate text-[15px] font-bold text-white">{t("world.title", "The World")}</h2>
+            <p className="line-clamp-2 text-[11px] leading-snug text-gray-400">
+              {t("world.sub", "Your colonies, rival holdings, Chorus sites, and incoming raids — the globe is your workstation.")}
+            </p>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-4">
 
       {/* SCOUT PROBE HOME (Hans, Oct 6 2026): probes live on the World
           page now — counts, build, in-flight status. Launching happens
@@ -1842,7 +1974,12 @@ export default function WorldMapView({
             const key = colonyKey(c.serverId, c.id);
             const open = selectedKey === key;
             return (
-              <div key={key}>
+              <div
+                key={key}
+                ref={(el) => {
+                  colonyEntryRefs.current[key] = el;
+                }}
+              >
                 <ColonyCard
                   colony={c}
                   expanded={open}
@@ -1887,6 +2024,11 @@ export default function WorldMapView({
       <div className="mt-2">
         <MemorialsView state={state} onEpitaph={onEpitaph} />
       </div>
+
+          </div>
+        </div>
+      </div>
+      )}
 
       {/* SOLAR SYSTEM planet sheet (Hans, Oct 6 2026): probe-gated intel,
           send-a-probe, and Enter for the home world only. */}

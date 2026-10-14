@@ -845,14 +845,11 @@ function PlayPage() {
           onNavigate={(t) => switchTab(t)}
         />
       )}
+      {/* THE WORLD STAGE (owner 2026-10-14): no PageBanner here — the
+          globe is a full-screen place you stand in, not a picture band
+          over a scroll column. Its title/sub live as scene overlays and
+          its panels behind the desk door inside WorldMapView. */}
       {tab === "world" && (
-        <>
-        <PageBanner
-          image="/art/pages/world-banner.webp"
-          title={t("world.title", "The World")}
-          sub={t("world.sub", "Your colonies, rival holdings, Chorus sites, and incoming raids — the globe is your workstation.")}
-          className="mb-3 rounded-xl"
-        />
         <WorldMapView
           state={state}
           now={now}
@@ -880,7 +877,6 @@ function PlayPage() {
           onLaunchProbe={(sid) => act(() => launchProbeFn({ data: { token: token!, serverId: sid } }), "launchProbe")}
           onCollectProbe={(pid) => act(() => collectProbeFn({ data: { token: token!, probeId: pid } }), "collectProbe")}
         />
-        </>
       )}
       {tab === "battles" && (
         <BattlesTab
