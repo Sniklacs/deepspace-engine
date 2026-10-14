@@ -23,6 +23,7 @@ import {
   type ShipClass,
 } from "../game/shipyard";
 import { SHIP_FIREPOWER, SHIP_HULL } from "../game/raids";
+import { openMaterialSheet } from "../game/material-sheet";
 import { classTurret } from "../game/turrets";
 import { TurretThumb } from "./TurretThumb";
 import { StackedShips, ShipArt } from "./StackedShips";
@@ -323,10 +324,20 @@ function DonationSection({
         <Icon name="crate" size={12} aria-hidden="true" />
         {t("shipyard.stockpile", "Factory Stockpile")}
       </h5>
+      {/* each stock figure is a door (owner 2026-10-14): what IS an alloy /
+          a race mat? One tap on the figure opens its explanation box. No
+          count is passed — this is the factory's pile, not the player's,
+          and the sheet's "you hold" line must never claim otherwise. */}
       <p className="mb-2 text-[11px] text-text-2">
-        <Bdi dir="ltr" className="num">{sp.supplies.toLocaleString()}</Bdi> {t("shipyard.costSupplies", "supplies")} ·{" "}
-        <Bdi dir="ltr" className="num">{sp.alloys.toLocaleString()}</Bdi> {t("shipyard.costAlloys", "alloys")} ·{" "}
-        <Bdi dir="ltr" className="num">{sp.raceMats.toLocaleString()}</Bdi> {t("shipyard.costMat", "race mat")}
+        <button type="button" onClick={() => openMaterialSheet({ id: "supplies" })} className="py-1 underline decoration-dotted decoration-gray-500 underline-offset-2 hover:text-text-1">
+          <Bdi dir="ltr" className="num">{sp.supplies.toLocaleString()}</Bdi> {t("shipyard.costSupplies", "supplies")}
+        </button> ·{" "}
+        <button type="button" onClick={() => openMaterialSheet({ id: "alloy" })} className="py-1 underline decoration-dotted decoration-gray-500 underline-offset-2 hover:text-text-1">
+          <Bdi dir="ltr" className="num">{sp.alloys.toLocaleString()}</Bdi> {t("shipyard.costAlloys", "alloys")}
+        </button> ·{" "}
+        <button type="button" onClick={() => openMaterialSheet({ id: "mats" })} className="py-1 underline decoration-dotted decoration-gray-500 underline-offset-2 hover:text-text-1">
+          <Bdi dir="ltr" className="num">{sp.raceMats.toLocaleString()}</Bdi> {t("shipyard.costMat", "race mat")}
+        </button>
       </p>
       <div className="mb-2 grid grid-cols-3 gap-1.5">
         <input

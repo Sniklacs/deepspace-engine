@@ -63,7 +63,7 @@ import {
 import { Sheet, SheetHeader } from "../components/Sheet";
 import AppShell from "../components/shell/AppShell";
 import CradleSheet from "../components/shell/CradleSheet";
-import MaterialSheet from "../components/MaterialSheet";
+import MaterialSheet, { MaterialTag } from "../components/MaterialSheet";
 import { openMaterialSheet, type MaterialSheetId } from "../game/material-sheet";
 import SettingsSheet from "../components/shell/SettingsSheet";
 import MailboxSheet from "../components/Mailbox";
@@ -2241,8 +2241,8 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3 items-center text-sm">
-        <Tooltip content={tipT(t, "resource", "insight", RESOURCE_TIPS.insight)}><span className="rounded-lg bg-ember/10 border border-ember/30 px-3 py-1.5 text-ember-soft">{t("play.lab.insight", "Insight: {n}", { n: Math.round(state.insight) })}</span></Tooltip>
-        <Tooltip content={tipT(t, "resource", "codices", RESOURCE_TIPS.codices)}><span className="rounded-lg bg-purple-400/10 border border-purple-400/30 px-3 py-1.5 text-purple-200">{t("play.lab.codices", "📜 Codices: {n}", { n: state.codices })}</span></Tooltip>
+        <Tooltip content={tipT(t, "resource", "insight", RESOURCE_TIPS.insight)}><button type="button" onClick={() => openMaterialSheet({ id: "insight", count: Math.round(state.insight) })} className="rounded-lg bg-ember/10 border border-ember/30 px-3 py-1.5 text-ember-soft">{t("play.lab.insight", "Insight: {n}", { n: Math.round(state.insight) })} <span aria-hidden="true" className="opacity-70">ⓘ</span></button></Tooltip>
+        <Tooltip content={tipT(t, "resource", "codices", RESOURCE_TIPS.codices)}><button type="button" onClick={() => openMaterialSheet({ id: "codices", count: state.codices })} className="rounded-lg bg-purple-400/10 border border-purple-400/30 px-3 py-1.5 text-purple-200">{t("play.lab.codices", "📜 Codices: {n}", { n: state.codices })} <span aria-hidden="true" className="opacity-70">ⓘ</span></button></Tooltip>
         <Tooltip content={tipT(t, "lab", "scientists", LAB_TIPS.scientists)}><span className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-gray-300">{t("play.lab.scientists", "Scientists: {n}", { n: state.scientists })} <span className="text-text-3">{t("play.lab.scientistsBusy", "({busy} busy / {cap} cap)", { busy: studying.length, cap: engineHelpers.scientistCap(state) })}</span></span></Tooltip>
       </div>
 
@@ -2262,6 +2262,9 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
               <div className="flex items-center justify-between"><span className="font-semibold text-amber-200">{t("lab.studyEmbers")}</span><span className="text-xs text-text-3">{t("play.lab.studyCostEmber", "cost: 2 🧯 · ~{secs}s", { secs: engineHelpers.studySecs(state, "ember") })}</span></div>
             </Tooltip>
             <p className="mt-1 text-xs text-gray-400">{t("play.lab.studyEmberDesc", "Consumes 2 Embers, yields ~{n} insight, over real time.", { n: engineHelpers.insightFor(state, "ember") })}</p>
+            <div className="mt-2">
+              <MaterialTag id="embers" count={Math.floor(r.embers)} />
+            </div>
             <button onClick={() => onStudy("ember")} disabled={busy || r.embers < 2} className="mt-3 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
               {busy ? t("play.lab.allBusy", "All scientists busy") : r.embers < 2 ? t("play.lab.needEmbers", "Need 2 Embers") : t("play.lab.beginStudy", "Begin Study")}
             </button>
@@ -2271,6 +2274,9 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
               <div className="flex items-center justify-between"><span className="font-semibold text-cyan-300">{t("lab.studyChipset")}</span><span className="text-xs text-text-3">{t("play.lab.studyCostChipset", "1 🔩 · ~{secs}s", { secs: engineHelpers.studySecs(state, "chipset") })}</span></div>
             </Tooltip>
             <p className="mt-1 text-xs text-gray-400">{t("play.lab.studyChipsetDesc", "Consumes a rare Chipset, yields ~{n} insight. A real leap forward.", { n: engineHelpers.insightFor(state, "chipset") })}</p>
+            <div className="mt-2">
+              <MaterialTag id="chipsets" count={r.chipsets} />
+            </div>
             <button onClick={() => onStudy("chipset")} disabled={busy || r.chipsets < 1} className="mt-3 w-full rounded-lg bg-cyan-400 px-3 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40">
               {busy ? t("play.lab.allBusy", "All scientists busy") : r.chipsets < 1 ? t("play.lab.needChipset", "Need a Chipset") : t("play.lab.beginStudy", "Begin Study")}
             </button>
@@ -2516,18 +2522,24 @@ function StatsRow({ stats, label, compare, preview }: { stats: { power: number; 
 }
 function CostRow({ cost, r }: { cost: { supplies: number; embers: number; fuel: number; plasma: number }; r: GameState["resources"] }) {
   const t = useT();
-  const rows: { label: string; icon: string; have: number; need: number }[] = [
-    { label: t("play.gear.suppliesLabel", "Supplies"), icon: "📦", have: Math.floor(r.supplies), need: cost.supplies },
-    { label: t("play.gear.embersLabel", "Embers"), icon: "🧯", have: Math.floor(r.embers), need: cost.embers },
-    { label: t("play.gear.fuelLabelCost", "Fuel"), icon: "⛽", have: Math.floor(r.gas), need: cost.fuel },
+  const rows: { id: MaterialSheetId; label: string; icon: string; have: number; need: number }[] = [
+    { id: "supplies", label: t("play.gear.suppliesLabel", "Supplies"), icon: "📦", have: Math.floor(r.supplies), need: cost.supplies },
+    { id: "embers", label: t("play.gear.embersLabel", "Embers"), icon: "🧯", have: Math.floor(r.embers), need: cost.embers },
+    { id: "gas", label: t("play.gear.fuelLabelCost", "Fuel"), icon: "⛽", have: Math.floor(r.gas), need: cost.fuel },
   ];
-  if (cost.plasma > 0) rows.push({ label: t("play.gear.plasmaLabel", "Plasma"), icon: "🔮", have: Math.floor(r.plasma), need: cost.plasma });
+  if (cost.plasma > 0) rows.push({ id: "plasma", label: t("play.gear.plasmaLabel", "Plasma"), icon: "🔮", have: Math.floor(r.plasma), need: cost.plasma });
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
       {rows.map((row) => (
-        <span key={row.label} className={row.have >= row.need ? "text-lime-300" : "text-red-300"}>
-          {row.icon} {row.need} <span className="text-text-3">({row.have})</span>
-        </span>
+        <button
+          key={row.label}
+          type="button"
+          onClick={() => openMaterialSheet({ id: row.id, count: row.have })}
+          aria-label={t("material.explain", "What is {name}? What is it for, and how do I get it?", { name: row.label })}
+          className={`py-1 underline decoration-dotted decoration-gray-500 underline-offset-2 ${row.have >= row.need ? "text-lime-300" : "text-red-300"}`}
+        >
+          {row.icon} {row.label} {row.need} <span className="text-text-3">({row.have})</span> <span aria-hidden="true" className="text-text-3">ⓘ</span>
+        </button>
       ))}
     </div>
   );

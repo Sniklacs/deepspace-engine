@@ -31,6 +31,7 @@ import PageBanner from "./PageBanner";
 import { Bdi } from "./ui/Bdi";
 import { useLang, useT } from "./i18n/I18n";
 import { formatNumber, formatUsd } from "../game/i18n/format";
+import { openMaterialSheet, type MaterialSheetId } from "../game/material-sheet";
 import { SplitValue } from "./i18n/SplitValue";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -145,18 +146,49 @@ function DeedLockedChip() {
   );
 }
 
+/** A resource grant's explanation-sheet id (owner 2026-10-14): a buyer
+ *  deciding on a pack can tap what it grants and read what the thing IS,
+ *  what it's for, and how it's earned — before money moves. */
+const GRANT_SHEET_IDS: Record<string, MaterialSheetId> = {
+  supplies: "supplies",
+  gas: "gas",
+  medkit: "medkit",
+  mechkit: "mechkit",
+  armorkit: "armorkit",
+  skmech: "skmech",
+  battery: "battery",
+  hazmat: "hazmat",
+  shots: "shots",
+  alloys: "alloy",
+};
+
+function grantSheetId(g: PackGrant): MaterialSheetId | null {
+  return g.kind === "resource" ? (GRANT_SHEET_IDS[g.key] ?? null) : null;
+}
+
 function GrantLine({ g, packId }: { g: PackGrant; packId: string }) {
   const t = useT();
   const icon: IconName =
     (g.kind === "resource" && PACK_GRANT_ICON[g.key]) ||
     (g.kind === "currency" ? "coin" : g.kind === "cosmetic" ? "emblem" : "cart");
+  const sheetId = grantSheetId(g);
   return (
     <li className="flex items-start gap-2 text-xs text-text-2">
       <Icon name={icon} size={14} className="mt-px shrink-0 text-text-3" />
       {/* The English source stays the catalog literal in game/monetization.ts (so
           assertCatalogFair keeps policing the wording); the catalogue carries it in
           all five languages. */}
-      <span>{t(grantNoteKey(packId, g), g.note)}</span>
+      {sheetId ? (
+        <button
+          type="button"
+          onClick={() => openMaterialSheet({ id: sheetId })}
+          className="py-0.5 text-left underline decoration-dotted decoration-gray-500 underline-offset-2 hover:text-text-1"
+        >
+          {t(grantNoteKey(packId, g), g.note)} <span aria-hidden="true" className="text-text-3">ⓘ</span>
+        </button>
+      ) : (
+        <span>{t(grantNoteKey(packId, g), g.note)}</span>
+      )}
     </li>
   );
 }
@@ -426,10 +458,21 @@ function OfferGrantLine({ g, noteKeyBase }: { g: PackGrant; noteKeyBase: string 
     : g.kind === "currency" ? g.currency
     : g.kind === "cosmetic" ? g.itemId
     : g.vehicleId;
+  const sheetId = grantSheetId(g);
   return (
     <li className="flex items-start gap-2 text-xs text-text-2">
       <Icon name={icon} size={14} className="mt-px shrink-0 text-text-3" />
-      <span>{t(`${noteKeyBase}.g.${g.kind}.${what}`, g.note)}</span>
+      {sheetId ? (
+        <button
+          type="button"
+          onClick={() => openMaterialSheet({ id: sheetId })}
+          className="py-0.5 text-left underline decoration-dotted decoration-gray-500 underline-offset-2 hover:text-text-1"
+        >
+          {t(`${noteKeyBase}.g.${g.kind}.${what}`, g.note)} <span aria-hidden="true" className="text-text-3">ⓘ</span>
+        </button>
+      ) : (
+        <span>{t(`${noteKeyBase}.g.${g.kind}.${what}`, g.note)}</span>
+      )}
     </li>
   );
 }
