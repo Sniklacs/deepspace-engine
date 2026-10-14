@@ -33,7 +33,10 @@ import { useLang, useT } from "./i18n/I18n";
 import { formatNumber, formatUsd } from "../game/i18n/format";
 import { SplitValue } from "./i18n/SplitValue";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPressGate, receiptHeadline, receiptTotalsLine, spendReceipt } from "../game/click-law";
+import { playAction } from "../game/audio/action-sounds";
+import { sound } from "../game/sound";
 import {
   MONETIZATION_CONFIG,
   HEAD_START_PACKS,
@@ -202,7 +205,7 @@ function PackCard({
       {buyable ? (
         <button
           type="button"
-          onClick={() => onBuy(pack.id)}
+          onClick={() => { playAction("buy"); onBuy(pack.id); }}
           disabled={buying}
           aria-disabled={buying}
           data-testid={buying ? "store-buy-busy" : "store-buy"}
@@ -277,7 +280,7 @@ function VotiveCard({
       {buyable ? (
         <button
           type="button"
-          onClick={() => onBuy(pack.id)}
+          onClick={() => { playAction("buy"); onBuy(pack.id); }}
           disabled={buying}
           aria-disabled={buying}
           data-testid={buying ? "store-buy-busy" : "store-buy"}
@@ -479,13 +482,13 @@ function OfferBuyButton({
     return (
       <button
         type="button"
-        onClick={onBuy}
+        onClick={() => { playAction("buy"); onBuy(); }}
         disabled={busy}
         aria-disabled={busy}
         data-testid={busy ? "store-buy-busy" : "store-buy"}
-        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-semibold text-text-1 disabled:opacity-70"
+        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-semibold text-text-1 transition-transform active:scale-[0.98] active:brightness-90 disabled:opacity-70"
       >
-        <Icon name="coin" size={14} className="shrink-0 text-ember-soft" />
+        <Icon name="coin" size={14} className={`shrink-0 text-ember-soft ${busy ? "animate-pulse" : ""}`} />
         {busy
           ? t("store.buyOpening", "Opening checkout…")
           : t("store.offer.buyFor", "Buy · {n} Votives", { n: formatNumber(lang, price) })}
@@ -742,20 +745,33 @@ export function StorefrontOverlay({
    * sellable, or there is no session to mint for, this refuses rather than
    * starting a checkout that would take money for nobody.
    */
+  // THE CLICK LAW (owner 2026-10-14): synchronous press gates behind the
+  // busy state. State alone can be beaten by two taps inside one render
+  // batch — both read the stale "not buying" value and both fire. The ref
+  // gate's check-and-set is atomic within the tap, so a second press while
+  // a buy is in flight executes NOTHING. (The server's eventId dedupe on
+  // offer purchases is the second wall.)
+  const buyGateRef = useRef(createPressGate());
+  const offerGateRef = useRef(createPressGate());
   const buy = async (skuId: string) => {
     const fail = (msg: string) => {
       console.warn(`[storefront] checkout failed for ${skuId}: ${msg}`);
       setBuyError(msg);
+      sound.error();
       onError?.(msg);
     };
-    // No double-submits: a tap while a checkout is already opening is ignored.
-    if (buyingSku) return;
+    // No double-submits: the gate refuses a second press while one is in
+    // flight — idempotent execution, not just a disabled look.
+    if (!buyGateRef.current.tryAcquire()) return;
+    if (buyingSku) { buyGateRef.current.release(); return; }
     if (!isSellable(skuId)) {
       fail(t("store.buyNotSellable", "That item isn't for sale right now."));
+      buyGateRef.current.release();
       return;
     }
     if (!token) {
       fail(t("store.buySignIn", "Sign in to purchase."));
+      buyGateRef.current.release();
       return;
     }
     setBuyingSku(skuId);
@@ -787,6 +803,7 @@ export function StorefrontOverlay({
       fail(`${t("store.buyFailed", "Checkout failed — try again in a moment.")} (${(err as Error)?.message ?? err})`);
     } finally {
       setBuyingSku(null);
+      buyGateRef.current.release();
     }
   };
 
@@ -802,11 +819,17 @@ export function StorefrontOverlay({
     const fail = (msg: string) => {
       console.warn(`[storefront] offer purchase failed (${kind}/${offerId ?? "-"}): ${msg}`);
       setBuyError(msg);
+      sound.error();
       onError?.(msg);
     };
-    if (buyingOffer) return;
+    // THE CLICK LAW: the gate refuses repeat presses while a buy is in
+    // flight (the busy state below is the visible half; the gate is the
+    // enforcement half, immune to same-batch double taps and re-renders).
+    if (!offerGateRef.current.tryAcquire()) return;
+    if (buyingOffer) { offerGateRef.current.release(); return; }
     if (!token) {
       fail(t("store.buySignIn", "Sign in to purchase."));
+      offerGateRef.current.release();
       return;
     }
     setBuyingOffer(offerId ?? kind);
@@ -817,7 +840,25 @@ export function StorefrontOverlay({
       const res = await purchaseStoreOfferFn({ data: { token, kind, offerId, eventId } });
       if (res.ok && res.state) {
         onPurchaseState?.(res.state);
-        setOfferNotice(t("store.offer.purchased", "Done — it's in your stores."));
+        // THE RECEIPT (Click Law receipt vocabulary): the fiction's verb —
+        // buy → "Loaded" — naming the thing and the running total after
+        // the spend. Not a generic "success".
+        const itemLabel =
+          kind === "special"
+            ? (specials.offers.find((o) => o.specialId === offerId)?.name ?? t("store.receiptSpecial", "Daily Special"))
+            : kind === "bundle"
+              ? (WAR_BUNDLES.find((b) => b.id === offerId)?.name ?? t("store.receiptBundle", "War Bundle"))
+              : kind === "extraction"
+                ? EXTRACTION_CONTRACT.name
+                : RECOVERY_EXPEDITE.name;
+        const receipt = spendReceipt({
+          verb: "loaded",
+          itemLabel,
+          amount: 1,
+          totals: [{ label: t("store.receiptVotivesLeft", "Votives left"), value: res.state.currency.votives }],
+        });
+        setOfferNotice(`${receiptHeadline(receipt)} — ${receiptTotalsLine(receipt)}`);
+        sound.success();
       } else if (res.signedOut) {
         fail(t("store.buySignedOut", "Your session expired — sign in again to purchase."));
       } else {
@@ -827,6 +868,7 @@ export function StorefrontOverlay({
       fail(`${t("store.buyFailed", "Checkout failed — try again in a moment.")} (${(err as Error)?.message ?? err})`);
     } finally {
       setBuyingOffer(null);
+      offerGateRef.current.release();
     }
   };
 

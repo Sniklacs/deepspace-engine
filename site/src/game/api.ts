@@ -134,6 +134,7 @@ import {
   recallReinforcement,
   sendReinforcement,
 } from "./war/alliances";
+import { validateAvatarDataUrl } from "./avatar";
 import { ACT1_CONFIG, openAct1Front } from "./prologue/act1-battle";
 import { prologueState } from "./prologue/prologue-engine";
 // Chat + mail, slice A1: the server functions live in their own module (the same
@@ -890,14 +891,23 @@ const applyTimeTokenFn = createServerFn({ method: "POST" }).validator(
 // failure (supplies run dry, alloy recipe incomplete) and reporting how many
 // actually landed.
 const craftFn = createServerFn({ method: "POST" }).validator(
-  z.object({ token: z.string(), kind: z.enum(["medkit", "mechkit", "armorkit", "skmech", "gas", "battery", "hazmat", "shots", "alloy"]), count: z.number().int().min(1).max(99).optional().default(1) })
+  z.object({ token: z.string(), kind: z.enum(["medkit", "mechkit", "armorkit", "skmech", "gas", "battery", "hazmat", "shots", "alloy"]), count: z.number().int().min(1).max(99).optional().default(1), eventId: z.string().min(4).max(80).optional() })
 ).handler(async ({ data }): Promise<GameResult> => {
   const accountId = await accountForToken(data.token);
   if (!accountId) return { ok: false, signedOut: true, error: "Start a colony first." };
   const st = await loadActiveState(accountId);
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  // THE CLICK LAW (owner 2026-10-14), server half: one tap, one charge. A
+  // craft whose eventId was already applied is a retry/double-fire of the
+  // same press — answer with the current state and craft NOTHING.
+  if (data.eventId && (st.recentCraftEvents ?? []).includes(data.eventId)) {
+    return { ok: true, state: publicState(st) };
+  }
   const res = engine.craftItemBatch(st, data.kind, data.count ?? 1, Date.now());
   if (res.ok && res.state) {
+    if (data.eventId) {
+      res.state.recentCraftEvents = [...(res.state.recentCraftEvents ?? []), data.eventId].slice(-32);
+    }
     const saved = await saveActiveState(accountId, res.state);
     if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
   }
@@ -2861,6 +2871,70 @@ const allianceGetAvatarFn = createServerFn({ method: "POST" }).validator(
   return { ok: true, dataUrl };
 });
 
+// ---------------------------------------------------------------------------
+// MY AVATAR (owner 2026-10-14) — the player's OWN face, set in Settings.
+// Unlike the war band avatar above this is NOT alliance-gated: the choice
+// lives on the player's own save (`avatarChoice`, the photo in
+// `avatarUpload`) so it survives reinstalls and shows wherever the game
+// shows the player's identity. While the player IS in a war band, the same
+// choice mirrors onto their member record so the roster and chat bylines
+// never disagree with the ribbon. Uploads pass the avatar.ts gate (real
+// raster images only — no SVG/script vectors — size/dimension capped).
+// ---------------------------------------------------------------------------
+
+const setMyAvatarFn = createServerFn({ method: "POST" }).validator(
+  z.object({
+    token: z.string().min(8),
+    avatar: z.union([
+      z.object({ kind: z.literal("preset"), key: z.string().max(32) }),
+      z.object({ kind: z.literal("upload"), dataUrl: z.string().max(400_000) }),
+      z.object({ kind: z.literal("clear") }),
+    ]),
+  })
+).handler(async ({ data }): Promise<GameResult> =>
+  withColony(data.token, async (st, ctx) => {
+    let ref: { kind: "preset"; key: string } | { kind: "upload"; id: string } | null = null;
+    if (data.avatar.kind === "preset") {
+      if (!AVATAR_PRESETS.some((p) => p.key === (data.avatar as { key: string }).key)) {
+        return { ok: false, error: "Unknown avatar." };
+      }
+      ref = { kind: "preset", key: (data.avatar as { key: string }).key };
+    } else if (data.avatar.kind === "upload") {
+      const v = validateAvatarDataUrl(data.avatar.dataUrl);
+      if (!v.ok) return { ok: false, error: v.error };
+      st.avatarUpload = data.avatar.dataUrl;
+      ref = { kind: "upload", id: ctx.colonyId };
+    } else {
+      // Clear: no chosen face — the race emblem carries identity, and the
+      // stored photo goes with it (nothing private lingers on the save).
+      st.avatarUpload = undefined;
+      ref = null;
+    }
+    st.avatarChoice = ref ?? undefined;
+
+    // Mirror onto the war band record when there is one — best effort by
+    // design: a mirror failure never fails the personal setting.
+    const mine = allianceOf(st, ctx.colonyId);
+    if (mine) {
+      const result = await canonicalAllianceTx(st, mine.id, (fst) => {
+        const ca = allianceById(fst, mine.id);
+        if (!ca) return { ok: false as const, error: "That alliance doesn't exist." };
+        const m = ca.members.find((x) => x.colonyId === ctx.colonyId);
+        if (!m) return { ok: false as const, error: "You're not a member." };
+        m.avatar = ref ?? undefined;
+        touchAlliance(ca);
+        return { ok: true as const, value: undefined };
+      });
+      if (result && typeof result === "object" && "ok" in result && result.ok) {
+        const local = allianceById(st, mine.id);
+        const m = local?.members.find((x) => x.colonyId === ctx.colonyId);
+        if (m) m.avatar = ref ?? undefined;
+      }
+    }
+    return { ok: true, value: undefined };
+  }),
+);
+
 /** Hire a mercenary band: the deserters' market (muster-troops.md §10). The
  *  ONLY buyable troops — first supplies on the table takes them. Garrison cap
  *  still applies: the cap is your stomach. */
@@ -3692,6 +3766,7 @@ export {
   allianceSetPermissionsFn,
   allianceSetAvatarFn,
   allianceGetAvatarFn,
+  setMyAvatarFn,
   plantForwardBaseFn,
   beachheadOrderFn,
   relocateColonyFn,

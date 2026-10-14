@@ -10,6 +10,8 @@ import { useEffect, useState } from "react";
 import { Sheet, SheetHeader } from "../Sheet";
 import { SegmentedControl } from "../SegmentedControl";
 import { LanguageRows } from "../i18n/LanguagePicker";
+import AvatarSettings from "./AvatarSettings";
+import type { GameState } from "../../game/types";
 import InstallAffordance from "./InstallAffordance";
 import StorageNote from "./StorageNote";
 import TranslatorNote from "./TranslatorNote";
@@ -29,7 +31,21 @@ import {
 } from "../../game/graphics-quality";
 import { useDeviceSettings, useT } from "../i18n/I18n";
 
-export default function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function SettingsSheet({
+  open,
+  onClose,
+  player,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /**
+   * The player's own record, when a colony is loaded (owner 2026-10-14):
+   * unlike the device settings below, the AVATAR follows the account — it
+   * is written to the player's save on the server. Absent (no colony yet),
+   * the section simply doesn't render.
+   */
+  player?: { state: GameState; token: string; onApplied: (s: GameState) => void } | null;
+}) {
   const t = useT();
   const s = useDeviceSettings();
   const meta = langMeta(s.lang);
@@ -47,6 +63,12 @@ export default function SettingsSheet({ open, onClose }: { open: boolean; onClos
         onClose={onClose}
       />
       <div className="sheet-body space-y-4 px-4 py-3 md:px-5">
+        {/* 0 · Your face — the player's own avatar (owner 2026-10-14). It is
+               the one ACCOUNT-shaped thing on this sheet: it follows the
+               colony record, not the device, and says so in its own copy. */}
+        {player && (
+          <AvatarSettings state={player.state} token={player.token} onApplied={player.onApplied} />
+        )}
         {/* 1 · Language — the same list as first run, one tap and it is live */}
         <section aria-labelledby="settings-language">
           <h3 id="settings-language" className="eyebrow">

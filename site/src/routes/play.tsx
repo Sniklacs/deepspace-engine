@@ -78,6 +78,7 @@ import CradleScreen from "../components/screens/CradleScreen";
 import HeroesHallScreen from "../components/screens/HeroesHallScreen";
 import CradlePlate from "../components/CradlePlate";
 import PageBanner from "../components/PageBanner";
+import { Icon } from "../components/icons";
 import StarMap from "../components/StarMap";
 import type { KnownServer } from "../game/servers";
 import { ForgedRack } from "../components/ForgeViews";
@@ -138,6 +139,12 @@ function PlayPage() {
     seenAt: number;
   } | null>(null);
   const [tab, setTab] = useState<Tab>("colony");
+  // The exploration room's destination lives HERE, not inside the tab
+  // (owner 2026-10-14): the globe's Explore hands its chosen site across,
+  // and the room must keep showing THAT site until the player picks
+  // another. The tab unmounts on every tab switch, so tab-local state
+  // silently reverted the room to the default site ("outer-ruins").
+  const [expZoneId, setExpZoneId] = useState<string>("outer-ruins");
   // Tutorial bus: page opens are real, observable steps for the guided acts.
   useEffect(() => {
     noteTutEvent({ name: "tab", orderKind: tab });
@@ -799,7 +806,7 @@ function PlayPage() {
           onNavigate={switchTab}
         />
       )}
-      {tab === "expeditions" && <ExpeditionTab state={state} now={now} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onCraft={(k, n) => act(() => craftFn({ data: { token: token!, kind: k, count: n } }), "success")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} />}
+      {tab === "expeditions" && <ExpeditionTab state={state} now={now} zoneId={expZoneId} onZoneChange={setExpZoneId} onLaunch={(z, s) => act(() => launchFn({ data: { token: token!, zoneId: z, scientists: s } }), "launch")} onFlash={flash} onCraft={(k, n, eventId) => act(() => craftFn({ data: { token: token!, kind: k, count: n, eventId } }), "success")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onOpenStore={() => { setLedgerOpen(true); sound.click(); }} />}
       {tab === "armory" && <ArmoryTab state={state} now={now} busy={busy} onBuild={(f) => act(() => weaponBuildFn({ data: { token: token!, familyId: f } }), "build")} onRefine={() => act(() => refinePlasmaFn({ data: { token: token! } }), "refine")} onForgeMelt={(itemId) => act(() => forgeMeltFn({ data: { token: token!, itemId } }), "success")} />}
       {tab === "loadout" && <LoadoutTab state={state} busy={busy} onEquip={(itemId, bearer, slot) => act(() => equipForgeItemFn({ data: { token: token!, itemId, bearer, slot } }), "success")} onUnequip={(itemId) => act(() => unequipForgeItemFn({ data: { token: token!, itemId } }), "success")} />}
       {/* FORMATIONS (owner 2026-10-04): the dedicated loadout page — raid
@@ -867,7 +874,7 @@ function PlayPage() {
           onRespondToRaid={(r) => respondToIncomingRaid(r)}
           onOpenWarBand={() => switchTab("battles")}
           onEnterArena={() => switchTab("arena")}
-          onExploreSite={() => switchTab("expeditions")}
+          onExploreSite={(zone) => { setExpZoneId(zone.id); switchTab("expeditions"); }}
           onRelocateColony={relocateColony}
           onBuildProbe={() => act(() => buildProbeFn({ data: { token: token! } }), "buildProbe")}
           onLaunchProbe={(sid) => act(() => launchProbeFn({ data: { token: token!, serverId: sid } }), "launchProbe")}
@@ -887,7 +894,11 @@ function PlayPage() {
       )}
       {tab === "lab" && <LabTab state={state} now={now} onStudy={(k) => act(() => studyFn({ data: { token: token!, kind: k } }), "study")} onDeploy={(d) => act(() => deployFn({ data: { token: token!, domain: d } }), "deploy")} onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")} onAllocatePoint={(lid, attr) => act(() => allocateLeaderPointFn({ data: { token: token!, leaderId: lid, attr } }), "success")} onChooseSpec={(lid, path) => act(() => chooseSpecializationFn({ data: { token: token!, leaderId: lid, path } }), "success")} onChooseRevelation={(c) => act(() => chooseRevelationFn({ data: { token: token!, choice: c } }), "success")} onBuildProbe={() => act(() => buildProbeFn({ data: { token: token! } }), "buildProbe")} onLaunchProbe={(sid) => act(() => launchProbeFn({ data: { token: token!, serverId: sid } }), "launchProbe")} onCollectProbe={(pid) => act(() => collectProbeFn({ data: { token: token!, probeId: pid } }), "collectProbe")} />}
       </AppShell>
-      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        player={state && token ? { state, token, onApplied: applyState } : null}
+      />
         </>
       )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
@@ -1743,14 +1754,22 @@ function SiteNeeds({ state, zone, scientists }: { state: GameState; zone: Zone; 
   );
 }
 
-function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft, onDeploy }: {
-  state: GameState; now: number; onLaunch: (zone: string, sci: number) => void;
-  onFlash: (m?: string) => void; onCraft: (k: CraftKind, count: number) => void;
+function ExpeditionTab({ state, now, zoneId, onZoneChange, onLaunch, onFlash, onCraft, onDeploy, onOpenStore }: {
+  state: GameState; now: number;
+  /** The destination site — owned by PlayPage so the globe's Explore choice
+   *  (and any pick made here) survives this tab unmounting (owner 2026-10-14). */
+  zoneId: string; onZoneChange: (id: string) => void;
+  onLaunch: (zone: string, sci: number) => void;
+  onFlash: (m?: string) => void; onCraft: (k: CraftKind, count: number, eventId: string) => Promise<any>;
   onDeploy: (d: DomainId) => void;
+  /** Open the War Market (the Cradle Ledger) — the depot stall's door. */
+  onOpenStore: () => void;
 }) {
   const t = useT();
-  const [sel, setSel] = useState("outer-ruins");
+  const sel = zoneId;
+  const setSel = onZoneChange;
   const [sci, setSci] = useState(1);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [riskZone, setRiskZone] = useState<Zone | null>(null);
   const active = state.expeditions.filter((e) => e.status === "out");
   const maxSlots = 1 + state.deployedDomains.logistics;
@@ -1770,6 +1789,17 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft, onDeploy }: {
   const mildZones = ZONES.filter((z) => !isDeepZone(z.radiationLevel));
   const accessibleDeep = deepZones.filter((z) => state.resources.hazmat >= Math.max(1, hazmatPerScientist(z.radiationLevel)));
   const accessible = [...mildZones, ...accessibleDeep];
+  // If the destination arrived from the globe it can be a deep site this
+  // colony can't reach yet — the picker must still NAME it (the room is
+  // showing that site on purpose), not silently display another site.
+  const selZone = getZone(sel);
+  const selListed = accessible.some((z) => z.id === selZone.id);
+  // The skinned site picker's rows: every reachable site, with the current
+  // destination first when it arrived from the globe beyond this colony's
+  // reach (a deep site) — the picker must show the site being explored.
+  const pickerZones = selListed ? accessible : [selZone, ...accessible];
+  const zoneThumb = (z: Zone) => (z.owner !== "shared" && z.owner !== "special" ? `/art/globe/${z.owner}-globe.webp` : "/art/pages/exploration-banner.webp");
+  const ownerLine = (z: Zone) => (z.owner === "shared" ? t("play.zones.noRaceHome", "No race's home") : z.owner !== "special" ? t("play.zones.ownerTerritory", "{race} territory", { race: getRace(z.owner).name }) : "");
 
   const commit = () => {
     const zone = getZone(sel);
@@ -1814,6 +1844,47 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft, onDeploy }: {
         focal="center 60%"
         className="mt-6 rounded-xl"
       />
+      {/* THE DEPOT STALL (owner 2026-10-14): the store's door in the world.
+          The Exploration page is the depot — teams launch here, the workshop
+          below builds expedition gear here — so the market keeps its counter
+          here too: one striped awning, one honest sign, and through it the
+          Cradle Ledger (daily specials, war bundles, supplies). The store
+          stays a place you walk into, never a floating tab. */}
+      <section
+        data-testid="expedition-market-stall"
+        className="mt-4 overflow-hidden rounded-xl border border-amber-200/30 bg-surf-2"
+      >
+        <div
+          aria-hidden="true"
+          className="h-3"
+          style={{
+            background: "repeating-linear-gradient(45deg, #92400e 0 10px, #f59e0b 10px 20px)",
+          }}
+        />
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+          <Icon name="crate" size={26} className="shrink-0 text-amber-300" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-bold text-text-1">
+              {t("exp.market.title", "War Market — Depot Stall")}
+            </h3>
+            <p className="mt-0.5 text-xs leading-snug text-text-3">
+              {t(
+                "exp.market.sub",
+                "Daily specials, war bundles and supplies at the depot counter. The workshop below builds what the market doesn't stock.",
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="expedition-market-enter"
+            onClick={onOpenStore}
+            className="flex min-h-tap flex-none items-center gap-1.5 rounded-lg border border-amber-200/50 bg-surf-3 px-4 py-2 text-sm font-bold text-amber-100"
+          >
+            <Icon name="ledger" size={15} className="shrink-0 text-amber-300" aria-hidden="true" />
+            {t("exp.market.enter", "Enter the War Market")}
+          </button>
+        </div>
+      </section>
       <div className="mt-3">
         <p className="text-sm text-gray-400">{t("play.exp.teamsAway", "Teams away:")} <b className="text-white">{active.length}/{maxSlots}</b> {!canLaunch && <span className="text-amber-300">{t("play.exp.moreSlots", " — deploy Logistics AI for more slots")}</span>}</p>
       </div>
@@ -1848,10 +1919,71 @@ function ExpeditionTab({ state, now, onLaunch, onFlash, onCraft, onDeploy }: {
           </div>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <label className="text-xs text-gray-400">{t("exp.destination")}</label>
-          <select value={sel} onChange={(e) => setSel(e.target.value)} className="rounded-lg border border-white/15 bg-black/60 px-3 py-2 text-white outline-none focus:border-amber-400">
-            {accessible.map((z) => <option key={z.id} value={z.id}>{z.name}{isDeepZone(z.radiationLevel) ? " ☢️" : ""}</option>)}
-          </select>
+          <label className="w-full text-xs text-gray-400">{t("exp.destination")}</label>
+          {/* Skinned site picker (owner 2026-10-14): the native <select> was a
+              blocky black-and-white OS widget dropped into a fully-skinned
+              game. The destination is picked from an in-fiction site list —
+              the world's own artwork, territory, risk and cost at a glance,
+              full-width tappable rows. The picked site IS the explored site:
+              `sel` is PlayPage-owned (see the zoneId prop), so a site chosen
+              on the globe is the site this room is set on. */}
+          <button
+            type="button"
+            data-testid="site-picker-button"
+            aria-expanded={pickerOpen}
+            onClick={() => { setPickerOpen((o) => !o); sound.click(); }}
+            style={{ backgroundImage: `linear-gradient(rgba(4,6,10,.78), rgba(4,6,10,.78)), url(/art/exploration/${state.race}-skin.webp)`, backgroundSize: "cover", backgroundPosition: "center" }}
+            className="flex min-h-[56px] w-full items-center gap-3 rounded-xl border border-amber-400/40 bg-black/60 px-3 py-2 text-left hover:border-amber-300"
+          >
+            <img src={zoneThumb(selZone)} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-semibold text-white">{selZone.name}{isDeepZone(selZone.radiationLevel) ? " ☢️" : ""}</span>
+              <span className="block truncate text-[11px] uppercase text-text-3">{ownerLine(selZone)}</span>
+            </span>
+            <span className="flex shrink-0 flex-wrap justify-end gap-1 text-[11px]">
+              <span className="rounded bg-white/10 px-2 py-0.5 text-red-300">{t("play.zones.risk", "Risk {n}", { n: selZone.risk })}</span>
+              <span className="rounded bg-white/10 px-2 py-0.5 text-lime-300">{t("play.zones.cost", "Cost {n} 📦", { n: engineHelpers.suppliesCost(state, selZone) })}</span>
+            </span>
+            <span aria-hidden className="shrink-0 text-lg text-amber-300">{pickerOpen ? "▴" : "▾"}</span>
+          </button>
+          {pickerOpen && (
+            <div data-testid="site-picker-panel" className="w-full overflow-hidden rounded-xl border border-white/15 bg-black/80">
+              <div
+                className="flex items-center justify-between border-b border-white/10 py-1.5 pe-1.5 ps-3"
+                style={{ backgroundImage: `linear-gradient(rgba(4,6,10,.85), rgba(4,6,10,.85)), url(/art/exploration/${state.race}-skin.webp)`, backgroundSize: "cover", backgroundPosition: "center" }}
+              >
+                <span className="text-xs font-semibold uppercase tracking-wide text-amber-200">{t("play.zones.pickerTitle", "Choose a site")}</span>
+                <button type="button" aria-label={t("play.zones.pickerClose", "Close site list")} onClick={() => { setPickerOpen(false); sound.click(); }} className="flex h-11 w-11 items-center justify-center rounded-lg text-lg text-gray-200 hover:bg-white/10">✕</button>
+              </div>
+              <div className="max-h-80 overflow-y-auto">
+                {pickerZones.map((z) => {
+                  const isSel = z.id === sel;
+                  return (
+                    <button
+                      key={z.id}
+                      type="button"
+                      data-testid={`site-row-${z.id}`}
+                      aria-current={isSel || undefined}
+                      onClick={() => { setSel(z.id); setPickerOpen(false); sound.tab(); }}
+                      className={`flex min-h-[56px] w-full items-center gap-3 border-b border-white/5 px-3 py-2 text-left last:border-b-0 ${isSel ? "bg-amber-400/10" : "hover:bg-white/5"}`}
+                    >
+                      <img src={zoneThumb(z)} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-white">{z.name}{isDeepZone(z.radiationLevel) ? " ☢️" : ""}</span>
+                        <span className="block truncate text-[11px] text-gray-400">{z.flavor}</span>
+                      </span>
+                      <span className="flex max-w-[148px] shrink-0 flex-wrap justify-end gap-1 text-[11px]">
+                        <span className="rounded bg-white/5 px-2 py-0.5 text-red-300">{t("play.zones.risk", "Risk {n}", { n: z.risk })}</span>
+                        {z.radiationLevel > 0 && <span className="rounded bg-amber-400/10 px-2 py-0.5 text-amber-300">{t("play.zones.radiation", "☢️ {n}", { n: z.radiationLevel })}</span>}
+                        <span className="rounded bg-white/5 px-2 py-0.5 text-lime-300">{t("play.zones.cost", "Cost {n} 📦", { n: engineHelpers.suppliesCost(state, z) })}</span>
+                      </span>
+                      {isSel && <span className="shrink-0 rounded bg-ember px-2 py-0.5 text-[11px] font-semibold text-black">{t("play.zones.destinationTag", "Destination")}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <Tooltip content={tipT(t, "lab", "scientists", LAB_TIPS.scientists)}><label className="text-xs text-gray-400">{t("exp.scientists")}</label></Tooltip>
           <input type="number" min={1} max={state.scientists} value={sci} onChange={(e) => setSci(Math.max(1, Math.min(state.scientists, Number(e.target.value) || 1)))} className="w-20 rounded-lg border border-white/15 bg-black/60 px-2 py-2 text-white outline-none focus:border-amber-400" />
           <Tooltip content={tip({ what: t("play.zones.tipCommitWhat", "Commit Supplies — launch this exploration."), does: t("play.zones.tipCommitDoes", "Spends the destination's Supplies cost and sends your team out in real time. Deep zones open the pre-launch risk pop-up first. Farther sites also draw on the convoy's fuel & battery stores."), how: t("play.zones.tipCommitHow", "Requires a stepped-out Cradle (Tier 0 kits), enough Supplies, a free field slot, and enough fuel/battery for the distance. Returns Embers (and maybe a Chipset) when it completes.") })}>

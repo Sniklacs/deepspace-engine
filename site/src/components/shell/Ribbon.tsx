@@ -20,6 +20,7 @@ import type { GameState } from "../../game/types";
 import { useT } from "../i18n/I18n";
 import { Bdi } from "../ui/Bdi";
 import { MailboxButton } from "../Mailbox";
+import { PlayerAvatar } from "../PlayerAvatar";
 
 export default function Ribbon({
   state,
@@ -77,7 +78,11 @@ export default function Ribbon({
             className="absolute inset-0 rounded-xl"
             style={{ background: race.accent + "1a" }}
           />
-          <span className="relative">{state.playerName.slice(0, 1).toUpperCase()}</span>
+          {/* the player's own face (owner 2026-10-14): photo, sigil, or the
+              race-emblem default — set in Settings → Your face */}
+          <span className="relative">
+            <PlayerAvatar state={state} size={30} />
+          </span>
           {alert ? (
             <span
               aria-hidden="true"

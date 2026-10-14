@@ -177,6 +177,14 @@ export interface DailyState {
   banked?: Record<string, { items: string[]; bonus: boolean }>;
 }
 
+/** A player's chosen face (owner 2026-10-14): a preset sigil, or their own
+ *  uploaded photo (the image itself is `GameState.avatarUpload`; this is the
+ *  reference). Structurally the war band's MemberAvatar, kept personal here
+ *  so it never depends on alliance membership. */
+export type PlayerAvatarChoice =
+  | { kind: "preset"; key: string }
+  | { kind: "upload"; id: string };
+
 export interface GameState {
   version: number;
   // ---- THE RE-TIME (owner-ratified 2026-09-26) --------------------------
@@ -191,6 +199,10 @@ export interface GameState {
    *  running timers must be re-based once (spec §7). Set by the pass itself so
    *  a second deploy can never double-rebase. */
   timerRebase?: number;
+  /** One-shot stamp for the 2026-10-14 run-time rescale (distance bands in
+   *  zones.ts): absent = expeditions still out carry ladder-based timers
+   *  and are re-based once, proportionally, onto the distance bands. */
+  timerRebaseRunTime?: number;
   /** The in-flight domain deployment — `deployProgram` runs on a timer now
    *  (the L10 cap without one leaves the R = 6 arithmetic open). Null/absent =
    *  nothing deploying. Completion is derived from `startedAt + durationMs`;
@@ -207,6 +219,16 @@ export interface GameState {
    *  served on demand to alliance mates. The alliance member record carries
    *  only the reference. */
   avatarUpload?: string;
+  /** The player's OWN avatar choice (owner 2026-10-14): set in Settings,
+   *  never alliance-gated. The war band member record mirrors it while the
+   *  player is in an alliance. Absent = the race-emblem default. */
+  avatarChoice?: PlayerAvatarChoice;
+  /** THE CLICK LAW (owner 2026-10-14): the most recent workshop craft
+   *  eventIds this colony has APPLIED, newest last, capped — a retried or
+   *  double-fired craft carrying an already-applied eventId is answered
+   *  with the current state and crafts nothing, so one tap can never be
+   *  charged twice even if it reaches the server twice. */
+  recentCraftEvents?: string[];
   race: RaceId | null;
   raceLocked: boolean;
 

@@ -10,7 +10,16 @@
 //
 // PRESENTATION ONLY: every figure comes from `state` and `engineHelpers`; the
 // only local state is each row's chosen quantity.
-import { useState } from "react";
+//
+// THE CLICK LAW (owner 2026-10-14) — this shelf is where the law was born
+// (supply-build buttons that swallowed taps without a flicker). Every Forge
+// press now: (a) registers INSTANTLY — the button flips to "Forging…" in the
+// same tap; (b) LOCKS while in flight behind a synchronous press gate, so a
+// hammering thumb cannot stack a second execution (and the server dedupes
+// the press's eventId as the second wall); (c) lands a RECEIPT in the
+// fiction's verb — "Forged ✓ +3 Medkits — 14 held · 287 supplies left" —
+// with the running totals after the spend. No silent buttons.
+import { useRef, useState } from "react";
 import { Panel } from "./ui/Panel";
 import { ActionButton } from "./ui/ActionButton";
 import { Icon } from "./icons";
@@ -21,6 +30,14 @@ import { kitsHeld } from "../game/cradle-slots";
 import { CRAFT, CRAFT_RESOURCE_KEY, canForgeAlloy, alloyRecipeRaces } from "../game/engine";
 import type { CraftKind } from "../game/engine";
 import { RACES, raceText } from "../game/races";
+import {
+  createPressGate,
+  pressEventId,
+  receiptHeadline,
+  receiptTotalsLine,
+  spendReceipt,
+  type SpendReceipt,
+} from "../game/click-law";
 import { tipT, tipField, RESOURCE_TIPS } from "../game/tooltips";
 import { useT } from "./i18n/I18n";
 import { SplitValue } from "./i18n/SplitValue";
@@ -50,8 +67,10 @@ const QTY_PRESETS = [1, 5, 10] as const;
 
 export default function WorkshopShelf({ state, onCraft }: {
   state: GameState;
-  /** Forge `count` of `kind` in one tap — the server loops and reports. */
-  onCraft: (k: CraftKind, count: number) => void;
+  /** Forge `count` of `kind` in one tap — the server loops and reports.
+   *  Carries the press's idempotency eventId; resolves with the server's
+   *  result so the row can land its receipt from the authoritative state. */
+  onCraft: (k: CraftKind, count: number, eventId: string) => Promise<{ ok?: boolean; state?: GameState } | null | undefined>;
 }) {
   const t = useT();
   const r = state.resources;
@@ -146,7 +165,7 @@ export default function WorkshopShelf({ state, onCraft }: {
  *  early. */
 function KitRow({ state, kind, recipe, onCraft }: {
   state: GameState; kind: CraftKind; recipe: string[];
-  onCraft: (k: CraftKind, count: number) => void;
+  onCraft: (k: CraftKind, count: number, eventId: string) => Promise<{ ok?: boolean; state?: GameState } | null | undefined>;
 }) {
   const t = useT();
   const kit = CRAFT[kind];
@@ -166,6 +185,45 @@ function KitRow({ state, kind, recipe, onCraft }: {
   const want = Math.max(1, Math.min(qty, Math.max(1, max)));
   const recipeOk = kind !== "alloy" || canForgeAlloy(state);
   const can = max >= 1 && recipeOk;
+  // THE CLICK LAW: the press gate lives in a ref — its check-and-set is
+  // synchronous, so two taps inside one render batch still execute once.
+  const gateRef = useRef(createPressGate());
+  const [forging, setForging] = useState(false);
+  const [receipt, setReceipt] = useState<SpendReceipt | null>(null);
+  const [forgeFailed, setForgeFailed] = useState(false);
+  const pressForge = async () => {
+    if (!gateRef.current.tryAcquire()) return; // repeat press in flight: nothing executes
+    setForging(true);
+    setReceipt(null);
+    setForgeFailed(false);
+    const heldBefore = held;
+    try {
+      const res = await onCraft(kind, want, pressEventId(`craft-${kind}`));
+      const after = res?.state ?? state;
+      const landed = Math.max(0, (after.resources[CRAFT_RESOURCE_KEY[kind]] ?? 0) - heldBefore);
+      if (res?.ok && landed > 0) {
+        setReceipt(spendReceipt({
+          verb: "forged",
+          itemLabel: kit.label,
+          amount: landed,
+          totals: [
+            { label: t("workshop.receiptHeld", "held"), value: after.resources[CRAFT_RESOURCE_KEY[kind]] ?? 0 },
+            { label: t("workshop.receiptSuppliesLeft", "supplies left"), value: Math.floor(after.resources.supplies) },
+          ],
+        }));
+      } else if (res) {
+        // The press WAS answered (the host flashes the server's reason and
+        // sounds the error); the row shows its own failure line too, so the
+        // button never just goes quiet.
+        setForgeFailed(true);
+      }
+    } catch {
+      setForgeFailed(true);
+    } finally {
+      gateRef.current.release();
+      setForging(false);
+    }
+  };
   const desc =
     kind === "alloy" && !recipeOk
       ? `Missing the recipe — need your own material plus ${4 - recipe.filter((rid) => rid !== state.race).length} more race materials.`
@@ -230,21 +288,53 @@ function KitRow({ state, kind, recipe, onCraft }: {
         className="mt-2"
         full
         size="md"
-        label={want > 1 ? t("workshop.forgeN", { label: kit.label, n: want }) : t("cradle.forgeKit", { label: kit.label })}
-        sub={<><Bdi dir="ltr" className="num">{cost * want}</Bdi> {t("resource.supplies")}</>}
-        locked={!can}
-        reason={
-          kind === "alloy" && !recipeOk
-            ? t("cradle.alloyLockedReason")
-            : (
-              <SplitValue
-                k="cradle.needSupplies"
-                params={{ cost, held: supplies }}
-              />
-            )
+        testid={`workshop-forge-${kind}`}
+        label={
+          forging
+            ? t("workshop.forging", { label: kit.label })
+            : want > 1 ? t("workshop.forgeN", { label: kit.label, n: want }) : t("cradle.forgeKit", { label: kit.label })
         }
-        onClick={() => onCraft(kind, want)}
+        sub={<><Bdi dir="ltr" className="num">{cost * want}</Bdi> {t("resource.supplies")}</>}
+        busy={forging}
+        sound="build"
+        locked={!can || forging}
+        reason={
+          forging
+            ? t("workshop.forgingNote", "At the bench — one press, one batch.")
+            : kind === "alloy" && !recipeOk
+              ? t("cradle.alloyLockedReason")
+              : (
+                <SplitValue
+                  k="cradle.needSupplies"
+                  params={{ cost, held: supplies }}
+                />
+              )
+        }
+        onClick={() => void pressForge()}
       />
+      {/* THE RECEIPT (Click Law): the spend lands where the press happened,
+          in the fiction's verb, with the running totals after it. It stays
+          until the next press — a receipt you can re-read, not a toast that
+          vanishes. Sound channel: the host's act() plays the success tone;
+          each channel is complete alone. */}
+      {receipt && (
+        <p
+          role="status"
+          data-testid={`workshop-receipt-${kind}`}
+          className="mt-2 flex items-center gap-1.5 rounded-lg border border-purity/50 bg-surf-2 px-2.5 py-1.5 text-[12px] font-semibold text-text-1"
+        >
+          <Icon name="check" size={13} className="shrink-0 text-purity" aria-hidden="true" />
+          <span className="min-w-0">
+            {receiptHeadline(receipt)}
+            <span className="block text-[11px] font-normal text-text-2">{receiptTotalsLine(receipt)}</span>
+          </span>
+        </p>
+      )}
+      {forgeFailed && !receipt && (
+        <p role="status" className="mt-2 text-[11px] font-medium text-danger-soft">
+          {t("workshop.forgeFailed", "The bench couldn't forge that — nothing was spent. Check the stores and press again.")}
+        </p>
+      )}
     </div>
   );
 }

@@ -19,6 +19,7 @@ import { getRace, raceText } from "../../game/races";
 import { WORLD_CONFIG_PUBLIC } from "../../game/world-config";
 import { RESOURCE_TIPS, ARMORY_TIPS, tipField } from "../../game/tooltips";
 import type { GameState } from "../../game/types";
+import { PlayerAvatar } from "../PlayerAvatar";
 import type { IconName } from "../icons";
 import { useT } from "../i18n/I18n";
 import { Bdi } from "../ui/Bdi";
@@ -106,6 +107,23 @@ export default function CradleSheet({
         onClose={onClose}
       />
       <div className="sheet-body space-y-4 px-4 py-3 md:px-5">
+        {/* 0 · Your face (owner 2026-10-14): the player's own avatar, set in
+               Settings — shown here because this sheet IS the player's
+               identity surface (opened from the ribbon's identity tile). */}
+        <section aria-label={t("settings.avatar", "Your face")} className="flex items-center gap-3">
+          <PlayerAvatar state={state} size={48} />
+          <p className="min-w-0 flex-1 text-[11px] leading-snug text-text-3">
+            {t("cradleSheet.faceLine", "This is the face your hall, your war band and comms see.")}
+          </p>
+          <button
+            type="button"
+            onClick={onSettings}
+            data-testid="cradle-sheet-change-avatar"
+            className="flex-none rounded-lg border border-line px-3 py-2 text-xs font-semibold text-text-1"
+          >
+            {t("settings.change", "Change")}
+          </button>
+        </section>
         {/* 1 · Stores — every figure, with the prose that used to be hover-only */}
         <section aria-labelledby="cradle-stores">
           <h3 id="cradle-stores" className="eyebrow">

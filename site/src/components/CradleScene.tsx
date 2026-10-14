@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import type { Tab } from "../game/nav-slots";
 import { sound } from "../game/sound";
+import { Icon } from "./icons";
 import { useT } from "./i18n/I18n";
 
 export const SCENE_ART = "/art/cradle/scene-panorama.webp";
@@ -425,18 +426,44 @@ export default function CradleScene({
                 key={h.id}
                 type="button"
                 data-hotspot={h.id}
+                data-testid={h.id === "store" ? "cradle-storefront" : undefined}
                 aria-label={t(h.labelKey, h.defaultLabel)}
                 onClick={() => onHotspot(h)}
                 className="group absolute flex min-h-[48px] min-w-[48px] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 p-2"
                 style={{ left: `${h.x}%`, top: `${h.y}%` }}
               >
-                <span
-                  aria-hidden="true"
-                  className="block h-4 w-4 rounded-full border-2 border-amber-200 bg-amber-400/90 shadow-[0_0_12px_rgba(251,191,36,0.9)] transition-transform group-hover:scale-125 group-active:scale-110"
-                />
-                <span className="whitespace-nowrap rounded-full border border-amber-200/50 bg-black/65 px-2.5 py-1 text-[11px] font-semibold text-amber-100 shadow-lg backdrop-blur-sm">
-                  {t(h.labelKey, h.defaultLabel)}
-                </span>
+                {h.id === "store" ? (
+                  /* THE WAR MARKET STOREFRONT (owner 2026-10-14): the store
+                     gets a DOOR in the world, not another dot — a striped
+                     awning over a hanging sign, readable at phone size from
+                     across the scene. It opens the Cradle Ledger. */
+                  <span
+                    aria-hidden="true"
+                    className="flex flex-col items-center transition-transform group-hover:scale-105 group-active:scale-100"
+                  >
+                    <span
+                      className="block h-3 w-24 rounded-t-lg border border-b-0 border-amber-200/70 shadow-[0_0_16px_rgba(251,191,36,0.55)]"
+                      style={{
+                        background:
+                          "repeating-linear-gradient(45deg, #92400e 0 8px, #f59e0b 8px 16px)",
+                      }}
+                    />
+                    <span className="flex items-center gap-1.5 whitespace-nowrap rounded-b-lg border border-amber-200/60 bg-black/75 px-3 py-1.5 text-[12px] font-bold text-amber-100 shadow-lg backdrop-blur-sm">
+                      <Icon name="crate" size={14} className="shrink-0 text-amber-300" />
+                      {t(h.labelKey, h.defaultLabel)}
+                    </span>
+                  </span>
+                ) : (
+                  <>
+                    <span
+                      aria-hidden="true"
+                      className="block h-4 w-4 rounded-full border-2 border-amber-200 bg-amber-400/90 shadow-[0_0_12px_rgba(251,191,36,0.9)] transition-transform group-hover:scale-125 group-active:scale-110"
+                    />
+                    <span className="whitespace-nowrap rounded-full border border-amber-200/50 bg-black/65 px-2.5 py-1 text-[11px] font-semibold text-amber-100 shadow-lg backdrop-blur-sm">
+                      {t(h.labelKey, h.defaultLabel)}
+                    </span>
+                  </>
+                )}
               </button>
             ))}
           </div>
