@@ -52,9 +52,10 @@ import { BattleReplayViewer } from "./BattleReplayViewer";
 import { encodeFormationShare, decodeFormationShare } from "../../game/war/formation-share";
 import { getReplay } from "../../game/war/battle-replays";
 import { OffTheWall } from "./OffTheWall";
+import LearnHome from "../tutorial/LearnHome";
 import type { WallLiveFeed, WallOracleWord, WallTipRef } from "../../game/war/off-the-wall";
 
-const TABS = ["Deploy", "Playbook", "Formations", "Builder", "Wall"] as const;
+const TABS = ["Deploy", "Playbook", "Formations", "Builder", "Wall", "Learn"] as const;
 type Tab = (typeof TABS)[number];
 
 const GRADES: ChorusGrade[] = [1, 2, 3, 4, 5];
@@ -273,7 +274,7 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, raceId, wall, on
             data-testid={`warroom-tab-${t}`}
             className={`rounded-t-lg px-3 py-2 text-xs font-bold uppercase tracking-wider ${tab === t ? "bg-white/10 text-white" : "text-zinc-500 hover:text-zinc-300"}`}
           >
-            {t === "Wall" ? "🖍️ The Wall" : t}
+            {t === "Wall" ? "🖍️ The Wall" : t === "Learn" ? "🖍️ Learn" : t}
             {t === "Formations" && warRoom.formations.length > 0 && (
               <span className="ml-1 rounded-full bg-zinc-700 px-1.5 text-[10px]">{warRoom.formations.length}</span>
             )}
@@ -663,6 +664,8 @@ export function WarRoom({ roster, warRoom, leaderLevel, gameId, raceId, wall, on
               The chalkboards are up — the live chalk arrives when the room is opened from the Arena.
             </p>
           ))}
+
+        {tab === "Learn" && <LearnHome />}
 
         {tab === "Builder" && (
           <div data-testid="warroom-builder">

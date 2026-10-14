@@ -93,6 +93,9 @@ import type {
   UiTarget,
 } from "../game/war/tutorial-cues";
 import { voiceEngine } from "../game/voice/voice-engine";
+import { dismissTutorialOffer, startTutorialAct, useTutorial } from "../game/tutorial/ui-store";
+import { isActComplete } from "../game/tutorial/framework";
+import { BATTLE_ACT as BATTLE_TUT_ACT } from "../game/tutorial/acts";
 import { Link } from "@tanstack/react-router";
 
 const CHIP_META: Record<string, { label: string; cls: string }> = {
@@ -1299,6 +1302,9 @@ export default function BattlesTab({ state, now, token, onDecision, tutorial, mu
   onAction?: (fn: () => Promise<unknown>, label: string) => void;
 }) {
   const t = useT();
+  const tutUi = useTutorial();
+  const showTutOffer =
+    !tutUi.progress.offerDismissed && !isActComplete(tutUi.progress, BATTLE_TUT_ACT);
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
       <div className="relative overflow-hidden rounded-xl border border-line">
@@ -1325,6 +1331,35 @@ export default function BattlesTab({ state, now, token, onDecision, tutorial, mu
           </Link>
         </div>
       </div>
+      {showTutOffer && (
+        <div className="rounded-xl border border-amber-300/40 bg-[#0d1420]/90 p-3.5" data-testid="battles-tutorial-offer">
+          <p className="text-sm font-bold text-text-1">{t("tut.offer.title", "🎓 New to command?")}</p>
+          <p className="mt-0.5 text-xs leading-snug text-text-3">
+            {t(
+              "tut.offer.body",
+              "Take the guided first battle — a forgiving training fight on the real engine that teaches the five squads, the entries, cover, targeting, and walking away. The commander who learns here doesn't learn it bleeding.",
+            )}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              data-testid="battles-tutorial-start"
+              onClick={() => startTutorialAct("battle")}
+              className="min-h-[44px] rounded-lg border border-amber-300/50 bg-amber-400/15 px-4 text-sm font-bold text-amber-100 hover:bg-amber-400/25"
+            >
+              {t("tut.offer.start", "Start the guided battle")}
+            </button>
+            <button
+              type="button"
+              data-testid="battles-tutorial-dismiss"
+              onClick={dismissTutorialOffer}
+              className="min-h-[44px] rounded-lg border border-line bg-surf-4 px-3 text-xs font-semibold text-text-2 hover:bg-surf-3 hover:text-text-1"
+            >
+              {t("tut.offer.dismiss", "Not now")}
+            </button>
+          </div>
+        </div>
+      )}
       {onAction && <AlliancePanel state={state} now={now} token={token} onAction={onAction as (fn: () => Promise<GameResult>, label: string) => void} />}
       {(state.beachheads ?? []).length > 0 && (
         <BeachheadView

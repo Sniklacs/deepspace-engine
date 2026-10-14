@@ -23,6 +23,10 @@ import {
 } from "../game/api";
 import type { GameSummary } from "../game/api";
 import { RACES, UNBOUND_LEGEND, getRace } from "../game/races";
+import TutorialHost from "../components/tutorial/TutorialHost";
+import { noteTutEvent } from "../game/tutorial/framework";
+import { startTutorialAct } from "../game/tutorial/ui-store";
+import { crewFromHeroes } from "../game/war/battle-scene-ui-store";
 import { WORLD_CONFIG_PUBLIC, worldAllowedRaces, worldLockPlain } from "../game/world-config";
 import { ZONES, DOMAINS, getZone } from "../game/zones";
 import { engineHelpers } from "../game/client-utils";
@@ -134,6 +138,10 @@ function PlayPage() {
     seenAt: number;
   } | null>(null);
   const [tab, setTab] = useState<Tab>("colony");
+  // Tutorial bus: page opens are real, observable steps for the guided acts.
+  useEffect(() => {
+    noteTutEvent({ name: "tab", orderKind: tab });
+  }, [tab]);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -565,6 +573,7 @@ function PlayPage() {
     try {
       const err = await doCreate(name, race);
       if (err) flash(err);
+      else noteTutEvent({ name: "colony" });
     } finally {
       setBusy(false);
     }
@@ -667,6 +676,7 @@ function PlayPage() {
       return (
         <div className="min-h-screen bg-[#070910] text-gray-200">
           <RaceSelect busy={busy} onStart={(name, race) => { void doFound(name, race); }} />
+          <TutorialHost />
           {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
           {toast && <div className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
         </div>
@@ -701,6 +711,7 @@ function PlayPage() {
         {firstRunNotice && <FirstRunNudge onDismiss={dismissNudge} />}
         <RaceSelect busy={busy} resetNote
           onStart={(name, race) => { void doFound(name, race); }} />
+        <TutorialHost />
         {toast && <div className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-black/85 border border-amber-400/40 px-4 py-2 text-sm text-amber-100 max-w-md shadow-lg">{toast}</div>}
       </div>
     );
@@ -712,6 +723,7 @@ function PlayPage() {
   const badges = navBadges(state, tab);
   return (
     <div className="min-h-screen bg-[#070910] text-gray-200">
+      <TutorialHost crew={crewFromHeroes(state.prologue?.heroes)} attackerRace={state.race} currentTab={tab} />
       {tab === "circuit" ? (
         <CircuitPage
           state={state}
@@ -1250,6 +1262,17 @@ function RaceSelect({ busy, onStart, resetNote }: { busy: boolean; onStart: (nam
 
         <div className="mt-2 rounded-lg border border-white/10 bg-black/40 px-4 py-2 text-center text-xs text-gray-400">
           {t("play.races.codexFiction", "Codex fiction — in-game mythology only. Nothing here refers to any real-world group, religion, nationality, or person.")}
+        </div>
+
+        <div className="mt-3 text-center">
+          <button
+            type="button"
+            data-testid="races-learn-founding"
+            onClick={() => startTutorialAct("founding")}
+            className="min-h-[44px] rounded-lg border border-amber-300/50 bg-amber-400/10 px-4 text-sm font-semibold text-amber-100 hover:bg-amber-400/20"
+          >
+            {t("play.races.learnFounding", "🖍️ First time? The founding lessons explain the choice — purpose first, two minutes")}
+          </button>
         </div>
 
         {WORLD_CONFIG_PUBLIC.raceLock && (

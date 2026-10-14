@@ -37,6 +37,7 @@ import { wallContextualTips, wallLiveFeed, wallOracleWord, type WallContext } fr
 import { leaderLevel } from "../game/leader-xp";
 import { rosterCount } from "../game/war/troops";
 import { battleSfx } from "../game/war/battle-sfx";
+import { startTutorialAct } from "../game/tutorial/ui-store";
 
 type Act = (fn: () => Promise<unknown>, label: string) => void;
 
@@ -583,6 +584,19 @@ export default function ArenaPanel({ state, token, onAction }: {
             className="shrink-0 rounded-lg border border-amber-400/40 bg-black/60 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-200 hover:bg-black/80 disabled:opacity-40"
           >
             🛡️ War Room
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              battleSfx.attach();
+              setShowScene(false);
+              setDeployScene(null);
+              startTutorialAct("battle");
+            }}
+            data-testid="arena-guided-battle"
+            className="shrink-0 rounded-lg border border-amber-400/40 bg-black/60 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-200 hover:bg-black/80"
+          >
+            {t("arena.guidedBattle", "🎓 Guided first battle")}
           </button>
           </div>
         </div>

@@ -28,6 +28,8 @@ import {
   WIN_MIN_OPACITY,
   type WindowInstance,
 } from "../../game/windows/window-store";
+import CoachMarks from "../tutorial/CoachMarks";
+import { noteCoachUse } from "../../game/tutorial/ui-store";
 
 export function WindowFrame({ win, onMinimize, onClose, children }: {
   win: WindowInstance;
@@ -62,6 +64,8 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
     // Track the pointer even when it leaves the grip.
     e.currentTarget.setPointerCapture(e.pointerId);
     focusWindow(win.id);
+    // Coach mark: resizing with your own hand teaches the resize mark.
+    noteCoachUse("resize");
   };
 
   const onResizeMove = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -101,6 +105,8 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
     if (!m.moved && Math.abs(e.clientX - m.startX) + Math.abs(e.clientY - m.startY) > 4) {
       m.moved = true;
       focusWindow(win.id);
+      // Coach mark: a real drag teaches the drag mark — doing beats reading.
+      noteCoachUse("drag");
     }
     if (!m.moved) return;
     m.lastX = m.baseX + (e.clientX - m.startX);
@@ -163,7 +169,7 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
         <div className="flex flex-none items-center gap-1.5">
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); setOpacityOpen((o) => !o); focusWindow(win.id); }}
+            onClick={(e) => { e.stopPropagation(); setOpacityOpen((o) => !o); focusWindow(win.id); noteCoachUse("opacity"); }}
             aria-label={t("windows.opacity", "Window translucency")}
             aria-expanded={opacityOpen}
             data-testid={`window-opacity-${win.id}`}
@@ -238,6 +244,9 @@ export function WindowFrame({ win, onMinimize, onClose, children }: {
         onPointerCancel={onResizeEnd}
         onDoubleClick={(e) => { e.stopPropagation(); resetWindowSize(win.id); }}
       />
+      {/* First-open coach marks — anchored hints on the real controls
+          (tutorial framework; they dismiss once learned, never twice). */}
+      <CoachMarks />
     </section>
   );
 }
