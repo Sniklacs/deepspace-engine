@@ -61,6 +61,47 @@ export function rungTimerMs(rung: number): number {
 }
 
 /**
+ * RUN-TIME BANDS — how long a team is actually OUT, by DISTANCE
+ * (owner ruling 2026-10-14; this table, not the ladder, is the run clock).
+ *
+ * Hans: "these are fucking dump ships that we're using now — we're not
+ * using fucking horse and buggy." The ladder above timed a backyard errand
+ * (Outer Ruins, range 15 — "right out the back door") at 4 hours and the
+ * deepest site at a full week: wagon math in a ship game, against a
+ * 12-week season. The principle now is Hans's: DURATION SCALES WITH
+ * DISTANCE. The whole table lives between ~10 minutes and a hard
+ * ceiling — the single hardest tier tops out at 4 h, inside his 3–5 h
+ * cap; nothing in the game runs longer.
+ *
+ * The LADDER is untouched on purpose: it still prices rung-entry DEMAND
+ * (engine.rungEntryDemand) — a separate ratified economic arc. This
+ * table is the run clock only: the engine's launch and every duration
+ * derived from a run read from here, so the time a player is shown IS
+ * the time the team is out.
+ */
+export const RUN_TIMER_BANDS: readonly { maxRange: number; ms: number }[] = [
+  { maxRange: 20, ms: 12 * 60_000 }, // backyard — right out the back door
+  { maxRange: 35, ms: 25 * 60_000 }, // a short hop
+  { maxRange: 50, ms: 45 * 60_000 },
+  { maxRange: 65, ms: 75 * 60_000 }, // a real trip, still under lunch
+  { maxRange: 75, ms: 120 * 60_000 },
+  { maxRange: 85, ms: 180 * 60_000 }, // deep country
+  { maxRange: 92, ms: 210 * 60_000 },
+  { maxRange: 100, ms: 240 * 60_000 }, // the hardest tier — the 4 h ceiling
+];
+
+/** The run time for a distance (past the last band reads the ceiling). */
+export function runTimerMsForRange(range: number): number {
+  for (const band of RUN_TIMER_BANDS) if (range <= band.maxRange) return band.ms;
+  return RUN_TIMER_BANDS[RUN_TIMER_BANDS.length - 1].ms;
+}
+
+/** How long a team is out at this zone — distance-banded (see above). */
+export function runTimerMs(zone: Zone): number {
+  return runTimerMsForRange(zone.range);
+}
+
+/**
  * The rung a zone IS: the ZONES array is the ladder, in order (rung 0 = the
  * `outer-ruins` rim … rung 28 = `starfall-core`, the deepest). The ladder, the
  * demand and the migration all read this one index, so a zone can never be

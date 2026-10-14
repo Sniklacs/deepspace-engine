@@ -1429,6 +1429,7 @@ export default function WorldGlobe({
   onGleanColony,
   onRallyRaid,
   onExploreSite,
+  fill,
 }: {
   state: GameState;
   now: number;
@@ -1455,6 +1456,12 @@ export default function WorldGlobe({
   /** SOLAR SYSTEM: bump the nonce to ease the zoom back into the home
    *  globe (the home planet sheet's "Enter" button). */
   enterHomeNonce?: number;
+  /** THE WORLD STAGE (owner 2026-10-14): fill the parent stage edge to
+   *  edge instead of the old 62dvh column height. The canvas already
+   *  sizes itself from the wrap (ResizeObserver + the graphics ladder's
+   *  DPR caps), and the map's own fullscreen toggle renders at exactly
+   *  this size today — fill changes the box, not the render path. */
+  fill?: boolean;
 }) {
   const t = useT();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -1463,7 +1470,20 @@ export default function WorldGlobe({
   const drag = useRef<{
     x: number; y: number; startX: number; startY: number; moved: boolean;
     lastT: number; velSpin: number; velTilt: number;
+    /** True once a second finger joins: the gesture can no longer end as a
+     *  tap or launch a fling, whatever its single-finger phase looked like. */
+    pinched: boolean;
   } | null>(null);
+  // PINCH STATE (regression fix, Hans Oct 14 2026 — "the globe spins crazily"
+  // when he stretches his fingers). Pinch used to be tracked ONLY in
+  // onTouchMove, but browsers dispatch pointermove BEFORE the matching
+  // touchmove: the first move batch of every pinch reached onPointerMove
+  // unguarded, computed against an anchor the second finger's pointerdown had
+  // just replaced, and the garbage velocity launched the post-pinch fling.
+  // Pinch is now declared synchronously in the pointer stream itself: every
+  // active pointer lives in this map, and the second pointerdown starts the
+  // pinch — no touch-event round trip, no unguarded window.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ d: number } | null>(null);
   const lastInteract = useRef(0);
   const screenPos = useRef(new Map<string, { x: number; y: number; r: number }>());
@@ -2260,7 +2280,18 @@ export default function WorldGlobe({
         nightByMarker.set(m, nightFactor(p.x, p.y, p.z, sun.x, sun.y, sun.z));
         projected.push({ marker: m, sx: cx + p.x * R, sy: cy + p.y * R });
       }
-      const shown = declutterMarkers(projected, MIN_DIST_PX);
+      // SATELLITE COVERAGE (owner 2026-10-14 — "our satellites are not even
+      // being seen anymore"): satellites park 5–9° from their sites at the
+      // LOWEST declutter priority in the set (30), so in the shared pool
+      // their own sites (55+) culled them wherever projection squeezed the
+      // gap under MIN_DIST_PX — most of the disc, most of the time. The
+      // coverage layer is a FIELD, not competing pins: satellites declutter
+      // only against each other (tighter radius) and draw first, under the
+      // pins they watch.
+      const shown = [
+        ...declutterMarkers(projected.filter((p) => p.marker.ref.kind === "satellite"), 14),
+        ...declutterMarkers(projected.filter((p) => p.marker.ref.kind !== "satellite"), MIN_DIST_PX),
+      ];
       screenPos.current.clear();
       // SOLAR SYSTEM: globe markers fade as the sky opens and are gone
       // (and untappable — screenPos stays empty) once the system rules.
@@ -2784,13 +2815,75 @@ export default function WorldGlobe({
     lastInteract.current = performance.now();
     // GEV cancelFlight reflex: grabbing the camera kills any cinematic flight.
     flightRef.current = null;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2) {
+      // PINCH BEGINS — right here, in the pointer stream. Seed the distance
+      // from both fingers' real positions and disarm the single-finger drag:
+      // velocities built so far are zeroed (a pinch never launches a fling),
+      // the gesture is marked moved+pinched (never a tap), and the anchor is
+      // pinned to the newest finger so the survivor's moves stay continuous
+      // when the pinch ends.
+      const [a, b] = [...pointers.current.values()];
+      pinch.current = { d: Math.hypot(a.x - b.x, a.y - b.y) };
+      if (drag.current) {
+        drag.current.pinched = true;
+        drag.current.moved = true;
+        drag.current.velSpin = 0;
+        drag.current.velTilt = 0;
+        drag.current.x = e.clientX;
+        drag.current.y = e.clientY;
+        drag.current.lastT = performance.now();
+      }
+      return;
+    }
+    if (pointers.current.size > 2) return; // extra fingers: tracked, inert
     drag.current = {
       x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY,
       moved: false, lastT: performance.now(), velSpin: 0, velTilt: 0,
+      pinched: false,
     };
   }, []);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
+    // Track every active pointer's latest position first — the pinch math
+    // reads both fingers from the map, never from a single event's deltas.
+    const tracked = pointers.current.get(e.pointerId);
+    if (tracked) { tracked.x = e.clientX; tracked.y = e.clientY; }
+    // PINCH ZOOM (Hans Oct 11 2026; regression fix Oct 14 2026): while two
+    // fingers are down the gesture is a pinch, full stop — handled here,
+    // before the system-orbit and globe-drag branches, so neither finger's
+    // motion can inject spin, swing orbits, or feed fling velocity. The zoom
+    // math that used to live in onTouchMove lives here now (pointer events
+    // arrive first; touch was always one batch late). The drag anchor stays
+    // synced to the moving finger so there's no jump when the pinch ends.
+    if (pinch.current && pointers.current.size >= 2) {
+      lastInteract.current = performance.now();
+      const [a, b] = [...pointers.current.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      if (dist > 0 && pinch.current.d > 0) {
+        const v = view.current;
+        const zoomingIn = dist > pinch.current.d;
+        // CRADLE ENTRY: pinch direction feeds the machine (spread = toward
+        // the ground, pinch-out = away) — same semantics the touch handler
+        // had, now driven by true distance change.
+        const ce = cradleRef.current.entry;
+        if (ce === "HOVERING" || ce === "FOCUSING") {
+          sendCradleRef.current({ type: zoomingIn ? "SPREAD" : "PINCH_OUT" });
+        } else if (!zoomingIn && (ce === "INSIDE" || ce === "DESCENDING")) {
+          sendCradleRef.current({ type: "PINCH_OUT" });
+        } else if (zoomingIn && ce === "ASCENDING") {
+          sendCradleRef.current({ type: "SPREAD" });
+        }
+        v.targetScale = clampZoomScale(v.targetScale * (dist / pinch.current.d));
+      }
+      pinch.current = { d: dist };
+      const pd = drag.current;
+      if (pd) {
+        pd.x = e.clientX; pd.y = e.clientY; pd.lastT = performance.now();
+        pd.velSpin = 0; pd.velTilt = 0;
+      }
+      return;
+    }
     const d = drag.current;
     if (!d) return;
     const dx = e.clientX - d.x;
@@ -2809,15 +2902,6 @@ export default function WorldGlobe({
       d.x = e.clientX;
       d.y = e.clientY;
       d.lastT = now;
-      return;
-    }
-    // PINCH ZOOM (Hans Oct 11 2026): while a two-finger pinch is active, the
-    // per-pointer events must not spin the globe or feed fling velocity —
-    // the fingers move in opposite directions and each one was injecting
-    // spin, so the globe spun crazily after every pinch. Keep the anchor
-    // synced so there's no jump when the pinch releases.
-    if (pinch.current) {
-      d.x = e.clientX; d.y = e.clientY; d.lastT = now;
       return;
     }
     // FLAT MAP MODE (Hans Oct 11 2026): at LOW ALT and deeper the spinning
@@ -2867,6 +2951,27 @@ export default function WorldGlobe({
   }, []);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pinch.current) {
+      // A finger lifting OUT of a pinch never taps and never flings. When
+      // one finger remains, the gesture continues as a drag re-anchored to
+      // that finger's tracked position (velocities stay zeroed — inertia is
+      // rebuilt only from real post-pinch drag movement); when none remain,
+      // the gesture is simply over.
+      if (pointers.current.size < 2) {
+        pinch.current = null;
+        const remain = [...pointers.current.values()][0];
+        const pd = drag.current;
+        if (remain && pd) {
+          pd.x = remain.x; pd.y = remain.y; pd.lastT = performance.now();
+          pd.velSpin = 0; pd.velTilt = 0;
+        } else if (!remain) {
+          drag.current = null;
+        }
+      }
+      lastInteract.current = performance.now();
+      return;
+    }
     const d = drag.current;
     drag.current = null;
     if (!d) return;
@@ -3026,7 +3131,12 @@ export default function WorldGlobe({
     if (isSystemDominant(view.current.scale)) return;
     if (view.current.scale >= TILE_DETAIL_SCALE) return;
     if (Math.abs(d.velSpin) > 30 || Math.abs(d.velTilt) > 30) playWhoosh();
-    let vs = d.velSpin, vt = d.velTilt;
+    // FLING CEILING (Oct 14 2026): a hard deliberate flick tops out around
+    // ~700°/s; anything beyond that is gesture noise (a misread pinch, a
+    // coalesced-event burst), not intent. Clamp so inertia can never explode.
+    const FLING_MAX = 900;
+    let vs = Math.max(-FLING_MAX, Math.min(FLING_MAX, d.velSpin));
+    let vt = Math.max(-FLING_MAX, Math.min(FLING_MAX, d.velTilt));
     const tick = () => {
       if (drag.current) return;
       // A fling started on the globe must die when the view crosses into the
@@ -3043,31 +3153,24 @@ export default function WorldGlobe({
     requestAnimationFrame(tick);
   }, [hitTest, hitTestDust, hitTestPlanet, tapToGlobe]);
 
-  const onTouchMove = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      lastInteract.current = performance.now();
-      const [a, b] = [e.touches[0], e.touches[1]];
-      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-      if (pinch.current) {
-        const v = view.current;
-        const zoomingIn = d > pinch.current.d;
-        // CRADLE ENTRY: pinch direction feeds the machine (spread = toward
-        // the ground, pinch-out = away); the targetScale math below keeps
-        // driving z continuously either way.
-        const ce = cradleRef.current.entry;
-        if (ce === "HOVERING" || ce === "FOCUSING") {
-          sendCradleRef.current({ type: zoomingIn ? "SPREAD" : "PINCH_OUT" });
-        } else if (!zoomingIn && (ce === "INSIDE" || ce === "DESCENDING")) {
-          sendCradleRef.current({ type: "PINCH_OUT" });
-        } else if (zoomingIn && ce === "ASCENDING") {
-          sendCradleRef.current({ type: "SPREAD" });
-        }
-        v.targetScale = clampZoomScale(v.targetScale * (d / pinch.current.d));
+  // Pointer CANCEL (browser steals the gesture — notification shade, edge
+  // swipe, a third finger): unwind the same bookkeeping as a lift, but never
+  // tap or fling. The old inline cancel only nulled the drag and left a stale
+  // pinch behind, which then swallowed every later single-finger drag.
+  const onPointerCancel = useCallback((e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+    if (pointers.current.size === 0) drag.current = null;
+    else if (drag.current) {
+      const remain = [...pointers.current.values()][0];
+      if (remain) {
+        drag.current.x = remain.x;
+        drag.current.y = remain.y;
+        drag.current.velSpin = 0;
+        drag.current.velTilt = 0;
       }
-      pinch.current = { d };
     }
   }, []);
-  const onTouchEnd = useCallback(() => { pinch.current = null; }, []);
 
   const zoomBy = useCallback((f: number) => {
     lastInteract.current = performance.now();
@@ -3349,15 +3452,17 @@ export default function WorldGlobe({
 
 
   return (
-    <section aria-label={t("worldglobe.title", "The World")} className="relative">
+    <section aria-label={t("worldglobe.title", "The World")} className={fill ? "relative h-full" : "relative"}>
       <div
         ref={wrapRef}
         className={
           mapFullscreen
             ? "fixed inset-0 z-[60] touch-pan-y select-none overflow-hidden bg-[#02040a]"
-            : "relative w-full touch-pan-y select-none overflow-hidden rounded-2xl border border-white/10 bg-[#02040a]"
+            : fill
+              ? "relative h-full w-full touch-pan-y select-none overflow-hidden bg-[#02040a]"
+              : "relative w-full touch-pan-y select-none overflow-hidden rounded-2xl border border-white/10 bg-[#02040a]"
         }
-        style={mapFullscreen ? undefined : { height: "62dvh", minHeight: 400 }}
+        style={mapFullscreen || fill ? undefined : { height: "62dvh", minHeight: 400 }}
       >
         <canvas
           ref={canvasRef}
@@ -3368,9 +3473,7 @@ export default function WorldGlobe({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={() => { drag.current = null; }}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
+          onPointerCancel={onPointerCancel}
         />
 
         <TileDebugOverlay />

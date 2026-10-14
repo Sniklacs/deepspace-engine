@@ -561,6 +561,13 @@
   gap: 0.5rem;
   overflow-x: auto;
   padding: 0.25rem;
+  /* Only the chips are tappable (owner 2026-10-14): the strip spans the
+     full width, and its empty right end used to eat taps aimed at the
+     floating buttons parked under its band (the Atlas globe button). */
+  pointer-events: none;
+}
+.win-tray > * {
+  pointer-events: auto;
 }
 .win-tray-chip {
   display: flex;

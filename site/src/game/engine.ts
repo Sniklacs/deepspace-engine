@@ -1,6 +1,6 @@
 import type { DomainId, GameState, Leader, RaceId, ResearchJob, Zone } from "./types";
 import { getRace } from "./races";
-import { getZone, MAX_DOMAIN_LEVEL, RUNG_TIMER_MS, rungOfZone, rungTimerMs, legacyZoneBaseMs } from "./zones";
+import { getZone, MAX_DOMAIN_LEVEL, RUNG_TIMER_MS, rungOfZone, rungTimerMs, runTimerMs, legacyZoneBaseMs } from "./zones";
 import {
   TECH_TREE,
   getTech,
@@ -456,6 +456,34 @@ export function migrateTimersToReTime(state: GameState, now: number): void {
     e.startedAt = now; // elapsed clock discarded (spec §7 step 2)
   }
   state.timerRebase = TIMER_REBASE_STAMP();
+}
+
+export function RUN_TIME_REBASE_STAMP(): number {
+  return 1;
+}
+
+/**
+ * RUN-TIME RESCALE (owner ruling 2026-10-14): expeditions launched under
+ * the ladder carry multi-hour/week timers; the run clock is now the
+ * distance bands (zones.ts RUN_TIMER_BANDS). Re-base every run still out,
+ * proportionally to its zone's old (ladder) base → new (banded) base.
+ * Unlike the 2026-09-26 upscale, `startedAt` is KEPT: this is a downscale,
+ * so progress already made counts in full — a run most of the way through
+ * a 4 h ladder timer lands most of the way through its 12-minute band,
+ * and a backyard run launched hours ago simply comes home.
+ */
+export function migrateTimersToRunTime(state: GameState, now: number): void {
+  if (state.timerRebaseRunTime === RUN_TIME_REBASE_STAMP()) return;
+  for (const e of state.expeditions ?? []) {
+    if (e.status !== "out") continue;
+    const zone = getZone(e.zoneId) as Zone | undefined;
+    if (!zone) continue;
+    const oldBase = rungTimerMs(rungOfZone(e.zoneId));
+    const newBase = runTimerMs(zone);
+    if (!(oldBase > 0)) continue;
+    e.durationMs = Math.max(1, Math.round(e.durationMs * (newBase / oldBase)));
+  }
+  state.timerRebaseRunTime = RUN_TIME_REBASE_STAMP();
 }
 
 /** Backfill the re-time's own state on a legacy save (idempotent, silent). */
@@ -2009,6 +2037,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
     // RE-TIME migration still has to run on a same-tick advance: it is once-only
     // and reads only what the resolvers above have already left behind.
     migrateTimersToReTime(state, now);
+    migrateTimersToRunTime(state, now);
     return state;
   }
   const elapsedMs = now - state.lastTick;
@@ -2206,6 +2235,7 @@ export function advance(state: GameState, now = Date.now()): GameState {
   // already complete in the OLD scale has resolved above and is gone, so the
   // re-base can only ever touch a run that was still running (spec §7 step 1).
   migrateTimersToReTime(state, now);
+  migrateTimersToRunTime(state, now);
   state.lastTick = now;
   return state;
 }
@@ -2741,11 +2771,15 @@ export function launchExpedition(state: GameState, zoneId: string, assignedScien
   state.resources.skmech -= sNeed;
   const id = "exp-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
   const industrySpeed = Math.pow(0.94, state.deployedDomains.industry) * (hasTech(state, "i4") ? 0.9 : 1); // i4 Foundry Lines −10% time
-  // RE-TIME: the earned stack (industry domains + Foundry Lines, plus the run's
-  // ±10% landing) is floored at MIN_TIMER_FRACTION of the rung's own timer.
+  // RUN TIME (owner 2026-10-14): the base is the zone's DISTANCE band
+  // (zones.ts RUN_TIMER_BANDS — backyard minutes, hardest tier 4 h), not
+  // the demand ladder. The earned stack (industry domains + Foundry
+  // Lines, plus the run's ±10% landing) is floored at MIN_TIMER_FRACTION
+  // of that banded base.
+  const runBase = runTimerMs(zone);
   const durationMs = timerFloor(
-    zone.baseDurationMs,
-    Math.round(zone.baseDurationMs * industrySpeed * (0.9 + Math.random() * 0.2)),
+    runBase,
+    Math.round(runBase * industrySpeed * (0.9 + Math.random() * 0.2)),
   );
   // Snapshot the radiation loss % into the expedition at launch so the resolve
   // rolls the risk the player explicitly accepted in the pre-launch pop-up.

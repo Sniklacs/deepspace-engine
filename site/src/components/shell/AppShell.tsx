@@ -106,7 +106,15 @@ export default function AppShell({
       <BottomNav tab={tab} onSwitch={onSwitch} badges={badges} />
       {/* ATLAS (Hans Oct 11 2026): a floating globe button on every scene —
           one tap jumps to the world map from anywhere. Hidden on the world
-          tab itself, where you're already there. */}
+          tab itself, where you're already there.
+          STACK DISCIPLINE (owner 2026-10-14 — the dead-exit fix): the right
+          column above the nav is a STACK, and this button owns the band
+          above the help FAB (nav+16 … +72) and the window tray
+          (nav+dock+8 … ~+44): bottom = nav + dock + 52px clears both for
+          every state of the other floaters, so the Atlas can never be
+          painted over by a sibling at the same z-index again. It sat at
+          bottom-24 (96px) — dead center under the help button's box
+          (80–136px), which renders later in this frame and won the tap. */}
       {tab !== "world" && (
         <button
           type="button"
@@ -114,7 +122,8 @@ export default function AppShell({
           aria-label={t("app.atlas", "Atlas — open the world map")}
           title={t("app.atlas", "Atlas — open the world map")}
           data-testid="atlas-fab"
-          className="fixed bottom-24 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-amber-300/40 bg-[#141007]/90 text-2xl shadow-lg backdrop-blur-sm active:scale-95"
+          style={{ bottom: "calc(var(--spacing-nav) + var(--dock-h, 0px) + env(safe-area-inset-bottom, 0px) + 52px)" }}
+          className="fixed right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-amber-300/40 bg-[#141007]/90 text-2xl shadow-lg backdrop-blur-sm active:scale-95"
         >
           <span aria-hidden>🌍</span>
         </button>

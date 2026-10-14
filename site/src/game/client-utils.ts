@@ -48,6 +48,7 @@ import {
   SPECIALIZATIONS,
   type Specialization,
 } from "./leader-xp";
+import { runTimerMs } from "./zones";
 import { weaponCost } from "./armory";
 import { getTech } from "./research";
 import { SPECIALTY_LABEL } from "./research";
@@ -137,7 +138,7 @@ export const engineHelpers = {
   },
   /** RE-TIME: the rung's own timer and its demand as a multiple of daily income. */
   rung(_state: GameState, zone: Zone) {
-    return { timerMs: zone.baseDurationMs, demandIncomeDays: rungEntryDemandInIncomeDays(zone) };
+    return { timerMs: runTimerMs(zone), demandIncomeDays: rungEntryDemandInIncomeDays(zone) };
   },
   stepOut(state: GameState) {
     return hasStepOutGear(state);
