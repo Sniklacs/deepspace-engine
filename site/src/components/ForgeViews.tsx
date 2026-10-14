@@ -99,6 +99,7 @@ export function ForgedPieceCard({
             label={t("forge.melt")}
             sub={t("forge.meltSub", { warplate: refund.warplate, supplies: refund.supplies })}
             busy={busy}
+            sound="spend"
             onClick={() => onMelt(item.id)}
             testid="forge-melt"
           />
@@ -196,6 +197,7 @@ function RecipeCard({
           locked={locked}
           reason={reason}
           busy={busy}
+          sound="forge"
           onClick={() => onRoll(recipe.id, forgeRequestId())}
           testid={`forge-roll-${recipe.id}`}
         />

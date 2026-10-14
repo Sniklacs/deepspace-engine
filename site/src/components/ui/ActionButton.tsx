@@ -10,6 +10,7 @@
 import type { ReactNode } from "react";
 import { Icon } from "../icons";
 import type { IconName } from "../icons";
+import { playAction, type ActionSoundId } from "../../game/audio/action-sounds";
 
 export type ActionVariant = "primary" | "gold" | "secondary" | "ghost" | "destructive";
 export type ActionSize = "sm" | "md" | "lg";
@@ -42,6 +43,7 @@ export function ActionButton({
   testid,
   dataAction,
   ariaLabel,
+  sound: soundId,
   className = "",
 }: {
   // A NODE, NOT A STRING (2026-09-28): a label or a reason can be a translated
@@ -66,9 +68,24 @@ export function ActionButton({
   testid?: string;
   dataAction?: string;
   ariaLabel?: string;
+  /** the press's sound (Click Law, audible half — owner 2026-10-14). Defaults:
+   *  "press", or "pressHeavy" for the destructive variant; a LOCKED button
+   *  always answers a tap with the refusal knock — a silent "no" is the bug
+   *  the law exists to kill. Pass null only for a press that truly must be
+   *  silent (e.g. the mute toggle itself, whose state IS the sound). */
+  sound?: ActionSoundId | null;
   className?: string;
 }) {
   const line = locked ? reason ?? sub : sub;
+  const handleClick = () => {
+    if (soundId !== null) {
+      // A tap on a BUSY button is a press in flight, not a refusal — it stays
+      // silent (the Click Law's press gate swallows it) rather than knocking.
+      if (locked && !busy) playAction("error");
+      else if (!locked) playAction(soundId ?? (variant === "destructive" ? "pressHeavy" : "press"));
+    }
+    if (!locked) onClick?.();
+  };
   return (
     <button
       type="button"
@@ -77,12 +94,16 @@ export function ActionButton({
       aria-label={ariaLabel}
       aria-disabled={locked || undefined}
       aria-busy={busy || undefined}
-      onClick={locked ? undefined : onClick}
+      onClick={handleClick}
       className={`${SIZE[size]} ${VARIANT[variant]} ${
         full ? "w-full" : ""
-      } flex items-center justify-center gap-2 font-semibold transition-colors ${
-        locked ? "opacity-60" : ""
-      } ${className}`}
+      } flex items-center justify-center gap-2 font-semibold transition-all ${
+        // THE CLICK LAW (owner 2026-10-14): a press must VISIBLY register in
+        // the same instant — the button dips and darkens under the finger,
+        // and while busy it pulses gently so an in-flight action reads as
+        // working, never as broken.
+        locked ? "opacity-60" : "active:scale-[0.98] active:brightness-90"
+      } ${busy ? "cursor-wait animate-pulse" : ""} ${className}`}
     >
       {icon ? <Icon name={icon} size={18} className="shrink-0" aria-hidden="true" /> : null}
       <span className="flex min-w-0 flex-col items-start">

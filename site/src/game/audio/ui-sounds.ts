@@ -13,18 +13,20 @@ import { tone, noiseBurst, subDrop, boom } from "./audio-core";
  * Throttled by the caller (StarMap only fires on planet-enter).
  */
 export function playHover(): void {
-  tone(3200, { type: "sine", dur: 0.025, gain: 0.022, wet: 0.3 });
+  tone(3200, { type: "sine", dur: 0.025, gain: 0.04, wet: 0.3 });
 }
 
 /**
  * Click — the "puck": mechanical keycap noise + short mid blip,
  * now with a subtle low-end punch underneath.
+ * (Levels lifted 2026-10-14, owner's field report: SFX existed but sat
+ * inaudible under the music — these peaked at 0.06–0.1, ≈ −20 dBFS.)
  */
 export function playClick(): void {
-  noiseBurst({ dur: 0.035, gain: 0.09, filterType: "highpass", filterFreq: 2200, wet: 0.2 });
-  tone(1400, { type: "triangle", dur: 0.05, gain: 0.06, slideTo: 900, wet: 0.25 });
+  noiseBurst({ dur: 0.035, gain: 0.15, filterType: "highpass", filterFreq: 2200, wet: 0.2 });
+  tone(1400, { type: "triangle", dur: 0.05, gain: 0.11, slideTo: 900, wet: 0.25 });
   // low-end punch
-  tone(140, { type: "sine", dur: 0.09, gain: 0.1, slideTo: 70, wet: 0.2 });
+  tone(140, { type: "sine", dur: 0.09, gain: 0.16, slideTo: 70, wet: 0.2 });
 }
 
 /**
@@ -37,13 +39,14 @@ export function playSelect(): void {
   // the drop — 58Hz down to 30Hz
   subDrop({ from: 58, to: 30, dur: 1.1, gain: 0.5, wet: 0.3 });
   // resonant body
-  tone(110, { type: "sine", dur: 0.5, gain: 0.16, slideTo: 55, wet: 0.5 });
-  tone(220, { type: "triangle", dur: 0.35, gain: 0.07, slideTo: 110, wet: 0.5 });
-  // shimmer rising out of the boom
-  tone(880, { type: "sine", dur: 0.4, gain: 0.045, delay: 0.1, wet: 0.7 });
-  tone(1320, { type: "sine", dur: 0.5, gain: 0.035, delay: 0.18, wet: 0.7 });
-  tone(1760, { type: "sine", dur: 0.6, gain: 0.028, delay: 0.26, wet: 0.7 });
-  tone(2640, { type: "sine", dur: 0.7, gain: 0.018, delay: 0.34, wet: 0.8 });
+  tone(110, { type: "sine", dur: 0.5, gain: 0.2, slideTo: 55, wet: 0.5 });
+  tone(220, { type: "triangle", dur: 0.35, gain: 0.11, slideTo: 110, wet: 0.5 });
+  // shimmer rising out of the boom (the part a phone speaker hears — lifted
+  // hardest, 2026-10-14; the sub-drop alone is invisible on small speakers)
+  tone(880, { type: "sine", dur: 0.4, gain: 0.07, delay: 0.1, wet: 0.7 });
+  tone(1320, { type: "sine", dur: 0.5, gain: 0.055, delay: 0.18, wet: 0.7 });
+  tone(1760, { type: "sine", dur: 0.6, gain: 0.045, delay: 0.26, wet: 0.7 });
+  tone(2640, { type: "sine", dur: 0.7, gain: 0.03, delay: 0.34, wet: 0.8 });
 }
 
 /** Deselect — the boom in reverse: falling tone, soft close. */
@@ -70,11 +73,13 @@ export function playConfirm(): void {
   tone(3300, { type: "sine", dur: 0.5, gain: 0.022, delay: 0.33, wet: 0.8 });
 }
 
-/** Error / denied — low buzz for tapping a down/soon planet's claim button. */
+/** Error / denied — low buzz for tapping a down/soon planet's claim button.
+ *  (Lifted 2026-10-14: a refusal must be AUDIBLE — it was the quietest
+ *  sound in the game, which is exactly backwards.) */
 export function playDenied(): void {
-  tone(200, { type: "square", dur: 0.1, gain: 0.045, lowpass: 900, wet: 0.3 });
-  tone(160, { type: "square", dur: 0.15, gain: 0.045, delay: 0.09, lowpass: 800, wet: 0.3 });
-  tone(90, { type: "sine", dur: 0.2, gain: 0.1, delay: 0.02, slideTo: 60, wet: 0.2 });
+  tone(200, { type: "square", dur: 0.1, gain: 0.09, lowpass: 900, wet: 0.3 });
+  tone(160, { type: "square", dur: 0.15, gain: 0.09, delay: 0.09, lowpass: 800, wet: 0.3 });
+  tone(90, { type: "sine", dur: 0.2, gain: 0.16, delay: 0.02, slideTo: 60, wet: 0.2 });
 }
 
 /** Spin whoosh — airy sweep when the user flings the map. */

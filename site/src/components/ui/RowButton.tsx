@@ -6,6 +6,7 @@
 import type { ReactNode } from "react";
 import { Icon } from "../icons";
 import type { IconName } from "../icons";
+import { playAction } from "../../game/audio/action-sounds";
 
 export function RowButton({
   icon,
@@ -29,7 +30,7 @@ export function RowButton({
       type="button"
       data-testid={testid}
       aria-haspopup="dialog"
-      onClick={onClick}
+      onClick={() => { playAction("open"); onClick(); }}
       className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-start transition-colors ${
         tone === "destructive"
           ? "min-h-tap-lg border-danger/40 bg-danger/5 text-danger-soft hover:bg-danger/10"
