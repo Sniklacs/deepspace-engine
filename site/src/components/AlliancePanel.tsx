@@ -206,10 +206,13 @@ export function NoAlliance({ state, me, token, onAction }: { state: GameState; m
   };
   return (
     <section className="rounded-xl border border-line bg-surf-2/40 p-4">
-      {/* war council hall behind the header (owner 2026-10-01: every page gets
-          a background picture) */}
+      {/* The header wears the CURRENT hall art — the same panorama as the
+          hall scene — not the retired council-hall banner (owner report
+          2026-10-14: the founding view still sat on the old skin after the
+          member page was fixed; the old file is now referenced nowhere in
+          the alliance flow). */}
       <PageBanner
-        image="/art/pages/alliance-banner.webp"
+        image="/art/alliance/scene-panorama.webp"
         title={<span className="flex items-center gap-2"><Icon name="shield" size={16} /> War band</span>}
         sub="No colony stands alone. Found a war band — or answer an invite — and rallies, reinforcements, and help ticks unlock."
         className="-m-4 mb-4 rounded-t-xl"
