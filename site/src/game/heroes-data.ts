@@ -47,9 +47,11 @@ import { keyifySegment } from "./i18n/keyify";
 // §1 CONFIG — ONE place for every tunable number.
 // ============================================================================
 export const HEROES_CONFIG = {
-  /** Owner-ratified Wave-1 size (O1 — 8-vs-6 decided at 8: complete role
-   *  coverage for every squad size 3–5). */
-  wave1Size: 8,
+  /** Wave-1 size (O1 ratified 8 Watchers — 8-vs-6 decided at 8: complete
+   *  role coverage for every squad size 3–5; expanded by owner ruling
+   *  2026-10-14: + Gadreel and Semjaza for the Watchers, + one flagship per
+   *  other race with seconds — 17 total). */
+  wave1Size: 17,
   /** Base attribute points every hero starts with, spread across the four
    *  war-flavored attributes (§4) — mirrors the Leaders' 13-point base pool. */
   baseAttributePoints: 13,
@@ -199,14 +201,14 @@ export const DEED_CATALOG: readonly HeroDeed[] = [
   { id: "hero_shield_15", tier: "t2", name: "Fifteen Shields", condition: "15 shield assists", engineHook: "warLedger shield", kind: "personal-threshold", unlocks: ["chained-syllabus"], finiteTimeWeeks: 8 },
   { id: "hero_escort_10", tier: "t2", name: "Ten Escorts", condition: "10 escorts / supply-lane protections", engineHook: "warLedger escort", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: 8 },
   { id: "hero_comeback_1", tier: "t2", name: "The Turn", condition: "1 scored action under comeback multipliers (your side > 25% down)", engineHook: "warLedger + comeback flags", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: 8 },
-  { id: "hero_contribution_150", tier: "t2", name: "Contribution 150", condition: "contributionScore ≥ 150", engineHook: "engine contributionScore()", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: 8 },
-  { id: "hero_codex_scholar", tier: "t2", name: "Codex Scholar", condition: "20 Codices earned by deeds (revelationCounters.codicesEarnedByDeeds ≥ 20)", engineHook: "engine counter read", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: 8 },
+  { id: "hero_contribution_150", tier: "t2", name: "Contribution 150", condition: "contributionScore ≥ 150", engineHook: "engine contributionScore()", kind: "personal-threshold", unlocks: ["mahaway", "enlil"], finiteTimeWeeks: 8 },
+  { id: "hero_codex_scholar", tier: "t2", name: "Codex Scholar", condition: "20 Codices earned by deeds (revelationCounters.codicesEarnedByDeeds ≥ 20)", engineHook: "engine counter read", kind: "personal-threshold", unlocks: ["mahaway", "enlil"], finiteTimeWeeks: 8 },
   // ---- T3 Legend (~1–3 months) ----
   { id: "hero_purify_5", tier: "t3", name: "Five Purifies", condition: "5 completed purifies (Phase-2 ability)", engineHook: "warLedger purify", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: 12 },
-  { id: "hero_first_of_cycle", tier: "t3", name: "First of the Cycle", condition: "A History-Book 'first' of a war cycle (personal completion)", engineHook: "History Book firsts ledger", kind: "history-first-with-twin", unlocks: [], finiteTimeWeeks: 12 },
-  { id: "hero_climax_3", tier: "t3", name: "Climax Thrice", condition: "Scored contribution in 3 Climax windows", engineHook: "warLedger + goldenWindow flag", kind: "personal-threshold", unlocks: ["gadreel"], finiteTimeWeeks: 12 },
+  { id: "hero_first_of_cycle", tier: "t3", name: "First of the Cycle", condition: "A History-Book 'first' of a war cycle (personal completion)", engineHook: "History Book firsts ledger", kind: "history-first-with-twin", unlocks: ["semjaza"], finiteTimeWeeks: 12 },
+  { id: "hero_climax_3", tier: "t3", name: "Climax Thrice", condition: "Scored contribution in 3 Climax windows", engineHook: "warLedger + goldenWindow flag", kind: "personal-threshold", unlocks: ["gadreel", "ohya", "enki", "ashtar-sheran", "tiamat", "j-rod"], finiteTimeWeeks: 12 },
   { id: "hero_contribution_400", tier: "t3", name: "Contribution 400", condition: "contributionScore ≥ 400", engineHook: "engine contributionScore()", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: 12 },
-  { id: "hero_legend_codex", tier: "t3", name: "Legend Codex", condition: "40 Codices earned by deeds", engineHook: "engine counter", kind: "personal-threshold", unlocks: ["gadreel"], finiteTimeWeeks: 12 },
+  { id: "hero_legend_codex", tier: "t3", name: "Legend Codex", condition: "40 Codices earned by deeds", engineHook: "engine counter", kind: "personal-threshold", unlocks: ["gadreel", "semjaza", "ohya", "enki", "ashtar-sheran", "tiamat", "j-rod"], finiteTimeWeeks: 12 },
   // ---- Vouch (not a week-window deed; earned trust, never bought) ----
   { id: "oracle_vouch:watchers", tier: "vouch", name: "Oracle's Vouch", condition: "Oracle attention `engaged` + favor ≥ published threshold", engineHook: "oracleRoster favor/attention", kind: "personal-threshold", unlocks: [], finiteTimeWeeks: null },
 ];
@@ -216,7 +218,11 @@ export const DEED_BY_ID: Readonly<Record<string, HeroDeed>> = Object.fromEntries
 // ============================================================================
 // §4 THE ROSTER — Wave-1 Watchers, owner-ratified (O1). Names, roles, and
 // identities are EXACTLY the approved set (+ Gadreel, owner-ruled
-// 2026-10-14: face of the race and flagship of the catalog). Skills are role-flavored
+// 2026-10-14: face of the race and flagship of the catalog; + the chiefs'
+// slate, owner-ruled the same morning: Semjaza for the Watchers, and one
+// flagship per race — Ohya (Nephilim), Enki (Anunnaki), Ashtar Sheran
+// (Ashtar), Tiamat (Draconians), J-Rod (Grays) — with their seconds
+// Mahaway and Enlil). Skills are role-flavored
 // decision-moment abilities with published sidegraded numbers (O4-style
 // calibration-pending). Deed mapping follows §3.1 verbatim.
 // ============================================================================
@@ -235,6 +241,22 @@ export const HERO_DEFS: readonly HeroDef[] = [
     ],
     signatureDeed: "hero_legend_codex",
     alternateDeeds: ["hero_climax_3"],
+    oracleVouch: true,
+  },
+  {
+    id: "semjaza",
+    name: "Semjaza, the Oath-Binder",
+    role: "support",
+    race: "watchers",
+    wave: "wave-1",
+    identity: "Chief of the two hundred. He feared he would bear the great sin alone, so on Mount Hermon he bound them all by oath — and Michael bound him in the valleys of the earth for seventy generations. The name behind Gadreel's name.",
+    baseAttributes: { power: 3, guard: 3, craft: 2, presence: 5 },
+    skills: [
+      { id: "semjaza-binding-oath", name: "The Binding Oath", action: "shield", effect: "Shield assists +15% effectiveness (strength 0.15); none who swore is left uncovered.", values: { strength: 0.15 } },
+      { id: "semjaza-seventy-generations", name: "Seventy Generations", action: "defense", effect: "Squad takes −10% damage while holding defense actions (damageReduction 0.10); bound in the valleys, his guard never lapsed.", values: { damageReduction: 0.1 } },
+    ],
+    signatureDeed: "hero_first_of_cycle",
+    alternateDeeds: ["hero_legend_codex"],
     oracleVouch: true,
   },
   {
@@ -363,6 +385,118 @@ export const HERO_DEFS: readonly HeroDef[] = [
     ],
     signatureDeed: "hero_haul_10",
     alternateDeeds: [],
+    oracleVouch: true,
+  },
+  {
+    id: "ohya",
+    name: "Ohya, Firstborn of the Giants",
+    role: "tank",
+    race: "nephilim",
+    wave: "wave-1",
+    identity: "Firstborn son of Semjaza, prince of the giants, mightiest of the Nephilim before the waters. His father's oath is in his blood — so is the doom it bought.",
+    baseAttributes: { power: 5, guard: 5, craft: 1, presence: 2 },
+    skills: [
+      { id: "ohya-first-giant", name: "The First Giant", action: "defense", effect: "+15% guard on defensive stands (strength 0.15); the line holds where he plants his feet.", values: { strength: 0.15 } },
+      { id: "ohya-weight-of-firstborn", name: "Weight of the Firstborn", action: "march", effect: "Squad takes −10% damage on marches he leads (damageReduction 0.10).", values: { damageReduction: 0.1 } },
+    ],
+    signatureDeed: "hero_legend_codex",
+    alternateDeeds: ["hero_climax_3"],
+    oracleVouch: true,
+  },
+  {
+    id: "mahaway",
+    name: "Mahaway, the Winged Messenger",
+    role: "support",
+    race: "nephilim",
+    wave: "wave-1",
+    identity: "The winged giant who flew to Enoch with his people's terror in his hands and came back carrying the answer: the flood is coming. He has been delivering hard messages ever since.",
+    baseAttributes: { power: 2, guard: 2, craft: 2, presence: 7 },
+    skills: [
+      { id: "mahaway-wings", name: "Wings of the Messenger", action: "march", effect: "Enemy effective guard −10% for his squad on marches (guardPenalty 0.10); he has seen how the story ends and says where it hurts.", values: { guardPenalty: 0.1 } },
+      { id: "mahaway-the-question", name: "He Carried the Question", action: "shield", effect: "Shield assists +15% effectiveness (strength 0.15).", values: { strength: 0.15 } },
+    ],
+    signatureDeed: "hero_codex_scholar",
+    alternateDeeds: ["hero_contribution_150"],
+    oracleVouch: true,
+  },
+  {
+    id: "enki",
+    name: "Enki, Keeper of the Me",
+    role: "econwar",
+    race: "anunnaki",
+    wave: "wave-1",
+    identity: "Lord of the deep waters, keeper of the me — the arts of civilization themselves. When the council decreed the flood, Enki is the one who broke ranks and warned mankind. Every gift in the world has his fingerprints on it.",
+    baseAttributes: { power: 2, guard: 2, craft: 5, presence: 4 },
+    skills: [
+      { id: "enki-keeper-of-the-me", name: "Keeper of the Me", action: "capture", effect: "+15% capture contribution (scoring 0.15); he hands over the arts by which cities are taken and kept.", values: { scoring: 0.15 } },
+      { id: "enki-the-warning", name: "The Warning", action: "shield", effect: "Shield assists +15% effectiveness (strength 0.15); he saved whom he could.", values: { strength: 0.15 } },
+    ],
+    signatureDeed: "hero_legend_codex",
+    alternateDeeds: ["hero_climax_3"],
+    oracleVouch: true,
+  },
+  {
+    id: "enlil",
+    name: "Enlil, Lord of the Storm",
+    role: "damage",
+    race: "anunnaki",
+    wave: "wave-1",
+    identity: "Lord of the storm, keeper of the Tablet of Destinies, the brother who sent the waters. He does not rage; he decrees — and the world rearranges itself around the decree.",
+    baseAttributes: { power: 6, guard: 3, craft: 1, presence: 3 },
+    skills: [
+      { id: "enlil-lord-of-storm", name: "Lord of the Storm", action: "march", effect: "Offensive skills +15% strength on marches he joins (strength 0.15); the storm does not ask permission.", values: { strength: 0.15 } },
+      { id: "enlil-flood-decree", name: "The Flood Decree", action: "capture", effect: "+10% power on captures (strength 0.10); what he decrees, the waters keep.", values: { strength: 0.1 } },
+    ],
+    signatureDeed: "hero_codex_scholar",
+    alternateDeeds: ["hero_contribution_150"],
+    oracleVouch: true,
+  },
+  {
+    id: "ashtar-sheran",
+    name: "Ashtar Sheran, the Commander",
+    role: "support",
+    race: "ashtar",
+    wave: "wave-1",
+    identity: "Commander of the Ashtar Command, the name the race itself is called by. He has watched this world since before it had a name for him — and his fleet does not land. It waits to be earned.",
+    baseAttributes: { power: 3, guard: 3, craft: 2, presence: 5 },
+    skills: [
+      { id: "ashtar-the-command-watches", name: "The Command Watches", action: "shield", effect: "Shield assists +15% effectiveness (strength 0.15); the fleet holds the sky so the ground can hold.", values: { strength: 0.15 } },
+      { id: "ashtar-open-channel", name: "The Open Channel", action: "defense", effect: "Squad takes −10% damage while holding defense actions (damageReduction 0.10); his calm is a fortification.", values: { damageReduction: 0.1 } },
+    ],
+    signatureDeed: "hero_legend_codex",
+    alternateDeeds: ["hero_climax_3"],
+    oracleVouch: true,
+  },
+  {
+    id: "tiamat",
+    name: "Tiamat, Mother of Monsters",
+    role: "damage",
+    race: "draconians",
+    wave: "wave-1",
+    identity: "The salt sea before the world, mother of gods and monsters. She armed her brood for war and gave Kingu the Tablet of Destinies — and when she fell, heaven and earth were built from her body. The Ashen Host remembers whose children they are.",
+    baseAttributes: { power: 7, guard: 3, craft: 1, presence: 2 },
+    skills: [
+      { id: "tiamat-mother-of-monsters", name: "Mother of Monsters", action: "march", effect: "Offensive skills +15% strength on marches she leads (strength 0.15); her brood goes first and the world moves aside.", values: { strength: 0.15 } },
+      { id: "tiamat-tablet-of-destinies", name: "The Tablet of Destinies", action: "capture", effect: "+15% capture contribution (scoring 0.15); she decides whose name the ground keeps.", values: { scoring: 0.15 } },
+    ],
+    signatureDeed: "hero_legend_codex",
+    alternateDeeds: ["hero_climax_3"],
+    oracleVouch: true,
+  },
+  {
+    id: "j-rod",
+    name: "J-Rod, the Far Descendant",
+    role: "utility",
+    race: "grays",
+    wave: "wave-1",
+    identity: "A Gray of Zeta Reticuli — and, if his own account is true, mankind's far descendant, come back down the long years to repair the line. Frail, patient, and carrying the memory of how the story ends.",
+    baseAttributes: { power: 1, guard: 2, craft: 4, presence: 6 },
+    skills: [
+      { id: "jrod-far-descendant", name: "The Far Descendant", action: "march", effect: "Enemy effective guard −10% for his squad on marches (guardPenalty 0.10); he remembers this battle — it did not go well last time.", values: { guardPenalty: 0.1 } },
+      { id: "jrod-repair-the-line", name: "Repair the Line", action: "shield", effect: "Shield assists +15% effectiveness (strength 0.15); he is here to fix what broke.", values: { strength: 0.15 } },
+    ],
+    signatureDeed: "hero_legend_codex",
+    alternateDeeds: ["hero_climax_3"],
     oracleVouch: true,
   },
 ];
