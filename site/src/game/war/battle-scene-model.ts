@@ -85,6 +85,13 @@ export interface SceneUnit {
   /** Sim-time when a stamped move order steps off (command delay) — the
    *  squad holds its position ("plotting") until then. */
   moveAtS?: number;
+  /** Sim-time this unit last GENUINELY exchanged fire — it fired a shot or
+   *  took a damaging hit (owner ruling 2026-10-14). THIS is commitment:
+   *  "casualties mean commitment." Mere proximity (the 0.45-unit presence
+   *  radius that flips a unit to the `engaged` STATE for the firing loop)
+   *  never sets it — a squad parked deep at its own rear that has never
+   *  traded a shot is present, not committed, and stays maneuverable. */
+  exchangedAtS?: number;
   /** True while logistics autopilot paints this enemy (target-paint beam). */
   painted?: boolean;
   /**

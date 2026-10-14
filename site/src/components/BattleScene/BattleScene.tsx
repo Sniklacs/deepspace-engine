@@ -113,6 +113,8 @@ import {
   hasLongeyeCover,
   isBehindLines,
   isDrivable,
+  commitJumpDrop,
+  sectorLabel,
   judgeJumpDrop,
   judgeMoveOrder,
   lineWardenCount,
@@ -180,6 +182,8 @@ import {
   isWindowOpen,
   openWindow,
   closeWindowsOfKind,
+  closeBattleWindows,
+  closeOtherBattleWindows,
 } from "../../game/windows/window-store";
 import type { ManeuverVector } from "../../game/war/war-types";
 import { Fx } from "./effects";
@@ -231,6 +235,7 @@ import {
 import {
   clearRadarFeed,
   pushRadarFrame,
+  radarFeed,
   radarPing,
 } from "../../game/war/battle-radar-feed";
 // SEAMLESS-WORLD §8 (slice 13): quality-gated terrain detail overlays.
@@ -631,13 +636,43 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
   // EVE window, not fixed chrome. Open it when the battle mounts; close it
   // when the battle unmounts so no stale squads float over other tabs.
   // openWindow focuses instead of duplicating when already open.
+  // BATTLE PINNING (owner doctrine 2026-10-14): the window is keyed to
+  // THIS battle (scene.id). Mounting sweeps every other battle's set —
+  // jumping battle to battle swaps the glass, never mixes it — and the
+  // cleanup dumps this battle's whole set (all three kinds), not only
+  // the squads window as before: the enemy-forces window used to outlive
+  // every battle it was opened in.
   useEffect(() => {
-    openWindow("battle-squads", { titleFallback: "Squads" });
+    closeOtherBattleWindows(scene.id);
+    openWindow("battle-squads", { titleFallback: "Squads", props: { battleId: scene.id } });
     return () => {
-      closeWindowsOfKind("battle-squads");
+      closeBattleWindows(scene.id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scene.id]);
+
+  // BATTLE GAUNTLET PROBE (owner 2026-10-14): the standing phone-size
+  // rehearsal harness drives the REAL scene through CDP and reads state
+  // through this handle — the scene UI store, the radar feed, the window
+  // store, and the live unit list. Read-only by convention; the harness
+  // acts through real taps, never through the probe. Published per scene
+  // mount, removed on unmount.
+  useEffect(() => {
+    const w = window as unknown as { __unboundBattleProbe?: unknown };
+    w.__unboundBattleProbe = {
+      sceneId: scene.id,
+      ui: () => sceneUISnapshot(),
+      windows: () => windowSnapshot(),
+      feed: () => radarFeed,
+      units: () => unitsRef.current,
+    };
+    return () => {
+      if ((w.__unboundBattleProbe as { sceneId?: string } | undefined)?.sceneId === scene.id) {
+        delete w.__unboundBattleProbe;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene.id]);
 
   // Command-ship cockpit (owner 2026-10-12): the player's heroes ride the
   // ship as bridge crew. Registration is roster-keyed — the store keeps
@@ -676,6 +711,16 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
   // Resolution mirror for the DOM result overlay (the canvas draws the
   // banner; the overlay carries the "Save in war room" action).
   const [resolvedSide, setResolvedSide] = useState<"attacker" | "defender" | null>(null);
+
+  // CONCLUSION DUMPS THE WINDOWS (owner 2026-10-14): when the battle
+  // resolves, its windows retire with it — the result sheet is the only
+  // battle surface left standing, with its EXIT. (Live report: the
+  // battle ended and Controls/Enemy Forces/Squads were still up.) The
+  // battle entity itself is untouched by this — only the glass goes.
+  useEffect(() => {
+    if (resolvedSide) closeBattleWindows(scene.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedSide]);
   const [saveName, setSaveName] = useState("");
   const [savedInWarRoom, setSavedInWarRoom] = useState(false);
   // End-of-battle action bar (owner 2026-10-11): retry / re-challenge /
@@ -710,6 +755,8 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
   const [revealed, setRevealed] = useState(false);
   // Reserve-arrival comms, announced once per vector per battle.
   const reserveAnnouncedRef = useRef<Set<string>>(new Set());
+  /** Last friendly-splash comms warning (sim-s) — throttles the naming. */
+  const splashWarnAtRef = useRef(-99);
   // Cover-follow bookkeeping: coverer squad id → the last cover point
   // stamped + when. The sim re-stamps only when the covered squad has
   // actually moved on, so a covering squad settles instead of jittering.
@@ -1115,6 +1162,9 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
             if (absorbed > 0.015) fx.shieldHit(X(u.x), Y(u.y));
           }
           if (a > 0) {
+            // Taking a damaging hit is genuine fire contact — commitment
+            // keys on this (owner ruling 2026-10-14), never on proximity.
+            u.exchangedAtS = simTRef.current;
             u.hp01 -= a;
             if (u.hp01 <= 0) killUnit(u);
           }
@@ -1212,7 +1262,13 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       // ORDER_DELAY_S sim-seconds — "acknowledged/plotting" → "moving".
       for (const u of stepOffUnits(unitsRef.current, t)) {
         u.moveAtS = undefined;
-        if (u.state === "holding" || u.state === "advancing") u.state = "advancing";
+        // An ENGAGED unit with a due order DISENGAGES and moves (owner
+        // ruling 2026-10-14): the judges gate WHO may stamp an order on a
+        // committed squad (fallback always passes); the sim is physics —
+        // a stamped order executes. Before this, an engaged squad's
+        // accepted fallback order stamped a destination it could never
+        // step off toward: the state flip only knew holding/advancing.
+        if (u.state === "holding" || u.state === "advancing" || u.state === "engaged") u.state = "advancing";
       }
       // MOVEMENT BLOCKING precompute (owner 2026-10-11): the enemy's forward
       // line and its Warden guards, once per frame. Squads with living
@@ -1246,7 +1302,13 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           // the field (announced once per vector per battle).
           if ((u.vector === "REAR" || u.vector === "RESERVE") && !reserveAnnouncedRef.current.has(u.vector)) {
             reserveAnnouncedRef.current.add(u.vector);
-            postComms("reserve", u.vector === "REAR" ? "Your rear wave is on the field" : "Your reserve is on the field — call it when you need it");
+            // The announcement NAMES THE PLACE and pings it (owner
+            // 2026-10-14: "it moved in but I don't understand where it
+            // went" — a wave the commander can't locate reads as lost,
+            // or worse, as hostile). Sector words + a radar ping at the
+            // entry point are the locate trail.
+            postComms("reserve", `${u.vector === "REAR" ? "Your rear wave" : "Your reserve"} is on the field — ${sectorLabel(u.x, u.y)}`);
+            radarPing(u.x, u.y, "intel");
           }
         }
         if (u.state === "advancing") {
@@ -1421,10 +1483,21 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
             : null;
         // Cap simultaneous exchanges for perf + readability.
         for (const u of engaged.slice(0, 40)) {
-          if (Math.random() < 0.55) continue;
-          // WEAPONS HOLD (owner 2026-10-11): the squad's direct-fire weapons
-          // stay silent, even with enemies in range.
-          if (ui.squadStance[u.squadId]?.weaponsHold) continue;
+          // FIRE CONTROL (owner 2026-10-14 — the carry break): the
+          // quick-pick's fire modes were written to the store and read
+          // NOWHERE — the buttons lit, the chip glyph changed, the squad
+          // kept firing exactly as before; only the weaponsHold shadow
+          // flag did anything, and Bombard was pure fiction. The mode
+          // record is the authority now: stop/hold/cease = silent (the
+          // legacy weaponsHold flag is still honored alongside), free =
+          // normal cadence, bombard = EVERY exchange — no cadence skip,
+          // siege guns cycle at half cooldown. "Maximum fire" is a
+          // mechanic, not a label. Defender units carry no mode (the
+          // Chorus answers to its own doctrine).
+          const fireMode = ui.squadFireMode[u.squadId] ?? "free";
+          const fireSilent = fireMode === "stop" || fireMode === "hold" || fireMode === "cease";
+          if (fireSilent || ui.squadStance[u.squadId]?.weaponsHold) continue;
+          if (fireMode !== "bombard" && Math.random() < 0.55) continue;
           const wk = weaponKindFor(u.kind);
           const col = u.side === "attacker" ? "#ffd27a" : "#fda4af";
           if (wk === "siege") {
@@ -1448,7 +1521,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
               gx = tgt.x; gy = tgt.y;
               tierDiv = tierPowerMult(tgt.tier);
             }
-            u.nextSiegeAt = t + SIEGE_COOLDOWN_S;
+            u.nextSiegeAt = t + (fireMode === "bombard" ? SIEGE_COOLDOWN_S / 2 : SIEGE_COOLDOWN_S);
             const dist = Math.hypot(gx - u.x, gy - u.y);
             fx.lobShell(X(u.x), Y(u.y), X(gx), Y(gy), 1.0 + dist * 1.2, 1.2);
             battleSfx.tracer("snipe");
@@ -1471,6 +1544,9 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           // less — dug in, not yet engaged. Cover takes ~12% less. Flank it
           // or overwhelm it; the bonuses reward maneuver, they don't make
           // the line unbreakable.
+          // Dealing fire is genuine contact too — the shooter is in the
+          // fight from its first shot (commitment, owner 2026-10-14).
+          u.exchangedAtS = t;
           dealDamage(e, (((0.015 + Math.random() * 0.03) * tierPowerMult(u.tier)) / tierPowerMult(e.tier)) * dmgTakenMul(e));
         }
         // Turret fire — per-turret modes (owner 2026-10-06). AUTO command:
@@ -1516,12 +1592,25 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
             replayEventsRef.current.push({ t: simTRef.current, kind: "shell", x: sh.x2, y: sh.y2 });
             const dmg = sh.dmg ?? SIEGE_DMG;
             // Shells don't discriminate — friend and foe alike catch the blast.
+            let ownCaught = 0;
             for (const v of unitsRef.current) {
               if (v.state === "dead" || v.state === "staging") continue;
               const dM = Math.hypot(v.x - sh.x2, v.y - sh.y2) * METERS_PER_WORLD_UNIT;
               const fall = siegeFalloff(dM);
               if (fall <= 0) continue;
+              if (sh.side && v.side === sh.side) ownCaught += 1;
               dealDamage(v, dmg * fall * dmgTakenMul(v));
+            }
+            // NAME THE MECHANIC when it bites (owner 2026-10-14): a rear
+            // squad with Thunder firing through its own formation reads
+            // as "my wave is attacking me" — the truth is owner-designed
+            // splash, and the comms must say so instead of letting the
+            // commander conclude betrayal. Throttled: once per 20 sim-s.
+            if (ownCaught > 0 && sh.side && t - splashWarnAtRef.current > 20) {
+              splashWarnAtRef.current = t;
+              postComms("siege", sh.side === "attacker"
+                ? `Your shells don't discriminate — splash caught ${ownCaught} of your own. Mind the aim point.`
+                : `Chorus shells don't discriminate — their own splash caught ${ownCaught} of theirs.`);
             }
           }
         }
@@ -1707,7 +1796,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
             // squad control under an empty intel panel and taps read as
             // dead). It waits in the tray; the comms bubble announces it
             // and the launcher/tray chip summons it.
-            openWindow("battle-enemy-forces", { titleFallback: "Enemy Forces", background: true });
+            openWindow("battle-enemy-forces", { titleFallback: "Enemy Forces", background: true, props: { battleId: scene.id } });
           } catch {
             /* intel is best-effort — the battle runs without it */
           }
@@ -4172,7 +4261,11 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     if (stagingOnCall.length > 0) {
       const phase = scenePhaseAt(simTRef.current);
       if (phase === "approach") {
-        toastRef.current = { text: "Dropships aren't down yet — wait for touchdown.", born: performance.now() };
+        const reason = "Dropships aren't down yet — wait for touchdown.";
+        toastRef.current = { text: reason, born: performance.now() };
+        // Refusals speak in the persistent feed too (owner 2026-10-14):
+        // a canvas toast is invisible from the map view and the windows.
+        postComms("siege", `${name}: ${reason}`);
         battleSfx.orderRejected();
         return;
       }
@@ -4194,28 +4287,59 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
     // through gaps. With Warden escort it becomes a combat drop (the jump
     // ship flies the squad in); without escort it's refused, with the reason.
     if (isBehindLines(dest, unitsRef.current, "attacker")) {
+      // TOUCHDOWN GATE (owner 2026-10-14): a squad still mustering can't
+      // be promised a drop before the dropships are down — the same
+      // refusal the reserve hot drop gives. (On-field squads can't exist
+      // this early, so a behind-lines order in approach always involves
+      // a mustering squad.)
+      if (
+        squadUnits.some((u) => u.state === "staging") &&
+        scenePhaseAt(simTRef.current) === "approach"
+      ) {
+        const reason = "Dropships aren't down yet — wait for touchdown.";
+        logOrder({ squadName: name, dest: destLabel(dest.x, dest.y), verdict: "rejected", reason, kind: "jumpdrop" });
+        toastRef.current = { text: reason, born: performance.now() };
+        postComms("siege", `${name}: ${reason}`);
+        battleSfx.orderRejected();
+        return;
+      }
       const jd = judgeJumpDrop(squadUnits);
-      logOrder({
-        squadName: name,
-        dest: destLabel(dest.x, dest.y),
-        verdict: jd.ok ? "accepted" : "rejected",
-        reason: jd.ok ? undefined : jd.reason,
-        kind: "jumpdrop",
-      });
       if (!jd.ok) {
+        logOrder({
+          squadName: name,
+          dest: destLabel(dest.x, dest.y),
+          verdict: "rejected",
+          reason: jd.reason,
+          kind: "jumpdrop",
+        });
         toastRef.current = { text: jd.reason, born: performance.now() };
+        postComms("siege", `${name}: ${jd.reason}`);
         battleSfx.orderRejected();
         return;
       }
       const t = simTRef.current;
-      for (const u of squadUnits) {
-        if (u.state !== "holding" && u.state !== "advancing") continue;
-        u.state = "descending"; // airborne — jump ships fly OVER the line
-        u.tx = softClampX(dest.x + (Math.random() - 0.5) * 0.05);
-        u.ty = softClampY(dest.y + (Math.random() - 0.5) * 0.05);
-        u.dropAtS = t;
-        u.moveAtS = undefined;
+      // THE LIFT (owner 2026-10-14 — the rear-flank break): the old loop
+      // here only knew on-field states, so a MUSTERING rear squad — the
+      // most natural rear-flank order there is — transitioned ZERO units
+      // while the comms below promised the drop and the log recorded it
+      // accepted. commitJumpDrop lifts staging units straight from
+      // muster: the order is the call-in AND the drop. The promise is
+      // only spoken once something is actually airborne.
+      const lifted = commitJumpDrop(squadUnits, dest, t);
+      if (lifted === 0) {
+        const reason = "Nothing in that squad can lift — the drop can't be made.";
+        logOrder({ squadName: name, dest: destLabel(dest.x, dest.y), verdict: "rejected", reason, kind: "jumpdrop" });
+        toastRef.current = { text: reason, born: performance.now() };
+        postComms("siege", `${name}: ${reason}`);
+        battleSfx.orderRejected();
+        return;
       }
+      logOrder({
+        squadName: name,
+        dest: destLabel(dest.x, dest.y),
+        verdict: "accepted",
+        kind: "jumpdrop",
+      });
       battleSfx.dropship(); // engines spool — the jump ship is inbound
       postComms("reserve", "Jump ship inbound — combat drop behind their lines");
       orderPingRef.current = { x: dest.x, y: dest.y, fx: dest.x, fy: dest.y, born: t, atS: t };
@@ -4238,6 +4362,11 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       const reason = "Holding position — release Hold in the squad's quick-pick to reposition.";
       logOrder({ squadName: name, dest: destLabel(dest.x, dest.y), verdict: "rejected", reason });
       toastRef.current = { text: reason, born: performance.now() };
+      // LOUD (owner 2026-10-14): this refusal used to be canvas-toast
+      // only — from the map view or a window it read as total silence,
+      // a squad that simply would not move. The comms feed is persistent
+      // and shared by every surface.
+      postComms("siege", `${name}: ${reason}`);
       battleSfx.orderRejected();
       return;
     }
@@ -4249,8 +4378,12 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
       reason: verdict.ok ? undefined : verdict.reason,
     });
     if (!verdict.ok) {
-      // The judge refused — say why, on the canvas, where the tap happened.
+      // The judge refused — say why, on the canvas, where the tap
+      // happened, AND in the persistent comms feed (owner 2026-10-14):
+      // orders are issued from the map and the windows too, where a
+      // canvas toast never appears.
       toastRef.current = { text: verdict.reason, born: performance.now() };
+      postComms("siege", `${name}: ${verdict.reason}`);
       battleSfx.orderRejected(); // the judge's gavel — illegal orders SOUND refused
       return;
     }
@@ -4572,7 +4705,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
 
   const toggleControls = () => {
     if (isWindowOpen("battle-controls")) closeWindowsOfKind("battle-controls");
-    else openWindow("battle-controls", { titleFallback: "Battle controls" });
+    else openWindow("battle-controls", { titleFallback: "Battle controls", props: { battleId: scene.id } });
   };
 
   const gunner = ui.gunnerId ? turretsRef.current.find((t) => t.id === ui.gunnerId) : null;
@@ -4693,6 +4826,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           comms={comms}
           onDismissComms={(id) => setComms((prev) => dismissBubble(prev, id))}
           variant="fullscreen"
+          battleId={scene.id}
         />
 
         {/* battle result sheet — the canvas draws the victor banner; this
@@ -5055,6 +5189,7 @@ export function BattleScene({ scene: sceneProp, liveCasualties = null, variant =
           onDismissComms={(id) => setComms((prev) => dismissBubble(prev, id))}
           variant="embedded"
           onRequestFullscreen={onRequestFullscreen}
+          battleId={scene.id}
         />
         <BattleLegend />
         {/* the cockpit rides the embedded canvas too (owner 2026-10-12) —

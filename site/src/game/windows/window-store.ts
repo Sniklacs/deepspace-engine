@@ -30,6 +30,15 @@ export type WindowKind = "chat" | "satellite-research" | "battle-controls" | "ba
 export interface WindowProps {
   /** satellite-research: the covered node id, e.g. "rim-3" */
   nodeId?: string;
+  /**
+   * BATTLE PINNING (owner doctrine 2026-10-14): a battle-scoped window
+   * belongs to ONE battle, keyed by its SceneBattle id. Opening battle B
+   * shows B's set; leaving B — exit or conclusion — dumps B's set only,
+   * so a commander can jump battle to battle and never see a dead
+   * battle's glass. Windows opened before keying carry no id and count
+   * as the current battle's (they cannot belong to any other).
+   */
+  battleId?: string;
 }
 
 export interface WindowInstance {
@@ -402,6 +411,40 @@ export function closeWindow(id: string): void {
 export function closeWindowsOfKind(kind: WindowKind): void {
   if (!state.windows.some((w) => w.kind === kind)) return;
   state = { ...state, windows: state.windows.filter((w) => w.kind !== kind) };
+  emit();
+}
+
+/**
+ * DUMP a battle's windows (owner doctrine 2026-10-14 — "when a battle
+ * ends, its windows are dumped"): close every battle-scoped window
+ * pinned to `battleId`, plus any unkeyed battle window (unkeyed windows
+ * predate pinning and can only belong to the battle being retired).
+ * Other battles' pinned sets and all non-battle windows are untouched.
+ * Called on commander exit, on battle conclusion (the result sheet is
+ * then the only battle surface standing), and on scene unmount. The
+ * battle ENTITY is never touched — it keeps running on AUTO.
+ */
+export function closeBattleWindows(battleId: string): void {
+  const keep = state.windows.filter(
+    (w) => !isBattleWindowKind(w.kind) || (w.props.battleId !== undefined && w.props.battleId !== battleId),
+  );
+  if (keep.length === state.windows.length) return;
+  state = { ...state, windows: keep };
+  emit();
+}
+
+/**
+ * The mount sweep for battle-to-battle jumps: opening battle B retires
+ * every battle window that is NOT pinned to B (another battle's set, or
+ * an unkeyed leftover), so B's screen starts as B's alone. B's own opens
+ * happen after this sweep.
+ */
+export function closeOtherBattleWindows(battleId: string): void {
+  const keep = state.windows.filter(
+    (w) => !isBattleWindowKind(w.kind) || w.props.battleId === battleId,
+  );
+  if (keep.length === state.windows.length) return;
+  state = { ...state, windows: keep };
   emit();
 }
 

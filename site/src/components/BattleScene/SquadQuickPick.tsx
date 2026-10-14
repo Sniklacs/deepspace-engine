@@ -21,6 +21,7 @@ import {
   subscribeSceneUI,
   sceneUISnapshot,
   sceneUIServerSnapshot,
+  setSelectedSquad,
   setSquadFireMode,
   squadFireModeOf,
   setSquadCover,
@@ -131,13 +132,33 @@ export function SquadQuickPick({ squad }: { squad: SceneSquad }) {
       style={cockpitAccentStyle(cockpitThemeById(ui.cockpitThemeId))}
       data-testid={`squad-quickpick-${squad.id}`}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className={CMD.title}>
           {targets.length > 0 && <span aria-hidden="true" className="mr-1">🎯</span>}
           {squad.name} — orders
         </span>
-        <span className={CMD.meta} title="Longest weapon reach">
-          📏 {rangeM}m
+        <span className="flex items-center gap-1.5">
+          <span className={CMD.meta} title="Longest weapon reach">
+            📏 {rangeM}m
+          </span>
+          {/* THE EXIT (owner 2026-10-14, the Exit Law): the quick-pick had
+              NO way to put it away — the only dismissal was re-tapping the
+              squad's own chip, a 22px target parked BELOW this panel in
+              the Squads window, so the panel read as a trap that followed
+              the commander between windows ("I can't get rid of the quick
+              pic"). This ✕ is ≥44px, always on the panel, on every surface
+              that renders it (Squads window, Controls window): it clears
+              the shared selection, so the panel closes everywhere at
+              once and stays closed until a squad is picked again. */}
+          <button
+            type="button"
+            onClick={() => { battleSfx.uiClick(); setSelectedSquad(null); }}
+            data-testid="quickpick-close"
+            aria-label={`Close ${squad.name} orders`}
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded border border-[var(--cmd-line)] bg-[var(--cmd-panel)] text-[13px] text-[var(--cmd-text)] active:scale-[0.97]"
+          >
+            ✕
+          </button>
         </span>
       </div>
       {targets.length > 0 && (
@@ -160,7 +181,12 @@ export function SquadQuickPick({ squad }: { squad: SceneSquad }) {
       )}
 
       <SectionLabel>Fire control</SectionLabel>
-      <div className={CMD.grid}>
+      {/* Three across, not two (owner 2026-10-14): five modes in two
+          columns ate three rows and pushed Cover below the fold of a
+          phone-size window — the commander scanned the panel, saw Fire
+          and Move and Hold, and reported "no cover in the quick pick."
+          The verb set must fit the first screenful. */}
+      <div className="grid grid-cols-3 gap-1">
         {FIRE_MODES.map((m) => (
           <PickBtn
             key={m.id}
@@ -174,22 +200,10 @@ export function SquadQuickPick({ squad }: { squad: SceneSquad }) {
         ))}
       </div>
 
-      <SectionLabel>Move</SectionLabel>
-      <PickBtn
-        active={moveArmed}
-        onClick={() => {
-          battleSfx.uiClick();
-          setMoveArmedFor(moveArmed ? null : squad.id);
-        }}
-        testid="quickpick-move"
-        ariaLabel={
-          moveArmed
-            ? `${squad.name}: move armed — tap the map or radar for the destination`
-            : `${squad.name}: arm move — then tap the map or radar`
-        }
-        label={moveArmed ? "📍 Tap map / radar…" : "➤ Move…"}
-      />
-
+      {/* COVER BEFORE MOVE (owner 2026-10-14): the verb order is the
+          visibility order. Cover sat under Move — below the fold of the
+          phone-size panel — and read as absent. Verbs a commander reaches
+          for mid-fight (fire, cover) ride above the fold now. */}
       <SectionLabel>Cover</SectionLabel>
       {coveredBy && (
         <p className={CMD.body} data-testid={`quickpick-coveredby-${squad.id}`}>
@@ -282,6 +296,22 @@ export function SquadQuickPick({ squad }: { squad: SceneSquad }) {
           </div>
         </div>
       )}
+
+      <SectionLabel>Move</SectionLabel>
+      <PickBtn
+        active={moveArmed}
+        onClick={() => {
+          battleSfx.uiClick();
+          setMoveArmedFor(moveArmed ? null : squad.id);
+        }}
+        testid="quickpick-move"
+        ariaLabel={
+          moveArmed
+            ? `${squad.name}: move armed — tap the map or radar for the destination`
+            : `${squad.name}: arm move — then tap the map or radar`
+        }
+        label={moveArmed ? "📍 Tap map / radar…" : "➤ Move…"}
+      />
 
       <SectionLabel>Hold</SectionLabel>
       <PickBtn

@@ -10,7 +10,7 @@
 
 import { useEffect, useRef } from "react";
 import { BattleScene } from "./BattleScene";
-import { closeWindowsOfKind } from "../../game/windows/window-store";
+import { closeBattleWindows } from "../../game/windows/window-store";
 import type { CrewMember } from "../../game/war/battle-scene-ui-store";
 import type { SceneBattle } from "../../game/war/battle-scene-model";
 import type { SavedFormation, SlotLoads } from "../../game/war/playbook";
@@ -101,9 +101,13 @@ export function BattleSceneFullscreen({
       } catch {
         /* ignore — nothing to consume */
       }
-      closeWindowsOfKind("battle-controls");
-      closeWindowsOfKind("battle-squads");
+      // Dump THIS battle's whole window set (owner doctrine 2026-10-14):
+      // all three battle kinds, pinned to this battle — the enemy-forces
+      // window used to be left behind here, and unkeyed leftovers from
+      // the battle go with it. Other battles' sets are not touched.
+      closeBattleWindows(scene.id);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return <BattleScene scene={scene} variant="fullscreen" onClose={onClose} onSaveFormation={onSaveFormation} onSaveDoctrine={onSaveDoctrine} crew={crew} attackerRace={attackerRace} defenderRace={defenderRace} liveCasualties={liveCasualties} />;

@@ -2,8 +2,10 @@
 // (owner 2026-10-05).
 //
 // The doctrine, enforced: siege never sweeps, rear entries need their
-// Warden tail, engaged units are locked (the one-way door). Illegal orders
-// are rejected WITH the reason — never silent.
+// Warden tail, COMMITTED units (genuine fire contact — owner ruling
+// 2026-10-14) can't advance fresh but can ALWAYS fall back; proximity
+// alone never locks. Illegal orders are rejected WITH the reason —
+// never silent.
 // Run: bun test site/src/game/war/scene-orders.test.ts
 import { describe, expect, test } from "bun:test";
 import type { SceneUnit } from "./battle-scene-model";
@@ -143,11 +145,25 @@ describe("judgeMoveOrder", () => {
     expect(v).toEqual({ ok: true });
   });
 
-  test("engaged squad is locked — the one-way door", () => {
+  test("proximity is NOT commitment — an 'engaged'-state squad that never traded fire still maneuvers (owner 2026-10-14)", () => {
     const squad = [unit("reaver", "MAIN", "attacker", "engaged"), unit("bulwark", "MAIN")];
-    const v = judgeMoveOrder(squad, { x: 0.4, y: 0.5 });
-    expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/commitment/i);
+    // The state label says engaged (an enemy stands within the 0.45
+    // presence radius — 30% of the field); no shot was ever exchanged,
+    // so there is no lock. The old one-way door locked this squad.
+    expect(judgeMoveOrder(squad, { x: 0.4, y: 0.5 }).ok).toBe(true);
+  });
+
+  test("committed squad: fresh advance refused loudly, FALL BACK always allowed (owner ruling 2026-10-14)", () => {
+    const squad = [unit("reaver", "MAIN", "attacker", "engaged"), unit("bulwark", "MAIN")];
+    squad[0].exchangedAtS = 120; // it has dealt/taken fire — it is IN the fight
+    const advance = judgeMoveOrder(squad, { x: 0.4, y: 0.3 }); // deeper, toward the enemy
+    expect(advance.ok).toBe(false);
+    if (!advance.ok) {
+      expect(advance.reason).toMatch(/committed/i);
+      expect(advance.reason).toMatch(/Falling back/i); // the refusal names the open door
+    }
+    const fallback = judgeMoveOrder(squad, { x: 0.4, y: 0.9 }); // toward its own lines
+    expect(fallback.ok).toBe(true);
   });
 
   test("legal moves are accepted", () => {
@@ -324,11 +340,14 @@ describe("rear-entry doctrine (owner 2026-10-11)", () => {
     expect(judgeJumpDrop(escort).ok).toBe(true);
   });
 
-  test("judgeJumpDrop respects the one-way door", () => {
+  test("judgeJumpDrop: a COMMITTED squad can't lift — proximity alone doesn't ground it (owner 2026-10-14)", () => {
     const escort = [
       unit("reaver", "MAIN", "attacker", "engaged"),
       unit("warden", "MAIN"),
     ];
+    // "engaged" state only (presence within 0.45) — never exchanged fire.
+    expect(judgeJumpDrop(escort).ok).toBe(true);
+    escort[0].exchangedAtS = 120; // now it has traded fire — committed
     expect(judgeJumpDrop(escort).ok).toBe(false);
   });
 });

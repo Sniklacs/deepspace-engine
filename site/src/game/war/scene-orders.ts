@@ -281,17 +281,73 @@ export function canBreachLine(
 }
 
 /**
+ * States a jump ship can lift (owner 2026-10-14): on the field and free to
+ * move (`holding` / `advancing`), or still in the ships (`staging`) — a
+ * mustering wave ordered behind the lines is CALLED IN AS THE DROP, the
+ * same way the on-call reserve's tap commits it. A squad mid-`withdrawing`
+ * (pulling back under relief) or already `descending` cannot be lifted.
+ */
+export function isLiftable(u: SceneUnit): boolean {
+  return u.state === "holding" || u.state === "advancing" || u.state === "staging";
+}
+
+/**
+ * COMMITTED (owner ruling 2026-10-14): a unit is committed when it has
+ * genuinely exchanged fire — dealt or taken a damaging hit — never by
+ * mere presence. The state machine flips a unit to "engaged" whenever an
+ * enemy stands within 0.45 world units (30% of the 1.5-unit field) with
+ * no shot exchanged and no per-weapon range in the trigger, so presence
+ * alone used to lock squads parked far back on the field (the commander's
+ * "committed too far back" report). The judges key on THIS, not on the
+ * state label.
+ */
+export function isCommitted(u: SceneUnit): boolean {
+  return u.exchangedAtS !== undefined;
+}
+
+/**
+ * A plain-words sector for a world point — entry announcements and
+ * locate trails (owner 2026-10-14: the commander could not find his own
+ * rear wave; "Your rear wave is on the field" names no place). Rows key
+ * on the defender line (~y 0.58) and the attacker's own half; columns on
+ * thirds of the field width. Pure.
+ */
+export function sectorLabel(x: number, y: number): string {
+  const col = x < 0.5 ? "west" : x > 1.0 ? "east" : "center";
+  const row =
+    y < 0.5 ? "behind the enemy line" :
+    y < 0.72 ? "at the enemy line" :
+    y < 1.05 ? "mid-field, your half" :
+    "your rear";
+  return `${row} · ${col}`;
+}
+
+/**
  * Jump-drop legality (owner 2026-10-11): rear entry is jump-ship only and
  * needs Warden escort ≥ maneuverRearWardenFrac. The one-way door holds —
- * engaged squads can't lift.
+ * engaged squads can't lift. A squad with NOTHING liftable is refused
+ * with the reason (owner 2026-10-14): before this check, a mustering rear
+ * squad passed the judge, the comms promised the drop, and the lift loop
+ * — which only knew on-field states — transitioned zero units. The
+ * promise WAS the bug: judge and lift now agree on what can fly.
  */
 export function judgeJumpDrop(squadUnits: SceneUnit[]): OrderVerdict {
   const live = squadUnits.filter((u) => u.state !== "dead");
   if (live.length === 0) {
     return { ok: false, reason: "No living units in that squad." };
   }
-  if (live.some((u) => u.state === "engaged")) {
-    return { ok: false, reason: "Unit engaged — casualties mean commitment." };
+  // Commitment keys on genuine fire contact (owner ruling 2026-10-14),
+  // not the proximity "engaged" label — an unblooded squad standing near
+  // the enemy can still lift; a committed one cannot (an airlift out is
+  // not a fall back; falling back on the ground is always open).
+  if (live.some(isCommitted)) {
+    return { ok: false, reason: "Unit committed — it's in the fight; an airlift out needs relief first. Falling back toward your own lines is always open." };
+  }
+  if (!live.some(isLiftable)) {
+    if (live.some((u) => u.state === "descending")) {
+      return { ok: false, reason: "Already airborne — that drop is underway." };
+    }
+    return { ok: false, reason: "Pulling back under relief — a squad mid-withdrawal can't lift." };
   }
   if (wardenShare(live) < BATTLES_CONFIG.maneuverRearWardenFrac) {
     return { ok: false, reason: "Combat drop needs Warden escort (≥20%)." };
@@ -300,9 +356,41 @@ export function judgeJumpDrop(squadUnits: SceneUnit[]): OrderVerdict {
 }
 
 /**
+ * COMMIT A JUMP DROP (owner 2026-10-14 — the rear-flank break). Puts every
+ * liftable unit of the squad into `descending` on the destination: the
+ * sim's descent block flies them OVER the line and lands them on the spot
+ * (the same machinery the reserve hot drop rides). Staging units are
+ * lifted straight from muster — the order is their call-in AND their
+ * drop, so no entry appointment is left dangling behind the promise.
+ * `dest` arrives soft-clamped from the caller; the ±0.025 scatter sits
+ * far inside the clamp's maneuver margin. Returns how many units were
+ * lifted — the caller may only announce the drop when this is > 0.
+ * Pure (rand injected for tests).
+ */
+export function commitJumpDrop(
+  units: SceneUnit[],
+  dest: { x: number; y: number },
+  tS: number,
+  rand: () => number = Math.random,
+): number {
+  let lifted = 0;
+  for (const u of units) {
+    if (!isLiftable(u)) continue;
+    u.state = "descending"; // airborne — jump ships fly OVER the line
+    u.tx = dest.x + (rand() - 0.5) * 0.05;
+    u.ty = dest.y + (rand() - 0.5) * 0.05;
+    u.dropAtS = tS;
+    u.moveAtS = undefined;
+    lifted += 1;
+  }
+  return lifted;
+}
+
+/**
  * Judge a click-to-move order. Returns { ok: true } or the refusal with the
- * doctrine reason. Check order matters — the one-way door is checked first
- * because it overrides everything: an engaged squad answers to nothing.
+ * doctrine reason. The commitment check runs first (owner ruling
+ * 2026-10-14): committed squads may only fall back; unblooded squads —
+ * however close the enemy stands — are free to maneuver.
  *
  * allUnits (the whole field) enables the behind-lines rule: when provided,
  * a ground move ending behind the enemy line is refused — rear entry is
@@ -317,10 +405,25 @@ export function judgeMoveOrder(
   if (live.length === 0) {
     return { ok: false, reason: "No living units in that squad." };
   }
-  // THE ONE-WAY DOOR — casualties mean commitment. An engaged squad does
-  // not move, does not withdraw, does not change vectors. Period.
-  if (live.some((u) => u.state === "engaged")) {
-    return { ok: false, reason: "Unit engaged — casualties mean commitment." };
+  // COMMITMENT (owner ruling 2026-10-14 — replaces the old one-way
+  // door): the lock keys on genuine fire contact (isCommitted — dealt or
+  // taken fire), NEVER on the "engaged" state label, which is mere
+  // proximity: the sim flips a unit to "engaged" whenever an enemy stands
+  // within 0.45 world units (30% of the 1.5-unit field) with no shot
+  // exchanged and no per-weapon range in the trigger — presence at the
+  // back of the field used to count as committed. A squad that has never
+  // traded fire is maneuverable wherever it stands. And FALL BACK IS
+  // ALWAYS OPEN: a committed squad ordered toward its own lines
+  // (attacker: destination no deeper than its current position)
+  // executes — relief-gating applies only to full withdrawal OFF the
+  // field, not to falling back within it. Only a fresh advance by a
+  // committed squad is refused, and the refusal names the open door.
+  if (live.some(isCommitted)) {
+    const cy = live.reduce((s, u) => s + u.y, 0) / live.length;
+    const fallingBack = dest.y >= cy - 0.01;
+    if (!fallingBack) {
+      return { ok: false, reason: "Unit committed — it's in the fight (casualties mean commitment). Falling back toward your own lines is always open; a fresh advance needs relief first." };
+    }
   }
   const lane = destLaneOf(dest.x);
   const thunder = hasKind(live, "thunder");

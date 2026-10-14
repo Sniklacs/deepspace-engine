@@ -48,6 +48,7 @@ export function BattleHud({
   onDismissComms,
   variant,
   onRequestFullscreen,
+  battleId,
 }: {
   comms: CommsBubble[];
   onDismissComms: (id: number) => void;
@@ -55,6 +56,8 @@ export function BattleHud({
   variant: "embedded" | "fullscreen";
   /** embedded only: jump this battle to the fullscreen scene */
   onRequestFullscreen?: () => void;
+  /** Windows opened from here are pinned to this battle (owner 2026-10-14). */
+  battleId?: string;
 }) {
   // Scene store for nothing here directly — the windows own the controls.
   // (Kept subscribed so the launcher strip re-renders with battle state.)
@@ -253,6 +256,7 @@ export function BattleHud({
               onTapSquad={commandSquad ? undefined : onOverlaySquadTap}
               selectedSquadId={ui.selectedSquadId ?? ui.moveArmedFor}
               size={bigRadarSize}
+              pannable
             />
             {moveArmed && (
               <button
@@ -276,10 +280,30 @@ export function BattleHud({
         style={{ bottom: stripBottom }}
         data-testid="battle-hud-launchers"
       >
+        {/* MODE, ALWAYS VISIBLE (owner 2026-10-14: "if I'm under AUTO it
+            should tell me"). The Manual/Auto toggle lived only inside the
+            Controls window — a battle could run under AUTO with nothing
+            on the field saying so. This pill never hides: it renders
+            above the launchers whether the windows are open or not, in
+            both variants, and names not just the mode but what it means
+            for the next order. Read-only — the toggle itself stays in
+            Controls, per the HUD's information-only rule. */}
+        <p
+          data-testid="hud-mode-pill"
+          data-mode={ui.manual ? "manual" : "auto"}
+          aria-live="polite"
+          className={`rounded-full border px-3 py-2 text-[11px] font-bold backdrop-blur-md ${
+            ui.manual
+              ? "border-red-300/50 bg-red-950/70 text-red-200"
+              : "border-lime-300/40 bg-lime-950/60 text-lime-200"
+          }`}
+        >
+          {ui.manual ? "🎛 MANUAL — you have the helm" : "🤖 AUTO — the plan is driving"}
+        </p>
         {!squadsOpen && (
           <button
             type="button"
-            onClick={() => { battleSfx.uiClick(); openWindow("battle-squads", { titleFallback: "Squads" }); }}
+            onClick={() => { battleSfx.uiClick(); openWindow("battle-squads", { titleFallback: "Squads", props: { battleId } }); }}
             data-testid="hud-launch-squads"
             aria-label="Open the squads window"
             className={LAUNCHER}
@@ -290,7 +314,7 @@ export function BattleHud({
         {!controlsOpen && (
           <button
             type="button"
-            onClick={() => { battleSfx.uiClick(); openWindow("battle-controls", { titleFallback: "Battle controls" }); }}
+            onClick={() => { battleSfx.uiClick(); openWindow("battle-controls", { titleFallback: "Battle controls", props: { battleId } }); }}
             data-testid="hud-launch-controls"
             aria-label="Open the battle controls window"
             className={LAUNCHER}
@@ -307,7 +331,7 @@ export function BattleHud({
             onClick={() => {
               battleSfx.uiClick();
               if (ui.scoutIntelReady) {
-                openWindow("battle-enemy-forces", { titleFallback: "Enemy Forces" });
+                openWindow("battle-enemy-forces", { titleFallback: "Enemy Forces", props: { battleId } });
               } else {
                 battleSfx.orderRejected();
               }
