@@ -9,7 +9,7 @@
 // word is coined by the nav.
 import type { IconName } from "../components/icons";
 
-export const NAV_IDS = ["colony", "expeditions", "lab", "armory", "troops", "heroes", "loadout", "formations", "arena", "alliance", "battles", "circuit", "world"] as const;
+export const NAV_IDS = ["colony", "expeditions", "lab", "armory", "troops", "heroes", "loadout", "formations", "arena", "alliance", "battles", "beachhead", "circuit", "world"] as const;
 export type NavTabId = (typeof NAV_IDS)[number];
 /** The Tab union the router/screens use — derived, so no screen can be orphaned. */
 export type Tab = NavTabId;
@@ -49,6 +49,10 @@ export const NAV: readonly NavSlot[] = [
   // One module, one page — never cram modules into shared tabs.
   { id: "alliance", label: "Alliance", icon: "shield" },
   { id: "battles", label: "Battles", icon: "sword", war: true },
+  // BEACHHEAD (owner 2026-10-15): the wide war gets its own full-screen
+  // page — one module, one page. Always present (the Proving Shore is a
+  // standing rehearsal front), NOT war-gated like Battles.
+  { id: "beachhead", label: "Beachhead", icon: "emblem" },
   { id: "circuit", label: "Circuit", icon: "map" },
   // WORLD MAP (design/abandoned-colonies-world-map.md §2): colonies, not
   // sites. Owner-named markers, abandonment states, scout reports.

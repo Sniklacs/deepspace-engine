@@ -29,6 +29,7 @@ export const es: Catalogue = {
   "nav.lab": "Laboratorio",
   "nav.armory": "Arsenal",
   "nav.battles": "Batallas",
+  "nav.beachhead": "Cabeza de playa",
   "nav.circuit": "Circuito",
   "nav.world": "Mundo",
   "nav.ready": "{label} — hay una acción disponible aquí",

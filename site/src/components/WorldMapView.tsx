@@ -1355,6 +1355,7 @@ export default function WorldMapView({
   onRespondToRaid,
   onOpenWarBand,
   onEnterArena,
+  onEnterBeachhead,
   onExploreSite,
   onRelocateColony,
   onBuildProbe,
@@ -1404,6 +1405,9 @@ export default function WorldMapView({
   /** Globe sheet actions (owner 2026-10-13): ENTER ARENA on the globe's
    *  arena sheet leaves for the Arena tab (practice, duels, ladder). */
   onEnterArena?: () => void;
+  /** Globe sheet actions (Slice 1): ENTER BEACHHEAD on the globe's
+   *  beachhead sheet leaves for the full-screen Beachhead page. */
+  onEnterBeachhead?: () => void;
   /** Globe sheet actions: a world site's Explore goes to the Expeditions
    *  tab, where zone launches actually live. */
   onExploreSite?: (zone: Zone, tier: 1 | 2 | 3) => void;
@@ -1602,6 +1606,7 @@ export default function WorldMapView({
         onSelectPlanet={setSelectedPlanetId}
         enterHomeNonce={enterHomeNonce}
         onEnterArena={onEnterArena}
+        onEnterBeachhead={onEnterBeachhead}
         onExploreSite={onExploreSite}
         onRaidColony={(colony, key) => {
           // Same flow as the colony list's Raid button, plus select the

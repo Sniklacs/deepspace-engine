@@ -68,11 +68,18 @@ export default function BeachheadView({
   now,
   token,
   onAction,
+  variant = "card",
 }: {
   state: GameState;
   now: number;
   token?: string;
   onAction?: Act;
+  /** "card" = the legacy Battles-tab embed (440px strip in a bordered
+   *  card). "page" = the full-screen BeachheadPage stage (Slice 1,
+   *  design/beachhead-layout-2026-10-15.md §6): the canvas takes the
+   *  whole stage height and the card chrome falls away. Same camera,
+   *  same orders — only the frame changes. */
+  variant?: "card" | "page";
 }) {
   const t = useT();
   const beachheads = state.beachheads ?? [];
@@ -356,7 +363,14 @@ export default function BeachheadView({
   const convertingList = bh.bunkers.filter((b) => b.conversion);
 
   return (
-    <div className="rounded-xl border border-line bg-surf-2/40 p-4" data-testid="beachhead-view">
+    <div
+      className={
+        variant === "page"
+          ? "flex min-h-full flex-col px-4 pb-5 pt-3"
+          : "rounded-xl border border-line bg-surf-2/40 p-4"
+      }
+      data-testid="beachhead-view"
+    >
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-text-1">
@@ -401,10 +415,20 @@ export default function BeachheadView({
         </span>
       </div>
 
-      <div className="relative overflow-hidden rounded-lg border border-line">
+      <div
+        className={
+          variant === "page"
+            ? "relative min-h-[320px] flex-1 overflow-hidden rounded-lg border border-line"
+            : "relative overflow-hidden rounded-lg border border-line"
+        }
+      >
         <canvas
           ref={canvasRef}
-          className="block h-[440px] w-full touch-none cursor-grab active:cursor-grabbing"
+          className={
+            variant === "page"
+              ? "absolute inset-0 block h-full w-full touch-none cursor-grab active:cursor-grabbing"
+              : "block h-[440px] w-full touch-none cursor-grab active:cursor-grabbing"
+          }
           role="application"
           aria-label={t("beachhead.mapLabel", "Beachhead wide-picture map — drag to pan, scroll or pinch to zoom, tap a bunker to select it")}
           tabIndex={0}

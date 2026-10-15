@@ -24,6 +24,7 @@ export const ru: Catalogue = {
   "nav.lab": "Лаборатория",
   "nav.armory": "Арсенал",
   "nav.battles": "Битвы",
+  "nav.beachhead": "Плацдарм",
   "nav.circuit": "Схема",
   "nav.world": "Мир",
   "nav.ready": "{label} — здесь доступно действие",

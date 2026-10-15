@@ -1424,6 +1424,7 @@ export default function WorldGlobe({
   onSelectPlanet,
   enterHomeNonce,
   onEnterArena,
+  onEnterBeachhead,
   onRaidColony,
   onClaimHuskColony,
   onGleanColony,
@@ -1439,6 +1440,9 @@ export default function WorldGlobe({
    *  already runs these flows from its own panels. Unwired = the button
    *  falls back to the honest "wires up in the linking pass" note. */
   onEnterArena?: () => void;
+  /** BEACHHEAD DOOR (Slice 1): the beachhead marker's sheet Enter goes to
+   *  the full-screen Beachhead page (its own tab in play.tsx). */
+  onEnterBeachhead?: () => void;
   onRaidColony?: (colony: KnownColony, key: string) => void;
   onClaimHuskColony?: (colony: KnownColony, key: string) => void;
   onGleanColony?: (colony: KnownColony) => void;
@@ -3801,6 +3805,7 @@ export default function WorldGlobe({
             // World page — arena tab, raid party, husk claim, glean,
             // defense rally, site exploration.
             onEnterArena={onEnterArena}
+            onEnterBeachhead={onEnterBeachhead}
             onRaidColony={onRaidColony}
             onClaimHuskColony={onClaimHuskColony}
             onGleanColony={onGleanColony}
@@ -3859,6 +3864,7 @@ function DetailSheet({
   hiveNote,
   onEnterColony,
   onEnterArena,
+  onEnterBeachhead,
   onRaidColony,
   onClaimHuskColony,
   onGleanColony,
@@ -3880,6 +3886,7 @@ function DetailSheet({
    *  World page. A kind whose handler is missing keeps the linking-pass
    *  note; kinds with no flow anywhere in the game render no button. */
   onEnterArena?: () => void;
+  onEnterBeachhead?: () => void;
   onRaidColony?: (colony: KnownColony, key: string) => void;
   onClaimHuskColony?: (colony: KnownColony, key: string) => void;
   onGleanColony?: (colony: KnownColony) => void;
@@ -3928,6 +3935,7 @@ function DetailSheet({
           hiveNote={hiveNote}
           onEnterColony={onEnterColony}
           onEnterArena={onEnterArena}
+          onEnterBeachhead={onEnterBeachhead}
           onRaidColony={onRaidColony}
           onClaimHuskColony={onClaimHuskColony}
           onGleanColony={onGleanColony}
@@ -4104,6 +4112,7 @@ function SheetActions({
   hiveNote,
   onEnterColony,
   onEnterArena,
+  onEnterBeachhead,
   onRaidColony,
   onClaimHuskColony,
   onGleanColony,
@@ -4121,6 +4130,7 @@ function SheetActions({
    *  page. Wired = the button DOES it. Unwired = the linking-pass note
    *  (standalone/test usage). No flow anywhere in the game = no button. */
   onEnterArena?: () => void;
+  onEnterBeachhead?: () => void;
   onRaidColony?: (colony: KnownColony, key: string) => void;
   onClaimHuskColony?: (colony: KnownColony, key: string) => void;
   onGleanColony?: (colony: KnownColony) => void;
@@ -4222,10 +4232,16 @@ function SheetActions({
     return null;
   }
   if (r.kind === "beachhead") {
-    // INTEL ONLY: invasion planning lives in the raid/war flows once a
-    // cross-server invasion exists; the beachhead sheet is the marker's
-    // story (stats above), not a launcher.
-    return null;
+    // WIRED (layout Slice 1, Oct 15 2026): the beachhead is a place of
+    // its own now — a full-screen page — so the marker's sheet launches
+    // it, the arena pattern. Unwired (standalone use) keeps the honest
+    // linking-pass note; never a dead button.
+    const enter = onEnterBeachhead ?? go(t("worldglobe.enterBeachhead", "Beachhead entry"));
+    return (
+      <div className="flex flex-wrap gap-2">
+        <ActionButton primary label={t("worldglobe.enterBeachhead", "⚔️ ENTER BEACHHEAD")} onClick={enter} />
+      </div>
+    );
   }
   if (r.kind === "arena") {
     // WIRED (owner 2026-10-13): the arena is a real place — its own tab

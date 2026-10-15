@@ -24,6 +24,7 @@ export const ptBR: Catalogue = {
   "nav.lab": "Laboratório",
   "nav.armory": "Arsenal",
   "nav.battles": "Batalhas",
+  "nav.beachhead": "Cabeça de praia",
   "nav.circuit": "Circuito",
   "nav.world": "Mundo",
   "nav.ready": "{label} — há uma ação disponível aqui",

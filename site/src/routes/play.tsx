@@ -88,6 +88,7 @@ import { JournalButton } from "../components/JournalButton";
 import { CircuitPage } from "../components/CircuitPage";
 import WorldMapView from "../components/WorldMapView";
 import BattlesTab from "../components/BattlesTab";
+import BeachheadPage from "../components/BeachheadPage";
 import ArenaPanel from "../components/ArenaPanel";
 import AllianceTab from "../components/AllianceTab";
 import LoadoutTab from "../components/LoadoutTab";
@@ -753,6 +754,14 @@ function PlayPage() {
           now={now}
           onBeginResearch={(t, l) => act(() => beginResearchFn({ data: { token: token!, techId: t, leaderId: l } }), "research")}
         />
+      ) : tab === "beachhead" ? (
+        <BeachheadPage
+          state={state}
+          now={now}
+          token={token ?? undefined}
+          onAction={(fn, label) => act(fn, label)}
+          onClose={() => { switchTab("colony"); requestAnimationFrame(() => document.getElementById("nav-tab-beachhead")?.focus()); }}
+        />
       ) : (
         <>
       <AppShell
@@ -873,6 +882,7 @@ function PlayPage() {
           onRespondToRaid={(r) => respondToIncomingRaid(r)}
           onOpenWarBand={() => switchTab("battles")}
           onEnterArena={() => switchTab("arena")}
+          onEnterBeachhead={() => switchTab("beachhead")}
           onExploreSite={(zone) => { setExpZoneId(zone.id); switchTab("expeditions"); }}
           onRelocateColony={relocateColony}
           onBuildProbe={() => act(() => buildProbeFn({ data: { token: token! } }), "buildProbe")}
@@ -887,6 +897,7 @@ function PlayPage() {
           token={token ?? undefined}
           onDecision={() => { void refresh(); }}
           onAction={(fn, label) => act(fn, label)}
+          onEnterBeachhead={() => switchTab("beachhead")}
           muted={muted}
         />
       )}

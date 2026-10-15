@@ -29,6 +29,7 @@ export const en: Catalogue = {
   "nav.lab": "Lab",
   "nav.armory": "Armory",
   "nav.battles": "Battles",
+  "nav.beachhead": "Beachhead",
   "nav.circuit": "Circuit",
   "nav.world": "World",
   "nav.ready": "{label} — there is an action available here",

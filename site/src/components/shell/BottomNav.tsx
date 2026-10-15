@@ -47,7 +47,7 @@ export default function BottomNav({
             <li key={n.id} ref={active ? activeTabRef : undefined} className="flex-1">
               <button
                 type="button"
-                id={n.id === "circuit" ? "nav-tab-circuit" : undefined}
+                id={n.id === "circuit" ? "nav-tab-circuit" : n.id === "beachhead" ? "nav-tab-beachhead" : undefined}
                 data-tab={n.id}
                 data-testid={`nav-${n.id}`}
                 data-ready={b.lit || undefined}

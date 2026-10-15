@@ -68,7 +68,7 @@ import type { IconName } from "./icons";
 import { useT } from "./i18n/I18n";
 import TutorialCueLayer from "./TutorialCueLayer";
 import AlliancePanel from "./AlliancePanel";
-import BeachheadView from "./BeachheadView";
+import { beachheadSummary, type ControllerRef } from "../game/war/beachheads";
 import { ArenaModeBanner } from "./ArenaPanel";
 import {
   TUTORIAL_CONFIG,
@@ -1289,11 +1289,16 @@ function BattleLog({ reports }: { reports: BattleReport[] }) {
 }
 
 /** The Battles tab root: live list + detail, then the report log below. */
-export default function BattlesTab({ state, now, token, onDecision, tutorial, muted = false, onAction }: {
+export default function BattlesTab({ state, now, token, onDecision, tutorial, muted = false, onAction, onEnterBeachhead }: {
   state: GameState;
   now: number;
   token?: string;
   onDecision?: (d: { battleId: string; side: BattleSide; windowId: string; action: string }) => void;
+  /** BEACHHEAD DOOR (Slice 1, design/beachhead-layout-2026-10-15.md §6):
+   *  the wide view lives on its own full-screen page now — this tab keeps
+   *  a compact summary door that navigates there. Unwired = counts only,
+   *  no dead button. */
+  onEnterBeachhead?: () => void;
   /** The Act I guided narration (§12) — on by default, skippable in the view. */
   tutorial?: boolean;
   /** The sound layer's mute (the Cradle sheet's Sound row) — the voice gate. */
@@ -1362,17 +1367,61 @@ export default function BattlesTab({ state, now, token, onDecision, tutorial, mu
       )}
       {onAction && <AlliancePanel state={state} now={now} token={token} onAction={onAction as (fn: () => Promise<GameResult>, label: string) => void} />}
       {(state.beachheads ?? []).length > 0 && (
-        <BeachheadView
-          state={state}
-          now={now}
-          token={token}
-          onAction={onAction as (fn: () => Promise<GameResult>, label: string) => void}
-        />
+        <BeachheadDoor state={state} onEnter={onEnterBeachhead} />
       )}
       <ActiveBattles state={state} now={now} token={token} onDecision={onDecision} tutorialEnabled={tutorial ?? true} muted={muted} />
       <div className="rounded-xl border border-line bg-surf-2/40 p-4">
         <h3 className="mb-2 text-sm font-semibold text-text-1">{t("battles.battleLogTitle", "Battle log")}</h3>
         <BattleLog reports={state.battleReports ?? []} />
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* BEACHHEAD DOOR (Slice 1) — the Battles tab's compact summary of the
+ * front: the beachhead's name, a one-line strength read from the same
+ * beachheadSummary the wide view renders, and an Enter button that
+ * navigates to the full-screen BeachheadPage. The full view no longer
+ * lives embedded in this tab — one module, one page.                 */
+/* ------------------------------------------------------------------ */
+function BeachheadDoor({ state, onEnter }: { state: GameState; onEnter?: () => void }) {
+  const t = useT();
+  const bh = (state.beachheads ?? [])[0];
+  if (!bh) return null;
+  const viewer: ControllerRef = {
+    colonyId: state.gameId ?? "",
+    colonyName: state.playerName ?? "Commander",
+    worldId: state.gameId ?? "home",
+  };
+  const s = beachheadSummary(bh, viewer);
+  return (
+    <div className="rounded-xl border border-line bg-surf-2/40 p-4" data-testid="battles-beachhead-door">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-text-1">
+            <Icon name="emblem" size={16} /> {bh.name} — {t("beachhead.wideTitle", "The Wide Picture")}
+          </h3>
+          <p className="mt-0.5 text-xs text-text-3">
+            {t("beachhead.doorLine", "You hold {mine} · others hold {others} · {empty} empty doors · {conv} converting — {total} bunkers on the front.", {
+              mine: s.heldByViewer,
+              others: s.heldByOthers,
+              empty: s.empty,
+              conv: s.converting + s.contested,
+              total: s.total,
+            })}
+          </p>
+        </div>
+        {onEnter && (
+          <button
+            type="button"
+            onClick={onEnter}
+            data-testid="battles-beachhead-enter"
+            className="min-h-[44px] rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-200 hover:bg-amber-400/20"
+          >
+            {t("beachhead.enter", "⚔️ Enter the beachhead")}
+          </button>
+        )}
       </div>
     </div>
   );

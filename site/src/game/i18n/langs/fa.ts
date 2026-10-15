@@ -39,6 +39,7 @@ export const fa: Catalogue = {
   "nav.lab": "آزمایشگاه",
   "nav.armory": "زرادخانه",
   "nav.battles": "نبردها",
+  "nav.beachhead": "سرپل",
   "nav.circuit": "مدار",
   "nav.world": "جهان",
   "nav.ready": "{label} — اینجا کاری در دسترس است",
