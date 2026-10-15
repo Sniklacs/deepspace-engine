@@ -381,10 +381,13 @@ export const PACK_BY_ID = Object.fromEntries(HEAD_START_PACKS.map((p) => [p.id, 
 // would STILL refuse, which is the property the six rows' absence used to carry
 // and a test still asserts.
 //
-// AND THE SHOP IS STILL SHUT: `MONETIZATION_CONFIG.storefrontEnabled` stays false
-// and every purchase route stays gated on it (api.ts gates both handlers). These
-// rows are a catalogue, not a checkout — and filling an id, unlike flipping the
-// switch, takes no money: nothing renders a token and no token has a link to open.
+// AND THE SHOP IS OPEN: `MONETIZATION_CONFIG.storefrontEnabled` went true on
+// 2026-10-01 (see the config above) and every purchase route stays gated on
+// it (api.ts gates the handlers). These rows are the tokens' catalogue; the
+// checkout half is the storefront's Time Tokens shelf (StorefrontOverlay.tsx),
+// which renders each row with a buy control through the Xsolla seam, and the
+// catalog rows' `enabled` flags (payments/xsolla-catalog.ts) are the sell
+// switch the shelf and the mint both read.
 export interface TimeTokenPackDef {
   id: string; // catalogue id: "time-token-<sizeId>"
   sizeId: SellableTimeTokenSizeId; // the SIZE this row sells
@@ -998,12 +1001,17 @@ export function claimTierReward(
   return { ok: true, state };
 }
 
+/** The premium track's price in Votives (§4.3: ≈ $6.99–7.99 list) — named
+ *  once so the engine's spend and the storefront's price tag can never
+ *  disagree. The pass is THE GILT CHRONICLE (design/gilt-chronicle.md). */
+export const PREMIUM_PASS_PRICE_VOTIVES = 750;
+
 /** Purchase the premium track (idempotent): a Votives spend today, a payment-
  *  provider purchase later — the same entitlement path (spec §7.5). */
 export function purchasePremiumPass(state: GameState, eventId: string, now = Date.now()): { ok: boolean; error?: string; idempotent?: boolean; state: GameState } {
   ensureMonetization(state);
   if (state.battlePass.premium) return { ok: true, idempotent: true, state };
-  const price = 750; // §4.3: 750 Votives ≈ $6.99–7.99 list
+  const price = PREMIUM_PASS_PRICE_VOTIVES;
   const spend = spendCurrency(state, "votives", price, eventId, "Season 0 premium track", now);
   if (!spend.ok) return { ok: false, error: spend.error, state };
   return grantPremiumPass(state, eventId, now);

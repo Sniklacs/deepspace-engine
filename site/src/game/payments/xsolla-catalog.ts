@@ -15,10 +15,10 @@
 //
 // `enabled` is the SELL SWITCH, and it is separate from recognition on purpose:
 // a row may be catalogued (the webhook recognises and can grant it) without
-// being offered in the storefront. The six time tokens are in that state today —
-// their Xsolla items exist, their rows carry prices, but no token shop surface
-// exists yet, so the game does not offer them. Flipping a token's `enabled` to
-// true is the entire change when its surface lands.
+// being offered in the storefront. The six time tokens lived in that state
+// until their shop surface landed (2026-10-15, owner ruling: tokens GO ON
+// SALE — players compressing the 12-week season is intended); all thirteen
+// rows are enabled today.
 //
 // This module is PURE (no node imports) — the client uses it to list what is
 // sellable, and the unit tests import it directly.
@@ -34,13 +34,12 @@ export interface XsollaCatalogRow {
   enabled: boolean;
 }
 
-/** The Xsolla catalogue the game RECOGNISES: seven sellable SKUs plus the six
- *  time tokens, whose rows are recognised but not yet offered (see above).
+/** The Xsolla catalogue the game RECOGNISES — all thirteen rows sellable.
  *
- *  SEVEN SELLABLE: Votive-small $4.99 · votive-steady $9.99 · votive-grand
+ *  SEVEN PACKS: Votive-small $4.99 · votive-steady $9.99 · votive-grand
  *           $19.99 · votive-circuit $39.99 · scavengers-kit $4.99 ·
  *           expeditionary-kit $9.99 · long-haul-cart $12.99
- *  SIX TOKENS (ids only, not offered): 30m $2.99 · 1h $3.99 · 8h $7.99 ·
+ *  SIX TIME TOKENS: 30m $2.99 · 1h $3.99 · 8h $7.99 ·
  *           12h $9.99 · 24h $14.99 · 48h $24.99
  */
 export const XSOLLA_CATALOG: XsollaCatalogRow[] = [
@@ -55,19 +54,18 @@ export const XSOLLA_CATALOG: XsollaCatalogRow[] = [
   { skuId: "long-haul-cart", amountUsd: 12.99, enabled: true },
   // ---- The six TIME TOKENS (monetization.ts TIME_TOKEN_PACKS) ----
   //
-  // A token row is HERE for one reason: RECOGNITION. A paid token order must
-  // map back to `time-token-8h` so the webhook can grant it. `enabled` IS FALSE
-  // ON PURPOSE, and it is the honest state of the build: the Xsolla catalog
-  // items exist, but NO PLAYER-FACING DOMAIN FOR A TOKEN EXISTS YET, so the
-  // game does not offer one. When the token shop lands, its row's `enabled`
-  // flips to true and the size becomes buyable with no other change to this
-  // file.
-  { skuId: "time-token-30m", amountUsd: 2.99, enabled: false },
-  { skuId: "time-token-1h", amountUsd: 3.99, enabled: false },
-  { skuId: "time-token-8h", amountUsd: 7.99, enabled: false },
-  { skuId: "time-token-12h", amountUsd: 9.99, enabled: false },
-  { skuId: "time-token-24h", amountUsd: 14.99, enabled: false },
-  { skuId: "time-token-48h", amountUsd: 24.99, enabled: false },
+  // A token row is HERE for two reasons: RECOGNITION (a paid token order must
+  // map back to `time-token-8h` so the webhook can grant it) and SALE. The
+  // rows were recognition-only until the token shelf landed in the storefront
+  // (2026-10-15, owner ruling — tokens on sale); `enabled: true` is now the
+  // honest state of the build, and the storefront's Time Tokens section is
+  // their player-facing domain.
+  { skuId: "time-token-30m", amountUsd: 2.99, enabled: true },
+  { skuId: "time-token-1h", amountUsd: 3.99, enabled: true },
+  { skuId: "time-token-8h", amountUsd: 7.99, enabled: true },
+  { skuId: "time-token-12h", amountUsd: 9.99, enabled: true },
+  { skuId: "time-token-24h", amountUsd: 14.99, enabled: true },
+  { skuId: "time-token-48h", amountUsd: 24.99, enabled: true },
 ];
 
 /** Where Xsolla sends the player back to after Pay Station. */
@@ -125,8 +123,8 @@ export function isSellable(skuId: string): boolean {
   return !!row && row.enabled;
 }
 
-/** Every SKU the storefront may offer — the buy control's allow-list. Empty of
- *  tokens today: their rows are recognised but not enabled. */
+/** Every SKU the storefront may offer — the buy control's allow-list. All
+ *  thirteen rows today, tokens included (enabled 2026-10-15). */
 export function sellableSkus(): string[] {
   return XSOLLA_CATALOG.filter((r) => r.enabled).map((r) => r.skuId);
 }

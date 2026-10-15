@@ -36,6 +36,7 @@ import {
   MONETIZATION_CONFIG,
   walletView,
   purchaseWithVotives,
+  purchasePremiumPass,
   createPaymentProvider,
 } from "./monetization";
 import {
@@ -2321,10 +2322,11 @@ const arenaDirectoryFn = createServerFn({ method: "POST" }).validator(
   return { ok: true, colonies };
 });
 
-// ------- monetization seams (survey-only; NO storefront ships now) -------// The catalog/ledger/entitlement layer is fully implemented (§7 of the spec);
-// every purchase path is gated by MONETIZATION_CONFIG.storefrontEnabled (false
-// through beta, §8.6) so the owner flipping one config value later turns the
-// store on without touching these handlers.
+// ------- monetization (the Cradle Ledger's server doors) -------
+// The catalog/ledger/entitlement layer is fully implemented (§7 of the spec);
+// every purchase path is gated by MONETIZATION_CONFIG.storefrontEnabled,
+// which has been TRUE since 2026-10-01 (the store is live; the gate stays so
+// the owner can shut the till from one config value).
 
 /** Non-secret wallet view (balances + owned items + pass progress) — the
  *  storefront's data seam. Balances are also shipped inside publicState(); this
@@ -2354,6 +2356,30 @@ const purchaseWithVotivesFn = createServerFn({ method: "POST" }).validator(
   if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
   const res = purchaseWithVotives(st, data.itemId, data.eventId, Date.now());
   if (res.state) {
+    const saved = await saveActiveState(accountId, res.state);
+    if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
+  }
+  return { ok: res.ok, error: res.error, state: res.state ? publicState(res.state) : undefined };
+});
+
+/** THE GILT CHRONICLE (owner ruling 2026-10-15; design/gilt-chronicle.md) —
+ *  buy the premium season track with ALREADY-OWNED Votives through the
+ *  engine's purchasePremiumPass (750 Votives, monetization.ts). Idempotent by
+ *  the caller's eventId AND by ownership: a retried click cannot double-spend,
+ *  and an owner re-buying is a no-op success. Store gated like every purchase
+ *  route. */
+const purchasePremiumPassFn = createServerFn({ method: "POST" }).validator(
+  z.object({ token: z.string(), eventId: z.string().min(4) })
+).handler(async ({ data }): Promise<GameResult> => {
+  const accountId = await accountForToken(data.token);
+  if (!accountId) return { ok: false, signedOut: true, error: "Not signed in." };
+  if (!MONETIZATION_CONFIG.storefrontEnabled) {
+    return { ok: false, error: "The Cradle Market isn't open yet — purchases are disabled during beta (§8.6)." };
+  }
+  const st = await loadActiveState(accountId);
+  if (!st) return { ok: false, signedOut: true, error: "Start a colony first." };
+  const res = purchasePremiumPass(st, data.eventId, Date.now());
+  if (res.ok && res.state) {
     const saved = await saveActiveState(accountId, res.state);
     if (!saved) return { ok: false, error: "Couldn't save your progress — please try again." };
   }
@@ -3741,6 +3767,7 @@ export {
   claimHeroVouchFn,
   applyTimeTokenFn,
   purchaseWithVotivesFn,
+  purchasePremiumPassFn,
   purchaseStoreOfferFn,
   xsollaCheckoutFn,
   submitFeedbackFn,

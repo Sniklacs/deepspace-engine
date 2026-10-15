@@ -1,12 +1,13 @@
-// STOREFRONT OVERLAY SEAM — Rung 1b (visual-pass-1-storefront.md §2–§5,
+// STOREFRONT OVERLAY — Rung 1b (visual-pass-1-storefront.md §2–§5,
 // design-system-rung1-spec §D).
 //
-// The storefront is a SEAM, not a store: MONETIZATION_CONFIG.storefrontEnabled
-// is false today (owner flips it later). The overlay renders fully — packs,
-// pass rail, deed commemoratives, wallet — and every purchase control is
-// disabled at 75% + lock glyph with the honest "the ledger opens when the
-// world is ready" line (no fabricated ETA). No badge dots, no countdowns, no
-// urgency theater — permanent spec locks.
+// The storefront is LIVE: MONETIZATION_CONFIG.storefrontEnabled has been true
+// since 2026-10-01, and this overlay is the store — Votive packs, head-start
+// packs, time tokens and offers through the Xsolla seam, cosmetics and the
+// Gilt Chronicle season pass through the Votives rail. A purchase control
+// locks (75% + lock glyph) only for the honest reasons the card itself names:
+// the ledger shut, the player signed out, or that SKU not for sale. No badge
+// dots, no countdowns, no urgency theater — permanent spec locks.
 //
 // COPY — OWNER RULING 2026-09-13: the player-facing store PRESENTS the packs and
 // lets people buy. It carries NO pay-to-win and NO limitation language — no G1–G4
@@ -42,6 +43,8 @@ import {
   MONETIZATION_CONFIG,
   HEAD_START_PACKS,
   VOTIVE_PACKS,
+  TIME_TOKEN_PACKS,
+  PREMIUM_PASS_PRICE_VOTIVES,
   PURCHASABLE_COSMETICS,
   DEED_COSMETICS,
   SEASON_TIERS,
@@ -49,9 +52,10 @@ import {
   type PackGrant,
   type HeadStartPackDef,
   type VotivePackDef,
+  type TimeTokenPackDef,
 } from "../game/monetization";
 import { isSellable } from "../game/payments/xsolla-catalog";
-import { purchaseStoreOfferFn, xsollaCheckoutFn } from "../game/api";
+import { purchasePremiumPassFn, purchaseStoreOfferFn, purchaseWithVotivesFn, xsollaCheckoutFn } from "../game/api";
 import {
   EXTRACTION_CONTRACT,
   RECOVERY_EXPEDITE,
@@ -328,6 +332,91 @@ function VotiveCard({
           className="storef-disabled shrink-0 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-medium text-text-2"
         >
           <Icon name="lock" size={13} className="mx-auto" />
+        </button>
+      )}
+    </article>
+  );
+}
+
+/** The token shelf's per-size line — what the token IS, in the player's
+ *  language (catalogue key family `store.token.<id>.blurb`). */
+const TOKEN_BLURBS: Record<string, string> = {
+  "time-token-30m": "Thirty minutes off a single running timer.",
+  "time-token-1h": "One hour off a single running timer.",
+  "time-token-8h": "Eight hours off a single running timer — a working day, gone.",
+  "time-token-12h": "Twelve hours off a single running timer.",
+  "time-token-24h": "A full day off a single running timer.",
+  "time-token-48h": "Two full days off a single running timer.",
+};
+
+/** Time tokens — real money, bought through Xsolla Pay Station like the
+ *  packs (owner ruling 2026-10-15: tokens GO ON SALE — compressing the
+ *  12-week season is intended). The card follows PackCard's shape exactly:
+ *  the same isSellable gate, the same buy handler, the same Click Law busy
+ *  state. The held count is the server's (`state.timeTokens`), so a buyer
+ *  sees the shelf and their stock in one place. */
+function TokenCard({
+  pack,
+  held,
+  storeOpen,
+  signedIn,
+  onBuy,
+  buying,
+}: {
+  pack: TimeTokenPackDef;
+  held: number;
+  storeOpen: boolean;
+  signedIn: boolean;
+  onBuy: (skuId: string) => void;
+  buying: boolean;
+}) {
+  const t = useT();
+  const lang = useLang();
+  const buyable = storeOpen && signedIn && isSellable(pack.id);
+  return (
+    <article className="rounded-lg border border-line bg-surf-2 p-3">
+      <div className="flex items-center gap-2.5">
+        <Icon name="spark" size={24} className="shrink-0 text-ember-soft" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-text-1">{pack.name}</div>
+          <div className="mt-0.5 text-[11px] leading-snug text-text-3">
+            {t(`store.token.${pack.id}.blurb`, TOKEN_BLURBS[pack.id] ?? "")}
+          </div>
+        </div>
+        <span className="chip shrink-0 bg-surf-4 text-xs font-bold text-text-1">
+          <Bdi dir="ltr" className="num">{"$" + formatUsd(pack.priceUsd)}</Bdi>
+        </span>
+      </div>
+      <div className="mt-2 text-[11px] text-text-3">
+        {t("store.tokens.held", "Held: {n}", { n: formatNumber(lang, held) })}
+      </div>
+      {buyable ? (
+        <button
+          type="button"
+          onClick={() => { playAction("buy"); onBuy(pack.id); }}
+          disabled={buying}
+          aria-disabled={buying}
+          data-testid={buying ? "store-buy-busy" : "store-buy"}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-semibold text-text-1 disabled:opacity-70"
+        >
+          <Icon name="card" size={14} className="shrink-0 text-ember-soft" />
+          {buying
+            ? t("store.buyOpening", "Opening checkout…")
+            : (<>{t("store.buy", "Buy")} ·{" "}<Bdi dir="ltr" className="num">{"$" + formatUsd(pack.priceUsd)}</Bdi></>)}
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          className="storef-disabled mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-line bg-surf-3 px-3 py-2 text-xs font-medium text-text-2"
+        >
+          <Icon name="lock" size={14} className="shrink-0" />
+          {!storeOpen
+            ? t("store.ledgerOpens", "The ledger opens when the world is ready")
+            : !signedIn
+              ? t("store.signInToBuy", "Sign in to purchase")
+              : t("store.notForSale", "Not for sale yet")}
         </button>
       )}
     </article>
@@ -769,7 +858,10 @@ export function StorefrontOverlay({
    * further taps are ignored — no double-submits, no dead-feeling silence.
    */
   const [buyingSku, setBuyingSku] = useState<string | null>(null);
-  const [premiumHint, setPremiumHint] = useState<string | null>(null);
+  /** The Gilt Chronicle purchase in flight (a Votives spend, like the offers). */
+  const [buyingPremium, setBuyingPremium] = useState(false);
+  /** Which cosmetic's Votives purchase is in flight, if any. */
+  const [buyingCosmetic, setBuyingCosmetic] = useState<string | null>(null);
   /**
    * The last checkout failure, kept VISIBLE in the sheet until dismissed.
    * The buy flow used to fail into a toast that was easy to miss — the player
@@ -911,6 +1003,102 @@ export function StorefrontOverlay({
       fail(`${t("store.buyFailed", "Checkout failed — try again in a moment.")} (${(err as Error)?.message ?? err})`);
     } finally {
       setBuyingOffer(null);
+      offerGateRef.current.release();
+    }
+  };
+
+  // ---- THE GILT CHRONICLE (owner ruling 2026-10-15; design/gilt-chronicle.md)
+  // The premium season track, bought with Votives the player already holds
+  // through purchasePremiumPassFn. Same Click Law discipline as the offers:
+  // the shared press gate refuses repeat presses in flight, the busy state is
+  // the visible half, success lands as a receipt naming the running Votives
+  // total, and a refusal (e.g. not enough Votives) stays on screen in the
+  // buy-error banner — out loud, with the server's own numbers.
+  const buyPremium = async () => {
+    const fail = (msg: string) => {
+      console.warn(`[storefront] Gilt Chronicle purchase failed: ${msg}`);
+      setBuyError(msg);
+      sound.error();
+      onError?.(msg);
+    };
+    if (!offerGateRef.current.tryAcquire()) return;
+    if (buyingPremium) { offerGateRef.current.release(); return; }
+    if (!token) {
+      fail(t("store.buySignIn", "Sign in to purchase."));
+      offerGateRef.current.release();
+      return;
+    }
+    setBuyingPremium(true);
+    setBuyError(null);
+    setOfferNotice(null);
+    const eventId = `store-gilt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      const res = await purchasePremiumPassFn({ data: { token, eventId } });
+      if (res.ok && res.state) {
+        onPurchaseState?.(res.state);
+        const receipt = spendReceipt({
+          verb: "loaded",
+          itemLabel: t("store.gilt.name", "The Gilt Chronicle — Season Pass"),
+          amount: 1,
+          totals: [{ label: t("store.receiptVotivesLeft", "Votives left"), value: res.state.currency.votives }],
+        });
+        setOfferNotice(`${receiptHeadline(receipt)} — ${receiptTotalsLine(receipt)}`);
+        sound.success();
+      } else if (res.signedOut) {
+        fail(t("store.buySignedOut", "Your session expired — sign in again to purchase."));
+      } else {
+        fail(res.error ?? t("store.buyFailed", "Checkout failed — try again in a moment."));
+      }
+    } catch (err) {
+      fail(`${t("store.buyFailed", "Checkout failed — try again in a moment.")} (${(err as Error)?.message ?? err})`);
+    } finally {
+      setBuyingPremium(false);
+      offerGateRef.current.release();
+    }
+  };
+
+  // ---- Cosmetic purchases (the Cradle Cosmetics shelf): the Votives door
+  // (purchaseWithVotivesFn) existed server-side; this is its first UI caller.
+  // Same gate, same receipt, same out-loud refusals as every other spend.
+  const buyCosmetic = async (itemId: string, name: string) => {
+    const fail = (msg: string) => {
+      console.warn(`[storefront] cosmetic purchase failed (${itemId}): ${msg}`);
+      setBuyError(msg);
+      sound.error();
+      onError?.(msg);
+    };
+    if (!offerGateRef.current.tryAcquire()) return;
+    if (buyingCosmetic) { offerGateRef.current.release(); return; }
+    if (!token) {
+      fail(t("store.buySignIn", "Sign in to purchase."));
+      offerGateRef.current.release();
+      return;
+    }
+    setBuyingCosmetic(itemId);
+    setBuyError(null);
+    setOfferNotice(null);
+    const eventId = `store-cosmetic-${itemId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      const res = await purchaseWithVotivesFn({ data: { token, itemId, eventId } });
+      if (res.ok && res.state) {
+        onPurchaseState?.(res.state);
+        const receipt = spendReceipt({
+          verb: "loaded",
+          itemLabel: name,
+          amount: 1,
+          totals: [{ label: t("store.receiptVotivesLeft", "Votives left"), value: res.state.currency.votives }],
+        });
+        setOfferNotice(`${receiptHeadline(receipt)} — ${receiptTotalsLine(receipt)}`);
+        sound.success();
+      } else if (res.signedOut) {
+        fail(t("store.buySignedOut", "Your session expired — sign in again to purchase."));
+      } else {
+        fail(res.error ?? t("store.buyFailed", "Checkout failed — try again in a moment."));
+      }
+    } catch (err) {
+      fail(`${t("store.buyFailed", "Checkout failed — try again in a moment.")} (${(err as Error)?.message ?? err})`);
+    } finally {
+      setBuyingCosmetic(null);
       offerGateRef.current.release();
     }
   };
@@ -1132,6 +1320,32 @@ export function StorefrontOverlay({
           </div>
         </div>
 
+        {/* ---- Time Tokens (real money, Xsolla Pay Station; owner ruling
+            2026-10-15 — tokens on sale). Pure time, held in the player's
+            stores and spent on running timers from the Cradle. ---- */}
+        <div className="pt-5">
+          <SectionHeading>{t("store.tokensHeading", "Time Tokens")}</SectionHeading>
+          <p className="mt-1 text-xs text-text-2">
+            {t(
+              "store.tokensSub",
+              "Pure time, held in your stores. Spend a token on any running timer — research, a build, a voyage — and its hours come off the wait.",
+            )}
+          </p>
+          <div className="mt-2 space-y-2">
+            {TIME_TOKEN_PACKS.map((p) => (
+              <TokenCard
+                key={p.id}
+                pack={p}
+                held={state.timeTokens?.[p.sizeId] ?? 0}
+                storeOpen={enabled}
+                signedIn={signedIn}
+                onBuy={buy}
+                buying={buyingSku === p.id}
+              />
+            ))}
+          </div>
+        </div>
+
         {/* ---- Season Pass (two-lane rail) ---- */}
         <div className="pt-5">
           <div className="flex flex-wrap items-center gap-2">
@@ -1147,20 +1361,42 @@ export function StorefrontOverlay({
           {passOwned ? (
             <span className="chip mt-1.5 bg-surf-4 text-text-2">
               <Icon name="check" size={12} className="mr-1" />
-              {t("store.premiumOwned", "PREMIUM TRACK OWNED")}
+              {t("store.gilt.owned", "THE GILT CHRONICLE · OWNED")}
             </span>
+          ) : enabled && signedIn && !!token ? (
+            <button
+              type="button"
+              onClick={() => { playAction("buy"); void buyPremium(); }}
+              disabled={buyingPremium}
+              aria-disabled={buyingPremium}
+              data-testid={buyingPremium ? "store-buy-busy" : "store-buy"}
+              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md bg-purity px-3 py-2.5 text-sm font-bold text-[#11161d] transition-transform active:scale-[0.98] active:brightness-90 disabled:opacity-70"
+            >
+              <Icon name="coin" size={14} className={`shrink-0 ${buyingPremium ? "animate-pulse" : ""}`} />
+              {buyingPremium
+                ? t("store.buyOpening", "Opening checkout…")
+                : t("store.gilt.buy", "The Gilt Chronicle · {n} Votives", { n: formatNumber(lang, PREMIUM_PASS_PRICE_VOTIVES) })}
+            </button>
           ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => setPremiumHint(t("store.premiumHint", "Premium Track isn't available yet — it unlocks when Season 0 begins. Your free track progress carries over."))}
-                className="storef-disabled mt-2 flex w-full items-center justify-center gap-1.5 rounded-md bg-purity px-3 py-2.5 text-sm font-bold text-[#11161d]"
-              >
-                <Icon name="lock" size={14} className="shrink-0" />
-                {t("store.premiumTrack", "Premium Track · 750 Votives")}
-              </button>
-              {premiumHint && <p className="mt-1 text-xs text-amber-200">{premiumHint}</p>}
-            </>
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              className="storef-disabled mt-2 flex w-full items-center justify-center gap-1.5 rounded-md bg-purity px-3 py-2.5 text-sm font-bold text-[#11161d]"
+            >
+              <Icon name="lock" size={14} className="shrink-0" />
+              {!enabled
+                ? t("store.ledgerOpens", "The ledger opens when the world is ready")
+                : t("store.signInToBuy", "Sign in to purchase")}
+            </button>
+          )}
+          {!passOwned && (
+            <p className="mt-1.5 text-[11px] leading-snug text-text-3">
+              {t(
+                "store.gilt.sub",
+                "The season's premium track: the gilt side of every tier on the rail below, all season long. Passes never expire, and everything it pays out is yours to keep.",
+              )}
+            </p>
           )}
           <div className="mt-3">
             <PassRail state={state} />
@@ -1203,6 +1439,19 @@ export function StorefrontOverlay({
                       <Icon name="check" size={12} className="mr-1" />
                       {t("store.owned", "OWNED")}
                     </span>
+                  ) : c.priceVotives != null && enabled && signedIn && !!token ? (
+                    <button
+                      type="button"
+                      onClick={() => { playAction("buy"); void buyCosmetic(c.id, c.name); }}
+                      disabled={buyingCosmetic === c.id}
+                      aria-disabled={buyingCosmetic === c.id}
+                      data-testid={buyingCosmetic === c.id ? "store-buy-busy" : "store-buy"}
+                      className="shrink-0 rounded-md border border-line bg-surf-3 px-2.5 py-1.5 text-[11px] font-semibold text-text-1 transition-transform active:scale-[0.97] active:brightness-90 disabled:opacity-70"
+                    >
+                      {buyingCosmetic === c.id
+                        ? t("store.buyingShort", "Buying…")
+                        : t("store.offer.buyFor", "Buy · {n} Votives", { n: formatNumber(lang, c.priceVotives) })}
+                    </button>
                   ) : (
                     <span className="chip shrink-0 bg-surf-4 text-xs font-bold text-text-1">
                       {/* `priceVotives` is optional on the cosmetic type: a piece with
