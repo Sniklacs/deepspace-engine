@@ -1,0 +1,6 @@
+# The Unbound — every surface is crawlable; the Draconians TEST world keeps
+# itself out of indexes with a noindex meta in its document head instead.
+User-agent: *
+Allow: /
+
+Sitemap: https://the-unbound-portal.vercel.app/sitemap.xml

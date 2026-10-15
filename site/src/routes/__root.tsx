@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import appCss from "~/styles/app.css?url";
 import { bootScript } from "~/game/i18n";
+import { IS_TEST_SURFACE, OG_IMAGE_URL, SITE_ORIGIN } from "~/game/site-origin";
 import { inspectTranslator } from "~/game/translate";
 import { initWindowAppearance } from "~/game/windows/window-appearance";
 import { registerServiceWorker } from "~/game/pwa/register";
@@ -30,12 +31,42 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: "The Unbound" },
+      { title: "The Unbound | Free Sci-Fi Strategy MMO — Six Worlds at War" },
       {
         name: "description",
         content:
-          "A persistent multiplayer colony-survivor set in the Shatterlands. Rebuild from the ruins, raid rival worlds, and forge a legend no season can erase.",
+          "Play The Unbound free in your browser: a sci-fi strategy MMO of colony-building and real-time war across six race worlds. Rebuild from the ruins, raid rival worlds, and earn heroes — never bought. No download.",
       },
+      // THE SHARE CARD (SEO audit 2026-10-15): social scrapers (Facebook,
+      // Telegram, WhatsApp, X) never run the app — for them this head IS the
+      // pitch. og:url / canonical / og:image name THIS surface's own origin
+      // (site-origin.ts derives it from the build's WORLD_ID), never a
+      // sibling surface's URL.
+      { property: "og:type", content: "website" },
+      { property: "og:site_name", content: "The Unbound" },
+      { property: "og:title", content: "The Unbound — Six Worlds. One War. Play Free in Your Browser." },
+      {
+        property: "og:description",
+        content:
+          "A free browser sci-fi strategy MMO. Found your colony in the ruins of the Shatterlands, wage real-time war across six race worlds, and earn heroes that can never be bought. No download — the war is live now.",
+      },
+      { property: "og:url", content: `${SITE_ORIGIN}/` },
+      { property: "og:image", content: OG_IMAGE_URL },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { property: "og:image:alt", content: "The Unbound — the Shatterlands" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "The Unbound — Six Worlds. One War. Play Free in Your Browser." },
+      {
+        name: "twitter:description",
+        content:
+          "A free browser sci-fi strategy MMO. Found your colony in the ruins of the Shatterlands, wage real-time war across six race worlds, and earn heroes that can never be bought. No download — the war is live now.",
+      },
+      { name: "twitter:image", content: OG_IMAGE_URL },
+      // The Draconians TEST world must never be indexed or mistaken for the
+      // real game (audit §4) — noindex applies to that build ONLY. Production
+      // surfaces and the portal get no robots meta (index/follow default).
+      ...(IS_TEST_SURFACE ? [{ name: "robots", content: "noindex, nofollow" }] : []),
       // The installable shell: dark chrome, matching the manifest's theme_color.
       { name: "theme-color", content: "#070910" },
       { name: "color-scheme", content: "dark" },
@@ -48,6 +79,9 @@ export const Route = createRootRoute({
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
     ],
     links: [
+      // Canonical: this surface's own root, so the portal, the worlds, and
+      // any preview domains don't split search ranking as duplicates.
+      { rel: "canonical", href: `${SITE_ORIGIN}/` },
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "icon", href: "/icons/icon-192.png", type: "image/png", sizes: "192x192" },

@@ -86,6 +86,10 @@ export default defineConfig({
       RACE_LOCK: process.env.RACE_LOCK,
       WORLD_TAGLINE: process.env.WORLD_TAGLINE,
       DEBUG_WORLD: process.env.DEBUG_WORLD,
+      // Optional explicit origin override for the share head (og:url /
+      // canonical — see src/game/site-origin.ts). Unset on every current
+      // surface: the origin is derived from WORLD_ID there.
+      SITE_ORIGIN: process.env.SITE_ORIGIN,
     }),
   },
   server: {
