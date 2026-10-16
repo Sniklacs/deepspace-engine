@@ -103,6 +103,7 @@ import { tip, tipT, RESOURCE_TIPS, DOMAIN_TIPS, EXPEDITION_TIPS, LAB_TIPS, OWNER
 import type { GameState, RaceId, DomainId, Zone, FeedbackRecord, FeedbackCategory, FeedbackSeverity } from "../game/types";
 import { timeTokenRefusalText } from "../components/screens/CradleScreen";
 import { ResearchTreeView, LeadersView } from "../components/ResearchViews";
+import { BTN_PRIMARY, BTN_PRIMARY_CYAN, BTN_TAB } from "../components/ui/button-classes";
 
 export const Route = createFileRoute("/play")({
   component: PlayPage,
@@ -2193,13 +2194,13 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
 
       <div className="mt-4 flex flex-wrap gap-2">
         {([["deploy", t("lab.tabDeploy")], ["research", t("lab.tabResearch")], ["leaders", t("lab.tabLeaders", { n: leaderCount, cap: engineHelpers.leaderSlots(state) })]] as [typeof view, string][]).map(([id, label]) => (
-          <button key={id} onClick={() => { setView(id); sound.tab(); }} className={`rounded-lg px-3 py-2 text-sm font-medium ${view === id ? "bg-ember text-black" : "text-gray-300 hover:bg-white/10"}`}>{label}</button>
+          <button key={id} onClick={() => { setView(id); sound.tab(); }} className={`${BTN_TAB} ${view === id ? "bg-ember text-black shadow-[0_2px_14px_rgba(245,176,77,0.35)] hover:brightness-110" : "border border-white/25 bg-white/5 text-gray-100 hover:bg-white/10"}`}>{label}</button>
         ))}
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3 items-center text-sm">
-        <Tooltip content={tipT(t, "resource", "insight", RESOURCE_TIPS.insight)}><button type="button" onClick={() => openMaterialSheet({ id: "insight", count: Math.round(state.insight) })} className="rounded-lg bg-ember/10 border border-ember/30 px-3 py-1.5 text-ember-soft">{t("play.lab.insight", "Insight: {n}", { n: Math.round(state.insight) })} <span aria-hidden="true" className="opacity-70">ⓘ</span></button></Tooltip>
-        <Tooltip content={tipT(t, "resource", "codices", RESOURCE_TIPS.codices)}><button type="button" onClick={() => openMaterialSheet({ id: "codices", count: state.codices })} className="rounded-lg bg-purple-400/10 border border-purple-400/30 px-3 py-1.5 text-purple-200">{t("play.lab.codices", "📜 Codices: {n}", { n: state.codices })} <span aria-hidden="true" className="opacity-70">ⓘ</span></button></Tooltip>
+        <Tooltip content={tipT(t, "resource", "insight", RESOURCE_TIPS.insight)}><button type="button" onClick={() => openMaterialSheet({ id: "insight", count: Math.round(state.insight) })} className="inline-flex min-h-tap items-center gap-1 rounded-lg bg-ember/10 border border-ember/30 px-3 py-1.5 text-ember-soft transition-all hover:bg-ember/20 active:scale-[0.98]">{t("play.lab.insight", "Insight: {n}", { n: Math.round(state.insight) })} <span aria-hidden="true" className="opacity-70">ⓘ</span></button></Tooltip>
+        <Tooltip content={tipT(t, "resource", "codices", RESOURCE_TIPS.codices)}><button type="button" onClick={() => openMaterialSheet({ id: "codices", count: state.codices })} className="inline-flex min-h-tap items-center gap-1 rounded-lg bg-purple-400/10 border border-purple-400/30 px-3 py-1.5 text-purple-200 transition-all hover:bg-purple-400/20 active:scale-[0.98]">{t("play.lab.codices", "📜 Codices: {n}", { n: state.codices })} <span aria-hidden="true" className="opacity-70">ⓘ</span></button></Tooltip>
         <Tooltip content={tipT(t, "lab", "scientists", LAB_TIPS.scientists)}><span className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-gray-300">{t("play.lab.scientists", "Scientists: {n}", { n: state.scientists })} <span className="text-text-3">{t("play.lab.scientistsBusy", "({busy} busy / {cap} cap)", { busy: studying.length, cap: engineHelpers.scientistCap(state) })}</span></span></Tooltip>
       </div>
 
@@ -2227,7 +2228,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
                 ? t("play.lab.studyLedgerEmber", "🧯 You hold {have} · costs {cost} · {after} left after", { have: emberLedger.held, cost: emberLedger.cost, after: emberLedger.after })
                 : t("play.lab.studyLedgerEmberShort", "🧯 You hold {have} · costs {cost} — short {short}", { have: emberLedger.held, cost: emberLedger.cost, short: emberLedger.cost - emberLedger.held })}
             </p>
-            <button onClick={() => onStudy("ember")} disabled={busy || r.embers < 2} className="mt-3 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
+            <button onClick={() => onStudy("ember")} disabled={busy || r.embers < 2} className={`mt-3 w-full ${BTN_PRIMARY}`}>
               {busy ? t("play.lab.allBusy", "All scientists busy") : r.embers < 2 ? t("play.lab.needEmbers", "Need 2 Embers") : t("play.lab.beginStudy", "Begin Study")}
             </button>
           </div>
@@ -2244,7 +2245,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
                 ? t("play.lab.studyLedgerChipset", "🔩 You hold {have} · needs 1 in hand — a study does not consume it · {after} left after", { have: chipsetLedger.held, after: chipsetLedger.after })
                 : t("play.lab.studyLedgerChipsetShort", "🔩 You hold {have} · needs 1 in hand to study", { have: chipsetLedger.held })}
             </p>
-            <button onClick={() => onStudy("chipset")} disabled={busy || r.chipsets < 1} className="mt-3 w-full rounded-lg bg-cyan-400 px-3 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40">
+            <button onClick={() => onStudy("chipset")} disabled={busy || r.chipsets < 1} className={`mt-3 w-full ${BTN_PRIMARY_CYAN}`}>
               {busy ? t("play.lab.allBusy", "All scientists busy") : r.chipsets < 1 ? t("play.lab.needChipset", "Need a Chipset") : t("play.lab.beginStudy", "Begin Study")}
             </button>
           </div>
@@ -2310,7 +2311,7 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
                   <p className="mt-2 text-xs text-text-3">{t("cradle.domainMaxReason")}</p>
                 ) : (
                   <Tooltip content={tipT(t, "lab", "deployButton", LAB_TIPS.deployButton)}>
-                    <button onClick={() => onDeploy(d.id)} disabled={!can} className="mt-2 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
+                    <button onClick={() => onDeploy(d.id)} disabled={!can} className={`mt-2 w-full ${BTN_PRIMARY}`}>
                       {/* the catalogue's ONE word for this action (the landing page spells it,
                           the Cradle spells it به‌کارگیری): a new `lab.deployAction` key would
                           be a new key, which this slice adds none of. */}
@@ -2601,11 +2602,11 @@ function RevelationChoiceModal({ onPick }: { onPick: (choice: "sealed" | "open")
           {t("play.research.revelationIntro", "A glimpse only. The path does not show itself twice. Something in the Cradle waits for an answer.")}
         </p>
         <div className="mt-5 space-y-2">
-          <button onClick={() => { sound.click(); onPick("sealed"); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-white/40 hover:bg-white/10">
+          <button onClick={() => { sound.click(); onPick("sealed"); }} className="min-h-tap w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start transition-all hover:border-white/40 hover:bg-white/10 active:scale-[0.99] active:brightness-90">
             <div className="font-semibold text-white">{t("play.research.sealTitle", "Seal the Record in bone")}</div>
             <p className="mt-1 text-xs text-gray-400">{t("play.research.sealSub", "Keep what the Cradle knows the way marrow keeps its memory.")}</p>
           </button>
-          <button onClick={() => { sound.click(); onPick("open"); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-white/40 hover:bg-white/10">
+          <button onClick={() => { sound.click(); onPick("open"); }} className="min-h-tap w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start transition-all hover:border-white/40 hover:bg-white/10 active:scale-[0.99] active:brightness-90">
             <div className="font-semibold text-white">{t("play.research.openTitle", "Leave it open")}</div>
             <p className="mt-1 text-xs text-gray-400">{t("play.research.openSub", "Let the pages turn in the wind no machine makes.")}</p>
           </button>

@@ -14,6 +14,7 @@ import { WORLD_CONFIG_PUBLIC } from "../game/world-config";
 import { coveredNodeIds, satelliteStage, satelliteIntelFor, satelliteTechId, satelliteTechFor } from "../game/satellites";
 import { SATELLITE_COLORS } from "../game/circuit-tokens";
 import { useT } from "./i18n/I18n";
+import { BTN_PRIMARY, BTN_RESEARCH, BTN_SECONDARY, BTN_CLOSE } from "./ui/button-classes";
 import { fmtDuration } from "../game/i18n/format";
 import { Bdi } from "./ui/Bdi";
 import { sound } from "../game/sound";
@@ -171,11 +172,11 @@ export function ResearchTreeView({ state, now, onBeginResearch, onBuildProbe, on
                       <div className="mt-2">
                         <CodicesLedgerLine held={state.codices} cost={node.codicesCost} />
                         {state.codices < node.codicesCost ? (
-                          <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: node.codicesCost })}</div>
+                          <button disabled className={`${BTN_SECONDARY} w-full border-white/15 bg-white/5 text-gray-400`}>{t("rviews.needCodices", "Need {n} 📜", { n: node.codicesCost })}</button>
                         ) : freeLeaders.length === 0 ? (
-                          <div className="text-[11px] text-text-3">{t("rviews.noFreeLeader", "No free Leader")}</div>
+                          <button disabled className={`${BTN_SECONDARY} w-full border-white/15 bg-white/5 text-gray-400`}>{t("rviews.noFreeLeader", "No free Leader")}</button>
                         ) : (
-                          <button onClick={() => { sound.click(); onBeginResearch(node.id, freeLeaders[0].id); }} className="w-full rounded bg-white/10 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:bg-white/20">
+                          <button onClick={() => { sound.click(); onBeginResearch(node.id, freeLeaders[0].id); }} className={`${BTN_SECONDARY} w-full border-amber-300/60 bg-amber-400/20 text-amber-100 hover:bg-amber-400/30`}>
                             {t("rviews.appointLeader", "Appoint {name}", { name: freeLeaders[0].name })}
                           </button>
                         )}
@@ -223,11 +224,11 @@ export function ResearchTreeView({ state, now, onBeginResearch, onBuildProbe, on
                       <div className="mt-2">
                         <CodicesLedgerLine held={state.codices} cost={node.codicesCost} />
                         {state.codices < node.codicesCost ? (
-                          <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: node.codicesCost })}</div>
+                          <button disabled className={`${BTN_SECONDARY} w-full border-white/15 bg-white/5 text-gray-400`}>{t("rviews.needCodices", "Need {n} 📜", { n: node.codicesCost })}</button>
                         ) : freeLeaders.length === 0 ? (
-                          <div className="text-[11px] text-text-3">{t("rviews.noFreeLeader", "No free Leader")}</div>
+                          <button disabled className={`${BTN_SECONDARY} w-full border-white/15 bg-white/5 text-gray-400`}>{t("rviews.noFreeLeader", "No free Leader")}</button>
                         ) : (
-                          <button onClick={() => { sound.click(); onBeginResearch(node.id, freeLeaders[0].id); }} className="w-full rounded bg-white/10 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:bg-white/20">
+                          <button onClick={() => { sound.click(); onBeginResearch(node.id, freeLeaders[0].id); }} className={`${BTN_SECONDARY} w-full border-emerald-300/60 bg-emerald-400/20 text-emerald-100 hover:bg-emerald-400/30`}>
                             {t("rviews.appointLeader", "Appoint {name}", { name: freeLeaders[0].name })}
                           </button>
                         )}
@@ -408,7 +409,7 @@ export function SatelliteResearchCard({ state, now, nodeId, nodeName, freeLeader
                 onBeginResearch(techId!, freeLeaders[0].id);
               }
             }}
-            className="w-full rounded border border-cyan-400/30 bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-400/25"
+            className={`${BTN_SECONDARY} w-full border-cyan-300/60 bg-cyan-400/20 text-cyan-100 hover:bg-cyan-400/30`}
           >
             {stage === 0
               ? t("rviews.satAppoint", "Appoint {name} — bring it online ({cost} 📜)", { name: freeLeaders[0]?.name ?? t("rviews.satALeader", "a Leader"), cost: next.codicesCost })
@@ -473,7 +474,7 @@ function TechNode({ tech, done, inProg, available, now, job, leader, codices, fr
                 onBeginResearch(tech.id, (alignedFree ?? freeLeaders[0]).id);
               }
             }}
-            className="w-full rounded bg-purple-400 px-2 py-1 text-[11px] font-semibold text-black hover:bg-purple-300"
+            className={BTN_RESEARCH}
           >
             {t("rviews.appointLeader", "Appoint {name}", { name: alignedFree ? `✨ ${alignedFree.name}` : (freeLeaders[0]?.name ?? t("rviews.satALeader", "a Leader")) })}
           </button>
@@ -541,7 +542,7 @@ function RevelationNode({ node, done, inProg, available, now, job, leader, codic
                 onBeginResearch(node.id, freeLeaders[0].id);
               }
             }}
-            className="w-full rounded bg-white/10 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:bg-white/20"
+            className={`${BTN_SECONDARY} w-full border-white/30 bg-white/10 text-gray-100 hover:bg-white/20`}
           >
             {t("rviews.appointLeader", "Appoint {name}", { name: freeLeaders[0]?.name ?? t("rviews.satALeader", "a Leader") })}
           </button>
@@ -698,7 +699,7 @@ function LeaderCard({ leader, job, now, onAllocate, onOpenSpec }: {
           </div>
         </Tooltip>
       ) : pendingSpec ? (
-        <button onClick={() => { sound.click(); onOpenSpec(); }} className="mt-2 w-full rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] font-semibold text-amber-200 hover:bg-amber-400/20">
+        <button onClick={() => { sound.click(); onOpenSpec(); }} className={`${BTN_SECONDARY} mt-2 w-full border-amber-300/60 bg-amber-400/15 text-amber-100 hover:bg-amber-400/25`}>
           {t("rviews.choosePath", "🧭 Level 3 — choose a path (Scholar · Marshal · Quartermaster)")}
         </button>
       ) : null}
@@ -711,7 +712,7 @@ function LeaderCard({ leader, job, now, onAllocate, onOpenSpec }: {
         <span>{t("rviews.attrEngineering", "🔧 engineering {n}", { n: leader.attributes.engineering })}</span>
       </div>
       {leader.unspentPoints > 0 && (
-        <button onClick={() => { sound.click(); onAllocate(); }} className="mt-2 w-full rounded-lg bg-ember px-2 py-1.5 text-[11px] font-bold text-black hover:brightness-110">
+        <button onClick={() => { sound.click(); onAllocate(); }} className={`${BTN_PRIMARY} mt-2 w-full`}>
           {t("rviews.allocatePoints", "● +{n} {unit} to allocate", { n: leader.unspentPoints, unit: leader.unspentPoints > 1 ? t("rviews.points", "points") : t("rviews.point", "point") })}
         </button>
       )}
@@ -745,7 +746,7 @@ function SpecializationModal({ leader, onPick, onClose }: {
       <div className="my-auto max-w-lg rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-white">{t("rviews.specTitle", "🧭 {name} — Level {lvl}", { name: leaderName(t, leader), lvl: engineHelpers.leaderLevel(leader) })}</h3>
-          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("rviews.close", "Close")}</button>
+          <button onClick={onClose} className={BTN_CLOSE}>{t("rviews.close", "Close")}</button>
         </div>
         {chosen ? (
           <div className="mt-3">
@@ -761,7 +762,7 @@ function SpecializationModal({ leader, onPick, onClose }: {
             <p className="mt-2 text-sm text-gray-300">{t("rviews.pickMandate", "One choice, made permanent. Pick the mandate this Leader will carry — the other two close forever.")}</p>
             <div className="mt-3 space-y-2">
               {engineHelpers.specs.map((s) => (
-                <button key={s.id} onClick={() => { sound.click(); onPick(s.id); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-amber-400/50 hover:bg-white/10">
+                <button key={s.id} onClick={() => { sound.click(); onPick(s.id); }} className="min-h-tap w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start transition-all hover:border-amber-400/50 hover:bg-white/10 active:scale-[0.99] active:brightness-90">
                   <div className="flex items-center gap-2">
                     <span className="text-xl">{s.icon}</span>
                     <span className="font-semibold text-white">{specText(t, s.id, "mandate", s.mandate)}</span>
@@ -790,12 +791,12 @@ function AllocateModal({ leader, onPick, onClose }: {
       <div className="my-auto max-w-md rounded-2xl border border-amber-400/30 bg-[#0b0e16] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-white">{t("rviews.allocateTitle", "🎖️ Allocate {name}'s point", { name: leader.name })}</h3>
-          <button onClick={onClose} className="rounded border border-white/15 px-3 py-2 text-xs text-gray-400 hover:bg-white/10">{t("rviews.close", "Close")}</button>
+          <button onClick={onClose} className={BTN_CLOSE}>{t("rviews.close", "Close")}</button>
         </div>
         <p className="mt-2 text-sm text-gray-300">{t("rviews.allocYouHave", "You have ")}<b className="text-amber-200">{leader.unspentPoints}</b>{t("rviews.allocUnspent", " unspent ")}{leader.unspentPoints > 1 ? t("rviews.points", "points") : t("rviews.point", "point")}{t("rviews.allocRest", " from leveling. Put one into the craft YOU want to grow.")}</p>
         <div className="mt-3 space-y-2">
           {ATTRS.map((a) => (
-            <button key={a.id} onClick={() => { sound.click(); onPick(a.id); }} className="w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start hover:border-amber-400/50 hover:bg-white/10">
+            <button key={a.id} onClick={() => { sound.click(); onPick(a.id); }} className="min-h-tap w-full rounded-xl border border-white/15 bg-white/5 p-3 text-start transition-all hover:border-amber-400/50 hover:bg-white/10 active:scale-[0.99] active:brightness-90">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-white">{a.icon} {t(`rviews.attrLabel.${a.id}`, a.label)}</span>
                 <span className="text-sm text-amber-200">{leader.attributes[a.id]} <span className="text-text-3">→ {leader.attributes[a.id] + 1}</span></span>
@@ -852,7 +853,7 @@ export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch, onBui
                 onBeginResearch(techId, freeLeaders[0].id);
               }
             }}
-            className="w-full rounded border border-cyan-400/30 bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-400/25"
+            className={`${BTN_SECONDARY} w-full border-cyan-300/60 bg-cyan-400/20 text-cyan-100 hover:bg-cyan-400/30`}
           >
             {t("rviews.appointLeader", "Appoint Leader")}
           </button>
@@ -911,7 +912,7 @@ export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch, onBui
               onBuildProbe();
             }
           }}
-          className="rounded border border-cyan-400/30 bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-400/25"
+          className={`${BTN_SECONDARY} shrink-0 border-cyan-300/60 bg-cyan-400/20 text-cyan-100 hover:bg-cyan-400/30`}
         >
           {t("rviews.buildProbe", "Build probe (500 supplies)")}
         </button>
@@ -930,7 +931,7 @@ export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch, onBui
             value={serverId}
             onChange={(e) => setServerId(e.target.value)}
             placeholder={t("rviews.serverIdPlaceholder", "Target planet / server")}
-            className="min-w-0 flex-1 rounded border border-white/15 bg-black/40 px-2 py-1 text-[11px] text-white placeholder:text-gray-500"
+            className="min-h-tap min-w-0 flex-1 rounded-xl border border-white/15 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-gray-500"
           />
           <button
             onClick={() => {
@@ -945,7 +946,7 @@ export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch, onBui
                 setServerId("");
               }
             }}
-            className="shrink-0 rounded border border-cyan-400/30 bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-400/25"
+            className={`${BTN_SECONDARY} shrink-0 border-cyan-300/60 bg-cyan-400/20 text-cyan-100 hover:bg-cyan-400/30`}
           >
             {t("rviews.launch", "Launch")}
           </button>
@@ -978,7 +979,7 @@ export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch, onBui
                   {ready && p.status === "inflight" && (
                     <button
                       onClick={() => { sound.click(); onCollectProbe(p.id); }}
-                      className="rounded border border-emerald-400/30 bg-emerald-400/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 hover:bg-emerald-400/25"
+                      className={`${BTN_SECONDARY} border-emerald-300/60 bg-emerald-400/20 px-3 text-emerald-100 hover:bg-emerald-400/30`}
                     >
                       {t("rviews.collect", "Collect")}
                     </button>
