@@ -10,6 +10,8 @@ import {
   energyDrawForZone,
   ordnanceUnitsForZone,
   ORDNANCE_SUPPLIES_PER_UNIT,
+  ORDNANCE_EMBERS_PER_UNIT,
+  RUNG_ENTRY_R,
   studyDurationMs,
   insightFor,
   deployCost,
@@ -76,6 +78,53 @@ import {
   satelliteTechInProgress,
 } from "./engine";
 
+/** THE BILL — a run's full launch price, itemized exactly the way
+ *  `launchExpedition` charges it: operations (gear & crew) + the rung's own
+ *  entry demand + ordnance (supplies AND Embers), plus the energy draw.
+ *  Owner report 2026-10-16: a Hollow Warrens launch silently took ~6,000 📦
+ *  because every launch surface quoted the operations cost alone while the
+ *  demand — the bulk on deep rungs — appeared only inside the engine's
+ *  insufficient-funds refusal. Every surface that asks a player to commit
+ *  now quotes THIS bill, never a partial price. Disclosure only: the
+ *  numbers are the engine's own, unchanged. */
+export interface ExpeditionBill {
+  operations: number;
+  demand: number;
+  /** the demand's pricing multiple (RUNG_ENTRY_R — the rung's own timer × R). */
+  demandMultiple: number;
+  /** the demand expressed in days of the colony's supplies income. */
+  demandIncomeDays: number;
+  ordnanceSupplies: number;
+  ordnanceEmbers: number;
+  energyDraw: number;
+  totalSupplies: number;
+  heldSupplies: number;
+  afterSupplies: number;
+  affordable: boolean;
+}
+
+export function expeditionBill(state: GameState, zone: Zone): ExpeditionBill {
+  const operations = suppliesCostForZone(state, zone);
+  const demand = rungEntryDemand(state, zone);
+  const ordUnits = ordnanceUnitsForZone(zone.id);
+  const ordnanceSupplies = ordUnits * ORDNANCE_SUPPLIES_PER_UNIT;
+  const totalSupplies = operations + demand + ordnanceSupplies;
+  const heldSupplies = Math.floor(state.resources.supplies);
+  return {
+    operations,
+    demand,
+    demandMultiple: RUNG_ENTRY_R,
+    demandIncomeDays: rungEntryDemandInIncomeDays(zone),
+    ordnanceSupplies,
+    ordnanceEmbers: ordUnits * ORDNANCE_EMBERS_PER_UNIT,
+    energyDraw: energyDrawForZone(zone.id),
+    totalSupplies,
+    heldSupplies,
+    afterSupplies: heldSupplies - totalSupplies,
+    affordable: state.resources.supplies >= totalSupplies,
+  };
+}
+
 export const engineHelpers = {
   suppliesPerMinute,
   studySecs(state: GameState, kind: "ember" | "chipset") {
@@ -127,6 +176,10 @@ export const engineHelpers = {
   },
   runPrice(state: GameState, zone: Zone) {
     return suppliesCostForZone(state, zone) + rungEntryDemand(state, zone) + ordnanceUnitsForZone(zone.id) * ORDNANCE_SUPPLIES_PER_UNIT;
+  },
+  /** THE BILL, itemized — see `expeditionBill`. Its totalSupplies IS runPrice. */
+  runBill(state: GameState, zone: Zone) {
+    return expeditionBill(state, zone);
   },
   /** RE-TIME: the energy pool, charges held vs capacity per day. */
   energy(state: GameState) {

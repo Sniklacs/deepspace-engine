@@ -1814,6 +1814,9 @@ function ExpeditionTab({ state, now, zoneId, onZoneChange, onLaunch, onFlash, on
   // colony can't reach yet — the picker must still NAME it (the room is
   // showing that site on purpose), not silently display another site.
   const selZone = getZone(sel);
+  // The selected run's FULL bill — the Commit button carries its total so
+  // the price is on the button itself, at the point of decision.
+  const selBill = engineHelpers.runBill(state, selZone);
   const selListed = accessible.some((z) => z.id === selZone.id);
   // The skinned site picker's rows: every reachable site, with the current
   // destination first when it arrived from the globe beyond this colony's
@@ -1830,7 +1833,11 @@ function ExpeditionTab({ state, now, zoneId, onZoneChange, onLaunch, onFlash, on
       sound.error();
       return;
     }
-    const cost = engineHelpers.suppliesCost(state, zone);
+    // The pre-check quotes the FULL bill (operations + rung demand +
+    // ordnance) — the same total the server charges. Quoting operations
+    // alone let the button read affordable on a run the server refused
+    // (owner 2026-10-16).
+    const cost = engineHelpers.runPrice(state, zone);
     if (state.resources.supplies < cost) {
       onFlash(t("play.exp.suppliesFlash", "Not enough supplies. {zone} needs {cost} 📦, have {have}.", { zone: zone.name, cost, have: Math.floor(state.resources.supplies) }));
       sound.error();
@@ -1963,7 +1970,7 @@ function ExpeditionTab({ state, now, zoneId, onZoneChange, onLaunch, onFlash, on
             </span>
             <span className="flex shrink-0 flex-wrap justify-end gap-1 text-[11px]">
               <span className="rounded bg-white/10 px-2 py-0.5 text-red-300">{t("play.zones.risk", "Risk {n}", { n: selZone.risk })}</span>
-              <span className="rounded bg-white/10 px-2 py-0.5 text-lime-300">{t("play.zones.cost", "Cost {n} 📦", { n: engineHelpers.suppliesCost(state, selZone) })}</span>
+              <span className="rounded bg-white/10 px-2 py-0.5 text-lime-300">{t("play.zones.cost", "Cost {n} 📦", { n: engineHelpers.runPrice(state, selZone) })}</span>
             </span>
             <span aria-hidden className="shrink-0 text-lg text-amber-300">{pickerOpen ? "▴" : "▾"}</span>
           </button>
@@ -1996,7 +2003,7 @@ function ExpeditionTab({ state, now, zoneId, onZoneChange, onLaunch, onFlash, on
                       <span className="flex max-w-[148px] shrink-0 flex-wrap justify-end gap-1 text-[11px]">
                         <span className="rounded bg-white/5 px-2 py-0.5 text-red-300">{t("play.zones.risk", "Risk {n}", { n: z.risk })}</span>
                         {z.radiationLevel > 0 && <span className="rounded bg-amber-400/10 px-2 py-0.5 text-amber-300">{t("play.zones.radiation", "☢️ {n}", { n: z.radiationLevel })}</span>}
-                        <span className="rounded bg-white/5 px-2 py-0.5 text-lime-300">{t("play.zones.cost", "Cost {n} 📦", { n: engineHelpers.suppliesCost(state, z) })}</span>
+                        <span className="rounded bg-white/5 px-2 py-0.5 text-lime-300">{t("play.zones.cost", "Cost {n} 📦", { n: engineHelpers.runPrice(state, z) })}</span>
                       </span>
                       {isSel && <span className="shrink-0 rounded bg-ember px-2 py-0.5 text-[11px] font-semibold text-black">{t("play.zones.destinationTag", "Destination")}</span>}
                     </button>
@@ -2009,7 +2016,7 @@ function ExpeditionTab({ state, now, zoneId, onZoneChange, onLaunch, onFlash, on
           <input type="number" min={1} max={state.scientists} value={sci} onChange={(e) => setSci(Math.max(1, Math.min(state.scientists, Number(e.target.value) || 1)))} className="w-20 rounded-lg border border-white/15 bg-black/60 px-2 py-2 text-white outline-none focus:border-amber-400" />
           <Tooltip content={tip({ what: t("play.zones.tipCommitWhat", "Commit Supplies — launch this exploration."), does: t("play.zones.tipCommitDoes", "Spends the destination's Supplies cost and sends your team out in real time. Deep zones open the pre-launch risk pop-up first. Farther sites also draw on the convoy's fuel & battery stores."), how: t("play.zones.tipCommitHow", "Requires a stepped-out Cradle (Tier 0 kits), enough Supplies, a free field slot, and enough fuel/battery for the distance. Returns Embers (and maybe a Chipset) when it completes.") })}>
             <button onClick={commit} disabled={!canLaunch} className="ms-auto rounded-lg bg-ember px-5 py-2 font-semibold text-black hover:brightness-110 disabled:opacity-40">
-              {t("play.exp.commit", "Commit Supplies")}
+              {t("play.exp.commitPrice", "Commit Supplies — {total} 📦", { total: selBill.totalSupplies.toLocaleString() })}
             </button>
           </Tooltip>
         </div>
@@ -2025,7 +2032,7 @@ function ExpeditionTab({ state, now, zoneId, onZoneChange, onLaunch, onFlash, on
       {/* zone list — mild zones */}
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         {mildZones.map((z) => {
-          const cost = engineHelpers.suppliesCost(state, z);
+          const cost = engineHelpers.runPrice(state, z);
           const stats = engineHelpers.zoneProspects(state, z);
           const ownerRace = z.owner !== "shared" && z.owner !== "special" ? getRace(z.owner) : null;
           const owner = z.owner === "shared" ? t("play.zones.noRaceHome", "No race's home") : ownerRace ? t("play.zones.ownerTerritory", "{race} territory", { race: ownerRace.name }) : "";
@@ -2066,7 +2073,7 @@ function ExpeditionTab({ state, now, zoneId, onZoneChange, onLaunch, onFlash, on
         </div>
         {deepZones.map((z) => {
           const locked = !accessibleDeep.includes(z);
-          const cost = engineHelpers.suppliesCost(state, z);
+          const cost = engineHelpers.runPrice(state, z);
           const stats = engineHelpers.zoneProspects(state, z);
           return (
             <div key={z.id} className={`mt-3 rounded-xl border p-4 ${locked ? "border-white/10 bg-black/40 opacity-70" : sel === z.id ? "border-amber-400/50 bg-amber-400/5" : "border-white/10 bg-black/30"}`}>
@@ -2136,6 +2143,7 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
   const need = requiredGear(zone, scientists);
   const loss = engineHelpers.loss(state, zone, scientists);
   const success = engineHelpers.success(state, zone, scientists);
+  const bill = engineHelpers.runBill(state, zone);
   const fullyCovered = loss === 0;
   const t = useT();
   const table: { id: MaterialSheetId; icon: string; label: string; have: number; need: number }[] = [
@@ -2202,6 +2210,52 @@ function RiskModal({ state, zone, scientists, onGo, onPrepare, onSafer, onCancel
         </div>
 
         <p className="mt-4 text-center text-xs italic text-text-3">{t("play.risk.quote", "\"You are always free to go. This is what you risk.\"")}</p>
+
+        {/* THE BILL (owner 2026-10-16): the run's whole price, itemized,
+            BEFORE commitment — the same numbers launchExpedition charges.
+            Quoting operations alone hid the rung demand (the bulk on deep
+            rungs) until after the supplies were already gone. */}
+        <div className="mt-4 rounded-lg border border-white/10 bg-black/40 p-3">
+          <p className="text-xs uppercase tracking-wider text-text-3">{t("play.risk.billTitle", "Cost of this run")}</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            <li className="flex items-baseline justify-between gap-3">
+              <span className="text-gray-300">{t("play.risk.billOps", "Operations — gear & crew")}</span>
+              <span className="text-gray-200">{bill.operations.toLocaleString()} 📦</span>
+            </li>
+            <li className="flex items-baseline justify-between gap-3">
+              <span className="text-gray-300">{t("play.risk.billDemand", "Rung demand")}</span>
+              <span className="text-gray-200">{bill.demand.toLocaleString()} 📦</span>
+            </li>
+            <li className="text-[11px] leading-snug text-gray-500">
+              {t("play.risk.billDemandGloss", "The rung's entry toll — {mult}× this rung's own run time, priced in your income ({days} days of it).", { mult: bill.demandMultiple, days: bill.demandIncomeDays.toFixed(2) })}
+            </li>
+            {bill.ordnanceSupplies > 0 && (
+              <li className="flex items-baseline justify-between gap-3">
+                <span className="text-gray-300">{t("play.risk.billOrdnance", "Ordnance")}</span>
+                <span className="text-gray-200">{bill.ordnanceSupplies.toLocaleString()} 📦</span>
+              </li>
+            )}
+            {bill.ordnanceEmbers > 0 && (
+              <li className="flex items-baseline justify-between gap-3">
+                <span className="text-gray-300">{t("play.risk.billOrdEmbers", "Ordnance Embers")}</span>
+                <span className="text-gray-200">{bill.ordnanceEmbers.toLocaleString()} 🧯</span>
+              </li>
+            )}
+            <li className="flex items-baseline justify-between gap-3">
+              <span className="text-gray-300">{t("play.risk.billEnergy", "Energy charges")}</span>
+              <span className="text-gray-200">{bill.energyDraw} ⚡</span>
+            </li>
+          </ul>
+          <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-white/10 pt-2 text-sm font-semibold">
+            <span className="text-gray-200">{t("play.risk.billTotal", "Total")}</span>
+            <span className={bill.affordable ? "text-ember-soft" : "text-red-300"}>{bill.totalSupplies.toLocaleString()} 📦</span>
+          </div>
+          <p className={`mt-1 text-end text-xs ${bill.affordable ? "text-gray-400" : "text-red-300"}`}>
+            {bill.affordable
+              ? t("play.risk.billHold", "You hold {held} 📦 → {after} after launch", { held: bill.heldSupplies.toLocaleString(), after: bill.afterSupplies.toLocaleString() })
+              : t("play.risk.billShort", "You hold {held} 📦 — short {short} 📦", { held: bill.heldSupplies.toLocaleString(), short: (bill.totalSupplies - bill.heldSupplies).toLocaleString() })}
+          </p>
+        </div>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           <button onClick={onGo} className="rounded-lg bg-red-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-400">
