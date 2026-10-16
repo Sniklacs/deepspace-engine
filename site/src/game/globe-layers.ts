@@ -1192,3 +1192,91 @@ export function terrainSpriteSize(blobRadiusDeg: number): number {
   if (blobRadiusDeg < 12) return 96;
   return 128;
 }
+
+// ---------------------------------------------------------------------------
+// EVERYTHING-INDEX (owner 2026-10-16): the globe's pull-down directory —
+// every marker on the globe, grouped the way a commander thinks about
+// them, so any place on the world is one search + one tap away (the
+// camera flies there). Pure grouping over buildGlobeMarkers' output;
+// the component owns labels and rendering.
+// ---------------------------------------------------------------------------
+
+export type GlobeIndexGroupId =
+  | "yours"
+  | "colonies"
+  | "alliance"
+  | "sites"
+  | "chorus"
+  | "places"
+  | "raids"
+  | "memorials"
+  | "satellites";
+
+/** Group order in the pull-down — the commander's reading order. */
+export const GLOBE_INDEX_ORDER: GlobeIndexGroupId[] = [
+  "yours",
+  "colonies",
+  "alliance",
+  "sites",
+  "chorus",
+  "places",
+  "raids",
+  "memorials",
+  "satellites",
+];
+
+export interface GlobeIndexGroup {
+  id: GlobeIndexGroupId;
+  markers: GlobeMarker[];
+}
+
+function indexGroupOf(m: GlobeMarker): GlobeIndexGroupId {
+  if (m.ref.kind === "home") return "yours";
+  switch (m.layer) {
+    case "alliance":
+      return "alliance";
+    case "colonies":
+      return "colonies";
+    case "husks":
+    case "memorials":
+      return "memorials";
+    case "sites":
+      return "sites";
+    case "chorus":
+      return "chorus";
+    case "beachhead":
+    case "arena":
+      return "places";
+    case "raids":
+      return "raids";
+    case "satellites":
+      return "satellites";
+    default:
+      return "colonies";
+  }
+}
+
+/**
+ * Group every globe marker for the index. A colony that flies the
+ * player's own war-band banner appears ONCE — under Alliance holdings,
+ * not again under Colonies (the two globe markers ride the same ground;
+ * the directory lists places, not pins).
+ */
+export function globeIndexGroups(markers: GlobeMarker[]): GlobeIndexGroup[] {
+  const alliedKeys = new Set<string>();
+  for (const m of markers) {
+    if (m.layer === "alliance" && m.ref.kind === "colony") alliedKeys.add(m.ref.key);
+  }
+  const byId = new Map<GlobeIndexGroupId, GlobeMarker[]>();
+  for (const m of markers) {
+    if (m.layer === "colonies" && m.ref.kind === "colony" && alliedKeys.has(m.ref.key)) continue;
+    const g = indexGroupOf(m);
+    const arr = byId.get(g) ?? [];
+    arr.push(m);
+    byId.set(g, arr);
+  }
+  return GLOBE_INDEX_ORDER.filter((id) => (byId.get(id)?.length ?? 0) > 0).map((id) => ({
+    id,
+    markers: byId.get(id)!,
+  }));
+}

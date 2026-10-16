@@ -4,6 +4,7 @@ import type { DomainId, GameState, Leader, Zone } from "./types";
 import {
   suppliesPerMinute,
   suppliesCostForZone,
+  maxConcurrentExpeditionsState,
   rungEntryDemand,
   rungEntryDemandInIncomeDays,
   energyCapacity,
@@ -182,6 +183,108 @@ export function researchProgress(
   return { pct, remainingMs: Math.max(0, job.startedAt + job.durationMs - now) };
 }
 
+/** A launch refusal, in the engine's own refusal order — the FIRST gate
+ *  `launchExpedition` would trip. `null` reason = the run can go. */
+export type ExpeditionRefusal =
+  | "noRace"
+  | "slots"
+  | "supplies"
+  | "embers"
+  | "energy"
+  | "stepOut"
+  | "fuel"
+  | "battery"
+  | "mechanics";
+
+export interface ExpeditionEligibility {
+  /** True when every hard gate passes — the server will accept the launch
+   *  (deep zones still detour through the risk confirmation, see below). */
+  ok: boolean;
+  /** The first refusal, mirroring launchExpedition's check order. */
+  reason: ExpeditionRefusal | null;
+  /** The numbers behind the refusal, for the plain-words line. */
+  need: number;
+  have: number;
+  /** The full bill for this run (expeditionBill) — always computed. */
+  bill: ExpeditionBill;
+  /** Deep radiation: launching detours through the pre-launch risk
+   *  pop-up (the RiskModal-with-bill), exactly as the hangar flow does. */
+  needsRiskConfirm: boolean;
+  /** Field slots in use / the colony's cap (the "slots" line). */
+  activeCount: number;
+  maxSlots: number;
+}
+
+/**
+ * EXPEDITION ELIGIBILITY — can this colony explore this site NOW, and if
+ * not, why not, in the engine's own terms (owner 2026-10-16, REDUNDANCY
+ * BY DESIGN: every surface where a site appears must answer this in
+ * place, not send the player to the hangar to find out). Mirrors
+ * `launchExpedition`'s refusal order gate for gate — race, field slots,
+ * the full bill in supplies, ordnance Embers, the energy pool, Tier 0
+ * stepping-out gear, then the convoy stores (fuel / battery / mechanics,
+ * with the same researched-tech easings the engine applies). Disclosure
+ * only: nothing here changes a price or a rule.
+ */
+export function expeditionEligibility(state: GameState, zone: Zone): ExpeditionEligibility {
+  const activeCount = state.expeditions.filter((e) => e.status === "out").length;
+  const maxSlots = maxConcurrentExpeditionsState(state);
+  const base: ExpeditionEligibility = {
+    ok: false,
+    reason: null,
+    need: 0,
+    have: 0,
+    // A race-less state cannot be priced at all (suppliesCostForZone reads
+    // the race's own modifiers — the ENGINE checks race before it ever
+    // prices, and so must the mirror): the noRace refusal carries a zeroed
+    // bill rather than a crash. Caught by launch-pad.test.ts.
+    bill: {
+      operations: 0,
+      demand: 0,
+      demandMultiple: RUNG_ENTRY_R,
+      demandIncomeDays: rungEntryDemandInIncomeDays(zone),
+      ordnanceSupplies: 0,
+      ordnanceEmbers: 0,
+      energyDraw: energyDrawForZone(zone.id),
+      totalSupplies: 0,
+      heldSupplies: Math.floor(state.resources.supplies),
+      afterSupplies: Math.floor(state.resources.supplies),
+      affordable: false,
+    },
+    needsRiskConfirm: isDeepZone(zone.radiationLevel),
+    activeCount,
+    maxSlots,
+  };
+  const refuse = (reason: ExpeditionRefusal, need: number, have: number): ExpeditionEligibility => ({
+    ...base,
+    reason,
+    need,
+    have,
+  });
+  if (!state.race) return refuse("noRace", 0, 0);
+  const bill = expeditionBill(state, zone);
+  base.bill = bill;
+  if (activeCount >= maxSlots) return refuse("slots", maxSlots, activeCount);
+  if (state.resources.supplies < bill.totalSupplies) {
+    return refuse("supplies", bill.totalSupplies, Math.floor(state.resources.supplies));
+  }
+  if (bill.ordnanceEmbers > 0 && state.resources.embers < bill.ordnanceEmbers) {
+    return refuse("embers", bill.ordnanceEmbers, Math.floor(state.resources.embers));
+  }
+  const energyHeld = state.energy ?? energyCapacity(state);
+  if (energyHeld < bill.energyDraw) return refuse("energy", bill.energyDraw, Math.floor(energyHeld));
+  if (!hasStepOutGear(state)) return refuse("stepOut", 0, 0);
+  const gNeed = Math.ceil(gasNeed(zone) * (hasTech(state, "l1") ? 0.5 : 1));
+  if (state.resources.gas < gNeed) return refuse("fuel", gNeed, state.resources.gas);
+  const bNeed = Math.ceil(
+    batteryNeed(zone) * (hasTech(state, "i3") ? 0.5 : 1) * (hasTech(state, "l2") ? 0.6 : 1),
+  );
+  if (state.resources.battery < bNeed) return refuse("battery", bNeed, state.resources.battery);
+  const sNeed = Math.ceil(skmechNeed(zone) * (hasTech(state, "i2") ? 0.5 : 1));
+  if (state.resources.skmech < sNeed) return refuse("mechanics", sNeed, state.resources.skmech);
+  return { ...base, ok: true };
+}
+
 export const engineHelpers = {
   suppliesPerMinute,
   spendLedger(held: number, cost: number) {
@@ -249,6 +352,11 @@ export const engineHelpers = {
   /** THE BILL, itemized — see `expeditionBill`. Its totalSupplies IS runPrice. */
   runBill(state: GameState, zone: Zone) {
     return expeditionBill(state, zone);
+  },
+  /** REDUNDANCY BY DESIGN: can this site be explored NOW — and if not,
+   *  the engine's own first refusal. See `expeditionEligibility`. */
+  eligibility(state: GameState, zone: Zone) {
+    return expeditionEligibility(state, zone);
   },
   /** RE-TIME: the energy pool, charges held vs capacity per day. */
   energy(state: GameState) {

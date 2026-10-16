@@ -135,12 +135,15 @@ describe("expedition bill — the engine charges exactly the quoted bill", () =>
 
 describe("expedition bill — the surfaces render it (source lock)", () => {
   const play = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../routes/play.tsx"), "utf-8");
+  // The RiskModal moved to components/RiskModal.tsx (2026-10-16) so every
+  // launch pad shares it — the lock follows the modal to its new home.
+  const riskModal = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../components/RiskModal.tsx"), "utf-8");
 
   test("the RiskModal renders the itemized bill block from the helper", () => {
-    expect(play.includes("play.risk.billTitle")).toBe(true);
-    expect(play.includes("play.risk.billDemandGloss")).toBe(true);
-    expect(play.includes("play.risk.billHold")).toBe(true);
-    expect(play.includes("engineHelpers.runBill(state, zone)")).toBe(true);
+    expect(riskModal.includes("play.risk.billTitle")).toBe(true);
+    expect(riskModal.includes("play.risk.billDemandGloss")).toBe(true);
+    expect(riskModal.includes("play.risk.billHold")).toBe(true);
+    expect(riskModal.includes("engineHelpers.runBill(state, zone)")).toBe(true);
   });
 
   test("the Commit button carries the selected run's total", () => {

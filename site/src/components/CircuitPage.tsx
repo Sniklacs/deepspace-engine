@@ -28,7 +28,8 @@ import { generateAtlas, nodeById } from "../game/map";
 import type { AtlasNode, AtlasGraph } from "../game/map";
 import { WORLD_CONFIG_PUBLIC } from "../game/world-config";
 import { getRace, raceText } from "../game/races";
-import { getZone, zoneFlavor, zoneName } from "../game/zones";
+import { getZone, zoneFlavor, zoneName, ZONES } from "../game/zones";
+import type { IncomingRaidAlert } from "../game/raid-protocol";
 import { getContributionFn } from "../game/api";
 import type { ContributionView, ContributionRow } from "../game/api";
 import { sound } from "../game/sound";
@@ -42,11 +43,14 @@ import { Tooltip } from "./Tooltip";
 import { MailboxButton } from "./Mailbox";
 import {
   coveredNodeIds,
+  coveredNodeName,
+  nodeForColonyId,
   satelliteStage,
   satelliteIntelFor,
   satelliteTechFor,
   satelliteTechId,
 } from "../game/satellites";
+import SiteLaunchPad from "./SiteLaunchPad";
 import { fmtDuration } from "../game/i18n/format";
 import { leaderName } from "../game/research";
 import {
@@ -105,6 +109,13 @@ export interface CircuitPageProps {
    *  no detour through the Lab or the research window. */
   now?: number;
   onBeginResearch?: (techId: string, leaderId: string) => void;
+  /** SITE LAUNCH PAD (owner 2026-10-16): node sheets commit exploration
+   *  launches in place, through the same launchFn the hangar uses. */
+  onLaunchExpedition?: (zoneId: string, scientists: number) => void;
+  /** CIRCUIT ALERTS (owner 2026-10-16): the alert surface's DEFEND —
+   *  the same defense-rally respond flow the klaxon overlay runs.
+   *  Resolves with an error message, or null on success. */
+  onRespondToRaid?: (input: { raidId: string; nodeName: string; landsAt: number }) => Promise<string | null>;
 }
 
 type Seg = "map" | "world";
@@ -124,6 +135,8 @@ export function CircuitPage({
   onOpenLab,
   now,
   onBeginResearch,
+  onLaunchExpedition,
+  onRespondToRaid,
 }: CircuitPageProps) {
   const t = useT();
   const circuit: AtlasGraph = useMemo(
@@ -137,6 +150,22 @@ export function CircuitPage({
   // The satellite ring: the same covered set, in atlas order, for the orbit
   // ring drawn around the map (one marker per bird, state-colored).
   const satRingIds = useMemo(() => coveredNodeIds(WORLD_CONFIG_PUBLIC.worldId), []);
+
+  // CIRCUIT ALERTS (owner 2026-10-16): the circuit map's reason to exist —
+  // satellite coverage spots a foreign touchdown inbound to YOUR ground,
+  // the map says so, and the defense is rallied FROM the map. The klaxon
+  // overlay fires globally (siren + flashing red, RaidAlarmOverlay); this
+  // is the map's own carrier of the same alert: the threatened node
+  // flashes, a strip names the inbound raid, and DEFEND sits in both.
+  // Read-only here (colonyNodeId's backfill stays the engine's business).
+  const liveRaids = useMemo(
+    () => (state.worldMap?.incomingRaids ?? []).filter((r) => !r.resolved),
+    [state.worldMap],
+  );
+  const homeNodeId =
+    state.homeNodeId ?? nodeForColonyId(state.gameId || state.playerName || "colony");
+  const threatenedRaid = liveRaids[0] ?? null;
+  const threatenedNodeName = coveredNodeName(homeNodeId);
 
   // Rung 1a §E — Contribution is the Circuit's "World" segment. §6.4: a
   // third Battles option joins only in war phases — the SegmentedControl
@@ -383,6 +412,19 @@ export function CircuitPage({
         {/* -------- left: map stage / world scroll (flex-1 min-w-0) -------- */}
         <div className="flex min-w-0 flex-1 flex-col">
           {!isDesktop && seg === "map" && <CompactLegendRail />}
+          {/* CIRCUIT ALERT STRIP — the map itself carries the alert: a
+              flashing red banner naming the inbound raid, with DEFEND
+              in place (the klaxon overlay is the other carrier; each
+              must carry the alert completely alone). */}
+          {seg === "map" && threatenedRaid && (
+            <CircuitAlertStrip
+              raid={threatenedRaid}
+              nodeName={threatenedNodeName}
+              now={now ?? Date.now()}
+              onRespond={onRespondToRaid}
+              onOpenNode={() => { setSel(homeNodeId); sound.tab(); }}
+            />
+          )}
           {seg === "world" ? (
             <div className="min-h-0 flex-1 overflow-y-auto">
               {/* §6.3 — mobile: Who's-Here card renders at the top of World
@@ -547,6 +589,22 @@ export function CircuitPage({
                         };
                         return (
                           <g key={n.id}>
+                            {/* CIRCUIT ALERT (owner 2026-10-16): the node a
+                                foreign touchdown is inbound to FLASHES —
+                                an expanding red ring + siren badge, SMIL-
+                                animated so it can never render static. */}
+                            {n.id === homeNodeId && threatenedRaid && (
+                              <g>
+                                <circle cx={nx} cy={ny} r={r + 6} fill="none" stroke="#ef4444" strokeWidth={3.5}>
+                                  <animate attributeName="r" values={`${r + 4};${r + 18};${r + 4}`} dur="1.6s" repeatCount="indefinite" />
+                                  <animate attributeName="stroke-opacity" values="0.95;0.2;0.95" dur="1.6s" repeatCount="indefinite" />
+                                </circle>
+                                <circle cx={nx} cy={ny} r={r + 3} fill="none" stroke="#ef4444" strokeWidth={2.5} opacity={0.9}>
+                                  <animate attributeName="opacity" values="0.95;0.35;0.95" dur="0.8s" repeatCount="indefinite" />
+                                </circle>
+                                <text x={nx} y={ny - r - 14} textAnchor="middle" fontSize={16}>🚨</text>
+                              </g>
+                            )}
                             {/* zone fill — tier wash over terrain (denser than
                                 the old 22%-over-surf-0 recipe, which vanishes
                                 over ice and farmland) */}
@@ -745,7 +803,7 @@ export function CircuitPage({
       </Sheet>
 
       {/* node Sheet — the territory's story + published ground data (no war state) */}
-      <NodeSheet node={selNode} state={state} now={now} satCovered={satCovered} onOpenLab={onOpenLab} onBeginResearch={onBeginResearch} onClose={() => { setSel(null); }} />
+      <NodeSheet node={selNode} state={state} now={now} satCovered={satCovered} onOpenLab={onOpenLab} onBeginResearch={onBeginResearch} onLaunchExpedition={onLaunchExpedition} onRespondToRaid={onRespondToRaid} onClose={() => { setSel(null); }} />
     </div>
   );
 
@@ -994,17 +1052,108 @@ function ColonySheet({ row, total, onClose }: { row: ContributionRow | null; tot
   );
 }
 
+/* ---------------- circuit alerts — DEFEND in place (owner 2026-10-16) ---------------- */
+
+/** The defense rally, callable from the circuit map itself — the SAME
+ *  respond flow the klaxon overlay runs (play.tsx's
+ *  respondToIncomingRaid), never a second defense system. In-flight
+ *  presses lock out (Click Law); a refusal shows inline. */
+function RaidDefendButton({ raid, nodeName, onRespond }: {
+  raid: IncomingRaidAlert;
+  nodeName: string;
+  onRespond?: (input: { raidId: string; nodeName: string; landsAt: number }) => Promise<string | null>;
+}) {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    if (busy || !onRespond) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const err = await onRespond({ raidId: raid.raidId, nodeName, landsAt: raid.landsAt });
+      if (err) setError(err);
+      // Success: the parent clears the klaxon and navigates to the war band.
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={go}
+        disabled={busy || !onRespond}
+        className="min-h-[44px] w-full rounded-lg border-2 border-red-400 bg-gradient-to-b from-red-700 to-red-900 px-4 py-2.5 text-sm font-extrabold tracking-wider text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {busy ? t("circuit.defendRallying", "⏳ RALLYING…") : t("circuit.defend", "⚔️ RALLY THE DEFENSE")}
+      </button>
+      {error && (
+        <p role="status" className="mt-1.5 rounded-lg border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs text-red-100">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The map's own alert banner: flashing red, naming the inbound raid and
+ *  the ground it falls on, with DEFEND in place. The visual carrier of
+ *  the circuit alert — it must read even with the sound off and the
+ *  klaxon overlay dismissed (dual-channel doctrine). */
+function CircuitAlertStrip({ raid, nodeName, now, onRespond, onOpenNode }: {
+  raid: IncomingRaidAlert;
+  nodeName: string;
+  now: number;
+  onRespond?: (input: { raidId: string; nodeName: string; landsAt: number }) => Promise<string | null>;
+  onOpenNode: () => void;
+}) {
+  const t = useT();
+  return (
+    <div role="alert" className="animate-pulse border-b-2 border-red-500/70 bg-red-950/80 px-3 py-2">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-sm font-extrabold tracking-wide text-red-200">
+          🚨 {t("circuit.alertStripTitle", "SATELLITE ALERT — inbound to {node}", { node: nodeName })}
+        </span>
+        <span className="text-xs text-red-100/85">
+          {t("circuit.alertStripEta", "Touchdown in {eta}", { eta: fmtDuration(t, Math.max(0, raid.landsAt - now)) })}
+        </span>
+        <div className="ms-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenNode}
+            className="min-h-[44px] rounded-lg border border-red-300/40 px-3 py-2 text-xs font-semibold text-red-100 hover:bg-red-400/10"
+          >
+            {t("circuit.alertViewNode", "View the ground")}
+          </button>
+          <div className="min-w-[180px]">
+            <RaidDefendButton raid={raid} nodeName={nodeName} onRespond={onRespond} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- node Sheet (the territory's story — no war state) ---------------- */
-function NodeSheet({ node, state, now, satCovered, onOpenLab, onBeginResearch, onClose }: {
+function NodeSheet({ node, state, now, satCovered, onOpenLab, onBeginResearch, onLaunchExpedition, onRespondToRaid, onClose }: {
   node?: AtlasNode;
   state: GameState;
   now?: number;
   satCovered: Set<string>;
   onOpenLab?: () => void;
   onBeginResearch?: (techId: string, leaderId: string) => void;
+  onLaunchExpedition?: (zoneId: string, scientists: number) => void;
+  onRespondToRaid?: (input: { raidId: string; nodeName: string; landsAt: number }) => Promise<string | null>;
   onClose: () => void;
 }) {
   const t = useT();
+  // CIRCUIT ALERTS: is THIS node the ground a live raid is inbound to?
+  const liveRaid = (state.worldMap?.incomingRaids ?? []).find((r) => !r.resolved) ?? null;
+  const myNodeId = state.homeNodeId ?? nodeForColonyId(state.gameId || state.playerName || "colony");
+  const underAttack = !!node && !!liveRaid && node.id === myNodeId;
+  // SITE LAUNCH PAD: the node's zone, when it is one (the Cradle is not).
+  const padZone = node?.zoneId ? (ZONES.find((z) => z.id === node.zoneId) ?? null) : null;
   return (
     <Sheet open={!!node} onClose={onClose} labelledBy="circuit-node-sheet-title" title={node?.name ?? t("circuit.titleFallback", "The Circuit")}>
       <SheetHeader id="circuit-node-sheet-title" title={node?.name ?? ""} onClose={onClose} />
@@ -1021,6 +1170,22 @@ function NodeSheet({ node, state, now, satCovered, onOpenLab, onBeginResearch, o
                 </span>
               )}
             </div>
+            {underAttack && liveRaid && (
+              <div role="alert" className="rounded-xl border border-red-500/60 bg-red-950/50 p-3">
+                <p className="animate-pulse text-sm font-bold text-red-200">
+                  🚨 {t("circuit.alertTitle", "INBOUND — foreign touchdown detected on your ground")}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-red-100/85">
+                  {t("circuit.alertBody", "{attackers} — touchdown in {eta}. The satellite saw them; the defense is yours to rally.", {
+                    attackers: liveRaid.attackerNames.join(", ") || t("circuit.alertUnknown", "Unknown raiders"),
+                    eta: fmtDuration(t, Math.max(0, liveRaid.landsAt - (now ?? Date.now()))),
+                  })}
+                </p>
+                <div className="mt-2">
+                  <RaidDefendButton raid={liveRaid} nodeName={coveredNodeName(node.id)} onRespond={onRespondToRaid} />
+                </div>
+              </div>
+            )}
             <p className="text-xs leading-relaxed text-gray-400">
               {node.kind === "heart" ? t("circuit.nodeDescHeart", "The deep-most scientific site — the web's core.") :
                 node.kind === "cradle" ? t("circuit.nodeDescCradle", "Your capital. The world persists around it.") :
@@ -1070,6 +1235,12 @@ function NodeSheet({ node, state, now, satCovered, onOpenLab, onBeginResearch, o
             {node && (satCovered.has(node.id)
               ? <SatelliteSheetSection state={state} now={now} nodeId={node.id} onOpenLab={onOpenLab} onBeginResearch={onBeginResearch} />
               : <p className="text-xs text-text-3">{t("circuit.satSanctioned", "Sanctioned land — no satellite watch. The sky does not need to look here.")}</p>
+            )}
+            {/* SITE LAUNCH PAD (owner 2026-10-16, REDUNDANCY BY DESIGN):
+                this node's site can be explored from right here —
+                eligibility, the bill, and the commit in place. */}
+            {padZone && onLaunchExpedition && (
+              <SiteLaunchPad state={state} zone={padZone} onLaunch={onLaunchExpedition} />
             )}
           </div>
         )}

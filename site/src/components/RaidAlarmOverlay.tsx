@@ -61,10 +61,24 @@ export default function RaidAlarmOverlay({
     }
   };
 
-  // Klaxon lifecycle: siren on while the overlay is up, off on unmount.
+  // Klaxon lifecycle: siren on while the overlay is up, off on unmount —
+  // and it FOLLOWS the mute live (owner 2026-10-16 verification pass):
+  // muting mid-alarm silences it, unmuting mid-alarm brings it back.
+  // The dead link this fixes: sirenStart() refuses to start while muted,
+  // so a player who was muted when the klaxon fired and then unmuted
+  // got a silent alarm for its whole life. The flashing red above is
+  // the other channel and carries the alert alone, muted or not.
   useEffect(() => {
-    sound.sirenStart();
-    return () => sound.sirenStop();
+    const apply = (muted: boolean) => {
+      if (muted) sound.sirenStop();
+      else sound.sirenStart();
+    };
+    apply(sound.muted);
+    const off = sound.onMuteChange(apply);
+    return () => {
+      off();
+      sound.sirenStop();
+    };
   }, []);
 
   // Tick the touchdown countdown.

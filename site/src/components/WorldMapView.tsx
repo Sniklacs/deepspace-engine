@@ -1357,6 +1357,8 @@ export default function WorldMapView({
   onEnterArena,
   onEnterBeachhead,
   onExploreSite,
+  onLaunchSite,
+  externalFocus,
   onRelocateColony,
   onBuildProbe,
   onLaunchProbe,
@@ -1411,6 +1413,13 @@ export default function WorldMapView({
   /** Globe sheet actions: a world site's Explore goes to the Expeditions
    *  tab, where zone launches actually live. */
   onExploreSite?: (zone: Zone, tier: 1 | 2 | 3) => void;
+  /** SITE LAUNCH PAD (owner 2026-10-16): commit a launch from the globe's
+   *  site sheet itself, through the same launchFn the hangar uses. */
+  onLaunchSite?: (zoneId: string, scientists: number) => void;
+  /** TAP-TO-FLY (owner 2026-10-16): an external focus request (a chat
+   *  coordinate chip) handed down from the Play page — flown to on
+   *  arrival, exactly like an in-page snap-to-site. */
+  externalFocus?: GlobeFocusTarget | null;
 }) {
   const t = useT();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -1419,6 +1428,11 @@ export default function WorldMapView({
   // WS5 (owner 2026-10-04): snap-to-site — tapping an incoming raid's
   // location eases the globe to the raided site.
   const [globeFocus, setGlobeFocus] = useState<GlobeFocusTarget | null>(null);
+  // TAP-TO-FLY: an external focus request (chat chip) becomes the globe's
+  // focus target the moment its nonce lands.
+  useEffect(() => {
+    if (externalFocus) setGlobeFocus(externalFocus);
+  }, [externalFocus]);
   const raidEntryRefs = useRef<Record<string, HTMLDivElement | null>>({});
   // SOLAR SYSTEM (Hans, Oct 6 2026): the selected planet's sheet + the
   // "Enter home world" zoom-back signal for the globe.
@@ -1608,6 +1622,7 @@ export default function WorldMapView({
         onEnterArena={onEnterArena}
         onEnterBeachhead={onEnterBeachhead}
         onExploreSite={onExploreSite}
+        onLaunchExpedition={onLaunchSite}
         onRaidColony={(colony, key) => {
           // Same flow as the colony list's Raid button, plus select the
           // colony in the list so its action box opens under its card —

@@ -116,6 +116,28 @@ export interface ControllerRef {
   /** The controller's HOME world (server/world id) — where these troops
    *  jumped from, not where the beachhead sits. */
   worldId: string;
+  // — presence fields (layout §4.1, Oct 15 2026) — stamped SERVER-SIDE in
+  // beachheadOrderFn from the actor's real state at order time (snapshot
+  // semantics: a force flies the banner it marched under; reinforcement
+  // re-stamps). Display data only — `sameController` identity stays
+  // (colonyId, worldId). All optional: fields stamped before this growth
+  // (and the Chronicle systems that will feed hero/title/radiance) read
+  // as null/0 and rendering degrades to name + holder color.
+  /** The actor's war band, when they hold one. */
+  allianceId?: string | null;
+  allianceName?: string | null;
+  /** Alliance.banner — the band's emblem key. */
+  allianceBanner?: string | null;
+  /** Hero leading the force, when one is committed (no beachhead force
+   *  carries a hero yet — the hook waits, per layout §4.1). */
+  heroId?: string | null;
+  /** Earned title / Chronicle standing line (awaits the Chronicle). */
+  title?: string | null;
+  /** Gilt Chronicle radiance tier 0..3 (awaits the Chronicle system;
+   *  0 = base presence glow — size and light are never bought). */
+  radianceTier?: number;
+  /** Equipped banner/standard cosmetic (paid-permanent; awaits sets). */
+  standardId?: string | null;
 }
 
 /** The Chorus as a controller (its garrisons are seeded, §6). */

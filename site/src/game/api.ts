@@ -3072,10 +3072,22 @@ const beachheadOrderFn = createServerFn({ method: "POST" }).validator(
     const bh = (st.beachheads ?? []).find((b) => b.id === data.beachheadId);
     if (!bh) return { ok: false, error: "No such beachhead." };
     if (!st.troops) return { ok: false, error: "Found your colony and muster a garrison first." };
+    // PRESENCE (layout §4.1): the actor's face is stamped HERE, from the
+    // caller's real state — never client-supplied. Alliance from the war
+    // band store; hero/title/radiance/standard await their systems and
+    // stamp their honest defaults (rendering degrades gracefully).
+    const actorAlliance = allianceOf(st, ctx.colonyId);
     const actor: ControllerRef = {
       colonyId: ctx.colonyId,
       colonyName: ctx.colonyName,
       worldId: st.gameId ?? "home",
+      allianceId: actorAlliance?.id ?? null,
+      allianceName: actorAlliance?.name ?? null,
+      allianceBanner: actorAlliance?.banner ?? null,
+      heroId: null,
+      title: null,
+      radianceTier: 0,
+      standardId: null,
     };
     const counts: TroopCounts = data.troops;
     const roster = st.troops.home.roster;

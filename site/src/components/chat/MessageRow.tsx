@@ -22,6 +22,9 @@ import { Bdi } from "../ui/Bdi";
 import { formatTime } from "../../game/i18n/format";
 import type { ChatMessage } from "../../game/chat/chat-types";
 import type { AllianceMember } from "../../game/war/alliances";
+import { formatCoordPair, latLonOfCoords, splitCoordSegments } from "../../game/globe-coords";
+import { requestGlobeFocus } from "../../game/globe-focus-store";
+import { sound } from "../../game/sound";
 import { MemberAvatar } from "../alliance/MemberAvatar";
 import { TranslatedText } from "./TranslatedText";
 
@@ -103,7 +106,32 @@ export function MessageRow({
         lang={message.lang}
         className={`rounded-2xl px-3 py-2 text-[13px] text-text-1 ${mine ? "bg-surf-4" : "bg-surf-2"}`}
       >
-        {message.body}
+        {/* TAP-TO-FLY (owner 2026-10-16): coordinates in the game's own
+            format render as a chip — tap it and the globe flies there.
+            The parser is strict (tagged X/Y, in-range), so ordinary
+            numbers in chat never linkify. */}
+        {splitCoordSegments(message.body).map((seg, i) =>
+          seg.coords ? (
+            <button
+              key={i}
+              type="button"
+              dir="ltr"
+              onClick={() => {
+                const ll = latLonOfCoords(seg.coords!);
+                sound.click();
+                requestGlobeFocus(ll.lat, ll.lon);
+              }}
+              aria-label={t("chat.flyToCoords", "Fly the globe to {coords}", { coords: formatCoordPair(seg.coords) })}
+              className="mx-0.5 inline-flex items-center gap-1 rounded-full border border-sky-400/50 bg-sky-400/15 px-2 py-0.5 align-baseline text-[12px] font-bold text-sky-200 underline decoration-sky-300/60 underline-offset-2 hover:bg-sky-400/25"
+              data-testid="chat-coord-chip"
+            >
+              <span aria-hidden="true">📍</span>
+              {seg.text}
+            </button>
+          ) : (
+            <span key={i}>{seg.text}</span>
+          ),
+        )}
       </p>
       {/* Never auto-translated: on-device inference on exactly the phones this
           beta targets is the player's choice to make, one line at a time. */}

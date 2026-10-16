@@ -30,6 +30,7 @@ import {
   GLOBE_LAYERS,
   GLOBE_LAYER_META,
   GLOBE_SITE_TIER_COLOR,
+  greatCircleDeg,
   projectGlobe,
   siteMarkerIcon,
   SITE_TIER_LIST,
@@ -119,6 +120,11 @@ import {
 } from "../game/world/cradle-entry";
 import { SceneHeader } from "./SceneHeader";
 import { colonyMarkerName } from "../game/worldmap";
+// GLOBE BUILD (owner 2026-10-16): the X/Y coordinate grid + readouts, the
+// everything-index pull-down, and the site launch pad in the site sheet.
+import { formatCoords } from "../game/globe-coords";
+import GlobeIndex from "./GlobeIndex";
+import SiteLaunchPad from "./SiteLaunchPad";
 // MODULE OVERLAY (Phase 2, slice 11): buildings open as overlays over the
 // live world (spec §10) — the canvas never unmounts; the URL syncs via the
 // history API (?module=<id>). See ModuleOverlay.tsx for the pattern.
@@ -790,6 +796,141 @@ function arenaSprite(color: string): HTMLCanvasElement {
   }
   return c;
 }
+/** On-globe billboarded size of the beachhead stronghold (px) — arena
+ *  scale, per the owner's Oct 15 2026 ruling: presence on the globe is a
+ *  lit structure everybody sees, never "just a little flag." */
+export const BEACHHEAD_MARKER_SIZE = { normal: 52, selected: 68 };
+
+function bakeBeachheadStrongholdSprite(color: string): HTMLCanvasElement {
+  const S = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d")!;
+  g.translate(S / 2, S / 2);
+  const u = S / 128; // design units; sprite spans ±64u
+  g.lineJoin = "round";
+  g.lineCap = "round";
+
+  // --- ground plate: the landing ground, seated on the surface ---
+  g.fillStyle = "rgba(2,6,14,0.55)";
+  g.beginPath();
+  g.ellipse(0, 18 * u, 56 * u, 28 * u, 0, 0, Math.PI * 2);
+  g.fill();
+  // --- energy ring: the perimeter light — the POP ---
+  g.strokeStyle = color;
+  g.lineWidth = Math.max(2, 3 * u);
+  g.shadowColor = color;
+  g.shadowBlur = 10 * u;
+  g.beginPath();
+  g.ellipse(0, 18 * u, 48 * u, 23 * u, 0, 0, Math.PI * 2);
+  g.stroke();
+  g.shadowBlur = 0;
+
+  // --- beacon beam: skyward, so the landing reads across the globe ---
+  const beam = g.createLinearGradient(0, -62 * u, 0, -6 * u);
+  beam.addColorStop(0, color + "00");
+  beam.addColorStop(1, color + "88");
+  g.fillStyle = beam;
+  g.beginPath();
+  g.moveTo(-9 * u, -6 * u);
+  g.lineTo(9 * u, -6 * u);
+  g.lineTo(3 * u, -60 * u);
+  g.lineTo(-3 * u, -60 * u);
+  g.closePath();
+  g.fill();
+
+  // --- banner poles: two standards flying the landing's colors ---
+  for (const bx of [-34 * u, 34 * u]) {
+    g.strokeStyle = "rgba(226,232,240,0.9)";
+    g.lineWidth = Math.max(2.5, 4 * u);
+    g.beginPath();
+    g.moveTo(bx, 14 * u);
+    g.lineTo(bx, -34 * u);
+    g.stroke();
+    g.fillStyle = color;
+    g.shadowColor = color;
+    g.shadowBlur = 8 * u;
+    g.beginPath();
+    g.moveTo(bx, -34 * u);
+    g.lineTo(bx + 15 * u, -34 * u);
+    g.lineTo(bx + 11 * u, -27.5 * u);
+    g.lineTo(bx + 15 * u, -21 * u);
+    g.lineTo(bx, -21 * u);
+    g.closePath();
+    g.fill();
+    g.shadowBlur = 0;
+    // pole-head light
+    const hg = g.createRadialGradient(bx, -38 * u, 0, bx, -38 * u, 11 * u);
+    hg.addColorStop(0, "#ffffff");
+    hg.addColorStop(0.4, color);
+    hg.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = hg;
+    g.beginPath();
+    g.arc(bx, -38 * u, 11 * u, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // --- the keep: an angular stronghold block with a lit gate ---
+  g.fillStyle = "#1e293b";
+  g.strokeStyle = "rgba(255,255,255,0.4)";
+  g.lineWidth = Math.max(2, 2.5 * u);
+  g.beginPath();
+  g.moveTo(-26 * u, 16 * u);
+  g.lineTo(-26 * u, -8 * u);
+  g.lineTo(-13 * u, -18 * u);
+  g.lineTo(13 * u, -18 * u);
+  g.lineTo(26 * u, -8 * u);
+  g.lineTo(26 * u, 16 * u);
+  g.closePath();
+  g.fill();
+  g.stroke();
+  // crenellations
+  g.fillStyle = "#334155";
+  for (const mx of [-20 * u, -7 * u, 6 * u, 19 * u]) {
+    g.fillRect(mx - 3.5 * u, -24 * u, 7 * u, 7 * u);
+  }
+  // the gate — lit amber, the door everybody lands through
+  const gate = g.createRadialGradient(0, 8 * u, 0, 0, 8 * u, 13 * u);
+  gate.addColorStop(0, "#fef3c7");
+  gate.addColorStop(0.5, color);
+  gate.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = gate;
+  g.beginPath();
+  g.arc(0, 8 * u, 13 * u, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = "#0f172a";
+  g.beginPath();
+  g.moveTo(-5 * u, 16 * u);
+  g.lineTo(-5 * u, 4 * u);
+  g.arc(0, 4 * u, 5 * u, Math.PI, 0);
+  g.lineTo(5 * u, 16 * u);
+  g.closePath();
+  g.fill();
+
+  // --- landing lights: bright dots along the perimeter ring ---
+  g.fillStyle = "rgba(254,240,138,0.95)";
+  for (let i = 0; i <= 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const sx = Math.cos(a) * 48 * u;
+    const sy = 18 * u + Math.sin(a) * 23 * u;
+    g.beginPath();
+    g.arc(sx, sy, 2 * u, 0, Math.PI * 2);
+    g.fill();
+  }
+  return c;
+}
+
+const beachheadSpriteCache = new Map<string, HTMLCanvasElement>();
+function beachheadSprite(color: string): HTMLCanvasElement {
+  const key = `beachhead|${color}`;
+  let c = beachheadSpriteCache.get(key);
+  if (!c) {
+    c = bakeBeachheadStrongholdSprite(color);
+    beachheadSpriteCache.set(key, c);
+  }
+  return c;
+}
+
 // CHORUS HEART fortress (Hans Oct 11 2026): like the arena, the Heart is
 // globally used — everyone fights it — so it gets a real skin, not a dot.
 // A dark spire-fortress with a bleeding red core, seated on the globe.
@@ -1430,6 +1571,7 @@ export default function WorldGlobe({
   onGleanColony,
   onRallyRaid,
   onExploreSite,
+  onLaunchExpedition,
   fill,
 }: {
   state: GameState;
@@ -1448,6 +1590,12 @@ export default function WorldGlobe({
   onGleanColony?: (colony: KnownColony) => void;
   onRallyRaid?: (raid: IncomingRaidAlert) => void;
   onExploreSite?: (zone: Zone, tier: 1 | 2 | 3) => void;
+  /** SITE LAUNCH PAD (owner 2026-10-16, REDUNDANCY BY DESIGN): the site
+   *  sheet's pad commits a launch through the EXISTING expedition path
+   *  (the World page's launchFn) — explore from right there, no detour
+   *  to the hangar. Unwired = the pad doesn't render (the Explore door
+   *  above it keeps its linking-pass behavior). */
+  onLaunchExpedition?: (zoneId: string, scientists: number) => void;
   /** Hive relocation (owner 2026-10-04, WS-E): called with the picked
    *  lat/lon on confirm. Resolves with an inline error message, or null on
    *  success (Hans's UI rule — the button stays tappable and explains).
@@ -1571,6 +1719,29 @@ export default function WorldGlobe({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [linkHint, setLinkHint] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(true);
+  // COORDINATE GRID (owner 2026-10-16): the X/Y graticule rides the globe
+  // as its own furniture toggle (not a marker layer), default ON — the
+  // grid is how places get names in chat. Persisted like the layers.
+  const [gridOn, setGridOn] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem("deepspace-globe-grid");
+      if (raw !== null) return raw === "1";
+    } catch { /* private mode → default */ }
+    return true;
+  });
+  const toggleGrid = useCallback(() => {
+    setGridOn((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("deepspace-globe-grid", next ? "1" : "0"); } catch { /* private mode */ }
+      return next;
+    });
+  }, []);
+  // EVERYTHING-INDEX (owner 2026-10-16): the pull-down directory.
+  const [indexOpen, setIndexOpen] = useState(false);
+  // FOCUS PING: a raw-coordinate flight (chat chip / typed coords) has no
+  // marker to select — the frame loop draws an expanding ring at the
+  // landing point for a few seconds so the eye lands with the camera.
+  const pingRef = useRef<{ lat: number; lon: number; startedAt: number } | null>(null);
   // Fullscreen map (Hans Oct 11 2026): just the world, no surrounding UI.
   // Toggle back to return to the windowed view with legend and panels.
   const [mapFullscreen, setMapFullscreen] = useState(false);
@@ -1661,6 +1832,23 @@ export default function WorldGlobe({
   homePosRef.current = currentHomeGlobePosition(state);
   const selected = useMemo(() => markers.find((m) => m.id === selectedId) ?? null, [markers, selectedId]);
 
+  // TAP-TO-FLY LANDING (owner 2026-10-16): an external focus request
+  // (chat coordinate chip, typed coordinates) drops a ping at the point;
+  // when a marker stands on that ground, its sheet opens — the fly-to
+  // landing IS a place, with its actions (launch pad included) in reach.
+  useEffect(() => {
+    if (!focusTarget) return;
+    pingRef.current = { lat: focusTarget.lat, lon: focusTarget.lon, startedAt: Date.now() };
+    let best: GlobeMarker | null = null;
+    let bestD = 2.5; // degrees — a marker "on" the flown-to ground
+    for (const m of markers) {
+      const d = greatCircleDeg(focusTarget.lat, focusTarget.lon, m.lat, m.lon);
+      if (d < bestD) { bestD = d; best = m; }
+    }
+    if (best) setSelectedId(best.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTarget?.nonce]);
+
   const toggleLayer = useCallback((id: GlobeLayerId) => {
     setLayersOn((prev) => {
       const next = { ...prev, [id]: !prev[id] };
@@ -1688,6 +1876,8 @@ export default function WorldGlobe({
   // layersOn/selectedId/filters refs for the render loop (avoid re-subscribing)
   const layersOnRef = useRef(layersOn);
   layersOnRef.current = layersOn;
+  const gridOnRef = useRef(gridOn);
+  gridOnRef.current = gridOn;
   const tiersOnRef = useRef(filters.siteTiers);
   tiersOnRef.current = filters.siteTiers;
   const selectedIdRef = useRef(selectedId);
@@ -2267,6 +2457,72 @@ export default function WorldGlobe({
         g.restore();
       }
 
+      // 10b — COORDINATE GRID (owner 2026-10-16): the X/Y graticule over
+      // the disc, under the markers. X lines every 30° of longitude,
+      // Y lines every 30° of latitude; the equator (Y 90) and the prime
+      // meridian (X 180) ride brighter — the two axes every coordinate
+      // in chat is read against. Fades out with the sphere→plane morph
+      // like the dust markers do.
+      if (gridOnRef.current && morphT < 0.5) {
+        const gridAlpha = 1 - morphT * 2;
+        const drawPath = (pts: Array<{ x: number; y: number; visible: boolean }>, alpha: number) => {
+          g.save();
+          g.globalAlpha = alpha * gridAlpha;
+          g.strokeStyle = "#93c5fd";
+          g.lineWidth = 1;
+          g.beginPath();
+          let pen = false;
+          for (const p of pts) {
+            if (!p.visible) { pen = false; continue; }
+            const sx = cx + p.x * R, sy = cy + p.y * R;
+            if (!pen) { g.moveTo(sx, sy); pen = true; } else g.lineTo(sx, sy);
+          }
+          g.stroke();
+          g.restore();
+        };
+        const lonLine = (lon: number, alpha: number) => {
+          const pts = [];
+          for (let lat = -84; lat <= 84; lat += 3) pts.push(projectGlobe(lat, lon, v.spin, v.tilt));
+          drawPath(pts, alpha);
+        };
+        const latLine = (lat: number, alpha: number) => {
+          const pts = [];
+          for (let lon = -180; lon <= 180; lon += 3) pts.push(projectGlobe(lat, lon, v.spin, v.tilt));
+          drawPath(pts, alpha);
+        };
+        for (let gx = 0; gx < 360; gx += 30) lonLine(gx - 180, gx === 180 ? 0.3 : 0.13);
+        for (let gy = 30; gy < 180; gy += 30) latLine(90 - gy, gy === 90 ? 0.3 : 0.13);
+        // Axis labels: X values where their meridian crosses the equator,
+        // Y values where their parallel crosses the facing meridian.
+        const facing = focusLatLon(v.spin, v.tilt);
+        g.save();
+        g.globalAlpha = 0.75 * gridAlpha;
+        g.font = "600 9px system-ui, sans-serif";
+        g.fillStyle = "#bfdbfe";
+        g.textAlign = "center";
+        for (let gx = 0; gx < 360; gx += 30) {
+          const p = projectGlobe(0, gx - 180, v.spin, v.tilt);
+          if (p.visible) g.fillText(String(gx), cx + p.x * R, cy + p.y * R - 3);
+        }
+        for (let gy = 30; gy < 180; gy += 30) {
+          if (gy === 90) continue; // the equator carries the X labels
+          const p = projectGlobe(90 - gy, facing.lon, v.spin, v.tilt);
+          if (p.visible) g.fillText(String(gy), cx + p.x * R + 10, cy + p.y * R + 3);
+        }
+        // View-center readout — where the camera is looking, in the
+        // numbers chat speaks.
+        const center = formatCoords(facing.lat, facing.lon);
+        g.font = "600 11px system-ui, sans-serif";
+        const tw = g.measureText(center).width;
+        roundRectPath(g, cx - tw / 2 - 7, h - 30, tw + 14, 20, 10);
+        g.fillStyle = "rgba(2,6,14,0.72)";
+        g.fill();
+        g.fillStyle = "#bfdbfe";
+        g.textBaseline = "middle";
+        g.fillText(center, cx, h - 19);
+        g.restore();
+      }
+
       // 11 — markers
       const projected: ScreenMarker[] = [];
       // WS5: night factor in view space per marker, keyed by marker object
@@ -2321,22 +2577,30 @@ export default function WorldGlobe({
         // WS-A: the arena renders as the full stadium sprite, not a dot-icon.
         // CHORUS HEART (Hans Oct 11 2026): same treatment — a fortress skin,
         // not a dot. Globally used, globally visible.
+        // BEACHHEAD (owner Oct 15 2026): arena scale too — a lit stronghold
+        // sprite with a permanent pulse and nameplate, never the old
+        // 20px banner chip ("just a little flag" is banned).
         const isArena = m.ref.kind === "arena";
         const isHeart = m.ref.kind === "chorus";
+        const isBeachhead = m.ref.kind === "beachhead";
         const icon = isArena ? arenaSprite(m.color)
           : isHeart ? chorusHeartSprite()
+          : isBeachhead ? beachheadSprite(m.color)
           : iconSprite(m.icon, m.color);
         const iconSize = isArena
           ? (isSel ? ARENA_MARKER_SIZE.selected : ARENA_MARKER_SIZE.normal)
           : isHeart
             ? (isSel ? 68 : 52)
+          : isBeachhead
+            ? (isSel ? BEACHHEAD_MARKER_SIZE.selected : BEACHHEAD_MARKER_SIZE.normal)
           : isSatellite
             ? (isSel ? 30 : 24)
             : (isSel ? 26 : 20);
         g.drawImage(icon, s.sx - iconSize / 2, s.sy - iconSize / 2, iconSize, iconSize);
         g.globalAlpha = markerVis; // pulse ring + label fade with the markers
-        // pulse ring for raids (and selected)
-        if (m.pulse || isSel) {
+        // pulse ring for raids, the selected marker — and the beachhead,
+        // which pulses permanently: the landing is alive, everybody sees it.
+        if (m.pulse || isSel || isBeachhead) {
           const pr = base + 5 + 4 * Math.sin(time * 4);
           g.strokeStyle = m.color + "cc";
           g.lineWidth = 1.6;
@@ -2346,7 +2610,7 @@ export default function WorldGlobe({
         }
         // CRADLE ENTRY (slice 10): the home marker is the entry door — its
         // touch target is min 44px (spec §10), bigger than the 40px default.
-        const hitR = m.id === "home" ? Math.max(22, base + 8) : Math.max(20, base + 8);
+        const hitR = m.id === "home" ? Math.max(22, base + 8) : isBeachhead ? 32 : Math.max(20, base + 8);
         screenPos.current.set(m.id, { x: s.sx, y: s.sy, r: hitR });
         // label pill for the selected marker
         if (isSel) {
@@ -2364,6 +2628,55 @@ export default function WorldGlobe({
           g.textAlign = "center";
           g.textBaseline = "middle";
           g.fillText(m.label, px, py - 1);
+        }
+        // The beachhead's nameplate is permanent (not selection-only):
+        // the landing is a named place on the world, readable at a glance.
+        if (isBeachhead && !isSel) {
+          g.font = "600 11px system-ui, sans-serif";
+          const tw = g.measureText(m.label).width;
+          const px = Math.min(Math.max(s.sx, tw / 2 + 12), w - tw / 2 - 12);
+          const py = Math.min(h - 16, s.sy + iconSize / 2 + 16);
+          roundRectPath(g, px - tw / 2 - 8, py - 11, tw + 16, 20, 10);
+          g.fillStyle = "rgba(2,6,14,0.82)";
+          g.fill();
+          g.strokeStyle = m.color + "aa";
+          g.lineWidth = 1;
+          g.stroke();
+          g.fillStyle = "#fde68a";
+          g.textAlign = "center";
+          g.textBaseline = "middle";
+          g.fillText(m.label, px, py);
+        }
+      }
+
+      // FOCUS PING (owner 2026-10-16): a raw-coordinate landing (chat
+      // chip / typed coords) draws an expanding ring + crosshair for a
+      // few seconds — the visual half of tap-to-fly; the camera flight
+      // is the other half, and each carries the arrival alone.
+      const ping = pingRef.current;
+      if (ping && markerVis > 0) {
+        const ageMs = Date.now() - ping.startedAt;
+        if (ageMs > 3200) {
+          pingRef.current = null;
+        } else {
+          const pp = projectGlobe(ping.lat, ping.lon, v.spin, v.tilt);
+          if (pp.visible) {
+            const px = cx + pp.x * R, py = cy + pp.y * R;
+            const frac = (ageMs % 1100) / 1100;
+            g.save();
+            g.globalAlpha = (1 - frac) * 0.9 * markerVis;
+            g.strokeStyle = "#7dd3fc";
+            g.lineWidth = 2.5;
+            g.beginPath();
+            g.arc(px, py, 8 + frac * 30, 0, Math.PI * 2);
+            g.stroke();
+            g.globalAlpha = 0.9 * markerVis;
+            g.beginPath();
+            g.arc(px, py, 3.5, 0, Math.PI * 2);
+            g.fillStyle = "#7dd3fc";
+            g.fill();
+            g.restore();
+          }
         }
       }
 
@@ -3244,6 +3557,25 @@ export default function WorldGlobe({
     playSelect();
   }, [flyToPose]);
 
+  // EVERYTHING-INDEX flights (owner 2026-10-16): a directory pick flies
+  // the camera to the place and opens its sheet; a raw-coordinate pick
+  // flies + pings (and the focus effect opens any sheet standing there).
+  const flyToMarker = useCallback((m: GlobeMarker) => {
+    setIndexOpen(false);
+    setSelectedId(m.id);
+    const target = focusViewTarget(m.lat, m.lon);
+    flyToPose(target.spin, target.tilt, bandCenter("Z2"));
+    playSelect();
+  }, [flyToPose]);
+  const flyToCoords = useCallback((lat: number, lon: number) => {
+    setIndexOpen(false);
+    setSelectedId(null);
+    pingRef.current = { lat, lon, startedAt: Date.now() };
+    const target = focusViewTarget(lat, lon);
+    flyToPose(target.spin, target.tilt, bandCenter("Z2"));
+    playSelect();
+  }, [flyToPose]);
+
   const closeSheet = useCallback(() => {
     setSelectedId(null);
     setLinkHint(null);
@@ -3551,6 +3883,22 @@ export default function WorldGlobe({
               ))}
             </ul>
           )}
+          {/* COORDINATE GRID toggle (owner 2026-10-16): globe furniture,
+              not a marker layer — the X/Y graticule + view-center readout. */}
+          <div className="mt-1 border-t border-white/10 pt-1">
+            <button
+              type="button"
+              onClick={toggleGrid}
+              aria-pressed={gridOn}
+              className={`flex min-h-[2.75rem] w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] transition-opacity ${
+                gridOn ? "text-gray-100" : "text-gray-500 opacity-60"
+              }`}
+            >
+              <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center text-[14px] text-sky-300">⊞</span>
+              <span className="flex-1">{t("worldglobe.grid", "Coordinate grid")}</span>
+              <span dir="ltr" className="rounded-full bg-white/10 px-1.5 text-[10px] text-gray-300">X·Y</span>
+            </button>
+          </div>
         </div>
         )}
 
@@ -3696,6 +4044,32 @@ export default function WorldGlobe({
           )}
         </div>
 
+        {/* EVERYTHING-INDEX (owner 2026-10-16): the pull-down directory of
+            everything on the globe — pick a place, the camera flies. */}
+        {!inSystem && (
+          <div className="absolute right-2 top-11 z-20">
+            <button
+              type="button"
+              onClick={() => { setIndexOpen((o) => !o); playClick(); }}
+              aria-expanded={indexOpen}
+              aria-haspopup="dialog"
+              className="flex min-h-[36px] items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-3 py-1.5 text-[12px] font-bold text-gray-100 backdrop-blur-sm"
+            >
+              <span aria-hidden>🗂️</span>
+              {t("worldglobe.index.open", "Index")}
+              <span aria-hidden>{indexOpen ? "▾" : "▸"}</span>
+            </button>
+          </div>
+        )}
+        {indexOpen && !inSystem && (
+          <GlobeIndex
+            markers={markers}
+            onPick={flyToMarker}
+            onPickCoords={flyToCoords}
+            onClose={() => setIndexOpen(false)}
+          />
+        )}
+
         {/* Zoom controls */}
         <div className="absolute bottom-2 right-2 z-10 flex flex-col gap-1.5">
           <button
@@ -3811,6 +4185,8 @@ export default function WorldGlobe({
             onGleanColony={onGleanColony}
             onRallyRaid={onRallyRaid}
             onExploreSite={onExploreSite}
+            globeState={state}
+            onLaunchExpedition={onLaunchExpedition}
           />
         )}
 
@@ -3870,11 +4246,17 @@ function DetailSheet({
   onGleanColony,
   onRallyRaid,
   onExploreSite,
+  globeState,
+  onLaunchExpedition,
 }: {
   marker: GlobeMarker;
   onClose: () => void;
   onAction: (label: string) => void;
   hint: string | null;
+  /** SITE LAUNCH PAD (owner 2026-10-16): the colony state + the existing
+   *  launch path, so a site sheet can explore in place. */
+  globeState?: GameState;
+  onLaunchExpedition?: (zoneId: string, scientists: number) => void;
   /** Hive relocation (WS-E): opens globe pick-mode from the home sheet. */
   onHivePick?: () => void;
   /** Inline blocker note shown under the relocate button (Hans's UI rule). */
@@ -3923,6 +4305,11 @@ function DetailSheet({
           </p>
           <h3 className="mt-0.5 text-[17px] font-bold leading-tight text-white">{marker.label}</h3>
           <p className="mt-0.5 text-[12px] text-gray-400">{marker.sublabel}</p>
+          {/* COORDINATES (owner 2026-10-16): every place carries its pair —
+              the same numbers chat linkifies and the index searches. */}
+          <p dir="ltr" className="mt-0.5 text-[12px] font-bold tracking-wide text-sky-300">
+            {formatCoords(marker.lat, marker.lon)}
+          </p>
           <SheetStats marker={marker} />
         </div>
       </div>
@@ -3942,6 +4329,13 @@ function DetailSheet({
           onRallyRaid={onRallyRaid}
           onExploreSite={onExploreSite}
         />
+        {/* SITE LAUNCH PAD (owner 2026-10-16, REDUNDANCY BY DESIGN): a
+            world site's sheet answers "can I explore it?" in place and
+            commits the launch right here — the hangar stays as the
+            other door for players who prefer it. */}
+        {marker.ref.kind === "site" && globeState && onLaunchExpedition && (
+          <SiteLaunchPad state={globeState} zone={marker.ref.zone} onLaunch={onLaunchExpedition} />
+        )}
         {hint && (
           <p role="status" className="mt-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-gray-300">
             {hint}

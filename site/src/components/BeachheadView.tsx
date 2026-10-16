@@ -26,11 +26,20 @@ import {
   conversionProgress,
   forceCount,
   forceCounts,
+  forcePower,
   sameController,
   type Beachhead,
   type Bunker,
   type ControllerRef,
 } from "../game/war/beachheads";
+import {
+  bunkerGlyphSize,
+  holderColor,
+  presenceBand,
+  radianceHaloAlpha,
+  radianceHaloRadius,
+  standardHeight,
+} from "../game/war/beachhead-presence";
 import { TROOP_TYPES, rosterByType, type TroopType } from "../game/war/troops";
 import { useT } from "./i18n/I18n";
 import { Icon } from "./icons";
@@ -51,7 +60,9 @@ function ownerColor(b: Bunker, viewer: ControllerRef): string {
   if (!owner) return COLOR.empty;
   if (sameController(owner, viewer)) return COLOR.mine;
   if (owner.colonyId === "chorus") return COLOR.chorus;
-  return COLOR.other;
+  // Per-holder colors (layout §4.3): other holders no longer share one
+  // amber — a holder's color derives from their colony id.
+  return holderColor(owner.colonyId);
 }
 
 function troopLine(b: Bunker): string {
@@ -109,6 +120,38 @@ export default function BeachheadView({
 
   const summary = bh ? beachheadSummary(bh, viewer) : null;
   const available = state.troops ? rosterByType(state.troops.home.roster) : null;
+  // Sector read strip (layout §4.2): the dominant holder per sector, so
+  // the strip tints by whose ground each sector mostly is.
+  const sectorDominant = useMemo(() => {
+    const map = new Map<string, { color: string; name: string }>();
+    if (!bh) return map;
+    const counts = new Map<string, Map<string, { n: number; color: string; name: string }>>();
+    for (const b of bh.bunkers) {
+      if (bunkerViewState(b) !== "held") continue;
+      const owner = b.garrison?.owner ?? b.controller;
+      if (!owner) continue;
+      const key = `${owner.colonyId}|${owner.worldId}`;
+      const per = counts.get(b.sectorId) ?? new Map();
+      const cur = per.get(key) ?? {
+        n: 0,
+        color: sameController(owner, viewer)
+          ? COLOR.mine
+          : owner.colonyId === "chorus"
+            ? COLOR.chorus
+            : holderColor(owner.colonyId),
+        name: owner.colonyName,
+      };
+      cur.n += 1;
+      per.set(key, cur);
+      counts.set(b.sectorId, per);
+    }
+    for (const [sectorId, per] of counts) {
+      let best: { n: number; color: string; name: string } | null = null;
+      for (const v of per.values()) if (!best || v.n > best.n) best = v;
+      if (best) map.set(sectorId, { color: best.color, name: best.name });
+    }
+    return map;
+  }, [bh, viewer]);
 
   // ---- canvas paint ------------------------------------------------------
   useEffect(() => {
@@ -171,14 +214,107 @@ export default function BeachheadView({
     ctx.fillText(t("beachhead.shore", "THE SHORE — LANDING STRIP"), W - 8, Math.min(H - 8, shoreY + 14));
     ctx.textAlign = "start";
 
-    // Bunkers.
-    const size = Math.min(30, Math.max(6, cam.scale * 0.011));
+    // Bunkers — PRESENCE AT ARENA SCALE (layout §4, owner Oct 15 2026).
+    // The sizing law lives in game/war/beachhead-presence.ts (pinned by
+    // tests): glyph floor 14px at fit, sector standards 56–88px at fit,
+    // a standard on every held bunker from Band 2 up, radiance halos
+    // scaling with the holder's tier. No presence mark under 24px at
+    // its band's working zoom — the flag ban.
+    const fitScale = W * 0.98;
+    const zoomRatio = cam.scale / fitScale;
+    const band = presenceBand(zoomRatio);
+    const size = bunkerGlyphSize(zoomRatio);
+    // Sector leaders: each side's strongest HELD bunker per sector —
+    // Band 1 raises its standard there (one pass, layout §1.5).
+    const leaders = new Map<string, string>(); // sectorId|ownerKey -> bunkerId
+    const leaderPower = new Map<string, number>();
+    for (const b of bh.bunkers) {
+      if (bunkerViewState(b) !== "held") continue;
+      const owner = b.garrison?.owner ?? b.controller;
+      if (!owner) continue;
+      const key = `${b.sectorId}|${owner.colonyId}|${owner.worldId}`;
+      const p = forcePower(b.garrison);
+      if (p > (leaderPower.get(key) ?? -1)) {
+        leaderPower.set(key, p);
+        leaders.set(key, b.id);
+      }
+    }
+    const drawStandard = (
+      px: number,
+      py: number,
+      h: number,
+      color: string,
+      tier: number | null | undefined,
+      splitColor: string | null,
+    ) => {
+      // Radiance halo — light under the standard (tier 0 = base glow).
+      const haloR = radianceHaloRadius(h, tier);
+      const halo = ctx.createRadialGradient(px, py, 0, px, py, haloR);
+      halo.addColorStop(0, color);
+      halo.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.save();
+      ctx.globalAlpha = radianceHaloAlpha(tier);
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(px, py, haloR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // Pole + flying banner in the holder's color, with a glow edge.
+      const top = py - h;
+      ctx.strokeStyle = "rgba(226,232,240,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px, top);
+      ctx.stroke();
+      const bw = Math.max(12, h * 0.58);
+      const bhgt = Math.max(8, h * 0.4);
+      ctx.save();
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(px, top);
+      ctx.lineTo(px + bw, top);
+      ctx.lineTo(px + bw - bhgt * 0.35, top + bhgt / 2);
+      ctx.lineTo(px + bw, top + bhgt);
+      ctx.lineTo(px, top + bhgt);
+      ctx.closePath();
+      ctx.fill();
+      if (splitColor) {
+        // Contested: the defender's half of the banner (layout §4.4).
+        ctx.fillStyle = splitColor;
+        ctx.beginPath();
+        ctx.moveTo(px + bw / 2, top);
+        ctx.lineTo(px + bw, top);
+        ctx.lineTo(px + bw - bhgt * 0.35, top + bhgt / 2);
+        ctx.lineTo(px + bw, top + bhgt);
+        ctx.lineTo(px + bw / 2, top + bhgt);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    };
     for (const b of bh.bunkers) {
       const [px, py] = toPx(b.x, b.y);
-      if (px < -40 || px > W + 40 || py < -40 || py > H + 40) continue;
+      if (px < -80 || px > W + 80 || py < -160 || py > H + 80) continue;
       const vState = bunkerViewState(b);
       const color = ownerColor(b, viewer);
       const half = size / 2;
+      const owner = b.conversion?.by ?? b.garrison?.owner ?? b.controller;
+      const isLeader = !!owner && leaders.get(`${b.sectorId}|${owner.colonyId}|${owner.worldId}`) === b.id;
+      const stdH = vState === "empty" ? 0 : standardHeight(zoomRatio, size, isLeader && vState === "held");
+      if (stdH > 0 && owner) {
+        const defender = vState === "contested" ? b.conversion?.defender : null;
+        const splitColor = defender
+          ? sameController(defender, viewer)
+            ? COLOR.mine
+            : defender.colonyId === "chorus"
+              ? COLOR.chorus
+              : holderColor(defender.colonyId)
+          : null;
+        drawStandard(px, py - half, stdH, color, owner.radianceTier, splitColor);
+      }
       ctx.beginPath();
       ctx.roundRect(px - half, py - half, size, size, Math.min(5, size / 3));
       if (vState === "empty") {
@@ -201,12 +337,17 @@ export default function BeachheadView({
         ctx.globalAlpha = 1;
       }
       if (vState === "converting" || vState === "contested") {
+        // The conversion ring, promoted (layout §4.4): it rides the
+        // standard's base at 3px, and a PAUSED (contested) ring sweeps
+        // no animation — it is drawn dimmed and still.
         const p = conversionProgress(bh, b, now);
         ctx.beginPath();
-        ctx.arc(px, py, half + 4, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
+        ctx.arc(px, py, half + 5, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
         ctx.strokeStyle = COLOR.convertingRing;
-        ctx.lineWidth = 2;
+        ctx.globalAlpha = vState === "contested" ? 0.45 : 1;
+        ctx.lineWidth = 3;
         ctx.stroke();
+        ctx.globalAlpha = 1;
       }
       if (selectedId === b.id) {
         ctx.beginPath();
@@ -216,12 +357,35 @@ export default function BeachheadView({
         ctx.stroke();
       }
       // Strength dot-count at high zoom: garrison headcount under the glyph.
+      let under = py + half + 12;
       if (size >= 16 && vState !== "empty") {
         const f = b.conversion ? b.conversion.crew : b.garrison;
         ctx.fillStyle = "rgba(255,255,255,0.85)";
         ctx.font = "bold 10px system-ui, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(String(forceCount(f)), px, py + half + 12);
+        ctx.fillText(String(forceCount(f)), px, under);
+        ctx.textAlign = "start";
+        under += 11;
+      }
+      // Nameplates (layout §4.2): Band 1 plates the standard-bearers;
+      // Bands 2–3 plate every non-empty bunker. Your own are always
+      // plated; the front never becomes label soup.
+      const plateIt =
+        vState !== "empty" &&
+        !!owner &&
+        (band >= 2 || isLeader || sameController(owner, viewer));
+      if (plateIt && owner) {
+        const name = owner.allianceName ? `${owner.colonyName} · ${owner.allianceName}` : owner.colonyName;
+        ctx.font = "600 11px system-ui, sans-serif";
+        const tw = ctx.measureText(name).width;
+        const cxp = Math.min(Math.max(px, tw / 2 + 6), Math.max(tw / 2 + 6, W - tw / 2 - 6));
+        ctx.fillStyle = "rgba(2,6,14,0.78)";
+        ctx.beginPath();
+        ctx.roundRect(cxp - tw / 2 - 5, under - 9, tw + 10, 15, 4);
+        ctx.fill();
+        ctx.fillStyle = sameController(owner, viewer) ? "#a7f3d0" : "#e4e4e7";
+        ctx.textAlign = "center";
+        ctx.fillText(name, cxp, under + 2);
         ctx.textAlign = "start";
       }
     }
@@ -456,10 +620,38 @@ export default function BeachheadView({
           <button type="button" aria-label={t("beachhead.resetView", "Reset view")} className="min-h-[44px] min-w-[44px] rounded-md border border-white/20 bg-black/60 text-sm text-white" onClick={() => { camRef.current = { cx: 0.5, cy: 0.5, scale: 0 }; forceRepaint(); }}>⤢</button>
         </div>
       </div>
+      {/* Sector read strip (layout §4.2): the whole mile's weak spots
+          without panning — one cell per sector, tinted by its dominant
+          holder, converting cells pulsing. */}
+      <div className="mt-2 flex flex-wrap gap-1" data-testid="beachhead-sector-strip">
+        {summary.sectors.map((sec) => {
+          const dom = sectorDominant.get(sec.sectorId);
+          return (
+            <div
+              key={sec.sectorId}
+              className={`min-w-[86px] flex-1 rounded-md border px-2 py-1 ${sec.converting > 0 ? "animate-pulse" : ""}`}
+              style={{
+                borderColor: dom ? `${dom.color}88` : "rgba(255,255,255,0.12)",
+                background: dom ? `${dom.color}14` : "rgba(255,255,255,0.03)",
+              }}
+              title={dom ? dom.name : undefined}
+            >
+              <div className="truncate text-[10px] font-bold uppercase tracking-wide text-text-2">{sec.label}</div>
+              <div className="text-[10px] text-text-3">
+                {t("beachhead.stripCounts", "{held} held · {empty} open{conv}", {
+                  held: sec.held,
+                  empty: sec.empty,
+                  conv: sec.converting > 0 ? ` · ${sec.converting} converting` : "",
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
       <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-text-3">
         <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-emerald-400" />{t("beachhead.legendMine", "Yours")}</span>
         <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-rose-400" />{t("beachhead.legendChorus", "Chorus")}</span>
-        <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm bg-amber-400" />{t("beachhead.legendOther", "Another world")}</span>
+        <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "linear-gradient(90deg,#fbbf24,#38bdf8,#a78bfa,#f472b6)" }} />{t("beachhead.legendOther", "Other holders — each in their own color")}</span>
         <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm border border-zinc-400" />{t("beachhead.legendEmpty", "Empty")}</span>
         <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full border-2 border-zinc-200" />{t("beachhead.legendConverting", "Converting (ring = progress)")}</span>
       </div>
