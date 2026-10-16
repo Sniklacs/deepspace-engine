@@ -13,6 +13,7 @@ import {
   ORDNANCE_EMBERS_PER_UNIT,
   RUNG_ENTRY_R,
   studyDurationMs,
+  STUDY_EMBER_COST,
   insightFor,
   deployCost,
   domainAtMaxLevel,
@@ -125,8 +126,76 @@ export function expeditionBill(state: GameState, zone: Zone): ExpeditionBill {
   };
 }
 
+/** THE LEDGER RULE (owner, 2026-10-16): before ANY action, the player sees
+ *  at the point of the tap what they HOLD, what it COSTS, and what REMAINS.
+ *  These helpers are the one computation behind the Lab's ledger lines — the
+ *  same disclosure pattern as THE BILL for expedition launches. Disclosure
+ *  only: every number is the engine's own, unchanged. */
+export interface SpendLedger {
+  held: number;
+  cost: number;
+  /** held − cost (negative when the tap cannot be afforded). */
+  after: number;
+  affordable: boolean;
+}
+
+export function spendLedger(held: number, cost: number): SpendLedger {
+  return { held, cost, after: held - cost, affordable: held >= cost };
+}
+
+/** The 📜 Codices ledger for a research node priced at `cost`. */
+export function codicesLedger(state: GameState, cost: number): SpendLedger {
+  return spendLedger(state.codices, cost);
+}
+
+export interface StudyLedger extends SpendLedger {
+  kind: "ember" | "chipset";
+  /** whether beginning the study CONSUMES the resource. An Ember study
+   *  burns `STUDY_EMBER_COST` Embers. A Chipset study does NOT consume:
+   *  `beginStudy` requires one Chipset in hand and deducts nothing (a filed
+   *  engine defect, priced around by the valuation). The ledger states the
+   *  truth the engine will actually do. */
+  consumes: boolean;
+}
+
+export function studyLedger(state: GameState, kind: "ember" | "chipset"): StudyLedger {
+  if (kind === "ember") {
+    const held = Math.floor(state.resources.embers);
+    return { kind, ...spendLedger(held, STUDY_EMBER_COST), consumes: true };
+  }
+  const held = state.resources.chipsets;
+  return { kind, held, cost: 1, after: held, affordable: held >= 1, consumes: false };
+}
+
+/** A researching job's progress, clamped the way every research surface
+ *  renders it. The ONE computation, deliberately independent of any leader
+ *  lookup: a job whose leader record no longer resolves still runs, and its
+ *  progress still shows (owner 2026-10-16 — the dead-button bar). */
+export function researchProgress(
+  job: { startedAt: number; durationMs: number },
+  now: number,
+): { pct: number; remainingMs: number } {
+  const pct =
+    job.durationMs > 0
+      ? Math.min(100, Math.max(0, Math.floor(((now - job.startedAt) / job.durationMs) * 100)))
+      : 100;
+  return { pct, remainingMs: Math.max(0, job.startedAt + job.durationMs - now) };
+}
+
 export const engineHelpers = {
   suppliesPerMinute,
+  spendLedger(held: number, cost: number) {
+    return spendLedger(held, cost);
+  },
+  codicesLedger(state: GameState, cost: number) {
+    return codicesLedger(state, cost);
+  },
+  studyLedger(state: GameState, kind: "ember" | "chipset") {
+    return studyLedger(state, kind);
+  },
+  researchProgress(job: { startedAt: number; durationMs: number }, now: number) {
+    return researchProgress(job, now);
+  },
   studySecs(state: GameState, kind: "ember" | "chipset") {
     return Math.round(studyDurationMs(state, kind) / 1000);
   },

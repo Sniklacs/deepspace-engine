@@ -30,6 +30,80 @@ import { specText } from "../game/hero-xp";
 // day-scale keyed formatter, `fmtDuration(t, ms)` in `game/i18n/format.ts`,
 // rendered inside `<Bdi dir="ltr">` at every call site.
 
+/* ---------------- research progress (owner 2026-10-16) ----------------
+   THE DEAD-BUTTON BAR. Every research card in this file used to render its
+   progress only when the job's Leader lookup ALSO succeeded — the progress
+   block sat behind a three-way AND of in-progress, leader-found and job —
+   so: start Agriculture, the leader record fails to resolve, and the node
+   sits there looking dead while the job runs. The Scout Probe card was
+   worse — it fell through to
+   the "researched" management view entirely. Now a researching job ALWAYS
+   renders this block; the leader line joins it only when a leader is
+   found. The bar is h-2.5 (the old hairline h-1 barely read as alive) and
+   carries percent + time remaining. The block keeps its OWN 1-second
+   clock — the RaidAlarmOverlay / BattlesTab pattern — layered over the
+   parent's `now`: it mounts only while its job is researching, so no
+   interval ever runs when nothing is in progress. */
+function useResearchNow(baseNow: number): number {
+  const [tick, setTick] = useState(() => Date.now());
+  useEffect(() => {
+    setTick(Date.now());
+    const id = setInterval(() => setTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return Math.max(baseNow, tick);
+}
+
+function ResearchProgress({ job, now, leaderLabel, barClass = "bg-purple-400" }: {
+  job: GameState["researchJobs"][number]; now: number;
+  leaderLabel?: ReactNode; barClass?: string;
+}) {
+  const t = useT();
+  const liveNow = useResearchNow(now);
+  const { pct, remainingMs } = engineHelpers.researchProgress(job, liveNow);
+  return (
+    <div data-testid="research-progress">
+      <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-gray-300">
+        <span>{leaderLabel ?? t("rviews.researchingNow", "🔬 Researching…")}</span>
+        <span className="flex items-center gap-1">
+          <Bdi dir="ltr">{t("rviews.progressPct", "{pct}%", { pct })}</Bdi>
+          <span aria-hidden="true">·</span>
+          <Bdi dir="ltr">{fmtDuration(t, remainingMs)}</Bdi>
+          {t("rviews.timeLeft", "left")}
+        </span>
+      </div>
+      <div className="mt-1 h-2.5 rounded bg-white/10">
+        <div className={`h-2.5 rounded ${barClass}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- THE LEDGER RULE (owner 2026-10-16) ----------------
+   Held → cost → after, stated at the action itself BEFORE any tap. The
+   post-tap hints stay as the second word, but no player taps blind to
+   learn what they hold: the Lab's header chips are no longer the only
+   place a balance lives. */
+function CodicesLedgerLine({ held, cost }: { held: number; cost: number }) {
+  const t = useT();
+  const l = engineHelpers.spendLedger(held, cost);
+  return l.affordable ? (
+    <p className="mt-1 text-[11px] text-gray-400">{t("rviews.ledgerCodices", "📜 You hold {have} · costs {cost} · {after} left after", { have: l.held, cost: l.cost, after: l.after })}</p>
+  ) : (
+    <p className="mt-1 text-[11px] font-medium text-amber-200">{t("rviews.ledgerCodicesShort", "📜 You hold {have} · costs {cost} — short {short}", { have: l.held, cost: l.cost, short: l.cost - l.held })}</p>
+  );
+}
+
+function SuppliesLedgerLine({ held, cost }: { held: number; cost: number }) {
+  const t = useT();
+  const l = engineHelpers.spendLedger(held, cost);
+  return l.affordable ? (
+    <p className="mt-1 text-[11px] text-gray-400">{t("rviews.ledgerSupplies", "📦 You hold {have} · costs {cost} · {after} left after", { have: l.held, cost: l.cost, after: l.after })}</p>
+  ) : (
+    <p className="mt-1 text-[11px] font-medium text-amber-200">{t("rviews.ledgerSuppliesShort", "📦 You hold {have} · costs {cost} — short {short}", { have: l.held, cost: l.cost, short: l.cost - l.held })}</p>
+  );
+}
+
 export function ResearchTreeView({ state, now, onBeginResearch, onBuildProbe, onLaunchProbe, onCollectProbe }: { state: GameState; now: number; onBeginResearch: (techId: string, leaderId: string) => void; onBuildProbe: () => void; onLaunchProbe: (serverId: string) => void; onCollectProbe: (probeId: string) => void }) {
   const t = useT();
   const freeLeaders = state.leaders.filter((l) => l.status === "active" && !l.assignment);
@@ -89,18 +163,13 @@ export function ResearchTreeView({ state, now, onBeginResearch, onBuildProbe, on
                     </div>
                     <p className="mt-1 text-[11px] text-gray-400">{techText(t, node.id, "description", node.description)}</p>
                     <p className="mt-1 text-[11px] font-medium text-amber-200">{t("rviews.effectLine", "Effect: {v}", { v: techText(t, node.id, "effect", node.effect) })}</p>
-                    {inProg && leaderOnIt && job && (
-                      <>
-                        <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-                          <span>🫂 {leaderName(t, leaderOnIt)}</span>
-                          <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
-                        </div>
-                        <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-purple-400" style={{ width: `${Math.min(100, ((now - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
-                      </>
+                    {job && (
+                      <ResearchProgress job={job} now={now} leaderLabel={leaderOnIt ? <>🫂 {leaderName(t, leaderOnIt)}</> : undefined} />
                     )}
                     {done && <p className="mt-1 text-xs text-amber-400/80">{t("rviews.researched", "Researched")}</p>}
                     {!done && !inProg && available && (
                       <div className="mt-2">
+                        <CodicesLedgerLine held={state.codices} cost={node.codicesCost} />
                         {state.codices < node.codicesCost ? (
                           <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: node.codicesCost })}</div>
                         ) : freeLeaders.length === 0 ? (
@@ -146,18 +215,13 @@ export function ResearchTreeView({ state, now, onBeginResearch, onBuildProbe, on
                     {!done && !inProg && !available && (
                       <p className="mt-1 text-[11px] text-text-3">🔒 Research the previous tier's drills first.</p>
                     )}
-                    {inProg && leaderOnIt && job && (
-                      <>
-                        <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-                          <span>🫂 {leaderName(t, leaderOnIt)}</span>
-                          <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
-                        </div>
-                        <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-purple-400" style={{ width: `${Math.min(100, ((now - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
-                      </>
+                    {job && (
+                      <ResearchProgress job={job} now={now} leaderLabel={leaderOnIt ? <>🫂 {leaderName(t, leaderOnIt)}</> : undefined} />
                     )}
                     {done && <p className="mt-1 text-xs text-emerald-400/80">{t("rviews.researched", "Researched")}</p>}
                     {!done && !inProg && available && (
                       <div className="mt-2">
+                        <CodicesLedgerLine held={state.codices} cost={node.codicesCost} />
                         {state.codices < node.codicesCost ? (
                           <div className="text-[11px] text-text-3">{t("rviews.needCodices", "Need {n} 📜", { n: node.codicesCost })}</div>
                         ) : freeLeaders.length === 0 ? (
@@ -323,18 +387,15 @@ export function SatelliteResearchCard({ state, now, nodeId, nodeName, freeLeader
       <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
         <b className="text-gray-200">{t("rviews.satReveals", "Reveals:")}</b> {revealFor(intel)}
       </p>
-      {job && leaderOnIt && (
+      {job && (
         <>
-          <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-            <span>🫂 {leaderName(t, leaderOnIt)}</span>
-            <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
-          </div>
-          <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-cyan-400" style={{ width: `${Math.min(100, ((now - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
+          <ResearchProgress job={job} now={now} barClass="bg-cyan-400" leaderLabel={leaderOnIt ? <>🫂 {leaderName(t, leaderOnIt)}</> : undefined} />
           <p className="mt-1 text-[10px] text-cyan-200/60">{t("rviews.satNoHasten", "The sky opens on research time alone — no token hastens it.")}</p>
         </>
       )}
       {next && !job && (
         <div className="mt-2">
+          <CodicesLedgerLine held={state.codices} cost={next.codicesCost} />
           <button
             onClick={() => {
               sound.click();
@@ -380,7 +441,6 @@ function TechNode({ tech, done, inProg, available, now, job, leader, codices, fr
   const canAfford = codices >= tech.codicesCost;
   const hasLeader = freeLeaders.length > 0;
   const prv = TECH_TREE.filter((t) => t.domain === tech.domain).find((n) => n.index === tech.index - 1);
-  const pct = inProg && job && now ? Math.min(100, ((now - job.startedAt) / job.durationMs) * 100) : 0;
   const alignedFree = freeLeaders.find((l) => engineHelpers.aligns(l, tech.id));
   return (
     <div className={`rounded-lg border p-2.5 ${done ? "border-ember/40 bg-ember/10" : inProg ? "border-purple-400/40 bg-purple-400/10" : available ? "border-amber-400/40 bg-amber-400/5" : "border-white/10 bg-black/30 opacity-80"}`}>
@@ -390,18 +450,17 @@ function TechNode({ tech, done, inProg, available, now, job, leader, codices, fr
       </div>
       <p className="mt-1 text-[11px] text-gray-400">{techText(t, tech.id, "description", tech.description)}</p>
       <p className="mt-1 text-[11px] font-medium text-amber-200">{t("rviews.effectLine", "Effect: {v}", { v: techText(t, tech.id, "effect", tech.effect) })}</p>
-      {inProg && leader && job && (
-        <>
-          <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-            <span>🫂 {leaderName(t, leader)} <span className="text-purple-300">({specialtyLabel(t, leader.specialty, engineHelpers.specialtyLabel(leader))})</span></span>
-            <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
-          </div>
-          <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-purple-400" style={{ width: `${pct}%` }} /></div>
-        </>
+      {job && (
+        <ResearchProgress
+          job={job}
+          now={now}
+          leaderLabel={leader ? <>🫂 {leaderName(t, leader)} <span className="text-purple-300">({specialtyLabel(t, leader.specialty, engineHelpers.specialtyLabel(leader))})</span></> : undefined}
+        />
       )}
       {done && <p className="mt-1 text-xs text-ember-soft/80">{t("rviews.researched", "Researched")}</p>}
       {!done && !inProg && available && (
         <div className="mt-2">
+          <CodicesLedgerLine held={codices} cost={tech.codicesCost} />
           <button
             onClick={() => {
               sound.click();
@@ -452,7 +511,6 @@ function RevelationNode({ node, done, inProg, available, now, job, leader, codic
   const [hint, setHint] = useState<"codices" | "leaders" | null>(null);
   const canAfford = codices >= node.codicesCost;
   const hasLeader = freeLeaders.length > 0;
-  const pct = inProg && job && now ? Math.min(100, ((now - job.startedAt) / job.durationMs) * 100) : 0;
   return (
     <div className={`rounded-lg border p-2.5 ${done ? "border-white/10 bg-white/5" : inProg ? "border-white/15 bg-white/5" : "border-white/10 bg-black/30"}`}>
       <div className="flex items-center justify-between gap-1">
@@ -460,17 +518,17 @@ function RevelationNode({ node, done, inProg, available, now, job, leader, codic
         {done ? <span className="text-xs text-text-3">✓</span> : <span className="text-xs text-text-3">{t("rviews.codicesCost", "{n} 📜", { n: node.codicesCost })}</span>}
       </div>
       {(done || available || inProg) && <p className="mt-1 text-[11px] text-gray-400">{techText(t, node.id, "description", node.description)}</p>}
-      {inProg && leader && job && (
-        <>
-          <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-            <span>🫂 {leaderName(t, leader)}</span>
-            <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
-          </div>
-          <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-white/40" style={{ width: `${pct}%` }} /></div>
-        </>
+      {job && (
+        <ResearchProgress
+          job={job}
+          now={now}
+          barClass="bg-white/40"
+          leaderLabel={leader ? <>🫂 {leaderName(t, leader)}</> : <span aria-hidden="true">✍️</span>}
+        />
       )}
       {!done && !inProg && available && (
         <div className="mt-2">
+          <CodicesLedgerLine held={codices} cost={node.codicesCost} />
           <button
             onClick={() => {
               sound.click();
@@ -781,6 +839,7 @@ export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch, onBui
           {t("rviews.scoutProbeDesc", "One-time eyes on distant worlds. Research once, then build probes (500 supplies each) to scan planets for colony counts.")}
         </p>
         <div className="mt-2">
+          <CodicesLedgerLine held={state.codices} cost={10} />
           <button
             onClick={() => {
               sound.click();
@@ -812,18 +871,14 @@ export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch, onBui
     );
   }
 
-  if (job && leaderOnIt) {
+  if (job) {
     return (
       <div className="rounded-lg border border-white/10 bg-black/30 p-2.5">
         <div className="flex items-center justify-between">
           <span className="text-sm font-semibold text-white">🔭 {t("rviews.scoutProbe", "Scout Probes")}</span>
           <span className="text-[10px] text-cyan-200">{t("rviews.researching", "Researching")}</span>
         </div>
-        <div className="mt-1 flex items-center justify-between text-[11px] text-gray-300">
-          <span>🫂 {leaderName(t, leaderOnIt)}</span>
-          <span><Bdi dir="ltr">{fmtDuration(t, Math.max(0, job.startedAt + job.durationMs - now))}</Bdi> {t("rviews.timeLeft", "left")}</span>
-        </div>
-        <div className="mt-1 h-1 rounded bg-white/10"><div className="h-1 rounded bg-cyan-400" style={{ width: `${Math.min(100, ((now - job.startedAt) / job.durationMs) * 100)}%` }} /></div>
+        <ResearchProgress job={job} now={now} barClass="bg-cyan-400" leaderLabel={leaderOnIt ? <>🫂 {leaderName(t, leaderOnIt)}</> : undefined} />
       </div>
     );
   }
@@ -841,6 +896,7 @@ export function ScoutProbeCard({ state, now, freeLeaders, onBeginResearch, onBui
       </div>
 
       {/* Inventory + build */}
+      <SuppliesLedgerLine held={Math.floor(state.resources.supplies)} cost={500} />
       <div className="mt-2 flex items-center justify-between">
         <p className="text-[11px] text-gray-400">
           {t("rviews.probesHave", "Probes ready:")} <b className="text-white">{probes}</b>

@@ -2283,6 +2283,11 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
   const studying = engineHelpers.studying(state);
   const busy = studying.length >= state.scientists;
   const r = state.resources;
+  // THE LEDGER RULE (owner 2026-10-16): held → cost → after at the study
+  // buttons themselves — the header chips are no longer the only place a
+  // balance lives, and nobody leaves the Lab to check their Embers.
+  const emberLedger = engineHelpers.studyLedger(state, "ember");
+  const chipsetLedger = engineHelpers.studyLedger(state, "chipset");
   const [view, setView] = useState<"deploy" | "research" | "leaders">("deploy");
   const leaderCount = state.leaders.filter((l) => l.status === "active").length;
   return (
@@ -2330,6 +2335,11 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
             <div className="mt-2">
               <MaterialTag id="embers" count={Math.floor(r.embers)} />
             </div>
+            <p className={`mt-2 text-xs ${emberLedger.affordable ? "text-gray-400" : "font-medium text-amber-200"}`}>
+              {emberLedger.affordable
+                ? t("play.lab.studyLedgerEmber", "🧯 You hold {have} · costs {cost} · {after} left after", { have: emberLedger.held, cost: emberLedger.cost, after: emberLedger.after })
+                : t("play.lab.studyLedgerEmberShort", "🧯 You hold {have} · costs {cost} — short {short}", { have: emberLedger.held, cost: emberLedger.cost, short: emberLedger.cost - emberLedger.held })}
+            </p>
             <button onClick={() => onStudy("ember")} disabled={busy || r.embers < 2} className="mt-3 w-full rounded-lg bg-ember px-3 py-2 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-40">
               {busy ? t("play.lab.allBusy", "All scientists busy") : r.embers < 2 ? t("play.lab.needEmbers", "Need 2 Embers") : t("play.lab.beginStudy", "Begin Study")}
             </button>
@@ -2342,6 +2352,11 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
             <div className="mt-2">
               <MaterialTag id="chipsets" count={r.chipsets} />
             </div>
+            <p className={`mt-2 text-xs ${chipsetLedger.affordable ? "text-gray-400" : "font-medium text-amber-200"}`}>
+              {chipsetLedger.affordable
+                ? t("play.lab.studyLedgerChipset", "🔩 You hold {have} · needs 1 in hand — a study does not consume it · {after} left after", { have: chipsetLedger.held, after: chipsetLedger.after })
+                : t("play.lab.studyLedgerChipsetShort", "🔩 You hold {have} · needs 1 in hand to study", { have: chipsetLedger.held })}
+            </p>
             <button onClick={() => onStudy("chipset")} disabled={busy || r.chipsets < 1} className="mt-3 w-full rounded-lg bg-cyan-400 px-3 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40">
               {busy ? t("play.lab.allBusy", "All scientists busy") : r.chipsets < 1 ? t("play.lab.needChipset", "Need a Chipset") : t("play.lab.beginStudy", "Begin Study")}
             </button>
@@ -2394,6 +2409,16 @@ function LabTab({ state, now, onStudy, onDeploy, onBeginResearch, onAllocatePoin
                   {/* the Cradle's own cost line, same words, same key: "… Embers · … insight" */}
                   <p className="mt-2 text-xs text-text-3">{t("cradle.advanceSub", "{embers} Embers · {insight} insight", { embers: cost.embers.toLocaleString(), insight: cost.insight.toLocaleString() })}</p>
                 </Tooltip>
+                {!atMax && (
+                  <p className={`mt-1 text-xs ${can ? "text-gray-400" : "font-medium text-amber-200"}`}>
+                    {t("play.lab.deployLedger", "You hold {embers} 🧯 · {insight} insight → {embersAfter} 🧯 · {insightAfter} insight after", {
+                      embers: Math.floor(r.embers).toLocaleString(),
+                      insight: Math.round(state.insight).toLocaleString(),
+                      embersAfter: (Math.floor(r.embers) - cost.embers).toLocaleString(),
+                      insightAfter: (Math.round(state.insight) - cost.insight).toLocaleString(),
+                    })}
+                  </p>
+                )}
                 {atMax ? (
                   <p className="mt-2 text-xs text-text-3">{t("cradle.domainMaxReason")}</p>
                 ) : (
