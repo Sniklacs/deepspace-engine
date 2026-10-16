@@ -1854,7 +1854,7 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
             aria-label={t("starmap.zoomOut", "Zoom out to full system")}
             title={t("starmap.zoomOut", "Zoom out to full system")}
             style={{
-              width: 40, height: 40, borderRadius: "50%",
+              width: 48, height: 48, borderRadius: "50%",
               border: "1px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.06)",
               color: "#fff", fontSize: 18, cursor: "pointer",
             }}
@@ -1865,7 +1865,7 @@ export default function StarMap({ onSelect }: { onSelect: (server: KnownServer) 
             onClick={() => { playClick(); toggleMute(); }}
             aria-label={muted ? t("starmap.unmute", "Unmute") : t("starmap.mute", "Mute")}
             style={{
-              width: 40, height: 40, borderRadius: "50%",
+              width: 48, height: 48, borderRadius: "50%",
               border: "1px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.06)",
               color: "#fff", fontSize: 18, cursor: "pointer",
             }}
